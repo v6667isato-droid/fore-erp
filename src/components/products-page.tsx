@@ -128,7 +128,7 @@ export function ProductsPage() {
             const contentCols = SERIES_CONTENT_COLUMNS.join(", ");
             const bySeriesNameFull = await supabase.from(TABLE_PRODUCT_SERIES).select(`id, series_name, category, notes, ${contentCols}, website`).order("id", { ascending: true });
             if (!bySeriesNameFull.error) {
-              seriesData = bySeriesNameFull.data as Record<string, unknown>[];
+              seriesData = (bySeriesNameFull.data ?? []) as unknown as Record<string, unknown>[];
             } else {
               const bySeriesName = await supabase.from(TABLE_PRODUCT_SERIES).select("id, series_name, category").order("id", { ascending: true });
               if (!bySeriesName.error) {
