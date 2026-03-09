@@ -940,7 +940,8 @@ export function EmployeesPage() {
       setLoading(false);
       return;
     }
-    setRows(((data ?? []) as Record<string, unknown>[]).map(mapEmployee));
+    const rowsData = ((data ?? []) as unknown) as Record<string, unknown>[];
+    setRows(rowsData.map(mapEmployee));
     setLoading(false);
   }
 
