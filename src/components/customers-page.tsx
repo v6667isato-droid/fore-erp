@@ -70,7 +70,7 @@ export function CustomersPage() {
       .order("id", { ascending: false });
 
     if (error) {
-      let fallback = await supabase
+      let fallback: any = await supabase
         .from("customers")
         .select("id, name, phone, line_id, ig_account, address, notes, source, customer_type")
         .order("id", { ascending: false });
