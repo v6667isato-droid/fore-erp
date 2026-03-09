@@ -52,9 +52,11 @@ export function CustomersPage() {
   const [editRow, setEditRow] = useState<CustomerRow | null>(null);
 
   const sources = useMemo(() => {
-    return [...new Set(customers.map((c) => c.source).filter(Boolean))].sort((a, b) =>
-      String(a).localeCompare(String(b))
-    );
+    const vals = customers
+      .map((c) => c.source ?? "")
+      .filter((v) => v && v.trim().length > 0);
+    const uniq = [...new Set(vals)] as string[];
+    return uniq.sort((a, b) => a.localeCompare(b));
   }, [customers]);
 
   const filteredCustomers = useMemo(() => {
