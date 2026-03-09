@@ -45,7 +45,13 @@ function TextBlock({ title, content }: { title: string; content: string | null |
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
-        <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 gap-1 text-xs text-muted-foreground hover:text-foreground" onClick={handleCopy} aria-label={`複製${title}`}>
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-7 px-2 shrink-0 gap-1 text-xs text-muted-foreground hover:text-foreground"
+          onClick={handleCopy}
+          aria-label={`複製${title}`}
+        >
           <Copy className="h-3.5 w-3.5" />
           複製
         </Button>
