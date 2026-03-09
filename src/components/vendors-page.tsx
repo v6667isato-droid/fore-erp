@@ -129,11 +129,11 @@ export function VendorsPage() {
     if (error) {
       const noWebsite = await supabase.from("vendors").select(VENDOR_SELECT_NO_WEBSITE).order("created_at", { ascending: false });
       if (!noWebsite.error) {
-        data = noWebsite.data;
+        data = (noWebsite.data ?? []) as any;
       } else {
-        const fallback = await supabase.from("vendors").select("id, name, main_category, contact_person, address, phone").order("id", { ascending: false });
+        const fallback: any = await supabase.from("vendors").select("id, name, main_category, contact_person, address, phone").order("id", { ascending: false });
         if (fallback.error) {
-          const minimal = await supabase.from("vendors").select("id, name, main_category").order("id", { ascending: false });
+          const minimal: any = await supabase.from("vendors").select("id, name, main_category").order("id", { ascending: false });
           if (minimal.error) {
             setRecords([]);
             setLoading(false);
@@ -145,7 +145,8 @@ export function VendorsPage() {
         }
       }
     }
-    setRecords(((data ?? []) as Record<string, unknown>[]).map(mapVendorRow));
+    const rowsData = ((data ?? []) as unknown) as Record<string, unknown>[];
+    setRecords(rowsData.map(mapVendorRow));
     setLoading(false);
   }
 
@@ -346,8 +347,22 @@ export function VendorsPage() {
               第 {page + 1} / {totalPages} 頁，共 {filteredRecords?.length ?? 0} 筆
             </span>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="h-8 text-xs" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>上一頁</Button>
-              <Button variant="outline" size="sm" className="h-8 text-xs" disabled={page >= totalPages - 1} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>下一頁</Button>
+              <Button
+                variant="outline"
+                className="h-8 px-3 text-xs"
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              >
+                上一頁
+              </Button>
+              <Button
+                variant="outline"
+                className="h-8 px-3 text-xs"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              >
+                下一頁
+              </Button>
             </div>
           </div>
         )}
