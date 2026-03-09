@@ -342,7 +342,11 @@ export function ProductsPage() {
                         >
                           <div className="bg-muted/20 px-4 pb-4 pt-2 max-h-[70vh] overflow-y-auto">
                             <div className="flex items-center justify-end gap-2 mb-2">
-                              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setAddVariantSeries(series)}>
+                              <Button
+                                variant="outline"
+                                className="h-8 px-3 gap-1.5 text-xs"
+                                onClick={() => setAddVariantSeries(series)}
+                              >
                                 <Plus className="h-3.5 w-3.5" />
                                 新增規格
                               </Button>
