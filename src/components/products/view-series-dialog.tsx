@@ -31,7 +31,7 @@ function formatDim(v: VariantRow): string {
 }
 
 function TextBlock({ title, content }: { title: string; content: string | null | undefined }) {
-  const text = content?.trim();
+  const text = content?.trim() ?? "";
   if (!text) return null;
   async function handleCopy() {
     try {
