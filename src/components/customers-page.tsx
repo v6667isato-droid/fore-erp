@@ -64,7 +64,7 @@ export function CustomersPage() {
 
   async function fetchCustomers() {
     setLoading(true);
-    let { data, error } = await supabase
+    let { data, error }: any = await supabase
       .from("customers")
       .select(CUSTOMER_SELECT)
       .order("id", { ascending: false });
@@ -87,7 +87,7 @@ export function CustomersPage() {
           .order("id", { ascending: false });
       }
       if (fallback.error) {
-        const minimal = await supabase
+        const minimal: any = await supabase
           .from("customers")
           .select("id, name")
           .order("id", { ascending: false });
@@ -96,7 +96,7 @@ export function CustomersPage() {
           setLoading(false);
           return;
         }
-        data = minimal.data;
+        data = minimal.data as any;
       } else {
         data = fallback.data;
       }
