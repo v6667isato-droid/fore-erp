@@ -93,8 +93,22 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
             第 {page + 1} / {totalPages} 頁，共 {records.length} 筆
           </span>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="h-8 text-xs" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>上一頁</Button>
-            <Button variant="outline" size="sm" className="h-8 text-xs" disabled={page >= totalPages - 1} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>下一頁</Button>
+            <Button
+              variant="outline"
+              className="h-8 px-3 text-xs"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              上一頁
+            </Button>
+            <Button
+              variant="outline"
+              className="h-8 px-3 text-xs"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            >
+              下一頁
+            </Button>
           </div>
         </div>
       )}
