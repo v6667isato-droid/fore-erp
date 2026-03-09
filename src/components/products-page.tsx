@@ -225,7 +225,9 @@ export function ProductsPage() {
           <p className="font-medium text-foreground">無法連結到 product_series</p>
           <p className="text-sm text-muted-foreground">請確認 Supabase 已建立資料表 <code className="rounded bg-muted px-1 py-0.5 text-xs">product_series</code>，且專案權限允許讀取。錯誤訊息：</p>
           <p className="text-sm text-destructive break-all">{loadError}</p>
-          <Button variant="outline" size="sm" onClick={fetchData}>重新載入</Button>
+          <Button variant="outline" className="h-8 px-3 text-xs" onClick={fetchData}>
+            重新載入
+          </Button>
         </div>
       </div>
     );
