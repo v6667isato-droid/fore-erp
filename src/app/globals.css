@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+:root {
+  --background: #faf7f2;
+  --foreground: #2c2418;
+  --card: #ffffff;
+  --card-foreground: #2c2418;
+  --primary: #5c4033;
+  --primary-foreground: #faf7f2;
+  --secondary: #f0e8da;
+  --secondary-foreground: #3d2e1e;
+  --muted: #ede5d8;
+  --muted-foreground: #7a6b5d;
+  --accent: #c4a882;
+  --accent-foreground: #2c2418;
+  --border: #ddd4c4;
+  --input: #ddd4c4;
+  --ring: #c4a882;
+  --sidebar: #2c2418;
+  --sidebar-foreground: #ede5d8;
+  --sidebar-primary: #c4a882;
+  --sidebar-primary-foreground: #2c2418;
+  --sidebar-accent: #3d2e1e;
+  --sidebar-border: #3d2e1e;
+  --kanban-todo: #f0e8da;
+  --kanban-progress: #fff8e7;
+  --kanban-done: #e8f0e4;
+  --badge-pending: #e8d5b8;
+  --badge-pending-fg: #5c4033;
+  --badge-progress: #c4a882;
+  --badge-progress-fg: #2c2418;
+  --badge-done: #7a9a6d;
+  --badge-done-fg: #ffffff;
+}
+
+/* 夜間模式（深色主題） */
+html.dark {
+  --background: #1a1714;
+  --foreground: #ede5d8;
+  --card: #252119;
+  --card-foreground: #ede5d8;
+  --primary: #c4a882;
+  --primary-foreground: #1a1714;
+  --secondary: #2c2418;
+  --secondary-foreground: #ede5d8;
+  --muted: #2c2418;
+  --muted-foreground: #a89984;
+  --accent: #5c4033;
+  --accent-foreground: #ede5d8;
+  --border: #3d2e1e;
+  --input: #3d2e1e;
+  --ring: #c4a882;
+  --sidebar: #1a1714;
+  --sidebar-foreground: #ede5d8;
+  --sidebar-primary: #c4a882;
+  --sidebar-primary-foreground: #1a1714;
+  --sidebar-accent: #2c2418;
+  --sidebar-border: #3d2e1e;
+  --kanban-todo: #2c2418;
+  --kanban-progress: #3d2e1e;
+  --kanban-done: #2a3320;
+  --badge-pending: #3d2e1e;
+  --badge-pending-fg: #c4a882;
+  --badge-progress: #5c4033;
+  --badge-progress-fg: #ede5d8;
+  --badge-done: #4a5c3d;
+  --badge-done-fg: #e8f0e4;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-kanban-todo: var(--kanban-todo);
+  --color-kanban-progress: var(--kanban-progress);
+  --color-kanban-done: var(--kanban-done);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
