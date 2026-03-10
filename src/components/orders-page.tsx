@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import * as Dialog from "@radix-ui/react-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Search, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -229,7 +230,10 @@ function OrderFormDialog({
   }
 
   function removeItem(id: string) {
-    setItems((prev) => (prev.length > 1 ? prev.filter((it) => it.id !== id) : prev));
+    if (items.length <= 1) return;
+    const confirmed = window.confirm("是否確定移除此筆訂單明細？");
+    if (!confirmed) return;
+    setItems((prev) => prev.filter((it) => it.id !== id));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -938,6 +942,7 @@ export function OrdersPage() {
     undefined
   );
   const [formOpen, setFormOpen] = useState(false);
+  const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<OrderRow | null>(null);
 
   useEffect(() => {
     async function bootstrap() {
@@ -1123,14 +1128,14 @@ export function OrdersPage() {
     setFormOpen(true);
   }
 
-  async function handleDelete(order: OrderRow) {
-    if (
-      !confirm(
-        `確定要刪除訂單「${order.order_number}」？此操作會一併刪除所有明細，且無法復原。`
-      )
-    ) {
-      return;
-    }
+  function requestDelete(order: OrderRow) {
+    setDeleteConfirmOrder(order);
+  }
+
+  async function performDeleteOrder() {
+    if (!deleteConfirmOrder) return;
+    const order = deleteConfirmOrder;
+    setDeleteConfirmOrder(null);
     const { error } = await supabase.from("orders").delete().eq("id", order.id);
     if (error) {
       toast.error(error.message || "刪除訂單失敗");
@@ -1320,9 +1325,10 @@ export function OrdersPage() {
                         總覽 / 編輯
                       </Button>
                       <Button
+                        type="button"
                         variant="ghost"
                         className="h-8 px-2 text-xs text-destructive hover:text-destructive"
-                        onClick={() => handleDelete(order)}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(order); }}
                       >
                         刪除
                       </Button>
@@ -1355,6 +1361,23 @@ export function OrdersPage() {
         initialOrder={editingOrder}
         initialItems={editingItems}
         onSaved={reloadOrders}
+      />
+
+      <ConfirmDialog
+        open={deleteConfirmOrder != null}
+        onOpenChange={(open) => !open && setDeleteConfirmOrder(null)}
+        title="是否確定刪除訂單？"
+        description={
+          deleteConfirmOrder ? (
+            <>
+              <p className="font-medium text-foreground">訂單編號：{deleteConfirmOrder.order_number}</p>
+              <p className="mt-2 text-muted-foreground">此操作會一併刪除所有訂單明細，且無法復原。</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定刪除"
+        onConfirm={performDeleteOrder}
+        destructive
       />
     </div>
   );

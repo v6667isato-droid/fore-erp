@@ -46,7 +46,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "procurement", label: "採購成本", icon: ShoppingCart },
   { id: "vendors", label: "廠商資料", icon: Building2 },
   { id: "employees", label: "員工資料", icon: Users },
-  { id: "feedback", label: "使用回饋", icon: MessageSquare },
+  { id: "feedback", label: "使用回饋 / 待辦事項", icon: MessageSquare },
 ];
 
 function Logo() {

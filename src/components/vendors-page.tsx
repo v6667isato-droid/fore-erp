@@ -18,6 +18,7 @@ import { AddVendorDialog } from "@/components/procurement/add-vendor-dialog";
 import { EditVendorDialog } from "@/components/procurement/edit-vendor-dialog";
 import { ViewVendorDialog } from "@/components/procurement/view-vendor-dialog";
 import { exportVendorsCsv } from "@/components/procurement/export-vendors-csv";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 
 const VENDOR_SELECT = "id, name, main_category, contact_person, address, phone, email, fax, tax_id, notes, created_at, website";
@@ -48,6 +49,7 @@ export function VendorsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewRow, setViewRow] = useState<VendorRow | null>(null);
   const [editRow, setEditRow] = useState<VendorRow | null>(null);
+  const [deleteConfirmRow, setDeleteConfirmRow] = useState<VendorRow | null>(null);
   const [page, setPage] = useState(0);
   type SortKey = "created_at" | "name" | "main_category" | "contact_person" | "phone" | "address" | "website";
   const [sortBy, setSortBy] = useState<SortKey>("created_at");
@@ -154,8 +156,14 @@ export function VendorsPage() {
     fetchVendors();
   }, []);
 
-  async function handleDelete(row: VendorRow) {
-    if (!confirm(`確定要刪除廠商「${row.name || "未命名"}」？此操作無法復原。`)) return;
+  function requestDelete(row: VendorRow) {
+    setDeleteConfirmRow(row);
+  }
+
+  async function performDelete() {
+    if (!deleteConfirmRow) return;
+    const row = deleteConfirmRow;
+    setDeleteConfirmRow(null);
     const { error } = await supabase.from("vendors").delete().eq("id", row.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
@@ -331,7 +339,7 @@ export function VendorsPage() {
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditRow(row)} aria-label={`編輯 ${row.name}`}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(row)} aria-label={`刪除 ${row.name}`}>
+                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(row); }} aria-label={`刪除 ${row.name}`}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -370,6 +378,23 @@ export function VendorsPage() {
 
       <ViewVendorDialog open={viewRow != null} onOpenChange={(open) => !open && setViewRow(null)} row={viewRow} />
       <EditVendorDialog open={editRow != null} onOpenChange={(open) => !open && setEditRow(null)} row={editRow} onSuccess={() => { fetchVendors(); setEditRow(null); }} categoryOptions={categories} />
+
+      <ConfirmDialog
+        open={deleteConfirmRow != null}
+        onOpenChange={(open) => !open && setDeleteConfirmRow(null)}
+        title="是否確定刪除廠商？"
+        description={
+          deleteConfirmRow ? (
+            <>
+              <p className="font-medium text-foreground">廠商：「{deleteConfirmRow.name || "未命名"}」</p>
+              <p className="mt-2 text-muted-foreground">此操作無法復原。</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定刪除"
+        onConfirm={performDelete}
+        destructive
+      />
     </div>
   );
 }

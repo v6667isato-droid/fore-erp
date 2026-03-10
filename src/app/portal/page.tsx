@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { ShoppingCart, Plus, Trash2, LogOut, ClipboardList, Pencil, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const PORTAL_SESSION_KEY = "fore_portal_session";
 
@@ -102,6 +103,7 @@ export default function PortalPage() {
   } | null>(null);
   const [editFormLoading, setEditFormLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<MyOrderRow | null>(null);
 
   const loadVariants = useCallback(async () => {
     const { data } = await supabase
@@ -208,12 +210,18 @@ export default function PortalPage() {
     setMyOrders([]);
   }
 
-  async function handleDeleteOrder(order: MyOrderRow) {
+  function requestDeleteOrder(order: MyOrderRow) {
     if (!canEditOrDelete(order.status)) {
       toast.error("訂單已進入生產或已出貨，無法刪除");
       return;
     }
-    if (!confirm(`確定要刪除訂單「${order.order_number}」？此操作會一併刪除所有明細，且無法復原。`)) return;
+    setDeleteConfirmOrder(order);
+  }
+
+  async function performDeleteOrder() {
+    if (!deleteConfirmOrder) return;
+    const order = deleteConfirmOrder;
+    setDeleteConfirmOrder(null);
     const { error } = await supabase.from("orders").delete().eq("id", order.id);
     if (error) {
       toast.error(error.message || "刪除訂單失敗");
@@ -279,6 +287,8 @@ export default function PortalPage() {
   }
   function removeEditItem(id: string) {
     if (!editForm || editForm.items.length <= 1) return;
+    const confirmed = window.confirm("是否確定移除此筆明細？");
+    if (!confirmed) return;
     setEditForm({ ...editForm, items: editForm.items.filter((it) => it.id !== id) });
   }
   function onEditVariantChange(itemId: string, variantId: string) {
@@ -376,7 +386,10 @@ export default function PortalPage() {
   }
 
   function removeItem(id: string) {
-    setItems((prev) => (prev.length > 1 ? prev.filter((it) => it.id !== id) : prev));
+    if (items.length <= 1) return;
+    const confirmed = window.confirm("是否確定移除此筆明細？");
+    if (!confirmed) return;
+    setItems((prev) => prev.filter((it) => it.id !== id));
   }
 
   function onVariantChange(itemId: string, variantId: string) {
@@ -809,7 +822,7 @@ export default function PortalPage() {
                               type="button"
                               variant="ghost"
                               className="h-8 px-2 text-xs text-destructive hover:text-destructive"
-                              onClick={() => handleDeleteOrder(o)}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteOrder(o); }}
                             >
                               <Trash2 className="h-3.5 w-3.5 mr-1" />
                               刪除
@@ -951,6 +964,23 @@ export default function PortalPage() {
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
+
+        <ConfirmDialog
+          open={deleteConfirmOrder != null}
+          onOpenChange={(open) => !open && setDeleteConfirmOrder(null)}
+          title="是否確定刪除訂單？"
+          description={
+            deleteConfirmOrder ? (
+              <>
+                <p className="font-medium text-foreground">訂單編號：{deleteConfirmOrder.order_number}</p>
+                <p className="mt-2 text-muted-foreground">此操作會一併刪除所有訂單明細，且無法復原。</p>
+              </>
+            ) : null
+          }
+          confirmLabel="確定刪除"
+          onConfirm={performDeleteOrder}
+          destructive
+        />
       </div>
     </div>
   );

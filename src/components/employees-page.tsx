@@ -14,6 +14,7 @@ import {
 import { ClipboardList, Eye, Pencil, Trash2, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { cn, formatDate } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 
 type Role = "admin" | "staff" | null;
@@ -923,6 +924,7 @@ export function EmployeesPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [editRow, setEditRow] = useState<EmployeeRow | null>(null);
   const [viewRow, setViewRow] = useState<EmployeeRow | null>(null);
+  const [deleteConfirmRow, setDeleteConfirmRow] = useState<EmployeeRow | null>(null);
 
   async function fetchEmployees(currentRole: Role) {
     if (!currentRole) return;
@@ -958,13 +960,14 @@ export function EmployeesPage() {
     return list;
   }, [rows, filterStatus]);
 
-  async function handleDelete(row: EmployeeRow) {
-    if (
-      !confirm(
-        `確定要刪除員工「${row.name || "未命名"}」？此操作無法復原。`,
-      )
-    )
-      return;
+  function requestDelete(row: EmployeeRow) {
+    setDeleteConfirmRow(row);
+  }
+
+  async function performDelete() {
+    if (!deleteConfirmRow) return;
+    const row = deleteConfirmRow;
+    setDeleteConfirmRow(null);
     const { error } = await supabase.from("employees").delete().eq("id", row.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
@@ -1167,7 +1170,8 @@ export function EmployeesPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => handleDelete(row)}
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(row); }}
                         aria-label={`刪除 ${row.name}`}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1191,6 +1195,23 @@ export function EmployeesPage() {
         row={viewRow}
         isAdmin={isAdmin}
         onClose={() => setViewRow(null)}
+      />
+
+      <ConfirmDialog
+        open={deleteConfirmRow != null}
+        onOpenChange={(open) => !open && setDeleteConfirmRow(null)}
+        title="是否確定刪除員工？"
+        description={
+          deleteConfirmRow ? (
+            <>
+              <p className="font-medium text-foreground">員工：「{deleteConfirmRow.name || "未命名"}」</p>
+              <p className="mt-2 text-muted-foreground">此操作無法復原。</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定刪除"
+        onConfirm={performDelete}
+        destructive
       />
     </div>
   );

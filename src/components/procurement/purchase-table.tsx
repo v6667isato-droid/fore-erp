@@ -75,7 +75,7 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
                         </Button>
                       )}
                       {onDelete && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => onDelete(record)} aria-label={`刪除 ${record.item_name}`}>
+                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(record); }} aria-label={`刪除 ${record.item_name}`}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       )}

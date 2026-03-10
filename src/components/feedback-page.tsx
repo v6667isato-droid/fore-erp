@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +12,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import * as Dialog from "@radix-ui/react-dialog";
-import { MessageSquare, Plus, Pencil, Trash2, X } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { MessageSquare, Plus, X, ArrowUpDown, ArrowUp, ArrowDown, CalendarPlus } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES = [
@@ -30,6 +31,36 @@ const CATEGORIES = [
 
 const STATUSES = ["待處理", "處理中", "已解決", "暫緩"];
 const PRIORITIES = ["低", "中", "高"];
+const REPORTER_OTHER = "__other__";
+
+/** 將描述文字中的 URL 轉成可點擊的超連結 */
+function linkifyDescription(text: string): ReactNode {
+  const urlPattern = /(https?:\/\/[^\s<>]+|www\.[^\s<>]+)/gi;
+  const parts = text.split(urlPattern);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const isUrl = part.startsWith("http://") || part.startsWith("https://") || part.startsWith("www.");
+        if (isUrl) {
+          const href = part.startsWith("www.") ? `https://${part}` : part;
+          return (
+            <a
+              key={i}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline break-all"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {part}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
 
 interface FeedbackRow {
   id: string;
@@ -41,6 +72,7 @@ interface FeedbackRow {
   reporter: string | null;
   internal_notes: string | null;
   completed_at: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -51,50 +83,96 @@ export function FeedbackPage() {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterCompleted, setFilterCompleted] = useState<"" | "yes" | "no">("");
+  const [sortKey, setSortKey] = useState<keyof FeedbackRow | "">("created_at");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteConfirmRow, setDeleteConfirmRow] = useState<FeedbackRow | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [deletedRows, setDeletedRows] = useState<FeedbackRow[]>([]);
+  const [restoreConfirmRow, setRestoreConfirmRow] = useState<FeedbackRow | null>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("待處理");
   const [priority, setPriority] = useState("");
-  const [reporter, setReporter] = useState("");
+  const [reporterSelect, setReporterSelect] = useState("");
+  const [reporterOther, setReporterOther] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
-  const [completedAt, setCompletedAt] = useState("");
+  const [employees, setEmployees] = useState<{ id: string; name: string }[]>([]);
+  const [completedDate, setCompletedDate] = useState("");
+  const [completedTime, setCompletedTime] = useState("");
+
+  function mapFeedbackRow(r: Record<string, unknown>): FeedbackRow {
+    return {
+      id: String(r.id),
+      title: String(r.title ?? ""),
+      description: r.description != null ? String(r.description) : null,
+      category: String(r.category ?? ""),
+      status: String(r.status ?? "待處理"),
+      priority: r.priority != null ? String(r.priority) : null,
+      reporter: r.reporter != null ? String(r.reporter) : null,
+      internal_notes: r.internal_notes != null ? String(r.internal_notes) : null,
+      completed_at: r.completed_at != null ? String(r.completed_at) : null,
+      deleted_at: r.deleted_at != null ? String(r.deleted_at) : null,
+      created_at: String(r.created_at ?? ""),
+      updated_at: String(r.updated_at ?? ""),
+    };
+  }
 
   async function fetchFeedback() {
     setLoading(true);
     const { data, error } = await supabase
       .from("user_feedback")
       .select("*")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (error) {
       toast.error(error.message || "讀取回饋失敗");
       setRows([]);
     } else {
-      setRows(
-        ((data ?? []) as any[]).map((r) => ({
-          id: String(r.id),
-          title: String(r.title ?? ""),
-          description: r.description != null ? String(r.description) : null,
-          category: String(r.category ?? ""),
-          status: String(r.status ?? "待處理"),
-          priority: r.priority != null ? String(r.priority) : null,
-          reporter: r.reporter != null ? String(r.reporter) : null,
-          internal_notes: r.internal_notes != null ? String(r.internal_notes) : null,
-          completed_at: r.completed_at != null ? String(r.completed_at) : null,
-          created_at: String(r.created_at ?? ""),
-          updated_at: String(r.updated_at ?? ""),
-        }))
-      );
+      setRows(((data ?? []) as Record<string, unknown>[]).map(mapFeedbackRow));
     }
     setLoading(false);
   }
 
+  async function fetchDeletedFeedback() {
+    const { data, error } = await supabase
+      .from("user_feedback")
+      .select("*")
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false });
+    if (error) {
+      toast.error(error.message || "讀取已刪除失敗");
+      setDeletedRows([]);
+    } else {
+      setDeletedRows(((data ?? []) as Record<string, unknown>[]).map(mapFeedbackRow));
+    }
+  }
+
   useEffect(() => {
     fetchFeedback();
+  }, []);
+
+  useEffect(() => {
+    if (showDeleted) fetchDeletedFeedback();
+  }, [showDeleted]);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("employees")
+        .select("id, name")
+        .order("name", { ascending: true });
+      setEmployees(
+        ((data ?? []) as { id: string; name: string }[]).map((e) => ({
+          id: String(e.id),
+          name: String(e.name ?? ""),
+        }))
+      );
+    })();
   }, []);
 
   const filtered = useMemo(() => {
@@ -110,6 +188,70 @@ export function FeedbackPage() {
     });
   }, [rows, filterCategory, filterStatus, filterCompleted]);
 
+  const sortedRows = useMemo(() => {
+    if (!sortKey || sortKey === "deleted_at") return [...filtered];
+    const isDate = sortKey === "created_at" || sortKey === "completed_at";
+    return [...filtered].sort((a, b) => {
+      const aVal = a[sortKey];
+      const bVal = b[sortKey];
+      let cmp = 0;
+      if (isDate) {
+        const aTime = aVal ? new Date(aVal).getTime() : 0;
+        const bTime = bVal ? new Date(bVal).getTime() : 0;
+        cmp = aTime - bTime;
+      } else {
+        const aStr = (aVal ?? "") as string;
+        const bStr = (bVal ?? "") as string;
+        cmp = aStr.localeCompare(bStr, "zh-TW");
+      }
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+  }, [filtered, sortKey, sortOrder]);
+
+  function toggleSort(key: keyof FeedbackRow) {
+    if (key === "id" || key === "description" || key === "internal_notes" || key === "deleted_at") return;
+    if (sortKey === key) {
+      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortOrder(key === "created_at" || key === "completed_at" ? "desc" : "asc");
+    }
+  }
+
+  function SortIcon({ columnKey }: { columnKey: keyof FeedbackRow }) {
+    if (sortKey !== columnKey) return <ArrowUpDown className="h-3.5 w-3.5 opacity-50 ml-0.5 inline" />;
+    return sortOrder === "asc" ? (
+      <ArrowUp className="h-3.5 w-3.5 ml-0.5 inline" />
+    ) : (
+      <ArrowDown className="h-3.5 w-3.5 ml-0.5 inline" />
+    );
+  }
+
+  function buildGoogleCalendarUrl(r: FeedbackRow): string | null {
+    const dateRaw = r.completed_at || r.created_at;
+    if (!dateRaw) return null;
+    const d = new Date(dateRaw);
+    if (Number.isNaN(d.getTime())) return null;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const ymd = `${year}${month}${day}`;
+    const text = `[回饋] ${(r.title || "未命名").slice(0, 100)}`;
+    const detailsLines = [
+      r.description ? `描述：${r.description}` : "",
+      `類別：${r.category || "—"}`,
+      `狀態：${r.status || "—"}`,
+    ].filter(Boolean);
+    const details = detailsLines.join("\n");
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text,
+      dates: `${ymd}/${ymd}`,
+      details,
+    });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  }
+
   function openCreate() {
     setEditingId(null);
     setTitle("");
@@ -117,9 +259,11 @@ export function FeedbackPage() {
     setCategory("");
     setStatus("待處理");
     setPriority("");
-    setReporter("");
+    setReporterSelect("");
+    setReporterOther("");
     setInternalNotes("");
-    setCompletedAt("");
+    setCompletedDate("");
+    setCompletedTime("");
     setFormOpen(true);
   }
 
@@ -130,9 +274,14 @@ export function FeedbackPage() {
     setCategory(row.category);
     setStatus(row.status);
     setPriority(row.priority ?? "");
-    setReporter(row.reporter ?? "");
+    const empNames = employees.map((e) => e.name).filter(Boolean);
+    const isEmployee = row.reporter != null && row.reporter !== "" && empNames.includes(row.reporter);
+    setReporterSelect(isEmployee ? row.reporter : row.reporter ? REPORTER_OTHER : "");
+    setReporterOther(isEmployee ? "" : (row.reporter ?? ""));
     setInternalNotes(row.internal_notes ?? "");
-    setCompletedAt(toDatetimeLocal(row.completed_at));
+    const { date, time } = parseCompletedAt(row.completed_at);
+    setCompletedDate(date);
+    setCompletedTime(time);
     setFormOpen(true);
   }
 
@@ -153,9 +302,9 @@ export function FeedbackPage() {
       category,
       status: status || "待處理",
       priority: priority.trim() || null,
-      reporter: reporter.trim() || null,
+      reporter: reporterSelect === REPORTER_OTHER ? (reporterOther.trim() || null) : (reporterSelect || null),
       internal_notes: internalNotes.trim() || null,
-      completed_at: completedAt.trim() ? new Date(completedAt.trim()).toISOString() : null,
+      completed_at: buildCompletedAtISO(completedDate, completedTime),
       updated_at: new Date().toISOString(),
     };
     if (editingId) {
@@ -183,15 +332,46 @@ export function FeedbackPage() {
     setSaving(false);
   }
 
-  async function handleDelete(row: FeedbackRow) {
-    if (!confirm(`確定要刪除「${row.title}」？`)) return;
-    const { error } = await supabase.from("user_feedback").delete().eq("id", row.id);
+  function requestDelete(row: FeedbackRow) {
+    setDeleteConfirmRow(row);
+  }
+
+  async function performDelete() {
+    if (!deleteConfirmRow) return;
+    const row = deleteConfirmRow;
+    setDeleteConfirmRow(null);
+    const { error } = await supabase
+      .from("user_feedback")
+      .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("id", row.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
       return;
     }
-    toast.success("已刪除");
+    toast.success("已移至已刪除");
     fetchFeedback();
+    if (showDeleted) fetchDeletedFeedback();
+  }
+
+  function requestRestore(row: FeedbackRow) {
+    setRestoreConfirmRow(row);
+  }
+
+  async function performRestore() {
+    if (!restoreConfirmRow) return;
+    const row = restoreConfirmRow;
+    setRestoreConfirmRow(null);
+    const { error } = await supabase
+      .from("user_feedback")
+      .update({ deleted_at: null, updated_at: new Date().toISOString() })
+      .eq("id", row.id);
+    if (error) {
+      toast.error(error.message || "還原失敗");
+      return;
+    }
+    toast.success("已還原");
+    fetchFeedback();
+    fetchDeletedFeedback();
   }
 
   function formatDate(s: string) {
@@ -204,16 +384,23 @@ export function FeedbackPage() {
     }
   }
 
-  function toDatetimeLocal(iso: string | null): string {
-    if (!iso) return "";
+  function parseCompletedAt(iso: string | null): { date: string; time: string } {
+    if (!iso) return { date: "", time: "" };
     const d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
+    if (isNaN(d.getTime())) return { date: "", time: "" };
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
-    const h = String(d.getHours()).padStart(2, "0");
-    const min = String(d.getMinutes()).padStart(2, "0");
-    return `${y}-${m}-${day}T${h}:${min}`;
+    const h = d.getHours();
+    const min = d.getMinutes();
+    const time = h === 0 && min === 0 ? "" : `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+    return { date: `${y}-${m}-${day}`, time };
+  }
+
+  function buildCompletedAtISO(date: string, time: string): string | null {
+    if (!date.trim()) return null;
+    const dateTime = time.trim() ? `${date.trim()}T${time.trim()}` : `${date.trim()}T00:00`;
+    return new Date(dateTime).toISOString();
   }
 
   if (loading) {
@@ -267,7 +454,15 @@ export function FeedbackPage() {
           </select>
           <Button type="button" className="h-9 px-3 text-xs" onClick={openCreate}>
             <Plus className="h-4 w-4 mr-1" />
-            新增回饋
+            新增
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 px-3 text-xs"
+            onClick={() => setShowDeleted((v) => !v)}
+          >
+            {showDeleted ? "隱藏已刪除" : "顯示已刪除項目"}
           </Button>
         </div>
       </div>
@@ -276,14 +471,49 @@ export function FeedbackPage() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs font-semibold">主旨</TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">類別</TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">狀態</TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">優先級</TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">回報人</TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">完成日期</TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">建立時間</TableHead>
-              <TableHead className="text-xs font-semibold w-24">操作</TableHead>
+              <TableHead
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
+                onClick={() => toggleSort("title")}
+              >
+                主旨 <SortIcon columnKey="title" />
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                onClick={() => toggleSort("category")}
+              >
+                類別 <SortIcon columnKey="category" />
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                onClick={() => toggleSort("status")}
+              >
+                狀態 <SortIcon columnKey="status" />
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                onClick={() => toggleSort("priority")}
+              >
+                優先級 <SortIcon columnKey="priority" />
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                onClick={() => toggleSort("reporter")}
+              >
+                回報人 <SortIcon columnKey="reporter" />
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                onClick={() => toggleSort("completed_at")}
+              >
+                完成日期 <SortIcon columnKey="completed_at" />
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                onClick={() => toggleSort("created_at")}
+              >
+                建立時間 <SortIcon columnKey="created_at" />
+              </TableHead>
+              <TableHead className="text-xs font-semibold w-36">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -294,13 +524,15 @@ export function FeedbackPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((r) => (
+              sortedRows.map((r) => {
+                const calendarUrl = buildGoogleCalendarUrl(r);
+                return (
                 <TableRow key={r.id} className="border-b border-border">
                   <TableCell className="text-sm">
                     <div className="font-medium">{r.title}</div>
                     {r.description && (
                       <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                        {r.description}
+                        {linkifyDescription(r.description)}
                       </div>
                     )}
                   </TableCell>
@@ -321,29 +553,40 @@ export function FeedbackPage() {
                     {formatDate(r.created_at)}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-nowrap">
+                      {calendarUrl && (
+                        <a
+                          href={calendarUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="加到 Google 行事曆"
+                          className="inline-flex h-8 items-center justify-center rounded-md px-2 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
+                        >
+                          <CalendarPlus className="h-3.5 w-3.5 mr-1" />
+                          同步
+                        </a>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
                         className="h-8 px-2 text-xs"
                         onClick={() => openEdit(r)}
                       >
-                        <Pencil className="h-3.5 w-3.5 mr-1" />
                         編輯
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
                         className="h-8 px-2 text-xs text-destructive hover:text-destructive"
-                        onClick={() => handleDelete(r)}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(r); }}
                       >
-                        <Trash2 className="h-3.5 w-3.5 mr-1" />
                         刪除
                       </Button>
                     </div>
                   </TableCell>
                 </TableRow>
-              ))
+              );
+              })
             )}
           </TableBody>
         </Table>
@@ -352,6 +595,47 @@ export function FeedbackPage() {
       <p className="text-xs text-muted-foreground">
         顯示 {filtered.length} / {rows.length} 筆
       </p>
+
+      {showDeleted && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="border-b border-border px-4 py-2 text-xs font-medium text-muted-foreground">
+            已刪除項目（還原需管理員確認）
+          </div>
+          {deletedRows.length === 0 ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">尚無已刪除的回饋</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="text-xs font-semibold p-2">主旨</TableHead>
+                  <TableHead className="text-xs font-semibold p-2">刪除時間</TableHead>
+                  <TableHead className="text-xs font-semibold p-2 w-24">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {deletedRows.map((r) => (
+                  <TableRow key={r.id} className="border-b border-border">
+                    <TableCell className="text-sm p-2">{r.title || "—"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground p-2 whitespace-nowrap">
+                      {formatDate(r.deleted_at ?? "") || "—"}
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => requestRestore(r)}
+                      >
+                        還原
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      )}
 
       <Dialog.Root open={formOpen} onOpenChange={setFormOpen}>
         <Dialog.Portal>
@@ -443,25 +727,51 @@ export function FeedbackPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1.5">回報人</label>
-                  <input
-                    type="text"
-                    value={reporter}
-                    onChange={(e) => setReporter(e.target.value)}
+                  <select
+                    value={reporterSelect}
+                    onChange={(e) => setReporterSelect(e.target.value)}
                     className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="email 或名稱"
+                  >
+                    <option value="">請選擇</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.name}>
+                        {emp.name}
+                      </option>
+                    ))}
+                    <option value={REPORTER_OTHER}>其他</option>
+                  </select>
+                  {reporterSelect === REPORTER_OTHER && (
+                    <input
+                      type="text"
+                      value={reporterOther}
+                      onChange={(e) => setReporterOther(e.target.value)}
+                      className="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="輸入回報人姓名或 email"
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">完成日期</label>
+                  <input
+                    type="date"
+                    value={completedDate}
+                    onChange={(e) => setCompletedDate(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex-1 min-w-[100px]">
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">時間（選填）</label>
+                  <input
+                    type="time"
+                    value={completedTime}
+                    onChange={(e) => setCompletedTime(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">完成日期</label>
-                <input
-                  type="datetime-local"
-                  value={completedAt}
-                  onChange={(e) => setCompletedAt(e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                <span className="text-xs text-muted-foreground mt-0.5 block">問題解決時可填寫</span>
-              </div>
+              <span className="text-xs text-muted-foreground block -mt-1">問題解決時可填寫，不填時間則視為當日 00:00</span>
               {editingId && (
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1.5">內部備註</label>
@@ -488,6 +798,39 @@ export function FeedbackPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      <ConfirmDialog
+        open={deleteConfirmRow != null}
+        onOpenChange={(open) => !open && setDeleteConfirmRow(null)}
+        title="是否確定刪除？"
+        description={
+          deleteConfirmRow ? (
+            <>
+              <p className="font-medium text-foreground">回饋：「{deleteConfirmRow.title}」</p>
+              <p className="mt-2 text-muted-foreground">將移至已刪除，可於「顯示已刪除項目」中由管理員確認後還原。</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定刪除"
+        onConfirm={performDelete}
+        destructive
+      />
+
+      <ConfirmDialog
+        open={restoreConfirmRow != null}
+        onOpenChange={(open) => !open && setRestoreConfirmRow(null)}
+        title="還原（僅限管理員確認）"
+        description={
+          restoreConfirmRow ? (
+            <>
+              <p className="font-medium text-foreground">回饋：「{restoreConfirmRow.title}」</p>
+              <p className="mt-2 text-muted-foreground">僅限管理員確認後執行還原。確定要還原此項目嗎？</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確認還原"
+        onConfirm={performRestore}
+      />
     </div>
   );
 }

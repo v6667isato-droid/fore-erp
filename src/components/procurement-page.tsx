@@ -11,6 +11,7 @@ import { PurchaseTable } from "@/components/procurement/purchase-table";
 import { AddPurchaseDialog } from "@/components/procurement/add-purchase-dialog";
 import { EditPurchaseDialog } from "@/components/procurement/edit-purchase-dialog";
 import { exportProcurementCsv } from "@/components/procurement/export-procurement-csv";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 
@@ -135,6 +136,7 @@ export function ProcurementPage({ onNavigateToVendors }: ProcurementPageProps) {
   const [filterItemName, setFilterItemName] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
   const [editRow, setEditRow] = useState<PurchaseRow | null>(null);
+  const [deleteConfirmRow, setDeleteConfirmRow] = useState<PurchaseRow | null>(null);
 
   async function fetchPurchases() {
     setLoading(true);
@@ -240,21 +242,21 @@ export function ProcurementPage({ onNavigateToVendors }: ProcurementPageProps) {
       ? `${filterYear}年採購總計`
       : "最近一年採購總計";
 
-  function handleDelete(row: PurchaseRow) {
-    if (typeof window === "undefined") return;
-    if (!window.confirm(`確定要刪除這筆進貨紀錄嗎？\n${row.item_name} ${row.purchase_date}`)) return;
-    supabase
-      .from("purchases")
-      .delete()
-      .eq("id", row.id)
-      .then(({ error }) => {
-        if (error) {
-          toast.error(error.message || "刪除失敗");
-          return;
-        }
-        toast.success("已刪除進貨紀錄");
-        fetchPurchases();
-      });
+  function requestDelete(row: PurchaseRow) {
+    setDeleteConfirmRow(row);
+  }
+
+  async function performDelete() {
+    if (!deleteConfirmRow) return;
+    const row = deleteConfirmRow;
+    setDeleteConfirmRow(null);
+    const { error } = await supabase.from("purchases").delete().eq("id", row.id);
+    if (error) {
+      toast.error(error.message || "刪除失敗");
+      return;
+    }
+    toast.success("已刪除進貨紀錄");
+    fetchPurchases();
   }
 
   function handleExport() {
@@ -332,7 +334,7 @@ export function ProcurementPage({ onNavigateToVendors }: ProcurementPageProps) {
           records={filteredRecords}
           totalUnfilteredCount={records.length}
           onEdit={setEditRow}
-          onDelete={handleDelete}
+          onDelete={requestDelete}
         />
       </div>
 
@@ -344,6 +346,24 @@ export function ProcurementPage({ onNavigateToVendors }: ProcurementPageProps) {
           setEditRow(null);
           fetchPurchases();
         }}
+      />
+
+      <ConfirmDialog
+        open={deleteConfirmRow != null}
+        onOpenChange={(open) => !open && setDeleteConfirmRow(null)}
+        title="是否確定刪除此筆採購紀錄？"
+        description={
+          deleteConfirmRow ? (
+            <>
+              <p className="font-medium text-foreground">品項：{deleteConfirmRow.item_name ?? "—"}</p>
+              <p className="text-muted-foreground">日期：{deleteConfirmRow.purchase_date ?? "—"}</p>
+              <p className="mt-2 text-muted-foreground">此操作無法復原。</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定刪除"
+        onConfirm={performDelete}
+        destructive
       />
 
       <div className="flex flex-col gap-3 sm:hidden">

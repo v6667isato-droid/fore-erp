@@ -30,6 +30,7 @@ import { EditSeriesContentDialog } from "@/components/products/edit-series-conte
 import { EditVariantDialog } from "@/components/products/edit-variant-dialog";
 import { ViewSeriesDialog } from "@/components/products/view-series-dialog";
 import { ViewVariantDialog } from "@/components/products/view-variant-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { exportProductsCsv } from "@/components/products/export-products-csv";
 
@@ -86,6 +87,8 @@ export function ProductsPage() {
   const [addVariantSeries, setAddVariantSeries] = useState<SeriesRow | null>(null);
   const [viewVariant, setViewVariant] = useState<VariantRow | null>(null);
   const [editVariant, setEditVariant] = useState<VariantRow | null>(null);
+  const [deleteConfirmSeries, setDeleteConfirmSeries] = useState<SeriesRow | null>(null);
+  const [deleteConfirmVariant, setDeleteConfirmVariant] = useState<VariantRow | null>(null);
 
   const variantsBySeries = useMemo(() => {
     const map: Record<string, VariantRow[]> = {};
@@ -178,8 +181,43 @@ export function ProductsPage() {
     });
   }
 
-  async function handleDeleteVariant(v: VariantRow) {
-    if (!confirm(`確定要刪除規格「${v.product_code || "未命名"}」？`)) return;
+  function requestDeleteSeries(series: SeriesRow) {
+    setDeleteConfirmSeries(series);
+  }
+
+  async function performDeleteSeries() {
+    if (!deleteConfirmSeries) return;
+    const series = deleteConfirmSeries;
+    setDeleteConfirmSeries(null);
+    const seriesVariants = variantsBySeries[series.id] ?? [];
+    for (const v of seriesVariants) {
+      const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).delete().eq("id", v.id);
+      if (err) {
+        toast.error(err.message || "刪除規格時失敗");
+        return;
+      }
+    }
+    const { error } = await supabase.from(TABLE_PRODUCT_SERIES).delete().eq("id", series.id);
+    if (error) {
+      toast.error(error.message || "刪除系列失敗");
+      return;
+    }
+    toast.success("已刪除系列");
+    fetchData();
+    setViewSeries(null);
+    setEditSeries(null);
+    setEditContentSeries(null);
+    setAddVariantSeries(null);
+  }
+
+  function requestDeleteVariant(v: VariantRow) {
+    setDeleteConfirmVariant(v);
+  }
+
+  async function performDeleteVariant() {
+    if (!deleteConfirmVariant) return;
+    const v = deleteConfirmVariant;
+    setDeleteConfirmVariant(null);
     const { error } = await supabase.from(TABLE_PRODUCT_VARIANTS).delete().eq("id", v.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
@@ -353,6 +391,16 @@ export function ProductsPage() {
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditContentSeries(series)} aria-label={`編輯文案 ${series.name}`}>
                             <FileText className="h-4 w-4" />
                           </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteSeries(series); }}
+                            aria-label={`刪除系列 ${series.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -406,7 +454,7 @@ export function ProductsPage() {
                                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditVariant(v)} aria-label={`修改 ${v.product_code}`}>
                                               <Pencil className="h-3.5 w-3.5" />
                                             </Button>
-                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteVariant(v)} aria-label={`刪除 ${v.product_code}`}>
+                                            <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteVariant(v); }} aria-label={`刪除 ${v.product_code}`}>
                                               <Trash2 className="h-3.5 w-3.5" />
                                             </Button>
                                           </div>
@@ -451,6 +499,42 @@ export function ProductsPage() {
       />
       <ViewVariantDialog open={viewVariant != null} onOpenChange={(open) => !open && setViewVariant(null)} row={viewVariant} />
       <EditVariantDialog open={editVariant != null} onOpenChange={(open) => !open && setEditVariant(null)} row={editVariant} onSuccess={() => { fetchData(); setEditVariant(null); }} />
+
+      <ConfirmDialog
+        open={deleteConfirmSeries != null}
+        onOpenChange={(open) => !open && setDeleteConfirmSeries(null)}
+        title="是否確定刪除系列？"
+        description={
+          deleteConfirmSeries ? (
+            <>
+              <p className="font-medium text-foreground">系列：「{deleteConfirmSeries.name || "未命名"}」</p>
+              {(variantsBySeries[deleteConfirmSeries.id] ?? []).length > 0 && (
+                <p className="mt-2 text-muted-foreground">此系列下共有 {(variantsBySeries[deleteConfirmSeries.id] ?? []).length} 筆規格，將一併刪除。</p>
+              )}
+              <p className="mt-2 text-muted-foreground">此操作無法復原。</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定刪除"
+        onConfirm={performDeleteSeries}
+        destructive
+      />
+      <ConfirmDialog
+        open={deleteConfirmVariant != null}
+        onOpenChange={(open) => !open && setDeleteConfirmVariant(null)}
+        title="是否確定刪除規格？"
+        description={
+          deleteConfirmVariant ? (
+            <>
+              <p className="font-medium text-foreground">規格：「{deleteConfirmVariant.product_code || "未命名"}」</p>
+              <p className="mt-2 text-muted-foreground">此操作無法復原。</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定刪除"
+        onConfirm={performDeleteVariant}
+        destructive
+      />
     </div>
   );
 }

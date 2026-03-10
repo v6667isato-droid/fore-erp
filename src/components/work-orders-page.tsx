@@ -68,7 +68,7 @@ export function WorkOrdersPage() {
   const [rows, setRows] = useState<WorkOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [stageFilter, setStageFilter] = useState<WorkStage | "全部">("全部");
-  const [statusFilter, setStatusFilter] = useState<WorkStatus | "全部">("全部");
+  const [statusFilter, setStatusFilter] = useState<WorkStatus | "全部">("進行中");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
 

@@ -16,6 +16,7 @@ import { Users, Eye, Pencil, Trash2, Download } from "lucide-react";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { EditCustomerDialog } from "@/components/crm/edit-customer-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { exportCustomersCsv } from "@/components/crm/export-customers-csv";
 
@@ -53,6 +54,7 @@ export function CustomersPage() {
   const [filterSource, setFilterSource] = useState("");
   const [viewRow, setViewRow] = useState<CustomerRow | null>(null);
   const [editRow, setEditRow] = useState<CustomerRow | null>(null);
+  const [deleteConfirmRow, setDeleteConfirmRow] = useState<CustomerRow | null>(null);
 
   const sources = useMemo(() => {
     const vals = customers
@@ -115,8 +117,14 @@ export function CustomersPage() {
     fetchCustomers();
   }, []);
 
-  async function handleDelete(row: CustomerRow) {
-    if (!confirm(`確定要刪除客戶「${row.name || "未命名"}」？此操作無法復原。`)) return;
+  function requestDelete(row: CustomerRow) {
+    setDeleteConfirmRow(row);
+  }
+
+  async function performDelete() {
+    if (!deleteConfirmRow) return;
+    const row = deleteConfirmRow;
+    setDeleteConfirmRow(null);
     const { error } = await supabase.from("customers").delete().eq("id", row.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
@@ -281,7 +289,8 @@ export function CustomersPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => handleDelete(row)}
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(row); }}
                         aria-label={`刪除 ${row.name}`}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -309,6 +318,23 @@ export function CustomersPage() {
           fetchCustomers();
           setEditRow(null);
         }}
+      />
+
+      <ConfirmDialog
+        open={deleteConfirmRow != null}
+        onOpenChange={(open) => !open && setDeleteConfirmRow(null)}
+        title="是否確定刪除客戶？"
+        description={
+          deleteConfirmRow ? (
+            <>
+              <p className="font-medium text-foreground">客戶：「{deleteConfirmRow.name || "未命名"}」</p>
+              <p className="mt-2 text-muted-foreground">此操作無法復原。</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定刪除"
+        onConfirm={performDelete}
+        destructive
       />
     </div>
   );
