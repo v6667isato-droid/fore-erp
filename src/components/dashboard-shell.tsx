@@ -14,6 +14,7 @@ import {
   LogOut,
   LogIn,
   ExternalLink,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,13 +27,14 @@ import { VendorsPage } from "@/components/vendors-page";
 import { ProductsPage } from "@/components/products-page";
 import { CustomersPage } from "@/components/customers-page";
 import { EmployeesPage } from "@/components/employees-page";
+import { FeedbackPage } from "@/components/feedback-page";
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { dashboardStats } from "@/lib/mock-data";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
-type Page = "dashboard" | "orders" | "kanban" | "procurement" | "vendors" | "products" | "customers" | "employees";
+type Page = "dashboard" | "orders" | "kanban" | "procurement" | "vendors" | "products" | "customers" | "employees" | "feedback";
 type AppRole = "admin" | "staff" | null;
 
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
@@ -44,6 +46,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "procurement", label: "採購成本", icon: ShoppingCart },
   { id: "vendors", label: "廠商資料", icon: Building2 },
   { id: "employees", label: "員工資料", icon: Users },
+  { id: "feedback", label: "使用回饋", icon: MessageSquare },
 ];
 
 function Logo() {
@@ -353,6 +356,7 @@ export default function DashboardShell() {
           {activePage === "products" && <ProductsPage />}
           {activePage === "customers" && <CustomersPage />}
           {activePage === "employees" && <EmployeesPage />}
+          {activePage === "feedback" && <FeedbackPage />}
         </div>
       </main>
     </div>
