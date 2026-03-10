@@ -276,7 +276,7 @@ export function FeedbackPage() {
     setPriority(row.priority ?? "");
     const empNames = employees.map((e) => e.name).filter(Boolean);
     const isEmployee = row.reporter != null && row.reporter !== "" && empNames.includes(row.reporter);
-    setReporterSelect(isEmployee ? row.reporter : row.reporter ? REPORTER_OTHER : "");
+    setReporterSelect((isEmployee ? row.reporter : row.reporter ? REPORTER_OTHER : "") ?? "");
     setReporterOther(isEmployee ? "" : (row.reporter ?? ""));
     setInternalNotes(row.internal_notes ?? "");
     const { date, time } = parseCompletedAt(row.completed_at);
