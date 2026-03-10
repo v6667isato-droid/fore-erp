@@ -13,13 +13,14 @@ import {
   Building2,
   LogOut,
   LogIn,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { OrdersPage } from "@/components/orders-page";
-import { KanbanPage } from "@/components/kanban-page";
+import { WorkOrdersPage } from "@/components/work-orders-page";
 import { ProcurementPage } from "@/components/procurement-page";
 import { VendorsPage } from "@/components/vendors-page";
 import { ProductsPage } from "@/components/products-page";
@@ -36,12 +37,12 @@ type AppRole = "admin" | "staff" | null;
 
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "總覽", icon: LayoutGrid },
+  { id: "products", label: "產品資料", icon: Package },
   { id: "orders", label: "訂單管理", icon: ClipboardList },
+  { id: "customers", label: "客戶資料", icon: Users },
   { id: "kanban", label: "生產看板", icon: Package },
   { id: "procurement", label: "採購成本", icon: ShoppingCart },
   { id: "vendors", label: "廠商資料", icon: Building2 },
-  { id: "products", label: "產品資料", icon: Package },
-  { id: "customers", label: "客戶資料", icon: Users },
   { id: "employees", label: "員工資料", icon: Users },
 ];
 
@@ -110,6 +111,17 @@ function DesktopSidebar({
       <ScrollArea className="flex-1 py-4">
         <SidebarNav activePage={activePage} onNavigate={onNavigate} />
       </ScrollArea>
+      <div className="px-3 py-2">
+        <a
+          href="/portal"
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+        >
+          <ExternalLink className="h-4 w-4" />
+          通路下單
+        </a>
+      </div>
       <div className="border-t border-sidebar-border p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
@@ -189,6 +201,16 @@ function MobileHeader({ activePage, onNavigate }: { activePage: Page; onNavigate
                     </button>
                   );
                 })}
+                <a
+                  href="/portal"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setOpen(false)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                >
+                  <ExternalLink className="h-[18px] w-[18px] shrink-0" />
+                  通路下單
+                </a>
               </nav>
             </div>
           </SheetContent>
@@ -271,8 +293,9 @@ export default function DashboardShell() {
         .eq("user_id", user.id)
         .single();
       const raw = ((profile?.role as string) ?? "").trim().toLowerCase();
+      // 只要不是明確 staff 或空字串，其餘有值的角色一律視為 admin（與 EmployeesPage 一致）
       const appRole: AppRole =
-        raw === "admin" ? "admin" : raw === "staff" ? "staff" : "staff";
+        raw === "staff" || raw === "" ? "staff" : "admin";
       setUserRole(appRole);
       setAuthChecked(true);
     })();
@@ -322,7 +345,7 @@ export default function DashboardShell() {
 
           {activePage === "dashboard" && <DashboardOverview />}
           {activePage === "orders" && <OrdersPage />}
-          {activePage === "kanban" && <KanbanPage />}
+          {activePage === "kanban" && <WorkOrdersPage />}
           {activePage === "procurement" && (
             <ProcurementPage onNavigateToVendors={() => setActivePage("vendors")} />
           )}

@@ -40,14 +40,17 @@ export function DashboardOverview() {
   const [recentOrders, setRecentOrders] = useState<Array<{ id: string; order_number: string; customer_name: string; total_amount: number; status: string }>>([]);
   const [recentPurchases, setRecentPurchases] = useState<Array<{ id: string; item_name: string; vendor_name: string; tax_included_amount: number }>>([]);
   const [taskCounts, setTaskCounts] = useState({ todo: 0, inProgress: 0, done: 0 });
+  const [portalOrdersToday, setPortalOrdersToday] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchOverview() {
-      const [ordersRes, purchasesRes, tasksRes] = await Promise.all([
+      const today = new Date().toISOString().slice(0, 10);
+      const [ordersRes, purchasesRes, tasksRes, portalRes] = await Promise.all([
         supabase.from("orders").select("id, order_number, total_amount, status, customers(name)").order("expected_delivery", { ascending: false }).limit(5),
         supabase.from("purchases").select("id, item_name, tax_included_amount, vendors(name)").order("purchase_date", { ascending: false }).limit(4),
         supabase.from("production_tasks").select("status"),
+        supabase.from("orders").select("id", { count: "exact", head: true }).eq("source", "portal").gte("order_date", today).lte("order_date", today),
       ]);
 
       if (!ordersRes.error && ordersRes.data) {
@@ -90,6 +93,9 @@ export function DashboardOverview() {
         const done = tasksRes.data.filter((t: { status: string }) => t.status === "已完成").length;
         setTaskCounts({ todo, inProgress, done });
       }
+      if (!portalRes.error && typeof portalRes.count === "number") {
+        setPortalOrdersToday(portalRes.count);
+      }
       setLoading(false);
     }
     fetchOverview();
@@ -107,6 +113,12 @@ export function DashboardOverview() {
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {portalOrdersToday > 0 && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between">
+          <span className="text-sm font-medium text-foreground">今日通路下單</span>
+          <span className="text-lg font-semibold text-primary">{portalOrdersToday} 筆</span>
+        </div>
+      )}
       <div className="rounded-xl border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="flex items-center gap-2">

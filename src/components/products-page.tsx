@@ -22,7 +22,7 @@ import {
   VARIANT_SELECT_MINIMAL,
   SERIES_CONTENT_COLUMNS,
 } from "@/lib/products-db";
-import { Package, ChevronDown, ChevronRight, FileText, Plus, Eye, Pencil, Trash2 } from "lucide-react";
+import { Package, ChevronDown, ChevronRight, FileText, Plus, Eye, Pencil, Trash2, Download } from "lucide-react";
 import { AddSeriesDialog } from "@/components/products/add-series-dialog";
 import { AddVariantDialog } from "@/components/products/add-variant-dialog";
 import { EditSeriesDialog } from "@/components/products/edit-series-dialog";
@@ -31,6 +31,7 @@ import { EditVariantDialog } from "@/components/products/edit-variant-dialog";
 import { ViewSeriesDialog } from "@/components/products/view-series-dialog";
 import { ViewVariantDialog } from "@/components/products/view-variant-dialog";
 import { toast } from "sonner";
+import { exportProductsCsv } from "@/components/products/export-products-csv";
 
 /** 支援 name 或 series_name 欄位（Supabase 表可能用其中一種） */
 function mapSeries(r: Record<string, unknown>): SeriesRow {
@@ -190,6 +191,15 @@ export function ProductsPage() {
     setEditVariant(null);
   }
 
+  function handleExport() {
+    if (!seriesList.length || !variantsList.length) {
+      toast.info("目前沒有可匯出的產品規格資料");
+      return;
+    }
+    exportProductsCsv(seriesList, variantsList);
+    toast.success("已匯出產品規格 CSV");
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col gap-4">
@@ -245,7 +255,19 @@ export function ProductsPage() {
             <p className="text-xl font-semibold text-foreground">{seriesList.length} 種系列 · {variantsList.length} 種規格</p>
           </div>
         </div>
-        <AddSeriesDialog onSuccess={fetchData} />
+        <div className="flex items-center gap-2">
+          <AddSeriesDialog onSuccess={fetchData} />
+          <Button
+            variant="outline"
+            className="h-8 shrink-0 px-3 text-xs"
+            onClick={handleExport}
+            disabled={!seriesList.length || !variantsList.length}
+            aria-label="匯出產品規格 CSV"
+          >
+            <Download className="h-4 w-4" />
+            匯出 CSV
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">

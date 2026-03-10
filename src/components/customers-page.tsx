@@ -12,14 +12,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { CustomerRow } from "@/types/crm";
-import { Users, Eye, Pencil, Trash2 } from "lucide-react";
+import { Users, Eye, Pencil, Trash2, Download } from "lucide-react";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { EditCustomerDialog } from "@/components/crm/edit-customer-dialog";
 import { toast } from "sonner";
+import { exportCustomersCsv } from "@/components/crm/export-customers-csv";
 
 const CUSTOMER_SELECT =
-  "id, name, phone, line_id, ig_account, delivery_address, notes, source, customer_type";
+  "id, name, phone, line_id, ig_account, delivery_address, notes, source, customer_type, portal_code, portal_password";
 
 function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
   const addr = r.delivery_address ?? r.address;
@@ -33,6 +34,8 @@ function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
     notes: r.notes != null ? String(r.notes) : null,
     source: r.source != null ? String(r.source) : null,
     customer_type: r.customer_type != null ? String(r.customer_type) : null,
+    portal_code: r.portal_code != null ? String(r.portal_code) : null,
+    portal_password: r.portal_password != null ? String(r.portal_password) : null,
   };
 }
 
@@ -125,6 +128,16 @@ export function CustomersPage() {
     setEditRow(null);
   }
 
+  function handleExport() {
+    const list = filteredCustomers;
+    if (!list.length) {
+      toast.info("目前沒有可匯出的客戶資料");
+      return;
+    }
+    exportCustomersCsv(list);
+    toast.success("已匯出客戶 CSV");
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col gap-4">
@@ -158,7 +171,19 @@ export function CustomersPage() {
             <p className="text-xl font-semibold text-foreground">{customers.length}</p>
           </div>
         </div>
-        <AddCustomerDialog onSuccess={fetchCustomers} />
+        <div className="flex items-center gap-2">
+          <AddCustomerDialog onSuccess={fetchCustomers} />
+          <Button
+            variant="outline"
+            className="h-8 shrink-0 px-3 text-xs"
+            onClick={handleExport}
+            disabled={!filteredCustomers.length}
+            aria-label="匯出客戶 CSV"
+          >
+            <Download className="h-4 w-4" />
+            匯出 CSV
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">

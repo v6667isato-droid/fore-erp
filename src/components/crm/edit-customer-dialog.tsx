@@ -30,6 +30,8 @@ export function EditCustomerDialog({ open, onOpenChange, row, onSuccess }: EditC
   const [notes, setNotes] = useState("");
   const [source, setSource] = useState("");
   const [customerType, setCustomerType] = useState("");
+  const [portalCode, setPortalCode] = useState("");
+  const [portalPassword, setPortalPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,6 +45,8 @@ export function EditCustomerDialog({ open, onOpenChange, row, onSuccess }: EditC
       setNotes(row.notes ?? "");
       setSource(row.source ?? "");
       setCustomerType(row.customer_type ?? "");
+      setPortalCode(row.portal_code ?? "");
+      setPortalPassword(row.portal_password ?? "");
       setError(null);
     }
   }, [open, row]);
@@ -72,11 +76,13 @@ export function EditCustomerDialog({ open, onOpenChange, row, onSuccess }: EditC
       notes: notes.trim() || null,
       source: source.trim() || null,
       customer_type: customerType.trim() || null,
+      portal_code: portalCode.trim() || null,
+      portal_password: portalPassword.trim() || null,
     };
     let payload: Record<string, unknown> = { ...full };
     let { error: err } = await supabase.from("customers").update(payload).eq("id", row.id);
     if (err && isColumnError(err)) {
-      const optional = ["notes", "source", "customer_type", "delivery_address", "line_id", "ig_account", "phone"];
+      const optional = ["notes", "source", "customer_type", "delivery_address", "line_id", "ig_account", "phone", "portal_code", "portal_password"];
       for (const key of optional) {
         const next = { ...payload };
         delete next[key];
@@ -238,6 +244,53 @@ export function EditCustomerDialog({ open, onOpenChange, row, onSuccess }: EditC
                 className="min-h-[80px] w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="備註、偏好、往來紀錄等"
               />
+            </div>
+            <div className="border-t border-border pt-3 space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">通路下單入口</p>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="edit-portal-code" className="text-xs text-muted-foreground">通路代碼</label>
+                <input
+                  id="edit-portal-code"
+                  type="text"
+                  value={portalCode}
+                  onChange={(e) => setPortalCode(e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="供通路商登入 /portal 使用，需唯一"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="edit-portal-password" className="text-xs text-muted-foreground">通路密碼</label>
+                <input
+                  id="edit-portal-password"
+                  type="password"
+                  value={portalPassword}
+                  onChange={(e) => setPortalPassword(e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="登入時輸入的密碼"
+                />
+              </div>
+              {portalCode.trim() && (
+                <div className="flex flex-col gap-1.5 rounded-lg bg-muted/50 p-3">
+                  <span className="text-xs text-muted-foreground">通路下單連結</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <code className="text-xs text-foreground break-all">
+                      {typeof window !== "undefined" ? `${window.location.origin}/portal` : "/portal"}
+                    </code>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 px-3 text-xs"
+                      onClick={() => {
+                        const url = typeof window !== "undefined" ? `${window.location.origin}/portal` : "";
+                        navigator.clipboard.writeText(url).then(() => toast.success("已複製連結")).catch(() => {});
+                      }}
+                    >
+                      複製連結
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">請將此連結與代碼「{portalCode}」及密碼提供給通路商登入下單。</p>
+                </div>
+              )}
             </div>
             {error && (
               <p className="text-xs text-destructive" role="alert">
