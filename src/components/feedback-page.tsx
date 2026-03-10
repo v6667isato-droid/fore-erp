@@ -40,6 +40,7 @@ interface FeedbackRow {
   priority: string | null;
   reporter: string | null;
   internal_notes: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -49,6 +50,7 @@ export function FeedbackPage() {
   const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterCompleted, setFilterCompleted] = useState<"" | "yes" | "no">("");
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -60,6 +62,7 @@ export function FeedbackPage() {
   const [priority, setPriority] = useState("");
   const [reporter, setReporter] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
+  const [completedAt, setCompletedAt] = useState("");
 
   async function fetchFeedback() {
     setLoading(true);
@@ -81,6 +84,7 @@ export function FeedbackPage() {
           priority: r.priority != null ? String(r.priority) : null,
           reporter: r.reporter != null ? String(r.reporter) : null,
           internal_notes: r.internal_notes != null ? String(r.internal_notes) : null,
+          completed_at: r.completed_at != null ? String(r.completed_at) : null,
           created_at: String(r.created_at ?? ""),
           updated_at: String(r.updated_at ?? ""),
         }))
@@ -97,9 +101,14 @@ export function FeedbackPage() {
     return rows.filter((r) => {
       const matchCat = !filterCategory || r.category === filterCategory;
       const matchStatus = !filterStatus || r.status === filterStatus;
-      return matchCat && matchStatus;
+      const hasCompleted = r.completed_at != null && r.completed_at !== "";
+      const matchCompleted =
+        filterCompleted === "" ||
+        (filterCompleted === "yes" && hasCompleted) ||
+        (filterCompleted === "no" && !hasCompleted);
+      return matchCat && matchStatus && matchCompleted;
     });
-  }, [rows, filterCategory, filterStatus]);
+  }, [rows, filterCategory, filterStatus, filterCompleted]);
 
   function openCreate() {
     setEditingId(null);
@@ -110,6 +119,7 @@ export function FeedbackPage() {
     setPriority("");
     setReporter("");
     setInternalNotes("");
+    setCompletedAt("");
     setFormOpen(true);
   }
 
@@ -122,6 +132,7 @@ export function FeedbackPage() {
     setPriority(row.priority ?? "");
     setReporter(row.reporter ?? "");
     setInternalNotes(row.internal_notes ?? "");
+    setCompletedAt(toDatetimeLocal(row.completed_at));
     setFormOpen(true);
   }
 
@@ -144,6 +155,7 @@ export function FeedbackPage() {
       priority: priority.trim() || null,
       reporter: reporter.trim() || null,
       internal_notes: internalNotes.trim() || null,
+      completed_at: completedAt.trim() ? new Date(completedAt.trim()).toISOString() : null,
       updated_at: new Date().toISOString(),
     };
     if (editingId) {
@@ -192,6 +204,18 @@ export function FeedbackPage() {
     }
   }
 
+  function toDatetimeLocal(iso: string | null): string {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${y}-${m}-${day}T${h}:${min}`;
+  }
+
   if (loading) {
     return (
       <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
@@ -232,6 +256,15 @@ export function FeedbackPage() {
               </option>
             ))}
           </select>
+          <select
+            value={filterCompleted}
+            onChange={(e) => setFilterCompleted((e.target.value || "") as "" | "yes" | "no")}
+            className="h-9 rounded-md border border-input bg-background px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">完成日期：全部</option>
+            <option value="yes">已有完成日期</option>
+            <option value="no">尚無完成日期</option>
+          </select>
           <Button type="button" className="h-9 px-3 text-xs" onClick={openCreate}>
             <Plus className="h-4 w-4 mr-1" />
             新增回饋
@@ -248,6 +281,7 @@ export function FeedbackPage() {
               <TableHead className="text-xs font-semibold hidden sm:table-cell">狀態</TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">優先級</TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">回報人</TableHead>
+              <TableHead className="text-xs font-semibold hidden sm:table-cell">完成日期</TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">建立時間</TableHead>
               <TableHead className="text-xs font-semibold w-24">操作</TableHead>
             </TableRow>
@@ -255,7 +289,7 @@ export function FeedbackPage() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                   尚無回饋，或不符合篩選條件。
                 </TableCell>
               </TableRow>
@@ -279,6 +313,9 @@ export function FeedbackPage() {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
                     {r.reporter || "—"}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                    {formatDate(r.completed_at ?? "") || "—"}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground hidden sm:table-cell whitespace-nowrap">
                     {formatDate(r.created_at)}
@@ -414,6 +451,16 @@ export function FeedbackPage() {
                     placeholder="email 或名稱"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">完成日期</label>
+                <input
+                  type="datetime-local"
+                  value={completedAt}
+                  onChange={(e) => setCompletedAt(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <span className="text-xs text-muted-foreground mt-0.5 block">問題解決時可填寫</span>
               </div>
               {editingId && (
                 <div>
