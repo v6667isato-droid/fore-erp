@@ -99,6 +99,11 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-variant-code" className="text-xs text-muted-foreground">產品代碼 *</label>
               <input ref={firstRef} id="add-variant-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />
+              {series.code_rule?.trim() && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  編碼原則：{series.code_rule.trim()}
+                </p>
+              )}
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-variant-wood" className="text-xs text-muted-foreground">木種</label>
@@ -106,15 +111,15 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="add-variant-w" className="text-xs text-muted-foreground">寬 W</label>
+                <label htmlFor="add-variant-w" className="text-xs text-muted-foreground">寬 W（cm）</label>
                 <input id="add-variant-w" type="number" value={w} onChange={(e) => setW(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="add-variant-d" className="text-xs text-muted-foreground">深 D</label>
+                <label htmlFor="add-variant-d" className="text-xs text-muted-foreground">深 D（cm）</label>
                 <input id="add-variant-d" type="number" value={d} onChange={(e) => setD(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="add-variant-h" className="text-xs text-muted-foreground">高 H</label>
+                <label htmlFor="add-variant-h" className="text-xs text-muted-foreground">高 H（cm）</label>
                 <input id="add-variant-h" type="number" value={h} onChange={(e) => setH(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
               </div>
             </div>

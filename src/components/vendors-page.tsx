@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { VendorRow } from "@/types/procurement";
-import { Building2, Eye, Pencil, Trash2, Download, MapPin, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Building2, Eye, Pencil, Trash2, Download, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { AddVendorDialog } from "@/components/procurement/add-vendor-dialog";
 import { EditVendorDialog } from "@/components/procurement/edit-vendor-dialog";
@@ -21,8 +21,8 @@ import { exportVendorsCsv } from "@/components/procurement/export-vendors-csv";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 
-const VENDOR_SELECT = "id, name, main_category, contact_person, address, phone, email, fax, tax_id, notes, created_at, website";
-const VENDOR_SELECT_NO_WEBSITE = "id, name, main_category, contact_person, address, phone, email, fax, tax_id, notes, created_at";
+const VENDOR_SELECT = "id, name, main_category, contact_person, phone, email, fax, tax_id, notes, created_at";
+const VENDOR_SELECT_NO_WEBSITE = "id, name, main_category, contact_person, phone, email, fax, tax_id, notes, created_at";
 const PAGE_SIZE = 20;
 
 function mapVendorRow(r: Record<string, unknown>): VendorRow {
@@ -31,14 +31,12 @@ function mapVendorRow(r: Record<string, unknown>): VendorRow {
     name: String(r.name ?? ""),
     main_category: String(r.main_category ?? ""),
     contact_person: r.contact_person != null ? String(r.contact_person) : null,
-    address: r.address != null ? String(r.address) : null,
     phone: r.phone != null ? String(r.phone) : null,
     email: r.email != null ? String(r.email) : null,
     fax: r.fax != null ? String(r.fax) : null,
     tax_id: r.tax_id != null ? String(r.tax_id) : null,
     notes: r.notes != null ? String(r.notes) : null,
     created_at: r.created_at != null ? String(r.created_at) : null,
-    website: r.website != null ? String(r.website) : null,
   };
 }
 
@@ -51,7 +49,7 @@ export function VendorsPage() {
   const [editRow, setEditRow] = useState<VendorRow | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<VendorRow | null>(null);
   const [page, setPage] = useState(0);
-  type SortKey = "created_at" | "name" | "main_category" | "contact_person" | "phone" | "address" | "website";
+  type SortKey = "created_at" | "name" | "main_category" | "contact_person" | "phone";
   const [sortBy, setSortBy] = useState<SortKey>("created_at");
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -69,9 +67,7 @@ export function VendorsPage() {
           r.name.toLowerCase().includes(q) ||
           (r.main_category || "").toLowerCase().includes(q) ||
           (r.contact_person || "").toLowerCase().includes(q) ||
-          (r.address || "").toLowerCase().includes(q) ||
-          (r.phone || "").toLowerCase().includes(q) ||
-          (r.website || "").toLowerCase().includes(q)
+          (r.phone || "").toLowerCase().includes(q)
       );
     }
     return [...list].sort((a, b) => {
@@ -114,11 +110,6 @@ export function VendorsPage() {
         {active ? (sortAsc ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />) : <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />}
       </button>
     );
-  }
-
-  function googleMapsUrl(address: string | null | undefined): string {
-    if (!address?.trim()) return "#";
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim())}`;
   }
 
   async function fetchVendors() {
@@ -268,19 +259,13 @@ export function VendorsPage() {
               <TableHead className="text-xs font-semibold p-2 align-middle">
                 <SortHeader label="電話" sortKey="phone" />
               </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <SortHeader label="地址" sortKey="address" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <SortHeader label="網站" sortKey="website" />
-              </TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(filteredRecords?.length ?? 0) === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   {records.length === 0 ? "尚無廠商資料，請點「新增廠商」建立第一筆。" : "無符合篩選條件的廠商。"}
                 </TableCell>
               </TableRow>
@@ -295,42 +280,16 @@ export function VendorsPage() {
                       className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
                     >
                       {row.name || "—"}
+                      {row.notes?.trim() && (
+                        <span className="ml-1.5 text-xs text-muted-foreground">
+                          {row.notes.trim()}
+                        </span>
+                      )}
                     </button>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">{row.main_category || "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">{row.contact_person ?? "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">{row.phone ?? "—"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2 max-w-[200px]">
-                    {row.address?.trim() ? (
-                      <a
-                        href={googleMapsUrl(row.address)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-primary hover:underline truncate"
-                        title={`在 Google 地圖開啟：${row.address}`}
-                      >
-                        <MapPin className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{row.address}</span>
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm p-2 max-w-[160px]">
-                    {row.website?.trim() ? (
-                      <a
-                        href={row.website.trim().startsWith("http") ? row.website.trim() : `https://${row.website.trim()}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline truncate block"
-                        title={row.website.trim()}
-                      >
-                        {row.website.trim()}
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
                   <TableCell className="p-2">
                     <div className="flex items-center gap-2">
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewRow(row)} aria-label={`總覽 ${row.name}`}>

@@ -29,7 +29,7 @@ const CATEGORIES = [
   "其他",
 ];
 
-const STATUSES = ["待處理", "處理中", "已解決", "暫緩"];
+const STATUSES = ["待處理", "進行中", "已完成", "暫緩"];
 const PRIORITIES = ["低", "中", "高"];
 const REPORTER_OTHER = "__other__";
 
@@ -196,6 +196,14 @@ export function FeedbackPage() {
       const bVal = b[sortKey];
       let cmp = 0;
       if (isDate) {
+        // 預設排序時，已完成的排在最後（無論建立時間）
+        if (sortKey === "created_at") {
+          const aDone = a.status === "已完成" || !!a.completed_at;
+          const bDone = b.status === "已完成" || !!b.completed_at;
+          if (aDone !== bDone) {
+            return aDone ? 1 : -1;
+          }
+        }
         const aTime = aVal ? new Date(aVal).getTime() : 0;
         const bTime = bVal ? new Date(bVal).getTime() : 0;
         cmp = aTime - bTime;
@@ -403,6 +411,56 @@ export function FeedbackPage() {
     return new Date(dateTime).toISOString();
   }
 
+  function getStatusClasses(status: string): string {
+    if (status === "待處理") {
+      return "bg-amber-100 text-amber-800 border-amber-200";
+    }
+    if (status === "進行中") {
+      return "bg-blue-100 text-blue-800 border-blue-200";
+    }
+    if (status === "已完成") {
+      return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    }
+    if (status === "暫緩") {
+      return "bg-slate-100 text-slate-700 border-slate-200";
+    }
+    return "";
+  }
+
+  function getPriorityClasses(priority: string | null): string {
+    if (priority === "高") {
+      return "bg-red-100 text-red-800 border-red-200";
+    }
+    if (priority === "中") {
+      return "bg-amber-100 text-amber-800 border-amber-200";
+    }
+    if (priority === "低") {
+      return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    }
+    return "bg-muted text-muted-foreground border-transparent";
+  }
+
+  async function handleInlineStatusChange(row: FeedbackRow, nextStatus: string) {
+    if (!nextStatus) return;
+    const prevStatus = row.status;
+    setRows((current) =>
+      current.map((r) => (r.id === row.id ? { ...r, status: nextStatus, updated_at: new Date().toISOString() } : r))
+    );
+    const { error } = await supabase
+      .from("user_feedback")
+      .update({ status: nextStatus, updated_at: new Date().toISOString() })
+      .eq("id", row.id);
+    if (error) {
+      toast.error(error.message || "更新狀態失敗");
+      setRows((current) =>
+        current.map((r) => (r.id === row.id ? { ...r, status: prevStatus } : r))
+      );
+    } else {
+      toast.success("已更新狀態");
+      fetchFeedback();
+    }
+  }
+
   if (loading) {
     return (
       <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
@@ -539,9 +597,33 @@ export function FeedbackPage() {
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
                     {r.category || "—"}
                   </TableCell>
-                  <TableCell className="text-sm hidden sm:table-cell">{r.status}</TableCell>
+                  <TableCell className="text-sm hidden sm:table-cell">
+                    <select
+                      value={r.status}
+                      onChange={(e) => handleInlineStatusChange(r, e.target.value)}
+                      className={`h-8 rounded-full border px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${getStatusClasses(
+                        r.status
+                      )}`}
+                    >
+                      {STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
-                    {r.priority || "—"}
+                    {r.priority ? (
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${getPriorityClasses(
+                          r.priority
+                        )}`}
+                      >
+                        {r.priority}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
                     {r.reporter || "—"}

@@ -8,10 +8,16 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { CustomerRow } from "@/types/crm";
 
+export interface ChannelOption {
+  id: string;
+  name: string;
+}
+
 export interface EditCustomerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   row: CustomerRow | null;
+  channels?: ChannelOption[];
   onSuccess: () => void;
 }
 
@@ -20,7 +26,7 @@ function isColumnError(err: { message?: string } | null): boolean {
   return /column .* does not exist/i.test(msg) || /could not find.*column/i.test(msg) || /schema cache/i.test(msg);
 }
 
-export function EditCustomerDialog({ open, onOpenChange, row, onSuccess }: EditCustomerDialogProps) {
+export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onSuccess }: EditCustomerDialogProps) {
   const firstFocusRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -30,6 +36,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, onSuccess }: EditC
   const [notes, setNotes] = useState("");
   const [source, setSource] = useState("");
   const [customerType, setCustomerType] = useState("");
+  const [channelId, setChannelId] = useState("");
   const [portalCode, setPortalCode] = useState("");
   const [portalPassword, setPortalPassword] = useState("");
   const [saving, setSaving] = useState(false);
@@ -45,6 +52,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, onSuccess }: EditC
       setNotes(row.notes ?? "");
       setSource(row.source ?? "");
       setCustomerType(row.customer_type ?? "");
+      setChannelId(row.channel_id ?? "");
       setPortalCode(row.portal_code ?? "");
       setPortalPassword(row.portal_password ?? "");
       setError(null);
@@ -76,6 +84,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, onSuccess }: EditC
       notes: notes.trim() || null,
       source: source.trim() || null,
       customer_type: customerType.trim() || null,
+      channel_id: channelId.trim() || null,
       portal_code: portalCode.trim() || null,
       portal_password: portalPassword.trim() || null,
     };
@@ -190,6 +199,22 @@ export function EditCustomerDialog({ open, onOpenChange, row, onSuccess }: EditC
                 <option value="木工廠(代工)" />
               </datalist>
             </div>
+            {channels.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="edit-customer-channel" className="text-xs text-muted-foreground">所屬通路</label>
+                <select
+                  id="edit-customer-channel"
+                  value={channelId}
+                  onChange={(e) => setChannelId(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">未指定</option>
+                  {channels.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-customer-phone" className="text-xs text-muted-foreground">電話</label>
               <input

@@ -20,6 +20,8 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [notes, setNotes] = useState("");
+  const [productionTime, setProductionTime] = useState("");
+  const [codeRule, setCodeRule] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,6 +30,8 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
       setName("");
       setCategory("");
       setNotes("");
+      setProductionTime("");
+      setCodeRule("");
       setError(null);
     }
   }, [open]);
@@ -48,12 +52,18 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
       name: name.trim(),
       category: category.trim() || null,
       notes: notes.trim() || null,
+      production_time: productionTime.trim() || null,
+      code_rule: codeRule.trim() || null,
     };
     let { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).insert(payload);
     // 若資料表使用 series_name 而非 name，改用 series_name 重試
     const isNameColumnError = err && /'name' column|name.*(does not exist|schema cache)|Could not find.*name/i.test(err.message ?? "");
     if (err && /column .* does not exist/i.test(err.message ?? "") && !isNameColumnError) {
-      const { notes: _n, ...rest } = payload as { notes?: string };
+      const { notes: _n, production_time: _p, code_rule: _c, ...rest } = payload as {
+        notes?: string;
+        production_time?: string;
+        code_rule?: string;
+      };
       const res = await supabase.from(TABLE_PRODUCT_SERIES).insert(rest);
       err = res.error;
     }
@@ -115,8 +125,36 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
               </datalist>
             </div>
             <div className="flex flex-col gap-1.5">
+              <label htmlFor="add-series-production-time" className="text-xs text-muted-foreground">交期（週）</label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="add-series-production-time"
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={productionTime}
+                  onChange={(e) => setProductionTime(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="例如：3"
+                />
+                <span className="text-xs text-muted-foreground shrink-0">週</span>
+              </div>
+              <span className="text-[11px] text-muted-foreground">以週為單位輸入交期，僅做文字紀錄。</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
               <label htmlFor="add-series-notes" className="text-xs text-muted-foreground">產品備註</label>
               <input id="add-series-notes" type="text" value={notes} onChange={(e) => setNotes(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="顯示在系列名稱旁" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="add-series-code-rule" className="text-xs text-muted-foreground">編碼原則</label>
+              <textarea
+                id="add-series-code-rule"
+                value={codeRule}
+                onChange={(e) => setCodeRule(e.target.value)}
+                rows={2}
+                className="min-h-[60px] rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="例：系列縮寫 + 材質 + 尺寸，如：CHA-OAK-120"
+              />
             </div>
             {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
             <div className="flex justify-end gap-2 pt-1">

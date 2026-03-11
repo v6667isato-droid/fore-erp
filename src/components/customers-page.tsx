@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { exportCustomersCsv } from "@/components/crm/export-customers-csv";
 
 const CUSTOMER_SELECT =
-  "id, name, phone, line_id, ig_account, delivery_address, notes, source, customer_type, portal_code, portal_password";
+  "id, name, phone, line_id, ig_account, delivery_address, notes, source, customer_type, portal_code, portal_password, channel_id";
 
 function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
   const addr = r.delivery_address ?? r.address;
@@ -37,6 +37,7 @@ function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
     customer_type: r.customer_type != null ? String(r.customer_type) : null,
     portal_code: r.portal_code != null ? String(r.portal_code) : null,
     portal_password: r.portal_password != null ? String(r.portal_password) : null,
+    channel_id: r.channel_id != null ? String(r.channel_id) : null,
   };
 }
 
@@ -48,13 +49,26 @@ function SocialCell({ lineId, igAccount }: { lineId: string | null | undefined; 
   return <span className="text-sm">{parts.join(" · ")}</span>;
 }
 
+export interface ChannelOption {
+  id: string;
+  name: string;
+}
+
 export function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
+  const [channels, setChannels] = useState<ChannelOption[]>([]);
+  const [lastOrders, setLastOrders] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
   const [filterSource, setFilterSource] = useState("");
   const [viewRow, setViewRow] = useState<CustomerRow | null>(null);
   const [editRow, setEditRow] = useState<CustomerRow | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<CustomerRow | null>(null);
+
+  const channelMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    channels.forEach((c) => { m[c.id] = c.name; });
+    return m;
+  }, [channels]);
 
   const sources = useMemo(() => {
     const vals = customers
@@ -113,8 +127,35 @@ export function CustomersPage() {
     setLoading(false);
   }
 
+  async function fetchChannels() {
+    const { data } = await supabase.from("channels").select("id, name").order("sort_order").order("name");
+    setChannels(((data ?? []) as ChannelOption[]).map((r) => ({ id: r.id, name: String(r.name ?? "") })));
+  }
+
+  async function fetchLastOrders() {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("customer_id, order_date")
+      .order("order_date", { ascending: false });
+    if (error) {
+      // 不影響主畫面，靜默失敗即可
+      return;
+    }
+    const map: Record<string, string | null> = {};
+    (data ?? []).forEach((row: any) => {
+      const cid = row.customer_id ? String(row.customer_id) : "";
+      if (!cid) return;
+      if (map[cid] == null) {
+        map[cid] = row.order_date ?? null;
+      }
+    });
+    setLastOrders(map);
+  }
+
   useEffect(() => {
     fetchCustomers();
+    fetchChannels();
+    fetchLastOrders();
   }, []);
 
   function requestDelete(row: CustomerRow) {
@@ -180,7 +221,7 @@ export function CustomersPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <AddCustomerDialog onSuccess={fetchCustomers} />
+          <AddCustomerDialog channels={channels} onSuccess={fetchCustomers} />
           <Button
             variant="outline"
             className="h-8 shrink-0 px-3 text-xs"
@@ -226,9 +267,10 @@ export function CustomersPage() {
             <TableRow className="hover:bg-transparent border-b border-border">
               <TableHead className="text-xs font-semibold p-2 align-middle">客戶姓名</TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">電話</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">社群帳號</TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">最近訂購日期</TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">客戶來源</TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">客戶種類</TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">所屬通路</TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">送貨地址</TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">客情備註</TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">操作</TableHead>
@@ -237,7 +279,7 @@ export function CustomersPage() {
           <TableBody>
             {filteredCustomers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                   {customers.length === 0
                     ? "尚無客戶資料，請點「新增客戶」建立第一筆。"
                     : "無符合篩選條件的客戶。"}
@@ -246,18 +288,31 @@ export function CustomersPage() {
             ) : (
               filteredCustomers.map((row) => (
                 <TableRow key={row.id} className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="text-sm font-medium p-2">{row.name || "—"}</TableCell>
+                  <TableCell className="text-sm font-medium p-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewRow(row)}
+                      className="text-left underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
+                    >
+                      {row.name || "—"}
+                    </button>
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
                     {row.phone ?? "—"}
                   </TableCell>
                   <TableCell className="text-sm p-2">
-                    <SocialCell lineId={row.line_id} igAccount={row.ig_account} />
+                    {lastOrders[row.id]
+                      ? String(lastOrders[row.id]).slice(0, 10)
+                      : "—"}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
                     {row.source ?? "—"}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
                     {row.customer_type ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground p-2">
+                    {row.channel_id ? (channelMap[row.channel_id] ?? "—") : "—"}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2 max-w-[180px] truncate" title={row.delivery_address ?? undefined}>
                     {row.delivery_address ?? "—"}
@@ -267,15 +322,6 @@ export function CustomersPage() {
                   </TableCell>
                   <TableCell className="p-2">
                     <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setViewRow(row)}
-                        aria-label={`總覽 ${row.name}`}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -314,6 +360,7 @@ export function CustomersPage() {
         open={editRow != null}
         onOpenChange={(open) => !open && setEditRow(null)}
         row={editRow}
+        channels={channels}
         onSuccess={() => {
           fetchCustomers();
           setEditRow(null);

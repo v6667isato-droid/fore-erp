@@ -7,7 +7,13 @@ import { Plus, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 
+export interface ChannelOption {
+  id: string;
+  name: string;
+}
+
 export interface AddCustomerDialogProps {
+  channels?: ChannelOption[];
   onSuccess: () => void;
 }
 
@@ -16,7 +22,7 @@ function isColumnError(err: { message?: string } | null): boolean {
   return /column .* does not exist/i.test(msg) || /could not find.*column/i.test(msg) || /schema cache/i.test(msg);
 }
 
-export function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps) {
+export function AddCustomerDialog({ channels = [], onSuccess }: AddCustomerDialogProps) {
   const [open, setOpen] = useState(false);
   const firstFocusRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
@@ -27,6 +33,7 @@ export function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps) {
   const [notes, setNotes] = useState("");
   const [source, setSource] = useState("");
   const [customerType, setCustomerType] = useState("");
+  const [channelId, setChannelId] = useState("");
   const [portalCode, setPortalCode] = useState("");
   const [portalPassword, setPortalPassword] = useState("");
   const [adding, setAdding] = useState(false);
@@ -42,6 +49,7 @@ export function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps) {
       setNotes("");
       setSource("");
       setCustomerType("");
+      setChannelId("");
       setPortalCode("");
       setPortalPassword("");
       setError(null);
@@ -72,6 +80,7 @@ export function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps) {
       notes: notes.trim() || null,
       source: source.trim() || null,
       customer_type: customerType.trim() || null,
+      channel_id: channelId.trim() || null,
       portal_code: portalCode.trim() || null,
       portal_password: portalPassword.trim() || null,
     };
@@ -193,6 +202,22 @@ export function AddCustomerDialog({ onSuccess }: AddCustomerDialogProps) {
                 <option value="木工廠(代工)" />
               </datalist>
             </div>
+            {channels.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="add-customer-channel" className="text-xs text-muted-foreground">所屬通路</label>
+                <select
+                  id="add-customer-channel"
+                  value={channelId}
+                  onChange={(e) => setChannelId(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">未指定</option>
+                  {channels.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-customer-phone" className="text-xs text-muted-foreground">電話</label>
               <input

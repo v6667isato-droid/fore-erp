@@ -1,8 +1,30 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { CustomerRow } from "@/types/crm";
+import { supabase } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
+
+interface CustomerOrderRow {
+  id: string;
+  order_number: string;
+  order_date: string | null;
+  total_amount: number;
+  status: string;
+  payment_status: string;
+}
+
+interface CustomerOrderItemRow {
+  id: string;
+  quantity: number;
+  unit_price: number;
+  kind: "variant" | "custom" | string;
+  custom_name?: string | null;
+  custom_category?: string | null;
+  custom_description?: string | null;
+}
 
 export interface ViewCustomerDialogProps {
   open: boolean;
@@ -27,6 +49,60 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDialogProps) {
+  const [orders, setOrders] = useState<CustomerOrderRow[]>([]);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [orderItems, setOrderItems] = useState<Record<string, CustomerOrderItemRow[]>>({});
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
+  useEffect(() => {
+    if (!open || !row) return;
+    setLoadingOrders(true);
+    (async () => {
+      const { data, error } = await supabase
+        .from("orders")
+        .select("id, order_number, order_date, total_amount, status, payment_status")
+        .eq("customer_id", row.id)
+        .order("order_date", { ascending: false });
+      if (error) {
+        setOrders([]);
+        setLoadingOrders(false);
+        return;
+      }
+      const list: CustomerOrderRow[] = (data ?? []).map((o: any) => ({
+        id: String(o.id),
+        order_number: String(o.order_number ?? ""),
+        order_date: o.order_date ?? null,
+        total_amount: Number(o.total_amount ?? 0),
+        status: String(o.status ?? ""),
+        payment_status: String(o.payment_status ?? ""),
+      }));
+      setOrders(list);
+      setLoadingOrders(false);
+    })();
+  }, [open, row]);
+
+  async function toggleOrder(orderId: string) {
+    setExpandedOrderId((prev) => (prev === orderId ? null : orderId));
+    if (orderItems[orderId]) return;
+    const { data, error } = await supabase
+      .from("order_items")
+      .select(
+        "id, quantity, unit_price, kind, custom_name, custom_category, custom_description"
+      )
+      .eq("order_id", orderId);
+    if (error) return;
+    const list: CustomerOrderItemRow[] = (data ?? []).map((it: any) => ({
+      id: String(it.id),
+      quantity: Number(it.quantity ?? 0),
+      unit_price: Number(it.unit_price ?? 0),
+      kind: (it.kind as string) ?? "variant",
+      custom_name: it.custom_name ?? null,
+      custom_category: it.custom_category ?? null,
+      custom_description: it.custom_description ?? null,
+    }));
+    setOrderItems((prev) => ({ ...prev, [orderId]: list }));
+  }
+
   if (!row) return null;
 
   return (
@@ -119,6 +195,80 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                 )}
               </Section>
             )}
+
+            <Section title="歷史訂單">
+              {loadingOrders ? (
+                <p className="text-sm text-muted-foreground">載入訂單中…</p>
+              ) : orders.length === 0 ? (
+                <p className="text-sm text-muted-foreground">尚無訂單紀錄。</p>
+              ) : (
+                <div className="space-y-2">
+                  {orders.map((o) => {
+                    const isExpanded = expandedOrderId === o.id;
+                    const items = orderItems[o.id] ?? [];
+                    return (
+                      <div
+                        key={o.id}
+                        className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="space-y-0.5">
+                            <div className="font-medium">
+                              {o.order_number || "未命名訂單"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              日期：{o.order_date ? String(o.order_date).slice(0, 10) : "—"} · 金額：
+                              {o.total_amount.toLocaleString()} · 狀態：{o.status || "—"} · 付款：
+                              {o.payment_status || "—"}
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => toggleOrder(o.id)}
+                          >
+                            {isExpanded ? "收合明細" : "查看明細"}
+                          </Button>
+                        </div>
+                        {isExpanded && (
+                          <div className="mt-2 border-t border-border pt-2 space-y-1.5">
+                            {items.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                尚無明細資料。
+                              </p>
+                            ) : (
+                              items.map((it) => (
+                                <div
+                                  key={it.id}
+                                  className="flex flex-col text-xs text-muted-foreground"
+                                >
+                                  <span>
+                                    數量：{it.quantity} · 單價：
+                                    {it.unit_price.toLocaleString()}
+                                  </span>
+                                  {it.kind === "custom" && (
+                                    <span>
+                                      客製：{it.custom_category || ""}{" "}
+                                      {it.custom_name || ""}
+                                    </span>
+                                  )}
+                                  {it.custom_description?.trim() && (
+                                    <span className="whitespace-pre-wrap">
+                                      備註：{it.custom_description.trim()}
+                                    </span>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Section>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

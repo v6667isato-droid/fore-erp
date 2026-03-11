@@ -30,6 +30,8 @@ import { EditSeriesContentDialog } from "@/components/products/edit-series-conte
 import { EditVariantDialog } from "@/components/products/edit-variant-dialog";
 import { ViewSeriesDialog } from "@/components/products/view-series-dialog";
 import { ViewVariantDialog } from "@/components/products/view-variant-dialog";
+import { EditSeriesChannelDiscountDialog } from "@/components/products/edit-series-channel-discount-dialog";
+import type { ChannelOption } from "@/components/products/edit-series-channel-discount-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { exportProductsCsv } from "@/components/products/export-products-csv";
@@ -42,6 +44,8 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     name: String(nameVal ?? ""),
     category: String(r.category ?? ""),
     notes: r.notes != null ? String(r.notes) : null,
+    production_time: r.production_time != null ? String(r.production_time) : null,
+    code_rule: r.code_rule != null ? String(r.code_rule) : null,
     design_concept: r.design_concept != null ? String(r.design_concept) : null,
     faq_scripts: r.faq_scripts != null ? String(r.faq_scripts) : null,
     social_media_copy: r.social_media_copy != null ? String(r.social_media_copy) : null,
@@ -50,6 +54,11 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     website: r.website != null ? String(r.website) : null,
   };
 }
+
+type SeriesDiscount = {
+  channel_id: string;
+  discount_percent: number;
+};
 
 function mapVariant(r: Record<string, unknown>): VariantRow {
   return {
@@ -77,6 +86,8 @@ function formatDim(v: VariantRow): string {
 export function ProductsPage() {
   const [seriesList, setSeriesList] = useState<SeriesRow[]>([]);
   const [variantsList, setVariantsList] = useState<VariantRow[]>([]);
+  const [channels, setChannels] = useState<ChannelOption[]>([]);
+  const [seriesDiscounts, setSeriesDiscounts] = useState<Record<string, SeriesDiscount[]>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -85,10 +96,12 @@ export function ProductsPage() {
   const [editSeries, setEditSeries] = useState<SeriesRow | null>(null);
   const [editContentSeries, setEditContentSeries] = useState<SeriesRow | null>(null);
   const [addVariantSeries, setAddVariantSeries] = useState<SeriesRow | null>(null);
+  const [editDiscountSeries, setEditDiscountSeries] = useState<SeriesRow | null>(null);
   const [viewVariant, setViewVariant] = useState<VariantRow | null>(null);
   const [editVariant, setEditVariant] = useState<VariantRow | null>(null);
   const [deleteConfirmSeries, setDeleteConfirmSeries] = useState<SeriesRow | null>(null);
   const [deleteConfirmVariant, setDeleteConfirmVariant] = useState<VariantRow | null>(null);
+  const [seriesNameAsc, setSeriesNameAsc] = useState(true);
 
   const variantsBySeries = useMemo(() => {
     const map: Record<string, VariantRow[]> = {};
@@ -103,10 +116,28 @@ export function ProductsPage() {
     return [...new Set(seriesList.map((s) => s.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }, [seriesList]);
 
+  const channelNameMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    channels.forEach((c) => {
+      m[c.id] = c.name;
+    });
+    return m;
+  }, [channels]);
+
   const filteredSeries = useMemo(() => {
     if (!filterCategory) return seriesList;
     return seriesList.filter((s) => s.category === filterCategory);
   }, [seriesList, filterCategory]);
+
+  const sortedSeries = useMemo(() => {
+    const base = [...filteredSeries];
+    base.sort((a, b) => {
+      const aName = a.name || "";
+      const bName = b.name || "";
+      return seriesNameAsc ? aName.localeCompare(bName) : bName.localeCompare(aName);
+    });
+    return base;
+  }, [filteredSeries, seriesNameAsc]);
 
   async function fetchData() {
     setLoading(true);
@@ -128,7 +159,7 @@ export function ProductsPage() {
           const minimal = await supabase.from(TABLE_PRODUCT_SERIES).select("id, name, category").order("id", { ascending: true });
           if (!minimal.error) {
             seriesData = minimal.data as Record<string, unknown>[];
-          } else if (/name does not exist/i.test(seriesRes.error.message ?? "")) {
+          } else if (/name/i.test(seriesRes.error.message ?? "")) {
             const contentCols = SERIES_CONTENT_COLUMNS.join(", ");
             const bySeriesNameFull = await supabase.from(TABLE_PRODUCT_SERIES).select(`id, series_name, category, notes, ${contentCols}, website`).order("id", { ascending: true });
             if (!bySeriesNameFull.error) {
@@ -168,8 +199,48 @@ export function ProductsPage() {
     setLoading(false);
   }
 
+  async function fetchChannels() {
+    const { data, error } = await supabase
+      .from("channels")
+      .select("id, name")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true });
+    if (error) {
+      // 通路讀不到時不阻擋產品頁，只在設定折扣時提示
+      return;
+    }
+    setChannels(
+      ((data ?? []) as any[]).map((r) => ({
+        id: String(r.id),
+        name: String(r.name ?? ""),
+      }))
+    );
+  }
+
+  async function fetchSeriesDiscounts() {
+    const { data, error } = await supabase
+      .from("product_series_channel_discounts")
+      .select("series_id, channel_id, discount_percent");
+    if (error) {
+      // 折扣讀不到不影響主畫面，只是在變價時無法顯示
+      return;
+    }
+    const map: Record<string, SeriesDiscount[]> = {};
+    (data ?? []).forEach((row: any) => {
+      const sid = String(row.series_id);
+      if (!map[sid]) map[sid] = [];
+      map[sid].push({
+        channel_id: String(row.channel_id),
+        discount_percent: Number(row.discount_percent ?? 0),
+      });
+    });
+    setSeriesDiscounts(map);
+  }
+
   useEffect(() => {
     fetchData();
+    fetchChannels();
+    fetchSeriesDiscounts();
   }, []);
 
   function toggleExpanded(id: string) {
@@ -328,11 +399,23 @@ export function ProductsPage() {
           <TableHeader>
             <TableRow className="hover:bg-transparent border-b border-border">
               <TableHead className="w-10 p-2" aria-label="展開/收合" />
-              <TableHead className="text-xs font-semibold p-2">系列名稱</TableHead>
+              <TableHead className="text-xs font-semibold p-2">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 hover:text-primary"
+                  onClick={() => setSeriesNameAsc((prev) => !prev)}
+                  aria-label={`依系列名稱排序（目前為${seriesNameAsc ? "升冪" : "降冪"}）`}
+                >
+                  <span>系列名稱</span>
+                  <span className="text-[10px] text-muted-foreground">{seriesNameAsc ? "↑" : "↓"}</span>
+                </button>
+              </TableHead>
               <TableHead className="text-xs font-semibold p-2">類別</TableHead>
               <TableHead className="text-xs font-semibold p-2">規格數</TableHead>
               <TableHead className="text-xs font-semibold p-2">網站</TableHead>
-              <TableHead className="text-xs font-semibold p-2 min-w-[200px]" aria-label="操作">操作</TableHead>
+              <TableHead className="text-xs font-semibold p-2 min-w-[200px] text-right" aria-label="操作">
+                操作
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -343,7 +426,7 @@ export function ProductsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredSeries.map((series) => {
+              sortedSeries.map((series) => {
                 const isExpanded = expandedIds.has(series.id);
                 const variants = variantsBySeries[series.id] ?? [];
                 return (
@@ -380,8 +463,8 @@ export function ProductsPage() {
                           "—"
                         )}
                       </TableCell>
-                      <TableCell className="p-2">
-                        <div className="flex items-center gap-1">
+                      <TableCell className="p-2 text-right">
+                        <div className="flex items-center justify-end gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewSeries(series)} aria-label={`總覽 ${series.name}`}>
                             <Eye className="h-4 w-4" />
                           </Button>
@@ -429,13 +512,14 @@ export function ProductsPage() {
                                     <TableHead className="text-xs font-semibold p-2">木種</TableHead>
                                     <TableHead className="text-xs font-semibold p-2">尺寸</TableHead>
                                     <TableHead className="text-xs font-semibold p-2">定價</TableHead>
+                                    <TableHead className="text-xs font-semibold p-2 min-w-[180px]">通路價格</TableHead>
                                     <TableHead className="text-xs font-semibold p-2 min-w-[120px]">操作</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                   {variants.length === 0 ? (
                                     <TableRow>
-                                      <TableCell colSpan={5} className="h-16 text-center text-sm text-muted-foreground">
+                                      <TableCell colSpan={6} className="h-16 text-center text-sm text-muted-foreground">
                                         尚無規格，請點「新增規格」建立。
                                       </TableCell>
                                     </TableRow>
@@ -446,6 +530,38 @@ export function ProductsPage() {
                                         <TableCell className="text-sm p-2">{v.wood_type || "—"}</TableCell>
                                         <TableCell className="text-sm p-2">{formatDim(v)}</TableCell>
                                         <TableCell className="text-sm p-2">{v.base_price != null ? v.base_price.toLocaleString() : "—"}</TableCell>
+                                        <TableCell className="text-xs p-2 text-muted-foreground">
+                                          {v.base_price == null ? (
+                                            "—"
+                                          ) : (
+                                            (() => {
+                                              const discounts = seriesDiscounts[v.series_id] ?? [];
+                                              const rows = discounts
+                                                .map((d) => {
+                                                  const name = channelNameMap[d.channel_id];
+                                                  if (!name) return null;
+                                                  const price = Math.round(
+                                                    v.base_price! * (1 - d.discount_percent / 100)
+                                                  );
+                                                  const pct = d.discount_percent;
+                                                  const pctText =
+                                                    Number.isFinite(pct) && pct !== 0
+                                                      ? ` (${pct}%)`
+                                                      : "";
+                                                  return `${name}: ${price.toLocaleString()}${pctText}`;
+                                                })
+                                                .filter(Boolean) as string[];
+                                              if (!rows.length) return "尚未設定";
+                                              return (
+                                                <div className="space-y-0.5">
+                                                  {rows.map((text) => (
+                                                    <div key={text}>{text}</div>
+                                                  ))}
+                                                </div>
+                                              );
+                                            })()
+                                          )}
+                                        </TableCell>
                                         <TableCell className="p-2">
                                           <div className="flex items-center gap-1">
                                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewVariant(v)} aria-label={`檢視 ${v.product_code}`}>
@@ -486,6 +602,15 @@ export function ProductsPage() {
         onSuccess={() => {
           fetchData();
           setEditContentSeries(null);
+        }}
+      />
+      <EditSeriesChannelDiscountDialog
+        open={editDiscountSeries != null}
+        onOpenChange={(open) => !open && setEditDiscountSeries(null)}
+        series={editDiscountSeries}
+        channels={channels}
+        onSuccess={() => {
+          setEditDiscountSeries(null);
         }}
       />
       <AddVariantDialog

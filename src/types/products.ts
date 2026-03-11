@@ -7,6 +7,10 @@ export interface SeriesRow {
   name: string;
   category: string;
   notes?: string | null;
+  /** 製作時間（例如天數／週數文字） */
+  production_time?: string | null;
+  /** 編碼原則，提示產品代碼如何命名 */
+  code_rule?: string | null;
   design_concept?: string | null;
   faq_scripts?: string | null;
   social_media_copy?: string | null;

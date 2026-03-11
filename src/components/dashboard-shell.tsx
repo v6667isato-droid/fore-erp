@@ -7,6 +7,7 @@ import {
   ShoppingCart,
   Menu,
   Package,
+  Store,
   TrendingUp,
   Clock,
   Users,
@@ -28,13 +29,14 @@ import { ProductsPage } from "@/components/products-page";
 import { CustomersPage } from "@/components/customers-page";
 import { EmployeesPage } from "@/components/employees-page";
 import { FeedbackPage } from "@/components/feedback-page";
+import { ChannelsPage } from "@/components/channels-page";
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { dashboardStats } from "@/lib/mock-data";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
-type Page = "dashboard" | "orders" | "kanban" | "procurement" | "vendors" | "products" | "customers" | "employees" | "feedback";
+type Page = "dashboard" | "orders" | "kanban" | "procurement" | "vendors" | "products" | "customers" | "channels" | "employees" | "feedback";
 type AppRole = "admin" | "staff" | null;
 
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
@@ -42,6 +44,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "products", label: "產品資料", icon: Package },
   { id: "orders", label: "訂單管理", icon: ClipboardList },
   { id: "customers", label: "客戶資料", icon: Users },
+  { id: "channels", label: "通路管理", icon: Store },
   { id: "kanban", label: "生產看板", icon: Package },
   { id: "procurement", label: "採購成本", icon: ShoppingCart },
   { id: "vendors", label: "廠商資料", icon: Building2 },
@@ -355,6 +358,7 @@ export default function DashboardShell() {
           {activePage === "vendors" && <VendorsPage />}
           {activePage === "products" && <ProductsPage />}
           {activePage === "customers" && <CustomersPage />}
+          {activePage === "channels" && <ChannelsPage />}
           {activePage === "employees" && <EmployeesPage />}
           {activePage === "feedback" && <FeedbackPage />}
         </div>
