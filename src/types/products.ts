@@ -34,4 +34,6 @@ export interface VariantRow {
   dimension_h?: number | null;
   base_price?: number | null;
   desktop_area?: number | null;
+  /** 通用規格1（例如椅子的「坐墊規格」） */
+  spec1?: string | null;
 }

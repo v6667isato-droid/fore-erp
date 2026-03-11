@@ -24,6 +24,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const [d, setD] = useState("");
   const [h, setH] = useState("");
   const [price, setPrice] = useState("");
+  const [spec1, setSpec1] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +36,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       setD("");
       setH("");
       setPrice("");
+      setSpec1("");
       setError(null);
     }
   }, [open, series]);
@@ -52,7 +54,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       return;
     }
     setAdding(true);
-    const payload = {
+    const payload: Record<string, unknown> = {
       series_id: series.id,
       product_code: code.trim(),
       wood_type: woodType.trim() || null,
@@ -61,6 +63,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       dimension_h: h.trim() ? Number(h) : null,
       base_price: price.trim() ? Number(price) : null,
     };
+    payload.spec1 = spec1.trim() || null;
     const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).insert(payload);
     setAdding(false);
     if (err) {
@@ -107,7 +110,21 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-variant-wood" className="text-xs text-muted-foreground">木種</label>
-              <input id="add-variant-wood" type="text" value={woodType} onChange={(e) => setWoodType(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+              <input
+                id="add-variant-wood"
+                type="text"
+                list="add-variant-wood-list"
+                value={woodType}
+                onChange={(e) => setWoodType(e.target.value)}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="例：白橡木"
+              />
+              <datalist id="add-variant-wood-list">
+                <option value="白橡木" />
+                <option value="胡桃木" />
+                <option value="柚木" />
+                <option value="雞翅木" />
+              </datalist>
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="flex flex-col gap-1.5">
@@ -126,6 +143,32 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-variant-price" className="text-xs text-muted-foreground">基礎定價</label>
               <input id="add-variant-price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="元" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="add-variant-spec1" className="text-xs text-muted-foreground">規格 1</label>
+              {series.category === "椅" ? (
+                <select
+                  id="add-variant-spec1"
+                  value={spec1}
+                  onChange={(e) => setSpec1(e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">—</option>
+                  <option value="紙繩-P">紙繩-P</option>
+                  <option value="藤編-R">藤編-R</option>
+                  <option value="實木-W">實木-W</option>
+                  <option value="布墊-F">布墊-F</option>
+                </select>
+              ) : (
+                <input
+                  id="add-variant-spec1"
+                  type="text"
+                  value={spec1}
+                  onChange={(e) => setSpec1(e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="可自訂此類別的第一個規格"
+                />
+              )}
             </div>
             {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
             <div className="flex justify-end gap-2 pt-1">

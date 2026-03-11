@@ -22,7 +22,7 @@ import {
   VARIANT_SELECT_MINIMAL,
   SERIES_CONTENT_COLUMNS,
 } from "@/lib/products-db";
-import { Package, ChevronDown, ChevronRight, FileText, Plus, Eye, Pencil, Trash2, Download } from "lucide-react";
+import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download } from "lucide-react";
 import { AddSeriesDialog } from "@/components/products/add-series-dialog";
 import { AddVariantDialog } from "@/components/products/add-variant-dialog";
 import { EditSeriesDialog } from "@/components/products/edit-series-dialog";
@@ -71,6 +71,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     dimension_h: r.dimension_h != null ? Number(r.dimension_h) : null,
     base_price: r.base_price != null ? Number(r.base_price) : null,
     desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
+    spec1: r.spec1 != null ? String(r.spec1) : null,
   };
 }
 
@@ -94,7 +95,6 @@ export function ProductsPage() {
   const [filterCategory, setFilterCategory] = useState("");
   const [viewSeries, setViewSeries] = useState<SeriesRow | null>(null);
   const [editSeries, setEditSeries] = useState<SeriesRow | null>(null);
-  const [editContentSeries, setEditContentSeries] = useState<SeriesRow | null>(null);
   const [addVariantSeries, setAddVariantSeries] = useState<SeriesRow | null>(null);
   const [editDiscountSeries, setEditDiscountSeries] = useState<SeriesRow | null>(null);
   const [viewVariant, setViewVariant] = useState<VariantRow | null>(null);
@@ -147,29 +147,56 @@ export function ProductsPage() {
 
     const seriesRes = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT).order("id", { ascending: true });
     if (seriesRes.error) {
-      const noWebsite = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT_NO_WEBSITE).order("id", { ascending: true });
-      if (!noWebsite.error) {
-        seriesData = noWebsite.data as Record<string, unknown>[];
+      // 若完整欄位失敗，先嘗試只取基本欄位（仍包含 code_rule），避免因為文案欄位不存在而看不到編碼原則
+      const basicRes = await supabase
+        .from(TABLE_PRODUCT_SERIES)
+        .select("id, name, category, notes, production_time, code_rule, website")
+        .order("id", { ascending: true });
+      if (!basicRes.error) {
+        seriesData = basicRes.data as Record<string, unknown>[];
+      } else {
+        const noWebsite = await supabase
+          .from(TABLE_PRODUCT_SERIES)
+          .select(SERIES_SELECT_NO_WEBSITE)
+          .order("id", { ascending: true });
+        if (!noWebsite.error) {
+          seriesData = noWebsite.data as Record<string, unknown>[];
+        }
       }
       if (seriesData === null) {
-        const fallback = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT_MINIMAL).order("id", { ascending: true });
+        const fallback = await supabase
+          .from(TABLE_PRODUCT_SERIES)
+          .select(SERIES_SELECT_MINIMAL)
+          .order("id", { ascending: true });
         if (!fallback.error) {
           seriesData = fallback.data as Record<string, unknown>[];
         } else {
-          const minimal = await supabase.from(TABLE_PRODUCT_SERIES).select("id, name, category").order("id", { ascending: true });
+          const minimal = await supabase
+            .from(TABLE_PRODUCT_SERIES)
+            .select("id, name, category")
+            .order("id", { ascending: true });
           if (!minimal.error) {
             seriesData = minimal.data as Record<string, unknown>[];
           } else if (/name/i.test(seriesRes.error.message ?? "")) {
             const contentCols = SERIES_CONTENT_COLUMNS.join(", ");
-            const bySeriesNameFull = await supabase.from(TABLE_PRODUCT_SERIES).select(`id, series_name, category, notes, ${contentCols}, website`).order("id", { ascending: true });
+            const bySeriesNameFull = await supabase
+              .from(TABLE_PRODUCT_SERIES)
+              .select(`id, series_name, category, notes, production_time, code_rule, ${contentCols}, website`)
+              .order("id", { ascending: true });
             if (!bySeriesNameFull.error) {
               seriesData = (bySeriesNameFull.data ?? []) as unknown as Record<string, unknown>[];
             } else {
-              const bySeriesName = await supabase.from(TABLE_PRODUCT_SERIES).select("id, series_name, category").order("id", { ascending: true });
+              const bySeriesName = await supabase
+                .from(TABLE_PRODUCT_SERIES)
+                .select("id, series_name, category")
+                .order("id", { ascending: true });
               if (!bySeriesName.error) {
                 seriesData = bySeriesName.data as Record<string, unknown>[];
               } else {
-                const altMin = await supabase.from(TABLE_PRODUCT_SERIES).select("id, series_name").order("id", { ascending: true });
+                const altMin = await supabase
+                  .from(TABLE_PRODUCT_SERIES)
+                  .select("id, series_name")
+                  .order("id", { ascending: true });
                 if (!altMin.error) {
                   seriesData = altMin.data as Record<string, unknown>[];
                 } else {
@@ -277,7 +304,6 @@ export function ProductsPage() {
     fetchData();
     setViewSeries(null);
     setEditSeries(null);
-    setEditContentSeries(null);
     setAddVariantSeries(null);
   }
 
@@ -399,15 +425,17 @@ export function ProductsPage() {
           <TableHeader>
             <TableRow className="hover:bg-transparent border-b border-border">
               <TableHead className="w-10 p-2" aria-label="展開/收合" />
-              <TableHead className="text-xs font-semibold p-2">
+              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 hover:text-primary"
+                  className="inline-flex items-center gap-1.5 hover:text-primary"
                   onClick={() => setSeriesNameAsc((prev) => !prev)}
                   aria-label={`依系列名稱排序（目前為${seriesNameAsc ? "升冪" : "降冪"}）`}
                 >
                   <span>系列名稱</span>
-                  <span className="text-[10px] text-muted-foreground">{seriesNameAsc ? "↑" : "↓"}</span>
+                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                    {seriesNameAsc ? "↑" : "↓"}
+                  </span>
                 </button>
               </TableHead>
               <TableHead className="text-xs font-semibold p-2">類別</TableHead>
@@ -443,8 +471,18 @@ export function ProductsPage() {
                         </button>
                       </TableCell>
                       <TableCell className="text-sm font-medium p-2">
-                        <span>{series.name || "—"}</span>
-                        {series.notes?.trim() && <span className="ml-1.5 text-xs text-muted-foreground">{series.notes}</span>}
+                        <button
+                          type="button"
+                          onClick={() => setViewSeries(series)}
+                          className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                        >
+                          <span>{series.name || "—"}</span>
+                          {series.notes?.trim() && (
+                            <span className="ml-1.5 text-xs text-muted-foreground">
+                              {series.notes}
+                            </span>
+                          )}
+                        </button>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground p-2">{series.category || "—"}</TableCell>
                       <TableCell className="text-sm text-muted-foreground p-2">{variants.length}</TableCell>
@@ -470,9 +508,6 @@ export function ProductsPage() {
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditSeries(series)} aria-label={`編輯系列 ${series.name}`}>
                             <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditContentSeries(series)} aria-label={`編輯文案 ${series.name}`}>
-                            <FileText className="h-4 w-4" />
                           </Button>
                           <Button
                             type="button"
@@ -510,6 +545,7 @@ export function ProductsPage() {
                                   <TableRow className="hover:bg-transparent border-b border-border">
                                     <TableHead className="text-xs font-semibold p-2">代碼</TableHead>
                                     <TableHead className="text-xs font-semibold p-2">木種</TableHead>
+                                    <TableHead className="text-xs font-semibold p-2">規格</TableHead>
                                     <TableHead className="text-xs font-semibold p-2">尺寸</TableHead>
                                     <TableHead className="text-xs font-semibold p-2">定價</TableHead>
                                     <TableHead className="text-xs font-semibold p-2 min-w-[180px]">通路價格</TableHead>
@@ -528,6 +564,7 @@ export function ProductsPage() {
                                       <TableRow key={v.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                                         <TableCell className="text-sm p-2">{v.product_code || "—"}</TableCell>
                                         <TableCell className="text-sm p-2">{v.wood_type || "—"}</TableCell>
+                                        <TableCell className="text-sm p-2">{v.spec1 || "—"}</TableCell>
                                         <TableCell className="text-sm p-2">{formatDim(v)}</TableCell>
                                         <TableCell className="text-sm p-2">{v.base_price != null ? v.base_price.toLocaleString() : "—"}</TableCell>
                                         <TableCell className="text-xs p-2 text-muted-foreground">
@@ -595,15 +632,6 @@ export function ProductsPage() {
 
       <ViewSeriesDialog open={viewSeries != null} onOpenChange={(open) => !open && setViewSeries(null)} row={viewSeries} variants={viewSeries ? (variantsBySeries[viewSeries.id] ?? []) : []} />
       <EditSeriesDialog open={editSeries != null} onOpenChange={(open) => !open && setEditSeries(null)} row={editSeries} onSuccess={() => { fetchData(); setEditSeries(null); }} />
-      <EditSeriesContentDialog
-        open={editContentSeries != null}
-        onOpenChange={(open) => !open && setEditContentSeries(null)}
-        row={editContentSeries}
-        onSuccess={() => {
-          fetchData();
-          setEditContentSeries(null);
-        }}
-      />
       <EditSeriesChannelDiscountDialog
         open={editDiscountSeries != null}
         onOpenChange={(open) => !open && setEditDiscountSeries(null)}

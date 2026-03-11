@@ -14,6 +14,7 @@ interface PortalSession {
   customer_id: string;
   customer_name: string;
   delivery_address: string | null;
+  channel_id: string | null;
 }
 
 interface VariantOption {
@@ -105,11 +106,41 @@ export default function PortalPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<MyOrderRow | null>(null);
 
-  const loadVariants = useCallback(async () => {
+  const loadVariants = useCallback(async (channelId: string | null) => {
+    if (!channelId) {
+      setVariants([]);
+      return;
+    }
+
+    // 只載入「有為此通路設定折扣」的系列之規格
+    const { data: discountRows, error: discountError } = await supabase
+      .from("product_series_channel_discounts")
+      .select("series_id")
+      .eq("channel_id", channelId);
+
+    if (discountError) {
+      setVariants([]);
+      return;
+    }
+
+    const seriesIds = Array.from(
+      new Set(
+        (discountRows ?? []).map((r: any) => String(r.series_id))
+      )
+    );
+    if (!seriesIds.length) {
+      setVariants([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("product_variants")
-      .select("id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price")
+      .select(
+        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price"
+      )
+      .in("series_id", seriesIds)
       .order("product_code", { ascending: true });
+
     setVariants(
       ((data ?? []) as any[]).map((v) => {
         const w = v.dimension_w ?? "";
@@ -131,10 +162,11 @@ export default function PortalPage() {
   }, []);
 
   useEffect(() => {
-    setSessionState(getSession());
+    const s = getSession();
+    setSessionState(s);
     const today = new Date().toISOString().slice(0, 10);
     setOrderDate(today);
-    loadVariants().then(() => setLoading(false));
+    loadVariants(s?.channel_id ?? null).then(() => setLoading(false));
   }, [loadVariants]);
 
   useEffect(() => {
@@ -193,10 +225,13 @@ export default function PortalPage() {
         customer_id: json.customer_id,
         customer_name: json.customer_name ?? "",
         delivery_address: json.delivery_address ?? null,
+        channel_id: json.channel_id ?? null,
       };
       setSession(newSession);
       setSessionState(newSession);
       setShippingAddress(newSession.delivery_address ?? "");
+      // 依通路重新載入可選規格
+      await loadVariants(newSession.channel_id ?? null);
       toast.success("登入成功");
     } finally {
       setLoginSubmitting(false);

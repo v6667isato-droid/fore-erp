@@ -11,10 +11,6 @@ export interface CustomerRow {
   source?: string | null;
   /** 客戶種類 */
   customer_type?: string | null;
-  /** 通路下單入口登入代碼 */
-  portal_code?: string | null;
-  /** 通路下單入口密碼 */
-  portal_password?: string | null;
   /** 所屬通路 ID（報價/訂單用該通路價） */
   channel_id?: string | null;
 }

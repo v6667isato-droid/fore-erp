@@ -34,8 +34,6 @@ export function AddCustomerDialog({ channels = [], onSuccess }: AddCustomerDialo
   const [source, setSource] = useState("");
   const [customerType, setCustomerType] = useState("");
   const [channelId, setChannelId] = useState("");
-  const [portalCode, setPortalCode] = useState("");
-  const [portalPassword, setPortalPassword] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,8 +48,6 @@ export function AddCustomerDialog({ channels = [], onSuccess }: AddCustomerDialo
       setSource("");
       setCustomerType("");
       setChannelId("");
-      setPortalCode("");
-      setPortalPassword("");
       setError(null);
     }
   }, [open]);
@@ -81,13 +77,11 @@ export function AddCustomerDialog({ channels = [], onSuccess }: AddCustomerDialo
       source: source.trim() || null,
       customer_type: customerType.trim() || null,
       channel_id: channelId.trim() || null,
-      portal_code: portalCode.trim() || null,
-      portal_password: portalPassword.trim() || null,
     };
     let payload: Record<string, unknown> = { ...full };
     let { error: err } = await supabase.from("customers").insert(payload);
     if (err && isColumnError(err)) {
-      const optional = ["notes", "source", "customer_type", "delivery_address", "line_id", "ig_account", "phone", "portal_code", "portal_password"];
+      const optional = ["notes", "source", "customer_type", "delivery_address", "line_id", "ig_account", "phone"];
       for (const key of optional) {
         const next = { ...payload };
         delete next[key];
@@ -272,31 +266,6 @@ export function AddCustomerDialog({ channels = [], onSuccess }: AddCustomerDialo
                 className="min-h-[80px] w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="備註、偏好、往來紀錄等"
               />
-            </div>
-            <div className="border-t border-border pt-3 space-y-3">
-              <p className="text-xs font-medium text-muted-foreground">通路下單入口（選填）</p>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="add-portal-code" className="text-xs text-muted-foreground">通路代碼</label>
-                <input
-                  id="add-portal-code"
-                  type="text"
-                  value={portalCode}
-                  onChange={(e) => setPortalCode(e.target.value)}
-                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="供通路商登入 /portal 使用，需唯一"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="add-portal-password" className="text-xs text-muted-foreground">通路密碼</label>
-                <input
-                  id="add-portal-password"
-                  type="password"
-                  value={portalPassword}
-                  onChange={(e) => setPortalPassword(e.target.value)}
-                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="登入時輸入的密碼"
-                />
-              </div>
             </div>
             {error && (
               <p className="text-xs text-destructive" role="alert">

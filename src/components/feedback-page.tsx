@@ -83,7 +83,7 @@ export function FeedbackPage() {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterCompleted, setFilterCompleted] = useState<"" | "yes" | "no">("");
-  const [sortKey, setSortKey] = useState<keyof FeedbackRow | "">("created_at");
+  const [sortKey, setSortKey] = useState<keyof FeedbackRow | "">("priority");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -208,9 +208,18 @@ export function FeedbackPage() {
         const bTime = bVal ? new Date(bVal).getTime() : 0;
         cmp = aTime - bTime;
       } else {
-        const aStr = (aVal ?? "") as string;
-        const bStr = (bVal ?? "") as string;
-        cmp = aStr.localeCompare(bStr, "zh-TW");
+        if (sortKey === "priority") {
+          const weight: Record<string, number> = { 高: 3, 中: 2, 低: 1 };
+          const aPriority = isNearDue(a) ? "高" : ((aVal ?? "") as string);
+          const bPriority = isNearDue(b) ? "高" : ((bVal ?? "") as string);
+          const aw = weight[aPriority] ?? 0;
+          const bw = weight[bPriority] ?? 0;
+          cmp = aw - bw;
+        } else {
+          const aStr = (aVal ?? "") as string;
+          const bStr = (bVal ?? "") as string;
+          cmp = aStr.localeCompare(bStr, "zh-TW");
+        }
       }
       return sortOrder === "asc" ? cmp : -cmp;
     });
@@ -440,6 +449,20 @@ export function FeedbackPage() {
     return "bg-muted text-muted-foreground border-transparent";
   }
 
+  function isNearDue(row: FeedbackRow): boolean {
+    if (!row.completed_at || row.status === "已完成") return false;
+    try {
+      const target = new Date(row.completed_at);
+      if (Number.isNaN(target.getTime())) return false;
+      const now = new Date();
+      const diffMs = target.getTime() - now.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+      return diffDays >= 0 && diffDays <= 30;
+    } catch {
+      return false;
+    }
+  }
+
   async function handleInlineStatusChange(row: FeedbackRow, nextStatus: string) {
     if (!nextStatus) return;
     const prevStatus = row.status;
@@ -587,7 +610,13 @@ export function FeedbackPage() {
                 return (
                 <TableRow key={r.id} className="border-b border-border">
                   <TableCell className="text-sm">
-                    <div className="font-medium">{r.title}</div>
+                    <button
+                      type="button"
+                      onClick={() => openEdit(r)}
+                      className="font-medium text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                    >
+                      {r.title}
+                    </button>
                     {r.description && (
                       <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
                         {linkifyDescription(r.description)}
@@ -613,17 +642,20 @@ export function FeedbackPage() {
                     </select>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
-                    {r.priority ? (
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${getPriorityClasses(
-                          r.priority
-                        )}`}
-                      >
-                        {r.priority}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
+                    {(() => {
+                      const nearDue = isNearDue(r);
+                      const displayPriority = nearDue ? "高" : r.priority;
+                      if (!displayPriority) return "—";
+                      return (
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${getPriorityClasses(
+                            displayPriority
+                          )}`}
+                        >
+                          {displayPriority}
+                        </span>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
                     {r.reporter || "—"}

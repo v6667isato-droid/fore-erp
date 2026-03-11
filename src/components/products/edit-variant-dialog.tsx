@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_VARIANTS } from "@/lib/products-db";
+import { TABLE_PRODUCT_VARIANTS, TABLE_PRODUCT_SERIES } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -26,6 +26,9 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
   const [price, setPrice] = useState("");
   const [channels, setChannels] = useState<{ id: string; name: string }[]>([]);
   const [channelPrices, setChannelPrices] = useState<Record<string, string>>({});
+  const [seriesCodeRule, setSeriesCodeRule] = useState<string | null>(null);
+  const [seriesCategory, setSeriesCategory] = useState<string | null>(null);
+  const [spec1, setSpec1] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,21 +41,32 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       setH(row.dimension_h != null ? String(row.dimension_h) : "");
       setPrice(row.base_price != null ? String(row.base_price) : "");
       setError(null);
+      setSeriesCodeRule(null);
+      setSeriesCategory(null);
+      setSpec1(row.spec1 ?? "");
     }
   }, [open, row]);
 
   useEffect(() => {
     if (!open || !row) return;
     (async () => {
-      const [chRes, pricesRes, discountRes] = await Promise.all([
+      const [chRes, pricesRes, discountRes, seriesRes] = await Promise.all([
         supabase.from("channels").select("id, name").order("sort_order").order("name"),
         supabase.from("product_variant_channel_prices").select("channel_id, price").eq("variant_id", row.id),
         supabase
           .from("product_series_channel_discounts")
           .select("channel_id, discount_percent")
           .eq("series_id", row.series_id),
+        supabase
+          .from(TABLE_PRODUCT_SERIES)
+          .select("code_rule, category")
+          .eq("id", row.series_id)
+          .maybeSingle(),
       ]);
-      const chList = ((chRes.data ?? []) as { id: string; name: string }[]).map((c) => ({ id: c.id, name: String(c.name ?? "") }));
+      const chList = ((chRes.data ?? []) as { id: string; name: string }[]).map((c) => ({
+        id: c.id,
+        name: String(c.name ?? ""),
+      }));
       setChannels(chList);
       const overrideMap: Record<string, string> = {};
       ((pricesRes.data ?? []) as { channel_id: string; price: number }[]).forEach((p) => {
@@ -77,6 +91,23 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
         }
       });
       setChannelPrices(prices);
+      if (!seriesRes.error && seriesRes.data) {
+        const data = seriesRes.data as any;
+        if (typeof data.code_rule === "string") {
+          const val = data.code_rule.trim();
+          setSeriesCodeRule(val || null);
+        } else {
+          setSeriesCodeRule(null);
+        }
+        if (typeof data.category === "string") {
+          setSeriesCategory(data.category);
+        } else {
+          setSeriesCategory(null);
+        }
+      } else {
+        setSeriesCodeRule(null);
+        setSeriesCategory(null);
+      }
     })();
   }, [open, row]);
 
@@ -93,7 +124,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       return;
     }
     setSaving(true);
-    const payload = {
+    const payload: Record<string, unknown> = {
       product_code: code.trim(),
       wood_type: woodType.trim() || null,
       dimension_w: w.trim() ? Number(w) : null,
@@ -101,6 +132,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       dimension_h: h.trim() ? Number(h) : null,
       base_price: price.trim() ? Number(price) : null,
     };
+    payload.spec1 = spec1.trim() || null;
     const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).update(payload).eq("id", row.id);
     if (err) {
       setSaving(false);
@@ -153,10 +185,29 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-variant-code" className="text-xs text-muted-foreground">產品代碼 *</label>
               <input ref={firstRef} id="edit-variant-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />
+              {seriesCodeRule && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  編碼原則：{seriesCodeRule}
+                </p>
+              )}
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-variant-wood" className="text-xs text-muted-foreground">木種</label>
-              <input id="edit-variant-wood" type="text" value={woodType} onChange={(e) => setWoodType(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+              <input
+                id="edit-variant-wood"
+                type="text"
+                list="edit-variant-wood-list"
+                value={woodType}
+                onChange={(e) => setWoodType(e.target.value)}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="例：白橡木"
+              />
+              <datalist id="edit-variant-wood-list">
+                <option value="白橡木" />
+                <option value="胡桃木" />
+                <option value="柚木" />
+                <option value="雞翅木" />
+              </datalist>
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="flex flex-col gap-1.5">
@@ -176,26 +227,60 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
               <label htmlFor="edit-variant-price" className="text-xs text-muted-foreground">基礎定價</label>
               <input id="edit-variant-price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
-            {channels.length > 0 && (
-              <div className="border-t border-border pt-3 space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">通路售價（選填，未填則以基礎定價為準）</p>
-                {channels.map((ch) => (
-                  <div key={ch.id} className="flex items-center gap-2">
-                    <label htmlFor={`edit-variant-channel-${ch.id}`} className="text-xs text-muted-foreground w-24 shrink-0">{ch.name}</label>
-                    <input
-                      id={`edit-variant-channel-${ch.id}`}
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={channelPrices[ch.id] ?? ""}
-                      onChange={(e) => setChannelPrices((prev) => ({ ...prev, [ch.id]: e.target.value }))}
-                      className="h-9 flex-1 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder="未設定"
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-variant-spec1" className="text-xs text-muted-foreground">規格 1</label>
+              {seriesCategory === "椅" ? (
+                <select
+                  id="edit-variant-spec1"
+                  value={spec1}
+                  onChange={(e) => setSpec1(e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">—</option>
+                  <option value="紙繩-P">紙繩-P</option>
+                  <option value="藤編-R">藤編-R</option>
+                  <option value="實木-W">實木-W</option>
+                  <option value="布墊-F">布墊-F</option>
+                </select>
+              ) : (
+                <input
+                  id="edit-variant-spec1"
+                  type="text"
+                  value={spec1}
+                  onChange={(e) => setSpec1(e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="可自訂此類別的第一個規格"
+                />
+              )}
+            </div>
+            {channels.length > 0 && (() => {
+              const visibleChannels = channels.filter((ch) => {
+                const raw = (channelPrices[ch.id] ?? "").trim();
+                return raw !== "" && !Number.isNaN(Number(raw));
+              });
+              if (!visibleChannels.length) return null;
+              return (
+                <div className="border-t border-border pt-3 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    通路售價（依系列折扣或通路價自動計算，僅顯示已設定者）
+                  </p>
+                  {visibleChannels.map((ch) => {
+                    const raw = (channelPrices[ch.id] ?? "").trim();
+                    const num = Number(raw);
+                    return (
+                      <div key={ch.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="text-xs text-muted-foreground w-24 shrink-0">
+                          {ch.name}
+                        </span>
+                        <span className="flex-1 text-right font-medium">
+                          {Number.isFinite(num) ? num.toLocaleString() : "—"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
             {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
             <div className="flex justify-end gap-2 pt-1">
               <Dialog.Close asChild><Button type="button" variant="ghost" disabled={saving}>取消</Button></Dialog.Close>

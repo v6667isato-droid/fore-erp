@@ -84,22 +84,48 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
   async function toggleOrder(orderId: string) {
     setExpandedOrderId((prev) => (prev === orderId ? null : orderId));
     if (orderItems[orderId]) return;
-    const { data, error } = await supabase
-      .from("order_items")
+    // 優先讀取完整欄位；若部分欄位不存在（舊資料庫），則退回精簡欄位
+    let list: CustomerOrderItemRow[] = [];
+    const baseQuery = supabase.from("order_items");
+    let { data, error } = await baseQuery
       .select(
-        "id, quantity, unit_price, kind, custom_name, custom_category, custom_description"
+      "id, quantity, unit_price, kind, custom_name, custom_category, custom_description"
       )
       .eq("order_id", orderId);
-    if (error) return;
-    const list: CustomerOrderItemRow[] = (data ?? []).map((it: any) => ({
-      id: String(it.id),
-      quantity: Number(it.quantity ?? 0),
-      unit_price: Number(it.unit_price ?? 0),
-      kind: (it.kind as string) ?? "variant",
-      custom_name: it.custom_name ?? null,
-      custom_category: it.custom_category ?? null,
-      custom_description: it.custom_description ?? null,
-    }));
+    if (error) {
+      const msg = (error.message ?? "").toLowerCase();
+      const isColumnError =
+        msg.includes("column") && msg.includes("does not exist");
+      if (!isColumnError) {
+        return;
+      }
+      const fallback = await baseQuery
+        .select("id, quantity, unit_price")
+        .eq("order_id", orderId);
+      if (fallback.error) {
+        return;
+      }
+      const fbData = (fallback.data ?? []) as any[];
+      list = fbData.map((it: any) => ({
+        id: String(it.id),
+        quantity: Number(it.quantity ?? 0),
+        unit_price: Number(it.unit_price ?? 0),
+        kind: "variant",
+        custom_name: null,
+        custom_category: null,
+        custom_description: null,
+      }));
+    } else {
+      list = (data ?? []).map((it: any) => ({
+        id: String(it.id),
+        quantity: Number(it.quantity ?? 0),
+        unit_price: Number(it.unit_price ?? 0),
+        kind: (it.kind as string) ?? "variant",
+        custom_name: it.custom_name ?? null,
+        custom_category: it.custom_category ?? null,
+        custom_description: it.custom_description ?? null,
+      }));
+    }
     setOrderItems((prev) => ({ ...prev, [orderId]: list }));
   }
 
@@ -110,7 +136,7 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
+          className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-lg focus:outline-none"
           onCloseAutoFocus={(e) => e.preventDefault()}
           aria-describedby="view-customer-desc"
         >
@@ -135,39 +161,41 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
           </div>
 
           <div className="mt-4 space-y-5">
-            <Section title="基本資料">
-              <div>
-                <dt className="text-muted-foreground">客戶姓名</dt>
-                <dd className="font-medium">{row.name || "—"}</dd>
-              </div>
-              {row.source?.trim() && (
+            <div className="grid gap-5 md:grid-cols-2">
+              <Section title="基本資料">
                 <div>
-                  <dt className="text-muted-foreground">客戶來源</dt>
-                  <dd>{row.source.trim()}</dd>
+                  <dt className="text-muted-foreground">客戶姓名</dt>
+                  <dd className="font-medium">{row.name || "—"}</dd>
                 </div>
-              )}
-              {row.customer_type?.trim() && (
-                <div>
-                  <dt className="text-muted-foreground">客戶種類</dt>
-                  <dd>{row.customer_type.trim()}</dd>
-                </div>
-              )}
-            </Section>
+                {row.source?.trim() && (
+                  <div>
+                    <dt className="text-muted-foreground">客戶來源</dt>
+                    <dd>{row.source.trim()}</dd>
+                  </div>
+                )}
+                {row.customer_type?.trim() && (
+                  <div>
+                    <dt className="text-muted-foreground">客戶種類</dt>
+                    <dd>{row.customer_type.trim()}</dd>
+                  </div>
+                )}
+              </Section>
 
-            <Section title="聯絡方式">
-              <div>
-                <dt className="text-muted-foreground">電話</dt>
-                <dd>{row.phone ?? "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">LINE ID</dt>
-                <dd>{row.line_id?.trim() ? row.line_id.trim() : "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">IG 帳號</dt>
-                <dd>{row.ig_account?.trim() ? row.ig_account.trim() : "—"}</dd>
-              </div>
-            </Section>
+              <Section title="聯絡方式">
+                <div>
+                  <dt className="text-muted-foreground">電話</dt>
+                  <dd>{row.phone ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">LINE ID</dt>
+                  <dd>{row.line_id?.trim() ? row.line_id.trim() : "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">IG 帳號</dt>
+                  <dd>{row.ig_account?.trim() ? row.ig_account.trim() : "—"}</dd>
+                </div>
+              </Section>
+            </div>
 
             {(row.delivery_address?.trim() || row.notes?.trim()) && (
               <Section title="送貨與備註">
@@ -190,7 +218,9 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                 {row.notes?.trim() && (
                   <div>
                     <dt className="text-muted-foreground">客情備註</dt>
-                    <dd className="whitespace-pre-wrap text-muted-foreground">{row.notes.trim()}</dd>
+                    <dd className="whitespace-pre-wrap text-muted-foreground">
+                      {row.notes.trim()}
+                    </dd>
                   </div>
                 )}
               </Section>
@@ -202,7 +232,7 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
               ) : orders.length === 0 ? (
                 <p className="text-sm text-muted-foreground">尚無訂單紀錄。</p>
               ) : (
-                <div className="space-y-2">
+                <div className="grid gap-3 md:grid-cols-2">
                   {orders.map((o) => {
                     const isExpanded = expandedOrderId === o.id;
                     const items = orderItems[o.id] ?? [];

@@ -21,20 +21,20 @@ import type { SeriesRow } from "@/types/products";
 export interface ChannelRow {
   id: string;
   name: string;
-  code: string | null;
-  sort_order: number;
   created_at: string | null;
+  portal_code: string | null;
+  portal_password: string | null;
 }
 
-const CHANNEL_SELECT = "id, name, code, sort_order, created_at";
+const CHANNEL_SELECT = "id, name, created_at, portal_code, portal_password";
 
 function mapChannelRow(r: Record<string, unknown>): ChannelRow {
   return {
     id: String(r.id),
     name: String(r.name ?? ""),
-    code: r.code != null ? String(r.code) : null,
-    sort_order: Number(r.sort_order ?? 0),
     created_at: r.created_at != null ? String(r.created_at) : null,
+    portal_code: r.portal_code != null ? String(r.portal_code) : null,
+    portal_password: r.portal_password != null ? String(r.portal_password) : null,
   };
 }
 
@@ -51,7 +51,7 @@ export function ChannelsPage() {
     const { data, error } = await supabase
       .from("channels")
       .select(CHANNEL_SELECT)
-      .order("sort_order", { ascending: true })
+      .order("portal_code", { ascending: true })
       .order("name", { ascending: true });
     setLoading(false);
     if (error) {
@@ -103,8 +103,7 @@ export function ChannelsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>通路名稱</TableHead>
-                <TableHead>代碼</TableHead>
-                <TableHead className="text-right">排序</TableHead>
+                <TableHead>登入代碼</TableHead>
                 <TableHead className="w-[200px] text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
@@ -119,8 +118,7 @@ export function ChannelsPage() {
                 records.map((row) => (
                   <TableRow key={row.id}>
                     <TableCell className="font-medium">{row.name}</TableCell>
-                    <TableCell>{row.code ?? "—"}</TableCell>
-                    <TableCell className="text-right">{row.sort_order}</TableCell>
+                    <TableCell>{row.portal_code ?? "—"}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex flex-nowrap justify-end gap-1">
                         <Button
@@ -206,14 +204,14 @@ interface AddChannelDialogProps {
 
 function AddChannelDialog({ open, onOpenChange, onSuccess }: AddChannelDialogProps) {
   const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [sortOrder, setSortOrder] = useState("0");
   const [saving, setSaving] = useState(false);
+  const [portalCode, setPortalCode] = useState("");
+  const [portalPassword, setPortalPassword] = useState("");
 
   function reset() {
     setName("");
-    setCode("");
-    setSortOrder("0");
+    setPortalCode("");
+    setPortalPassword("");
   }
 
   function handleOpenChange(next: boolean) {
@@ -227,8 +225,8 @@ function AddChannelDialog({ open, onOpenChange, onSuccess }: AddChannelDialogPro
     setSaving(true);
     const payload = {
       name: name.trim(),
-      code: code.trim() || null,
-      sort_order: parseInt(sortOrder, 10) || 0,
+      portal_code: portalCode.trim() || null,
+      portal_password: portalPassword.trim() || null,
     };
     const { error } = await supabase.from("channels").insert(payload);
     setSaving(false);
@@ -248,10 +246,10 @@ function AddChannelDialog({ open, onOpenChange, onSuccess }: AddChannelDialogPro
       title="新增通路"
       name={name}
       setName={setName}
-      code={code}
-      setCode={setCode}
-      sortOrder={sortOrder}
-      setSortOrder={setSortOrder}
+      portalCode={portalCode}
+      setPortalCode={setPortalCode}
+      portalPassword={portalPassword}
+      setPortalPassword={setPortalPassword}
       saving={saving}
       onSubmit={onSubmit}
       submitLabel="新增"
@@ -270,15 +268,15 @@ interface EditChannelDialogProps {
 
 function EditChannelDialog({ open, onOpenChange, row, onSuccess }: EditChannelDialogProps) {
   const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [sortOrder, setSortOrder] = useState("0");
   const [saving, setSaving] = useState(false);
+  const [portalCode, setPortalCode] = useState("");
+  const [portalPassword, setPortalPassword] = useState("");
 
   useEffect(() => {
     if (open && row) {
       setName(row.name);
-      setCode(row.code ?? "");
-      setSortOrder(String(row.sort_order));
+      setPortalCode(row.portal_code ?? "");
+      setPortalPassword(row.portal_password ?? "");
     }
   }, [open, row]);
 
@@ -288,8 +286,8 @@ function EditChannelDialog({ open, onOpenChange, row, onSuccess }: EditChannelDi
     setSaving(true);
     const payload = {
       name: name.trim(),
-      code: code.trim() || null,
-      sort_order: parseInt(sortOrder, 10) || 0,
+      portal_code: portalCode.trim() || null,
+      portal_password: portalPassword.trim() || null,
     };
     const { error } = await supabase.from("channels").update(payload).eq("id", row.id);
     setSaving(false);
@@ -311,10 +309,10 @@ function EditChannelDialog({ open, onOpenChange, row, onSuccess }: EditChannelDi
       title="編輯通路"
       name={name}
       setName={setName}
-      code={code}
-      setCode={setCode}
-      sortOrder={sortOrder}
-      setSortOrder={setSortOrder}
+      portalCode={portalCode}
+      setPortalCode={setPortalCode}
+      portalPassword={portalPassword}
+      setPortalPassword={setPortalPassword}
       saving={saving}
       onSubmit={onSubmit}
       submitLabel="儲存"
@@ -330,10 +328,10 @@ interface ChannelFormDialogProps {
   title: string;
   name: string;
   setName: (v: string) => void;
-  code: string;
-  setCode: (v: string) => void;
-  sortOrder: string;
-  setSortOrder: (v: string) => void;
+  portalCode: string;
+  setPortalCode: (v: string) => void;
+  portalPassword: string;
+  setPortalPassword: (v: string) => void;
   saving: boolean;
   onSubmit: (e: React.FormEvent) => void;
   submitLabel: string;
@@ -345,10 +343,10 @@ function ChannelFormDialog({
   title,
   name,
   setName,
-  code,
-  setCode,
-  sortOrder,
-  setSortOrder,
+  portalCode,
+  setPortalCode,
+  portalPassword,
+  setPortalPassword,
   saving,
   onSubmit,
   submitLabel,
@@ -380,23 +378,28 @@ function ChannelFormDialog({
                 required
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-muted-foreground">代碼</label>
-              <input
-                type="text"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-muted-foreground">排序</label>
-              <input
-                type="number"
-                value={sortOrder}
-                onChange={(e) => setSortOrder(e.target.value)}
-                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
-              />
+            <div className="border-t border-border pt-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">通路下單入口（選填）</p>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-muted-foreground">通路代碼</label>
+                <input
+                  type="text"
+                  value={portalCode}
+                  onChange={(e) => setPortalCode(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
+                  placeholder="供通路商登入 /portal 使用，需唯一"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-muted-foreground">通路密碼</label>
+                <input
+                  type="password"
+                  value={portalPassword}
+                  onChange={(e) => setPortalPassword(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
+                  placeholder="登入時輸入的密碼"
+                />
+              </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Dialog.Close asChild>

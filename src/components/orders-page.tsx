@@ -41,6 +41,8 @@ interface CustomerOption {
 
 interface VariantOption {
   id: string;
+  series_id: string;
+  series_name: string;
   label: string;
   base_price: number | null;
 }
@@ -48,6 +50,7 @@ interface VariantOption {
 interface OrderItemInput {
   id: string;
   variant_id: string;
+  series_id?: string | null;
   quantity: number;
   unit_price: number;
   custom_notes: string;
@@ -203,6 +206,17 @@ function OrderFormDialog({
   }, [initialOrder, customerId]);
 
   const itemRows = items;
+
+  // 系列下拉選項：從 variants 推出唯一系列列表
+  const seriesOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    variants.forEach((v) => {
+      if (!v.series_id) return;
+      const name = v.series_name || v.series_id;
+      map.set(v.series_id, name);
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [variants]);
 
   const itemSubtotals = itemRows.map(
     (it) => (Number(it.quantity) || 0) * (Number(it.unit_price) || 0)
@@ -602,7 +616,30 @@ function OrderFormDialog({
 
                       {it.kind === "variant" ? (
                         <>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
+                            <div className="flex flex-col gap-1.5 sm:col-span-2">
+                              <label className="text-xs text-muted-foreground">
+                                系列
+                              </label>
+                              <select
+                                value={it.series_id ?? ""}
+                                onChange={(e) =>
+                                  updateItem(it.id, {
+                                    series_id: e.target.value || null,
+                                    // 重選系列時先清空規格
+                                    variant_id: "",
+                                  })
+                                }
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              >
+                                <option value="">全部系列</option>
+                                {seriesOptions.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                             <div className="flex flex-col gap-1.5 sm:col-span-2">
                               <label
                                 className="text-xs text-muted-foreground"
@@ -630,11 +667,19 @@ function OrderFormDialog({
                                 required
                               >
                                 <option value="">請選擇規格</option>
-                                {variants.map((v) => (
-                                  <option key={v.id} value={v.id}>
-                                    {v.label}
-                                  </option>
-                                ))}
+                                {variants
+                                  .filter((v) =>
+                                    it.series_id
+                                      ? v.series_id === it.series_id
+                                      : true
+                                  )
+                                  .map((v) => (
+                                    <option key={v.id} value={v.id}>
+                                      {v.series_name
+                                        ? `${v.series_name} / ${v.label}`
+                                        : v.label}
+                                    </option>
+                                  ))}
                               </select>
                             </div>
                             <div className="flex flex-col gap-1.5 sm:col-span-1">
@@ -966,11 +1011,22 @@ export function OrdersPage() {
         setCustomers([]);
       }
 
-      // 產品規格選單
+      // 產品系列名稱（用於規格庫先選系列）
+      const { data: seriesData } = await supabase
+        .from("product_series")
+        .select("id, name, series_name")
+        .order("id", { ascending: true });
+      const seriesMap = new Map<string, string>();
+      (seriesData ?? []).forEach((s: any) => {
+        const name = s.name ?? s.series_name ?? "";
+        seriesMap.set(String(s.id), String(name));
+      });
+
+      // 產品規格選單（含 series_id）
       const { data: variantData } = await supabase
         .from("product_variants")
         .select(
-          "id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price"
+          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price"
         )
         .order("product_code", { ascending: true });
       setVariants(
@@ -983,6 +1039,8 @@ export function OrdersPage() {
             parts.length === 0
               ? ""
               : `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
+          const seriesId = String(v.series_id ?? "");
+          const seriesName = seriesMap.get(seriesId) ?? "";
           const labelParts = [
             v.product_code ?? "",
             v.wood_type ?? "",
@@ -990,6 +1048,8 @@ export function OrdersPage() {
           ].filter((s: string) => s && s.trim());
           return {
             id: String(v.id),
+            series_id: seriesId,
+            series_name: seriesName,
             label: labelParts.join(" / "),
             base_price:
               v.base_price !== undefined && v.base_price !== null
