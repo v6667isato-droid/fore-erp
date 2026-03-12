@@ -52,6 +52,7 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     website_article: r.website_article != null ? String(r.website_article) : null,
     customization_rules: r.customization_rules != null ? String(r.customization_rules) : null,
     website: r.website != null ? String(r.website) : null,
+    image_url: r.image_url != null ? String(r.image_url) : null,
   };
 }
 
@@ -84,6 +85,9 @@ function formatDim(v: VariantRow): string {
   return `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
 }
 
+type SeriesSortKey = "name" | "category" | "variantCount" | "website";
+type VariantSortKey = "product_code" | "wood_type" | "spec1" | "dimension" | "base_price";
+
 export function ProductsPage() {
   const [seriesList, setSeriesList] = useState<SeriesRow[]>([]);
   const [variantsList, setVariantsList] = useState<VariantRow[]>([]);
@@ -101,7 +105,14 @@ export function ProductsPage() {
   const [editVariant, setEditVariant] = useState<VariantRow | null>(null);
   const [deleteConfirmSeries, setDeleteConfirmSeries] = useState<SeriesRow | null>(null);
   const [deleteConfirmVariant, setDeleteConfirmVariant] = useState<VariantRow | null>(null);
-  const [seriesNameAsc, setSeriesNameAsc] = useState(true);
+  const [seriesSort, setSeriesSort] = useState<{ key: SeriesSortKey; asc: boolean }>({
+    key: "name",
+    asc: true,
+  });
+  const [variantSort, setVariantSort] = useState<{ key: VariantSortKey; asc: boolean }>({
+    key: "product_code",
+    asc: true,
+  });
 
   const variantsBySeries = useMemo(() => {
     const map: Record<string, VariantRow[]> = {};
@@ -132,12 +143,33 @@ export function ProductsPage() {
   const sortedSeries = useMemo(() => {
     const base = [...filteredSeries];
     base.sort((a, b) => {
-      const aName = a.name || "";
-      const bName = b.name || "";
-      return seriesNameAsc ? aName.localeCompare(bName) : bName.localeCompare(aName);
+      const ascFactor = seriesSort.asc ? 1 : -1;
+      switch (seriesSort.key) {
+        case "category": {
+          const aVal = a.category || "";
+          const bVal = b.category || "";
+          return ascFactor * aVal.localeCompare(bVal);
+        }
+        case "variantCount": {
+          const aCount = (variantsBySeries[a.id] ?? []).length;
+          const bCount = (variantsBySeries[b.id] ?? []).length;
+          return ascFactor * (aCount - bCount);
+        }
+        case "website": {
+          const aVal = a.website?.trim() || "";
+          const bVal = b.website?.trim() || "";
+          return ascFactor * aVal.localeCompare(bVal);
+        }
+        case "name":
+        default: {
+          const aVal = a.name || "";
+          const bVal = b.name || "";
+          return ascFactor * aVal.localeCompare(bVal);
+        }
+      }
     });
     return base;
-  }, [filteredSeries, seriesNameAsc]);
+  }, [filteredSeries, seriesSort, variantsBySeries]);
 
   async function fetchData() {
     setLoading(true);
@@ -150,17 +182,17 @@ export function ProductsPage() {
       // 若完整欄位失敗，先嘗試只取基本欄位（仍包含 code_rule），避免因為文案欄位不存在而看不到編碼原則
       const basicRes = await supabase
         .from(TABLE_PRODUCT_SERIES)
-        .select("id, name, category, notes, production_time, code_rule, website")
+        .select("id, series_name as name, category, notes, production_time, code_rule, website, image_url")
         .order("id", { ascending: true });
       if (!basicRes.error) {
-        seriesData = basicRes.data as Record<string, unknown>[];
+        seriesData = (basicRes.data ?? []) as unknown as Record<string, unknown>[];
       } else {
         const noWebsite = await supabase
           .from(TABLE_PRODUCT_SERIES)
           .select(SERIES_SELECT_NO_WEBSITE)
           .order("id", { ascending: true });
         if (!noWebsite.error) {
-          seriesData = noWebsite.data as Record<string, unknown>[];
+          seriesData = (noWebsite.data ?? []) as unknown as Record<string, unknown>[];
         }
       }
       if (seriesData === null) {
@@ -169,19 +201,19 @@ export function ProductsPage() {
           .select(SERIES_SELECT_MINIMAL)
           .order("id", { ascending: true });
         if (!fallback.error) {
-          seriesData = fallback.data as Record<string, unknown>[];
+          seriesData = (fallback.data ?? []) as unknown as Record<string, unknown>[];
         } else {
           const minimal = await supabase
             .from(TABLE_PRODUCT_SERIES)
-            .select("id, name, category")
+            .select("id, series_name as name, category")
             .order("id", { ascending: true });
           if (!minimal.error) {
-            seriesData = minimal.data as Record<string, unknown>[];
+            seriesData = (minimal.data ?? []) as unknown as Record<string, unknown>[];
           } else if (/name/i.test(seriesRes.error.message ?? "")) {
             const contentCols = SERIES_CONTENT_COLUMNS.join(", ");
             const bySeriesNameFull = await supabase
               .from(TABLE_PRODUCT_SERIES)
-              .select(`id, series_name, category, notes, production_time, code_rule, ${contentCols}, website`)
+              .select(`id, series_name, category, notes, production_time, code_rule, ${contentCols}, website, image_url`)
               .order("id", { ascending: true });
             if (!bySeriesNameFull.error) {
               seriesData = (bySeriesNameFull.data ?? []) as unknown as Record<string, unknown>[];
@@ -210,7 +242,7 @@ export function ProductsPage() {
         }
       }
     } else {
-      seriesData = seriesRes.data as Record<string, unknown>[];
+      seriesData = (seriesRes.data ?? []) as unknown as Record<string, unknown>[];
     }
 
     const variantsRes = await supabase.from(TABLE_PRODUCT_VARIANTS).select(VARIANT_SELECT);
@@ -429,18 +461,80 @@ export function ProductsPage() {
                 <button
                   type="button"
                   className="inline-flex items-center gap-1.5 hover:text-primary"
-                  onClick={() => setSeriesNameAsc((prev) => !prev)}
-                  aria-label={`依系列名稱排序（目前為${seriesNameAsc ? "升冪" : "降冪"}）`}
+                  onClick={() =>
+                    setSeriesSort((prev) => ({
+                      key: "name",
+                      asc: prev.key === "name" ? !prev.asc : true,
+                    }))
+                  }
+                  aria-label={`依系列名稱排序（目前為${seriesSort.key === "name" && !seriesSort.asc ? "降冪" : "升冪"}）`}
                 >
                   <span>系列名稱</span>
                   <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                    {seriesNameAsc ? "↑" : "↓"}
+                    {seriesSort.key === "name" ? (seriesSort.asc ? "↑" : "↓") : "–"}
                   </span>
                 </button>
               </TableHead>
-              <TableHead className="text-xs font-semibold p-2">類別</TableHead>
-              <TableHead className="text-xs font-semibold p-2">規格數</TableHead>
-              <TableHead className="text-xs font-semibold p-2">網站</TableHead>
+              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 hover:text-primary"
+                  onClick={() =>
+                    setSeriesSort((prev) => ({
+                      key: "category",
+                      asc: prev.key === "category" ? !prev.asc : true,
+                    }))
+                  }
+                  aria-label={`依類別排序（目前為${
+                    seriesSort.key === "category" && !seriesSort.asc ? "降冪" : "升冪"
+                  }）`}
+                >
+                  <span>類別</span>
+                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                    {seriesSort.key === "category" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                  </span>
+                </button>
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 hover:text-primary"
+                  onClick={() =>
+                    setSeriesSort((prev) => ({
+                      key: "variantCount",
+                      asc: prev.key === "variantCount" ? !prev.asc : true,
+                    }))
+                  }
+                  aria-label={`依規格數排序（目前為${
+                    seriesSort.key === "variantCount" && !seriesSort.asc ? "降冪" : "升冪"
+                  }）`}
+                >
+                  <span>規格數</span>
+                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                    {seriesSort.key === "variantCount" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                  </span>
+                </button>
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 hover:text-primary"
+                  onClick={() =>
+                    setSeriesSort((prev) => ({
+                      key: "website",
+                      asc: prev.key === "website" ? !prev.asc : true,
+                    }))
+                  }
+                  aria-label={`依網站排序（目前為${
+                    seriesSort.key === "website" && !seriesSort.asc ? "降冪" : "升冪"
+                  }）`}
+                >
+                  <span>網站</span>
+                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                    {seriesSort.key === "website" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                  </span>
+                </button>
+              </TableHead>
               <TableHead className="text-xs font-semibold p-2 min-w-[200px] text-right" aria-label="操作">
                 操作
               </TableHead>
@@ -474,14 +568,25 @@ export function ProductsPage() {
                         <button
                           type="button"
                           onClick={() => setViewSeries(series)}
-                          className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                          className="flex items-center gap-2 text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
                         >
-                          <span>{series.name || "—"}</span>
-                          {series.notes?.trim() && (
-                            <span className="ml-1.5 text-xs text-muted-foreground">
-                              {series.notes}
+                          {series.image_url && (
+                            <span className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
+                              <img
+                                src={series.image_url}
+                                alt={series.name || "系列主圖"}
+                                className="h-full w-full object-cover"
+                              />
                             </span>
                           )}
+                          <span className="flex flex-col">
+                            <span>{series.name || "—"}</span>
+                            {series.notes?.trim() && (
+                              <span className="mt-0.5 text-[11px] text-muted-foreground">
+                                {series.notes}
+                              </span>
+                            )}
+                          </span>
                         </button>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground p-2">{series.category || "—"}</TableCell>
@@ -543,11 +648,106 @@ export function ProductsPage() {
                               <Table>
                                 <TableHeader>
                                   <TableRow className="hover:bg-transparent border-b border-border">
-                                    <TableHead className="text-xs font-semibold p-2">代碼</TableHead>
-                                    <TableHead className="text-xs font-semibold p-2">木種</TableHead>
-                                    <TableHead className="text-xs font-semibold p-2">規格</TableHead>
-                                    <TableHead className="text-xs font-semibold p-2">尺寸</TableHead>
-                                    <TableHead className="text-xs font-semibold p-2">定價</TableHead>
+                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1.5 hover:text-primary"
+                                        onClick={() =>
+                                          setVariantSort((prev) => ({
+                                            key: "product_code",
+                                            asc: prev.key === "product_code" ? !prev.asc : true,
+                                          }))
+                                        }
+                                        aria-label={`依代碼排序（目前為${
+                                          variantSort.key === "product_code" && !variantSort.asc ? "降冪" : "升冪"
+                                        }）`}
+                                      >
+                                        <span>代碼</span>
+                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                          {variantSort.key === "product_code" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                        </span>
+                                      </button>
+                                    </TableHead>
+                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1.5 hover:text-primary"
+                                        onClick={() =>
+                                          setVariantSort((prev) => ({
+                                            key: "wood_type",
+                                            asc: prev.key === "wood_type" ? !prev.asc : true,
+                                          }))
+                                        }
+                                        aria-label={`依木種排序（目前為${
+                                          variantSort.key === "wood_type" && !variantSort.asc ? "降冪" : "升冪"
+                                        }）`}
+                                      >
+                                        <span>木種</span>
+                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                          {variantSort.key === "wood_type" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                        </span>
+                                      </button>
+                                    </TableHead>
+                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1.5 hover:text-primary"
+                                        onClick={() =>
+                                          setVariantSort((prev) => ({
+                                            key: "spec1",
+                                            asc: prev.key === "spec1" ? !prev.asc : true,
+                                          }))
+                                        }
+                                        aria-label={`依規格排序（目前為${
+                                          variantSort.key === "spec1" && !variantSort.asc ? "降冪" : "升冪"
+                                        }）`}
+                                      >
+                                        <span>規格</span>
+                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                          {variantSort.key === "spec1" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                        </span>
+                                      </button>
+                                    </TableHead>
+                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1.5 hover:text-primary"
+                                        onClick={() =>
+                                          setVariantSort((prev) => ({
+                                            key: "dimension",
+                                            asc: prev.key === "dimension" ? !prev.asc : true,
+                                          }))
+                                        }
+                                        aria-label={`依尺寸排序（目前為${
+                                          variantSort.key === "dimension" && !variantSort.asc ? "降冪" : "升冪"
+                                        }）`}
+                                      >
+                                        <span>尺寸</span>
+                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                          {variantSort.key === "dimension" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                        </span>
+                                      </button>
+                                    </TableHead>
+                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1.5 hover:text-primary"
+                                        onClick={() =>
+                                          setVariantSort((prev) => ({
+                                            key: "base_price",
+                                            asc: prev.key === "base_price" ? !prev.asc : true,
+                                          }))
+                                        }
+                                        aria-label={`依定價排序（目前為${
+                                          variantSort.key === "base_price" && !variantSort.asc ? "降冪" : "升冪"
+                                        }）`}
+                                      >
+                                        <span>定價</span>
+                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                          {variantSort.key === "base_price" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                        </span>
+                                      </button>
+                                    </TableHead>
                                     <TableHead className="text-xs font-semibold p-2 min-w-[180px]">通路價格</TableHead>
                                     <TableHead className="text-xs font-semibold p-2 min-w-[120px]">操作</TableHead>
                                   </TableRow>
@@ -560,7 +760,41 @@ export function ProductsPage() {
                                       </TableCell>
                                     </TableRow>
                                   ) : (
-                                    variants.map((v) => (
+                                    [...variants]
+                                      .sort((a, b) => {
+                                        const ascFactor = variantSort.asc ? 1 : -1;
+                                        switch (variantSort.key) {
+                                          case "wood_type": {
+                                            const aVal = a.wood_type || "";
+                                            const bVal = b.wood_type || "";
+                                            return ascFactor * aVal.localeCompare(bVal);
+                                          }
+                                          case "spec1": {
+                                            const aVal = a.spec1 || "";
+                                            const bVal = b.spec1 || "";
+                                            return ascFactor * aVal.localeCompare(bVal);
+                                          }
+                                          case "dimension": {
+                                            const aDims = [a.dimension_w ?? 0, a.dimension_d ?? 0, a.dimension_h ?? 0];
+                                            const bDims = [b.dimension_w ?? 0, b.dimension_d ?? 0, b.dimension_h ?? 0];
+                                            const aKey = aDims[0] * 1_000_000 + aDims[1] * 1_000 + aDims[2];
+                                            const bKey = bDims[0] * 1_000_000 + bDims[1] * 1_000 + bDims[2];
+                                            return ascFactor * (aKey - bKey);
+                                          }
+                                          case "base_price": {
+                                            const aVal = a.base_price ?? Number.POSITIVE_INFINITY;
+                                            const bVal = b.base_price ?? Number.POSITIVE_INFINITY;
+                                            return ascFactor * (aVal - bVal);
+                                          }
+                                          case "product_code":
+                                          default: {
+                                            const aVal = a.product_code || "";
+                                            const bVal = b.product_code || "";
+                                            return ascFactor * aVal.localeCompare(bVal);
+                                          }
+                                        }
+                                      })
+                                      .map((v) => (
                                       <TableRow key={v.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                                         <TableCell className="text-sm p-2">{v.product_code || "—"}</TableCell>
                                         <TableCell className="text-sm p-2">{v.wood_type || "—"}</TableCell>

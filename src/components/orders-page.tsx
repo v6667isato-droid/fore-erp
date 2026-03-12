@@ -1014,11 +1014,11 @@ export function OrdersPage() {
       // 產品系列名稱（用於規格庫先選系列）
       const { data: seriesData } = await supabase
         .from("product_series")
-        .select("id, name, series_name")
+        .select("id, series_name")
         .order("id", { ascending: true });
       const seriesMap = new Map<string, string>();
       (seriesData ?? []).forEach((s: any) => {
-        const name = s.name ?? s.series_name ?? "";
+        const name = s.series_name ?? "";
         seriesMap.set(String(s.id), String(name));
       });
 
@@ -1377,6 +1377,19 @@ export function OrdersPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-8 px-2 text-xs"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const id = encodeURIComponent(order.id);
+                          window.open(`/print/order/${id}`, "_blank", "noopener,noreferrer");
+                        }}
+                      >
+                        預覽列印
+                      </Button>
                       <Button
                         variant="ghost"
                         className="h-8 px-2 text-xs"

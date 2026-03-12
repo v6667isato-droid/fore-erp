@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { Plus, X, FileText, MessageCircle, Globe } from "lucide-react";
+import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,7 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
   const [codeRule, setCodeRule] = useState("");
   const [contentValues, setContentValues] = useState<Record<string, string>>({});
   const [website, setWebsite] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AddSeriesTab>("basic");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +55,7 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
       setCodeRule("");
       setContentValues({});
       setWebsite("");
+      setImageUrl(null);
       setActiveTab("basic");
       setError(null);
     }
@@ -95,6 +98,7 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
     }
     const websiteUrl = website.trim();
     payload[SERIES_WEBSITE_COLUMN] = websiteUrl || null;
+    payload.image_url = imageUrl?.trim() || null;
 
     let { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).insert(payload);
 
@@ -286,6 +290,10 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
                       className="min-h-[60px] rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="例：系列縮寫 + 材質 + 尺寸，如：CHA-OAK-120"
                     />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">主視覺圖</span>
+                    <ProductImageDropzone value={imageUrl} onChange={setImageUrl} disabled={adding} />
                   </div>
                 </>
               )}
