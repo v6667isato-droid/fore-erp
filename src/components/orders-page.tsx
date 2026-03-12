@@ -45,6 +45,7 @@ interface VariantOption {
   series_name: string;
   label: string;
   base_price: number | null;
+  spec1?: string | null;
 }
 
 interface OrderItemInput {
@@ -681,6 +682,16 @@ function OrderFormDialog({
                                     </option>
                                   ))}
                               </select>
+                              {variants.find((v) => v.id === it.variant_id) && (
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {(() => {
+                                    const v = variants.find((vv) => vv.id === it.variant_id)!;
+                                    return v.series_name
+                                      ? `${v.series_name} / ${v.label}`
+                                      : v.label;
+                                  })()}
+                                </p>
+                              )}
                             </div>
                             <div className="flex flex-col gap-1.5 sm:col-span-1">
                               <label
@@ -1026,7 +1037,7 @@ export function OrdersPage() {
       const { data: variantData } = await supabase
         .from("product_variants")
         .select(
-          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price"
+          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price, spec1"
         )
         .order("product_code", { ascending: true });
       setVariants(
@@ -1044,6 +1055,7 @@ export function OrdersPage() {
           const labelParts = [
             v.product_code ?? "",
             v.wood_type ?? "",
+            v.spec1 ?? "",
             dim,
           ].filter((s: string) => s && s.trim());
           return {
@@ -1055,6 +1067,7 @@ export function OrdersPage() {
               v.base_price !== undefined && v.base_price !== null
                 ? Number(v.base_price)
                 : null,
+            spec1: v.spec1 ?? null,
           };
         })
       );

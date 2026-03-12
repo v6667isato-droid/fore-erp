@@ -21,6 +21,7 @@ interface VariantOption {
   id: string;
   label: string;
   base_price: number | null;
+  spec1?: string | null;
 }
 
 interface PortalItem {
@@ -136,7 +137,7 @@ export default function PortalPage() {
     const { data } = await supabase
       .from("product_variants")
       .select(
-        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price"
+        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price, spec1"
       )
       .in("series_id", seriesIds)
       .order("product_code", { ascending: true });
@@ -149,13 +150,14 @@ export default function PortalPage() {
         const parts = [w, d, h].filter((x: unknown) => x !== "");
         const dim =
           parts.length === 0 ? "" : `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
-        const labelParts = [v.product_code ?? "", v.wood_type ?? "", dim].filter(
+        const labelParts = [v.product_code ?? "", v.wood_type ?? "", v.spec1 ?? "", dim].filter(
           (s: string) => s && s.trim()
         );
         return {
           id: String(v.id),
           label: labelParts.join(" / "),
           base_price: v.base_price != null ? Number(v.base_price) : null,
+          spec1: v.spec1 ?? null,
         };
       })
     );
@@ -776,7 +778,7 @@ export default function PortalPage() {
                           type="text"
                           value={it.notes}
                           onChange={(e) => updateItem(it.id, { notes: e.target.value })}
-                          placeholder="此品項備註（選填）"
+                          placeholder="請註明座高、布墊顏色、或其他事項"
                           className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                       </div>
