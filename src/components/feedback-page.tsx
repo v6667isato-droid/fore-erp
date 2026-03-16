@@ -83,7 +83,7 @@ export function FeedbackPage() {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterCompleted, setFilterCompleted] = useState<"" | "yes" | "no">("");
-  const [sortKey, setSortKey] = useState<keyof FeedbackRow | "">("priority");
+  const [sortKey, setSortKey] = useState<keyof FeedbackRow | "">("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -189,14 +189,36 @@ export function FeedbackPage() {
   }, [rows, filterCategory, filterStatus, filterCompleted]);
 
   const sortedRows = useMemo(() => {
-    if (!sortKey || sortKey === "deleted_at") return [...filtered];
+    if (sortKey === "deleted_at") return [...filtered];
+
+    // 預設排序：第一優先 狀態（已完成排最後），第二優先 優先級（高排最前）
+    if (!sortKey) {
+      const statusOrder: Record<string, number> = {
+        待處理: 0,
+        進行中: 1,
+        暫緩: 2,
+        已完成: 3,
+      };
+      const priorityWeight: Record<string, number> = { 高: 3, 中: 2, 低: 1 };
+      return [...filtered].sort((a, b) => {
+        const aStatusRank = statusOrder[a.status] ?? 4;
+        const bStatusRank = statusOrder[b.status] ?? 4;
+        let cmp = aStatusRank - bStatusRank;
+        if (cmp !== 0) return cmp;
+        const aPriority = isNearDue(a) ? "高" : (a.priority ?? "");
+        const bPriority = isNearDue(b) ? "高" : (b.priority ?? "");
+        const aw = priorityWeight[aPriority] ?? 0;
+        const bw = priorityWeight[bPriority] ?? 0;
+        return bw - aw;
+      });
+    }
+
     const isDate = sortKey === "created_at" || sortKey === "completed_at";
     return [...filtered].sort((a, b) => {
       const aVal = a[sortKey];
       const bVal = b[sortKey];
       let cmp = 0;
       if (isDate) {
-        // 預設排序時，已完成的排在最後（無論建立時間）
         if (sortKey === "created_at") {
           const aDone = a.status === "已完成" || !!a.completed_at;
           const bDone = b.status === "已完成" || !!b.completed_at;
