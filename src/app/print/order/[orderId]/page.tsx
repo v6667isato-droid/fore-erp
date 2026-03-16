@@ -310,19 +310,16 @@ export default function PrintOrderPage() {
         <header className="mb-8 border-b border-gray-200 pb-6">
           <div className="flex items-start justify-between gap-6">
             <div className="flex items-start gap-4">
-              <img
-                src="/logo.png"
-                alt="Føre Furniture"
-                className="h-16 object-contain mb-4"
-              />
-              <div>
-                <h1 className="text-xl font-semibold tracking-wide text-gray-900">
-                  Føre Furniture 曉雨傢俱工作室
-                </h1>
-                <div className="mt-2 space-y-0.5 text-[11px] text-gray-700">
-                  <p>電話：02-0000-0000</p>
-                  <p>Email：info@fore-furniture.com</p>
-                  <p>地址：台北市某某區某某路 123 號</p>
+              <div className="flex flex-col items-start gap-2">
+                <img
+                  src="/logo.png"
+                  alt="Føre Furniture"
+                  className="h-24 object-contain"
+                />
+                <div className="space-y-0.5 text-[11px] text-gray-700">
+                  <p>電話：06-2302861</p>
+                  <p>Email：forefurniture.studio@gmail.com</p>
+                  <p>地址：台南市歸仁區丁厝街125號</p>
                 </div>
               </div>
             </div>
@@ -498,7 +495,7 @@ export default function PrintOrderPage() {
           <div className="space-y-2 text-[11px] text-gray-600 leading-relaxed">
             <p className="font-semibold text-gray-700">品質保證與聲明</p>
             <p>
-              頂級塗料與安全認證：本工坊使用之塗料皆通過嚴格環保與安全標準檢驗，確保甲醛與揮發性有機物逸散速率符合高標準，敬請安心使用。
+              頂級塗料與安全認證：本工坊使用日本大谷塗料，具日本食器使用標準(F4星)，通過嚴格環保與安全標準檢驗，確保甲醛與揮發性有機物逸散速率符合高標準，敬請安心使用。
             </p>
             <p>
               實木傢俱日常保養：請避免將傢俱長時間曝曬於陽光下，或讓冷氣出風口直接吹拂傢俱，以免造成漆面損傷或木材變形。放置高溫容器時請搭配杯墊或墊板；日常清潔以微濕布輕拭即可。
