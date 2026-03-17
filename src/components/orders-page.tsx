@@ -1781,7 +1781,8 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
                             order.status === "報價中"
                               ? `/print/quotation/${id}`
                               : `/print/order/${id}`;
-                          window.open(path, "_blank", "noopener,noreferrer");
+                          const url = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
+                          window.open(url, "_blank", "noopener,noreferrer");
                         }}
                       >
                         {order.status === "報價中" ? "報價列印" : "訂單列印"}
