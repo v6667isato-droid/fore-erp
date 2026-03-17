@@ -1530,6 +1530,54 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
     });
   }, [orders, search, statusFilter]);
 
+  type OrderSortKey =
+    | "order_number"
+    | "customer_name"
+    | "order_date"
+    | "expected_delivery_date"
+    | "status"
+    | "payment_status"
+    | "deposit_amount"
+    | "total_amount";
+  const [sortKey, setSortKey] = useState<OrderSortKey>("order_date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const sortedOrders = useMemo(() => {
+    const list = [...filtered];
+    list.sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      if (av == null && bv == null) return 0;
+      if (av == null) return sortDir === "asc" ? -1 : 1;
+      if (bv == null) return sortDir === "asc" ? 1 : -1;
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+      const as = String(av);
+      const bs = String(bv);
+      const cmp = as.localeCompare(bs, "zh-Hant");
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return list;
+  }, [filtered, sortKey, sortDir]);
+
+  function toggleOrderSort(key: OrderSortKey) {
+    setSortKey((prev) => {
+      if (prev !== key) {
+        setSortDir("asc");
+        return key;
+      }
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return key;
+    });
+  }
+
+  function orderHeaderLabel(label: string, key: OrderSortKey) {
+    const isActive = sortKey === key;
+    const arrow = isActive ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+    return `${label}${arrow}`;
+  }
+
   async function handleEdit(order: OrderRow) {
     // 讀取該訂單的明細
     const { data, error } = await supabase
@@ -1672,25 +1720,53 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs font-semibold">訂單編號</TableHead>
-              <TableHead className="text-xs font-semibold">客戶姓名</TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                下單日
+              <TableHead
+                className="text-xs font-semibold cursor-pointer select-none"
+                onClick={() => toggleOrderSort("order_number")}
+              >
+                {orderHeaderLabel("訂單編號", "order_number")}
               </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap">
-                交期
+              <TableHead
+                className="text-xs font-semibold cursor-pointer select-none"
+                onClick={() => toggleOrderSort("customer_name")}
+              >
+                {orderHeaderLabel("客戶姓名", "customer_name")}
               </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                訂單狀態
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none"
+                onClick={() => toggleOrderSort("order_date")}
+              >
+                {orderHeaderLabel("下單日", "order_date")}
               </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                付款狀態
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap cursor-pointer select-none"
+                onClick={() => toggleOrderSort("expected_delivery_date")}
+              >
+                {orderHeaderLabel("交期", "expected_delivery_date")}
               </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell text-right">
-                訂金
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none"
+                onClick={() => toggleOrderSort("status")}
+              >
+                {orderHeaderLabel("訂單狀態", "status")}
               </TableHead>
-              <TableHead className="text-xs font-semibold text-right">
-                總金額
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none"
+                onClick={() => toggleOrderSort("payment_status")}
+              >
+                {orderHeaderLabel("付款狀態", "payment_status")}
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell text-right cursor-pointer select-none"
+                onClick={() => toggleOrderSort("deposit_amount")}
+              >
+                {orderHeaderLabel("訂金", "deposit_amount")}
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold text-right cursor-pointer select-none"
+                onClick={() => toggleOrderSort("total_amount")}
+              >
+                {orderHeaderLabel("總金額", "total_amount")}
               </TableHead>
               <TableHead
                 className="text-xs font-semibold text-right w-[1%] whitespace-nowrap"
@@ -1711,7 +1787,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((order) => (
+              sortedOrders.map((order) => (
                 <TableRow key={order.id} className="group">
                   <TableCell className="font-mono text-xs font-medium">
                     {order.order_number}
