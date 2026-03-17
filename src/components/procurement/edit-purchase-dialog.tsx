@@ -15,6 +15,8 @@ export interface EditPurchaseDialogProps {
   onSuccess: () => void;
 }
 
+type VendorOption = { id: string; name: string; main_category?: string | null };
+
 export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditPurchaseDialogProps) {
   const firstRef = useRef<HTMLInputElement>(null);
   const [purchaseDate, setPurchaseDate] = useState("");
@@ -27,6 +29,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
   const [unitPrice, setUnitPrice] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [vendors, setVendors] = useState<VendorOption[]>([]);
 
   useEffect(() => {
     if (open && row) {
@@ -41,6 +44,16 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       setError(null);
     }
   }, [open, row]);
+
+  useEffect(() => {
+    if (!open) return;
+    supabase
+      .from("vendors")
+      .select("id, name, main_category")
+      .then(({ data }) => {
+        setVendors((data as VendorOption[]) ?? []);
+      });
+  }, [open]);
 
   useEffect(() => {
     if (open && firstRef.current) setTimeout(() => firstRef.current?.focus(), 0);
@@ -120,7 +133,28 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-purchase-vendor" className="text-xs text-muted-foreground">廠商名稱</label>
-              <input id="edit-purchase-vendor" type="text" value={vendorName} onChange={(e) => setVendorName(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="廠商" />
+              <select
+                id="edit-purchase-vendor"
+                value={vendorName}
+                onChange={(e) => setVendorName(e.target.value)}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">（不指定廠商）</option>
+                {vendors
+                  .slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((v) => (
+                    <option key={v.id} value={v.name}>
+                      {v.name}
+                    </option>
+                  ))}
+                {vendorName &&
+                  !vendors.some((v) => v.name === vendorName) && (
+                    <option value={vendorName}>
+                      {vendorName}
+                    </option>
+                  )}
+              </select>
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-purchase-item" className="text-xs text-muted-foreground">品名 *</label>

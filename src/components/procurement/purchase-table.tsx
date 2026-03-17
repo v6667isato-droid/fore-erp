@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -24,24 +24,112 @@ export interface PurchaseTableProps {
 
 export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete }: PurchaseTableProps) {
   const [page, setPage] = useState(0);
+  const [sortKey, setSortKey] = useState<keyof PurchaseRow>("purchase_date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const sortedRecords = useMemo(() => {
+    const list = [...records];
+    list.sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+
+      if (av == null && bv == null) return 0;
+      if (av == null) return sortDir === "asc" ? -1 : 1;
+      if (bv == null) return sortDir === "asc" ? 1 : -1;
+
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+
+      const as = String(av);
+      const bs = String(bv);
+      const cmp = as.localeCompare(bs, "zh-Hant");
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return list;
+  }, [records, sortKey, sortDir]);
+
   const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
   const start = page * PAGE_SIZE;
-  const pageRecords = records.slice(start, start + PAGE_SIZE);
+  const pageRecords = sortedRecords.slice(start, start + PAGE_SIZE);
+
+  function toggleSort(key: keyof PurchaseRow) {
+    setPage(0);
+    setSortKey((prevKey) => {
+      if (prevKey !== key) {
+        setSortDir("asc");
+        return key;
+      }
+      setSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"));
+      return key;
+    });
+  }
+
+  function headerLabel(label: string, key: keyof PurchaseRow) {
+    const isActive = sortKey === key;
+    const arrow = !isActive ? "" : sortDir === "asc" ? " ▲" : " ▼";
+    return `${label}${arrow}`;
+  }
 
   return (
     <>
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent border-b border-border">
-            <TableHead className="text-xs font-semibold p-2">日期</TableHead>
-            <TableHead className="text-xs font-semibold p-2">廠商</TableHead>
-            <TableHead className="text-xs font-semibold p-2">品名</TableHead>
-            <TableHead className="text-xs font-semibold p-2">類別</TableHead>
-            <TableHead className="text-xs font-semibold p-2">規格</TableHead>
-            <TableHead className="text-xs font-semibold p-2">數量</TableHead>
-            <TableHead className="text-xs font-semibold p-2">單位</TableHead>
-            <TableHead className="text-xs font-semibold p-2 text-right">單價</TableHead>
-            <TableHead className="text-xs font-semibold p-2 text-right">含稅總價</TableHead>
+            <TableHead
+              className="text-xs font-semibold p-2 cursor-pointer select-none"
+              onClick={() => toggleSort("purchase_date")}
+            >
+              {headerLabel("日期", "purchase_date")}
+            </TableHead>
+            <TableHead
+              className="text-xs font-semibold p-2 cursor-pointer select-none"
+              onClick={() => toggleSort("vendor_name")}
+            >
+              {headerLabel("廠商", "vendor_name")}
+            </TableHead>
+            <TableHead
+              className="text-xs font-semibold p-2 cursor-pointer select-none"
+              onClick={() => toggleSort("item_name")}
+            >
+              {headerLabel("品名", "item_name")}
+            </TableHead>
+            <TableHead
+              className="text-xs font-semibold p-2 cursor-pointer select-none"
+              onClick={() => toggleSort("item_category")}
+            >
+              {headerLabel("類別", "item_category")}
+            </TableHead>
+            <TableHead
+              className="text-xs font-semibold p-2 cursor-pointer select-none"
+              onClick={() => toggleSort("spec")}
+            >
+              {headerLabel("規格", "spec")}
+            </TableHead>
+            <TableHead
+              className="text-xs font-semibold p-2 cursor-pointer select-none"
+              onClick={() => toggleSort("quantity")}
+            >
+              {headerLabel("數量", "quantity")}
+            </TableHead>
+            <TableHead
+              className="text-xs font-semibold p-2 cursor-pointer select-none"
+              onClick={() => toggleSort("unit")}
+            >
+              {headerLabel("單位", "unit")}
+            </TableHead>
+            <TableHead
+              className="text-xs font-semibold p-2 text-right cursor-pointer select-none"
+              onClick={() => toggleSort("unit_price")}
+            >
+              {headerLabel("單價", "unit_price")}
+            </TableHead>
+            <TableHead
+              className="text-xs font-semibold p-2 text-right cursor-pointer select-none"
+              onClick={() => toggleSort("tax_included_amount")}
+            >
+              {headerLabel("含稅總價", "tax_included_amount")}
+            </TableHead>
             {(onEdit || onDelete) && (
               <TableHead className="text-xs font-semibold p-2" aria-label="操作">操作</TableHead>
             )}
