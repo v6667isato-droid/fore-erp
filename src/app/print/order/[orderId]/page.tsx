@@ -18,6 +18,19 @@ interface PrintOrder {
   customer_address?: string | null;
   customer_type?: string | null;
   deposit_amount: number;
+  explanation_image_url?: string | null;
+}
+
+function parseExplanationImageUrls(raw: string | null | undefined): string[] {
+  if (raw == null || raw === "") return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string");
+    if (typeof parsed === "string") return [parsed];
+    return [];
+  } catch {
+    return typeof raw === "string" ? [raw] : [];
+  }
 }
 
 interface PrintOrderItem {
@@ -29,6 +42,9 @@ interface PrintOrderItem {
   name: string;
   description?: string | null;
   image_url?: string | null;
+  wood_type?: string | null;
+  dimension_text?: string | null;
+  spec_text?: string | null;
 }
 
 export default function PrintOrderPage() {
@@ -52,7 +68,7 @@ export default function PrintOrderPage() {
         const { data: orderRow, error: orderErr } = await supabase
           .from("orders")
           .select(
-            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, customer_id, customers(name, phone, delivery_address, customer_type)"
+            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, explanation_image_url, customer_id, customers(name, phone, delivery_address, customer_type)"
           )
           .eq("id", orderId)
           .single();
@@ -66,7 +82,7 @@ export default function PrintOrderPage() {
         const lineRes = await supabase
           .from("order_items")
           .select(
-            "id, order_id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h"
+            "id, order_id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, image_url"
           )
           .eq("order_id", orderId);
 
@@ -86,14 +102,24 @@ export default function PrintOrderPage() {
 
         let variantMap: Record<
           string,
-          { id: string; product_code: string; series_id: string | null; image_url: string | null }
+          {
+            id: string;
+            product_code: string;
+            series_id: string | null;
+            image_url: string | null;
+            wood_type: string | null;
+            dimension_w: number | null;
+            dimension_d: number | null;
+            dimension_h: number | null;
+            spec1: string | null;
+          }
         > = {};
         let seriesMap: Record<string, { id: string; name: string; image_url: string | null }> = {};
 
         if (variantIds.length > 0) {
           const { data: variants, error: variantErr } = await supabase
             .from("product_variants")
-            .select("id, series_id, product_code, image_url")
+            .select("id, series_id, product_code, image_url, wood_type, dimension_w, dimension_d, dimension_h, spec1")
             .in("id", variantIds);
 
           if (variantErr) {
@@ -108,6 +134,11 @@ export default function PrintOrderPage() {
                 product_code: String(v.product_code ?? ""),
                 series_id: v.series_id ? String(v.series_id) : null,
                 image_url: v.image_url ?? null,
+                wood_type: v.wood_type ?? null,
+                dimension_w: v.dimension_w != null ? Number(v.dimension_w) : null,
+                dimension_d: v.dimension_d != null ? Number(v.dimension_d) : null,
+                dimension_h: v.dimension_h != null ? Number(v.dimension_h) : null,
+                spec1: v.spec1 != null ? String(v.spec1) : null,
               },
             ])
           );
@@ -167,6 +198,10 @@ export default function PrintOrderPage() {
               );
             }
 
+            const dimText = hasDims
+              ? `約 ${r.custom_dimension_w ?? "—"} × ${r.custom_dimension_d ?? "—"} × ${r.custom_dimension_h ?? "—"} cm`
+              : null;
+
             return {
               id: String(r.id ?? `item-${idx}`),
               quantity: Number(r.quantity ?? 1),
@@ -175,19 +210,29 @@ export default function PrintOrderPage() {
               kind: "custom",
               name,
               description: descParts.length > 0 ? descParts.join("；") : null,
-              image_url: null,
+              image_url: r.image_url ?? null,
+              wood_type: null,
+              dimension_text: dimText,
+              spec_text: null,
             };
           }
 
           const variant = variantMap[String(r.variant_id)] || null;
           const series = variant?.series_id ? seriesMap[variant.series_id] || null : null;
 
+          // 規格品：報價品項只顯示系列名稱（規格、木種、尺寸另有欄位）
           const name =
-            series?.name && variant?.product_code
-              ? `${series.name}｜${variant.product_code}`
-              : variant?.product_code || series?.name || "產品項目";
+            series?.name || variant?.product_code || "產品項目";
 
-          const imageUrl = variant?.image_url || series?.image_url || null;
+          const imageUrl = r.image_url ?? variant?.image_url ?? series?.image_url ?? null;
+
+          const hasVariantDims =
+            variant?.dimension_w != null ||
+            variant?.dimension_d != null ||
+            variant?.dimension_h != null;
+          const dimText = hasVariantDims
+            ? `${variant?.dimension_w ?? "—"} × ${variant?.dimension_d ?? "—"} × ${variant?.dimension_h ?? "—"} cm`
+            : null;
 
           return {
             id: String(r.id ?? `item-${idx}`),
@@ -198,6 +243,9 @@ export default function PrintOrderPage() {
             name,
             description: null,
             image_url: imageUrl,
+            wood_type: variant?.wood_type ?? null,
+            dimension_text: dimText,
+            spec_text: variant?.product_code ?? null,
           };
         });
 
@@ -229,6 +277,7 @@ export default function PrintOrderPage() {
           customer_address: customer?.delivery_address ?? null,
           customer_type: customer?.customer_type ?? null,
           deposit_amount: Number(orderRow.deposit_amount ?? 0),
+          explanation_image_url: orderRow.explanation_image_url ?? null,
         });
 
         setItems(mappedItems);
@@ -294,9 +343,8 @@ export default function PrintOrderPage() {
 
   return (
     <div className="min-h-screen bg-white text-black">
-      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black p-10 shadow-lg print:shadow-none print:p-0">
-        {/* 右上角：列印按鈕（列印時隱藏） */}
-        <div className="flex justify-end mb-4 print:hidden">
+      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:shadow-none print:px-10 print:py-8">
+        <div className="flex justify-end mb-6 print:hidden">
           <button
             type="button"
             onClick={() => window.print()}
@@ -306,45 +354,42 @@ export default function PrintOrderPage() {
           </button>
         </div>
 
-        {/* 品牌與訂單資訊 */}
-        <header className="mb-8 border-b border-gray-200 pb-6">
-          <div className="flex items-start justify-between gap-6">
-            <div className="flex items-start gap-4">
-              <div className="flex flex-col items-start gap-2">
-                <img
-                  src="/logo.png"
-                  alt="Føre Furniture"
-                  className="h-24 object-contain"
-                />
-                <div className="space-y-0.5 text-[11px] text-gray-700">
-                  <p>電話：06-2302861</p>
-                  <p>Email：forefurniture.studio@gmail.com</p>
-                  <p>地址：台南市歸仁區丁厝街125號</p>
-                </div>
+        <header className="mb-10 border-b border-gray-200 pb-8">
+          <div className="flex items-start justify-between gap-8">
+            <div className="flex flex-col items-start gap-3">
+              <img
+                src="/logo.png"
+                alt="Føre Furniture"
+                className="h-24 object-contain"
+              />
+              <div className="space-y-1 text-xs text-gray-700 leading-relaxed">
+                <p>電話：06-2302861</p>
+                <p>地址：台南市歸仁區丁厝街125號</p>
+                <p>
+                  Line：
+                  <a
+                    href="https://line.me/ti/p/~fore.fore"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-900 underline hover:no-underline"
+                  >
+                    @fore.fore
+                  </a>
+                </p>
               </div>
             </div>
-            <div className="text-right space-y-1">
-              <p className="text-sm font-semibold tracking-wide text-gray-900">
-                報價單 / 訂單確認單
-              </p>
-              <p className="text-xs text-gray-600">
-                訂單編號：
-                <span className="font-mono text-gray-900">{order.order_number}</span>
-              </p>
-              <p className="text-xs text-gray-600">
-                日期：<span>{formattedDate(order.order_date)}</span>
-              </p>
+            <div className="text-right space-y-2 text-sm text-gray-700 leading-relaxed">
+              <p className="text-lg font-semibold text-gray-900">訂單確認單</p>
+              <p>訂單編號：<span className="font-mono text-gray-900">{order.order_number}</span></p>
+              <p>日期：<span>{formattedDate(order.order_date)}</span></p>
               {order.expected_delivery_date && (
-                <p className="text-xs text-gray-600">
-                  預計交期：<span>{formattedDate(order.expected_delivery_date)}</span>
-                </p>
+                <p>預計交期：<span>{formattedDate(order.expected_delivery_date)}</span></p>
               )}
             </div>
           </div>
 
-          {/* 客戶資訊 */}
-          <div className="mt-6 grid grid-cols-2 gap-6 text-xs">
-            <div className="space-y-1.5">
+          <div className="mt-8 grid grid-cols-2 gap-8 text-sm leading-relaxed">
+            <div className="space-y-2">
               <p className="font-semibold text-gray-900">客戶資訊</p>
               <p className="text-gray-800">
                 客戶名稱：<span className="font-medium">{order.customer_name || "—"}</span>
@@ -355,35 +400,35 @@ export default function PrintOrderPage() {
               {order.customer_address && (
                 <p className="text-gray-800">送貨地址：{order.customer_address}</p>
               )}
-              {order.customer_type && (
-                <p className="text-gray-800">客戶類別：{order.customer_type}</p>
-              )}
             </div>
-            <div className="space-y-1.5 text-xs text-gray-800">
-              <p className="font-semibold text-gray-900">備註</p>
-              <p>此報價單內容如有疑義，請於 3 日內與我們聯繫確認。</p>
-            </div>
+            <div />
           </div>
         </header>
 
-        {/* 明細表格 */}
-        <section className="mb-6">
-          <table className="w-full border-collapse text-xs">
+        <section className="mb-4">
+          <p className="text-sm font-semibold text-gray-900">報價內容</p>
+        </section>
+
+        <section className="mb-8">
+          <table className="w-full border-collapse text-sm leading-snug">
             <thead>
-              <tr className="border-b border-gray-300 bg-gray-50">
-                <th className="w-14 px-2 py-2 text-left font-medium text-gray-700">圖片</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-700">品項名稱</th>
-                <th className="w-14 px-2 py-2 text-right font-medium text-gray-700">數量</th>
-                <th className="w-20 px-2 py-2 text-right font-medium text-gray-700">單價</th>
-                <th className="w-24 px-2 py-2 text-right font-medium text-gray-700">小計</th>
+              <tr className="border-b-2 border-gray-300 bg-gray-50">
+                <th className="w-16 px-3 py-3 text-left font-semibold text-gray-700">圖片</th>
+                <th className="min-w-[140px] px-3 py-3 text-left font-semibold text-gray-700">報價品項</th>
+                <th className="w-20 px-3 py-3 text-left font-semibold text-gray-700">木種</th>
+                <th className="w-32 px-3 py-3 text-left font-semibold text-gray-700">尺寸</th>
+                <th className="w-24 px-3 py-3 text-left font-semibold text-gray-700">規格</th>
+                <th className="w-14 px-3 py-3 text-right font-semibold text-gray-700">數量</th>
+                <th className="w-20 px-3 py-3 text-right font-semibold text-gray-700">單價</th>
+                <th className="w-24 px-3 py-3 text-right font-semibold text-gray-700">小計</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
-                    className="px-3 py-6 text-center text-xs text-gray-500 border-b border-gray-200"
+                    colSpan={8}
+                    className="px-3 py-8 text-center text-sm text-gray-500 border-b border-gray-200"
                   >
                     此訂單目前尚無明細
                   </td>
@@ -393,7 +438,7 @@ export default function PrintOrderPage() {
                   const lineTotal = item.quantity * item.unit_price;
                   return (
                     <tr key={item.id} className="border-b border-gray-200 align-top">
-                      <td className="px-2 py-2">
+                      <td className="px-3 py-3">
                         {item.image_url ? (
                           <div className="h-14 w-14 overflow-hidden rounded border border-gray-200 bg-gray-100">
                             <img
@@ -406,26 +451,33 @@ export default function PrintOrderPage() {
                           <div className="h-14 w-14 rounded border border-dashed border-gray-200 bg-gray-50" />
                         )}
                       </td>
-                      <td className="px-3 py-2">
-                        <div className="text-gray-900">{item.name}</div>
+                      <td className="px-3 py-3">
+                        <div className="font-medium text-gray-900">{item.name}</div>
                         {item.description && (
-                          <div className="mt-0.5 text-[11px] text-gray-600">
+                          <div className="mt-1 text-xs text-gray-600 whitespace-pre-line leading-relaxed">
                             {item.description}
                           </div>
                         )}
                         {item.custom_notes && (
-                          <div className="mt-0.5 text-[11px] text-gray-600">
+                          <div className="mt-1 text-xs text-gray-600 whitespace-pre-line leading-relaxed">
                             {item.custom_notes}
                           </div>
                         )}
                       </td>
-                      <td className="px-2 py-2 text-right text-gray-900">
+                      <td className="px-3 py-3 text-gray-700">{item.wood_type ?? "—"}</td>
+                      <td className="px-3 py-3 text-gray-700 text-xs leading-relaxed">
+                        {item.dimension_text ?? "—"}
+                      </td>
+                      <td className="px-3 py-3 text-gray-700 font-mono text-xs">
+                        {item.spec_text ?? "—"}
+                      </td>
+                      <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
                         {item.quantity}
                       </td>
-                      <td className="px-2 py-2 text-right text-gray-900">
+                      <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
                         {item.unit_price.toLocaleString()}
                       </td>
-                      <td className="px-2 py-2 text-right text-gray-900">
+                      <td className="px-3 py-3 text-right text-gray-900 font-medium tabular-nums">
                         {lineTotal.toLocaleString()}
                       </td>
                     </tr>
@@ -436,64 +488,65 @@ export default function PrintOrderPage() {
           </table>
         </section>
 
-        {/* 金額加總區塊 */}
-        <section className="mt-6 mb-10 flex justify-end">
-          <div className="w-full max-w-xs space-y-1 text-xs">
+        <section className="flex justify-end mb-8">
+          <div className="w-full max-w-xs space-y-3 text-sm leading-relaxed">
             <div className="flex items-center justify-between">
               <span className="text-gray-700">商品總計</span>
-              <span className="font-medium text-gray-900">
-                {totals.original.toLocaleString()}
-              </span>
+              <span className="text-gray-900 tabular-nums">{totals.original.toLocaleString()}</span>
             </div>
             {showDiscountRow && (
               <div className="flex items-center justify-between">
                 <span className="text-gray-700">通路 / 專案折扣</span>
-                <span className="font-medium text-gray-900">
-                  {totals.discount.toLocaleString()}
-                </span>
+                <span className="text-gray-900 tabular-nums">{totals.discount.toLocaleString()}</span>
               </div>
             )}
-            <div className="mt-2 border-top border-gray-300 pt-2 flex items-center justify-between">
-              <span className="text-sm font-semibold text-gray-900">總計金額</span>
-              <span className="text-base font-semibold text-gray-900">
-                {totals.total.toLocaleString()}
-              </span>
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+              <span className="font-semibold text-gray-900">報價總金額</span>
+              <span className="font-semibold text-gray-900 tabular-nums">{totals.total.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-700">訂金</span>
-              <span className="font-medium text-gray-900">
-                {order.deposit_amount.toLocaleString()}{" "}
+              <span className="text-gray-900 tabular-nums">
+                {order.deposit_amount.toLocaleString()}
                 {depositPercent > 0 && (
-                  <span className="text-[11px] text-gray-600">({depositPercent}%)</span>
+                  <span className="ml-1 text-gray-600">({depositPercent}%)</span>
                 )}
               </span>
             </div>
           </div>
         </section>
 
-        {/* 匯款資訊與條款、簽名欄 */}
-        <footer className="mt-auto pt-6 border-t border-gray-200 text-xs text-gray-800 space-y-6">
-          <div className="grid grid-cols-2 gap-8">
-            <div className="space-y-1.5">
-              <p className="font-semibold text-gray-900">匯款帳號資訊</p>
+        <div className="mb-8 space-y-1 text-sm text-gray-600 leading-relaxed">
+          <p>備註：此報價單內容如有疑義，請於 3 日內與我們聯繫確認。</p>
+          <p>本報價單效期為一個月。</p>
+        </div>
+
+        <footer className="pt-6 border-t border-gray-200 space-y-6 text-sm text-gray-800 leading-relaxed">
+          {parseExplanationImageUrls(order.explanation_image_url).length > 0 && (
+            <div className="space-y-4">
+              {parseExplanationImageUrls(order.explanation_image_url).map((url, idx) => (
+                <div key={idx} className="w-full overflow-hidden rounded-md border border-gray-200 bg-gray-50">
+                  <img
+                    src={url}
+                    alt={`訂單說明圖 ${idx + 1}`}
+                    className="w-full max-h-[520px] object-contain"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <p className="font-semibold text-gray-900">匯款帳號資訊</p>
+            <div className="space-y-1.5 leading-snug">
               <p>銀行名稱：台灣銀行 安南分行（銀行代碼 004）</p>
               <p>戶名：蔡秉學</p>
               <p>帳號：137-004-356269</p>
             </div>
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <p className="font-semibold text-gray-900">客戶簽名欄</p>
-                <div className="mt-4 h-12 border-b border-gray-500" />
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">工坊負責人簽章欄</p>
-                <div className="mt-4 h-12 border-b border-gray-500" />
-              </div>
-            </div>
           </div>
 
-          <div className="space-y-2 text-[11px] text-gray-600 leading-relaxed">
-            <p className="font-semibold text-gray-700">品質保證與聲明</p>
+          <div className="space-y-3 text-xs text-gray-600 leading-relaxed">
+            <p className="text-sm font-semibold text-gray-900">品質保證與聲明</p>
             <p>
               頂級塗料與安全認證：本工坊使用日本大谷塗料，具日本食器使用標準(F4星)，通過嚴格環保與安全標準檢驗，確保甲醛與揮發性有機物逸散速率符合高標準，敬請安心使用。
             </p>
@@ -504,7 +557,7 @@ export default function PrintOrderPage() {
               天然實木特性聲明：實木傢俱具有自然生長紋理，包含木紋走向、色澤深淺差異與細微木結等皆屬正常現象，並非產品瑕疵或結構問題。
             </p>
             <p>
-              運費說明：本報價單總計金額已包含一般地區基本運費。若配送地點為偏遠地區、無電梯需人工搬運樓層，或因空間限制需動用吊車等特殊作業，將依實際狀況另行報價並收取額外費用。
+              運費說明：配送地區為一般台灣本島西部縣市，若為東部、外島及偏遠山區，則運費將視實際情況另行調整與報價。
             </p>
           </div>
         </footer>

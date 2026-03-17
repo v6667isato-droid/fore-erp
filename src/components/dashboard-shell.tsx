@@ -34,15 +34,27 @@ import { DashboardOverview } from "@/components/dashboard-overview";
 import { dashboardStats } from "@/lib/mock-data";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { supabase } from "@/lib/supabase";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-type Page = "dashboard" | "orders" | "kanban" | "procurement" | "vendors" | "products" | "customers" | "channels" | "employees" | "feedback";
+type Page =
+  | "dashboard"
+  | "quotes"
+  | "orders"
+  | "kanban"
+  | "procurement"
+  | "vendors"
+  | "products"
+  | "customers"
+  | "channels"
+  | "employees"
+  | "feedback";
 type AppRole = "admin" | "staff" | null;
 
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "總覽", icon: LayoutGrid },
   { id: "products", label: "產品資料", icon: Package },
-  { id: "orders", label: "訂單管理", icon: ClipboardList },
+  { id: "quotes", label: "報價管理", icon: ClipboardList },
+  { id: "orders", label: "訂單管理", icon: ShoppingCart },
   { id: "customers", label: "客戶資料", icon: Users },
   { id: "channels", label: "通路管理", icon: Store },
   { id: "kanban", label: "生產看板", icon: Package },
@@ -267,13 +279,30 @@ function StatsRow() {
   );
 }
 
+const PAGE_IDS = new Set(navItems.map((i) => i.id));
+
 export default function DashboardShell() {
-  const [activePage, setActivePage] = useState<Page>("dashboard");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const pageParam = searchParams.get("page");
+  const [activePage, setActivePage] = useState<Page>(() =>
+    pageParam && PAGE_IDS.has(pageParam as Page) ? (pageParam as Page) : "dashboard"
+  );
   const pageTitle = navItems.find((i) => i.id === activePage)?.label ?? "總覽";
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<AppRole>(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const router = useRouter();
+
+  // 從 URL 同步頁面（例如瀏覽器上一頁 / 開新視窗後重繪時維持在當前頁）
+  useEffect(() => {
+    const p = searchParams.get("page");
+    if (p && PAGE_IDS.has(p as Page)) setActivePage(p as Page);
+  }, [searchParams]);
+
+  function onNavigate(page: Page) {
+    setActivePage(page);
+    router.replace("/?page=" + page);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -330,12 +359,12 @@ export default function DashboardShell() {
     <div className="min-h-dvh bg-background">
       <DesktopSidebar
         activePage={activePage}
-        onNavigate={setActivePage}
+        onNavigate={onNavigate}
         userEmail={userEmail}
         userRole={userRole}
         onLogout={handleLogout}
       />
-      <MobileHeader activePage={activePage} onNavigate={setActivePage} />
+      <MobileHeader activePage={activePage} onNavigate={onNavigate} />
 
       <main className="lg:pl-60">
         <div className="mx-auto max-w-7xl px-4 py-6 lg:px-8 lg:py-8">
@@ -350,7 +379,8 @@ export default function DashboardShell() {
           )}
 
           {activePage === "dashboard" && <DashboardOverview />}
-          {activePage === "orders" && <OrdersPage />}
+          {activePage === "quotes" && <OrdersPage mode="quotation" />}
+          {activePage === "orders" && <OrdersPage mode="order" />}
           {activePage === "kanban" && <WorkOrdersPage />}
           {activePage === "procurement" && (
             <ProcurementPage onNavigateToVendors={() => setActivePage("vendors")} />

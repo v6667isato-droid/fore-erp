@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import imageCompression from "browser-image-compression";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,8 @@ import {
 } from "@/components/ui/table";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Search, Plus, X } from "lucide-react";
+import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
+import { Search, Plus, X, Image as ImageIcon, Loader2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 type OrderStatus = "報價中" | "排程中" | "生產中" | "已出貨";
@@ -30,7 +32,8 @@ interface OrderRow {
   payment_status: PaymentStatus;
   customer_id: string | null;
   customer_name: string;
-   deposit_amount: number;
+  deposit_amount: number;
+  explanation_image_url?: string | null;
 }
 
 interface CustomerOption {
@@ -62,7 +65,18 @@ interface OrderItemInput {
   custom_dimension_w?: number | null;
   custom_dimension_d?: number | null;
   custom_dimension_h?: number | null;
+  image_url?: string | null;
 }
+
+type OrdersPageMode = "all" | "quotation" | "order";
+
+const IMAGE_BUCKET = "product-images";
+const ORDER_EXPLANATION_BUCKET = "order-explanations";
+const IMAGE_COMPRESSION_OPTIONS = {
+  maxSizeMB: 0.5,
+  maxWidthOrHeight: 1920,
+  useWebWorker: true,
+} as const;
 
 const ORDER_STATUS_OPTIONS: OrderStatus[] = [
   "報價中",
@@ -103,6 +117,19 @@ function generateOrderNumber() {
   return `ORD-${ymd}-${suffix}`;
 }
 
+/** 將 DB 的 explanation_image_url 解析為 URL 陣列（支援舊版單一 URL 或 JSON 陣列） */
+function parseExplanationImageUrls(raw: string | null | undefined): string[] {
+  if (raw == null || raw === "") return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string");
+    if (typeof parsed === "string") return [parsed];
+    return [];
+  } catch {
+    return typeof raw === "string" ? [raw] : [];
+  }
+}
+
 interface OrderFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -111,6 +138,7 @@ interface OrderFormProps {
   initialOrder?: OrderRow | null;
   initialItems?: OrderItemInput[];
   onSaved: () => void;
+  onRefreshCustomers: () => Promise<void>;
 }
 
 function OrderFormDialog({
@@ -121,6 +149,7 @@ function OrderFormDialog({
   initialOrder,
   initialItems,
   onSaved,
+  onRefreshCustomers,
 }: OrderFormProps) {
   const isEdit = Boolean(initialOrder);
   const [saving, setSaving] = useState(false);
@@ -142,11 +171,16 @@ function OrderFormDialog({
   const [deposit, setDeposit] = useState<string>(
     initialOrder?.total_amount ? "0" : "0"
   );
-  const [depositPercent, setDepositPercent] = useState<string>("");
+  const [depositPercent, setDepositPercent] = useState<string>("50");
   const [shippingAddress, setShippingAddress] = useState<string>("");
   const [internalNotes, setInternalNotes] = useState<string>(
     ""
   );
+  const [orderExplanationImageUrls, setOrderExplanationImageUrls] = useState<string[]>(() =>
+    parseExplanationImageUrls(initialOrder?.explanation_image_url)
+  );
+  const [uploadingImageItemId, setUploadingImageItemId] = useState<string | null>(null);
+  const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [items, setItems] = useState<OrderItemInput[]>(
     initialItems && initialItems.length
       ? initialItems
@@ -169,6 +203,7 @@ function OrderFormDialog({
       setExpectedDate(initialOrder.expected_delivery_date ?? "");
       setStatus(initialOrder.status);
       setPaymentStatus(initialOrder.payment_status);
+      setOrderExplanationImageUrls(parseExplanationImageUrls(initialOrder.explanation_image_url));
     }
     if (initialItems && initialItems.length) {
       setItems(initialItems);
@@ -184,8 +219,10 @@ function OrderFormDialog({
     setStatus("報價中");
     setPaymentStatus("未付款");
     setDeposit("0");
+    setDepositPercent("50");
     setShippingAddress("");
     setInternalNotes("");
+    setOrderExplanationImageUrls([]);
     setItems([
       {
         id: "item-0",
@@ -224,6 +261,85 @@ function OrderFormDialog({
   );
   const totalAmount = itemSubtotals.reduce((sum, v) => sum + v, 0);
 
+  // 訂金比例為 50% 時，隨總金額同步訂金
+  useEffect(() => {
+    if (depositPercent === "50" && totalAmount > 0) {
+      setDeposit(String(Math.round(totalAmount * 0.5)));
+    }
+  }, [depositPercent, totalAmount]);
+
+  async function handleItemImageUpload(id: string, file: File) {
+    if (!file.type.startsWith("image/")) {
+      toast.error("請選擇圖片檔案");
+      return;
+    }
+    setUploadingImageItemId(id);
+    try {
+      const compressed = await imageCompression(file, IMAGE_COMPRESSION_OPTIONS);
+      const ext = compressed.name.split(".").pop()?.toLowerCase() || "webp";
+      const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "webp";
+      const filename = `${crypto.randomUUID()}.${safeExt}`;
+      const { data, error } = await supabase.storage
+        .from(IMAGE_BUCKET)
+        .upload(filename, compressed, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+      if (error) {
+        throw error;
+      }
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(data.path);
+      updateItem(id, { image_url: publicUrl });
+      toast.success("圖片上傳成功");
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "圖片上傳失敗");
+    } finally {
+      setUploadingImageItemId(null);
+    }
+  }
+
+  function clearItemImage(id: string) {
+    updateItem(id, { image_url: null });
+  }
+
+  async function handleOrderImageUpload(file: File) {
+    if (!file.type.startsWith("image/")) {
+      toast.error("請選擇圖片檔案");
+      return;
+    }
+    setUploadingImageItemId("order");
+    try {
+      const compressed = await imageCompression(file, IMAGE_COMPRESSION_OPTIONS);
+      const ext = compressed.name.split(".").pop()?.toLowerCase() || "webp";
+      const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "webp";
+      const filename = `${crypto.randomUUID()}.${safeExt}`;
+      const { data, error } = await supabase.storage
+        .from(ORDER_EXPLANATION_BUCKET)
+        .upload(filename, compressed, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+      if (error) throw error;
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from(ORDER_EXPLANATION_BUCKET).getPublicUrl(data.path);
+      setOrderExplanationImageUrls((prev) => [...prev, publicUrl]);
+      toast.success("訂單說明圖已上傳");
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "訂單說明圖上傳失敗");
+    } finally {
+      setUploadingImageItemId(null);
+    }
+  }
+
+  function clearOrderImageAtIndex(index: number) {
+    setOrderExplanationImageUrls((prev) => prev.filter((_, i) => i !== index));
+  }
+
   function updateItem(id: string, patch: Partial<OrderItemInput>) {
     setItems((prev) =>
       prev.map((it) => (it.id === id ? { ...it, ...patch } : it))
@@ -232,15 +348,15 @@ function OrderFormDialog({
 
   function addItem() {
     setItems((prev) => [
-      ...prev,
       {
-        id: `item-${prev.length + 1}`,
+        id: `item-${Date.now()}`,
         variant_id: "",
         quantity: 1,
         unit_price: 0,
         custom_notes: "",
         kind: "variant",
       },
+      ...prev,
     ]);
   }
 
@@ -280,9 +396,12 @@ function OrderFormDialog({
         deposit_amount: Number(deposit) || 0,
         shipping_address: shippingAddress || null,
         internal_notes: internalNotes || null,
+          explanation_image_url: orderExplanationImageUrls.length > 0 ? JSON.stringify(orderExplanationImageUrls) : null,
       };
 
-      let orderId = initialOrder?.id ?? null;
+      const hasOrderId =
+        initialOrder?.id != null && String(initialOrder.id).trim() !== "";
+      let orderId = hasOrderId ? initialOrder!.id : null;
 
       if (!orderId) {
         const { data, error } = await supabase
@@ -330,6 +449,7 @@ function OrderFormDialog({
           it.kind === "custom" && it.custom_dimension_h != null
             ? it.custom_dimension_h
             : null,
+        image_url: it.image_url ?? null,
       }));
 
       const { data: insertedItems, error: itemsError } = await supabase
@@ -412,27 +532,46 @@ function OrderFormDialog({
                     >
                       客戶 *
                     </label>
-                    <select
-                      id="order-customer"
-                      value={customerId}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        setCustomerId(id);
-                        const customer = customers.find((c) => c.id === id);
-                        if (customer?.delivery_address) {
-                          setShippingAddress(customer.delivery_address);
-                        }
+                    <div className="flex items-center gap-2">
+                      <select
+                        id="order-customer"
+                        value={customerId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setCustomerId(id);
+                          const customer = customers.find((c) => c.id === id);
+                          if (customer?.delivery_address) {
+                            setShippingAddress(customer.delivery_address);
+                          }
+                        }}
+                        className="h-9 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        required
+                      >
+                        <option value="">請選擇客戶</option>
+                        {customers.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 shrink-0 px-2 text-xs"
+                        onClick={() => setAddCustomerOpen(true)}
+                      >
+                        <UserPlus className="h-3.5 w-3.5 mr-1" />
+                        新增客戶
+                      </Button>
+                    </div>
+                    <AddCustomerDialog
+                      channels={[]}
+                      open={addCustomerOpen}
+                      onOpenChange={setAddCustomerOpen}
+                      onSuccess={async () => {
+                        await onRefreshCustomers();
                       }}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    >
-                      <option value="">請選擇客戶</option>
-                      {customers.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label
@@ -540,12 +679,86 @@ function OrderFormDialog({
                     />
                   </div>
                 </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">
+                      訂單說明圖（用於列印，建議放訂製品尺寸／圖樣示意，可多張）
+                    </span>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3 sm:flex-wrap">
+                      {orderExplanationImageUrls.length > 0 ? (
+                        orderExplanationImageUrls.map((url, idx) => (
+                          <div key={idx} className="flex items-start gap-2">
+                            <img
+                              src={url}
+                              alt={`訂單說明圖 ${idx + 1}`}
+                              className="h-32 w-32 rounded-md border border-border object-cover"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 px-2 text-xs"
+                              onClick={() => clearOrderImageAtIndex(idx)}
+                              disabled={uploadingImageItemId === "order"}
+                            >
+                              移除
+                            </Button>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          尚未上傳訂單說明圖。
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 text-xs">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                void handleOrderImageUpload(file);
+                              }
+                              e.target.value = "";
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 px-2 text-xs"
+                            disabled={uploadingImageItemId === "order"}
+                            onClick={(e) => {
+                              const input = (e.currentTarget
+                                .previousSibling as HTMLInputElement | null);
+                              if (input) {
+                                input.click();
+                              }
+                            }}
+                          >
+                            {uploadingImageItemId === "order" ? (
+                              <>
+                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                上傳中…
+                              </>
+                            ) : (
+                              <>
+                                <ImageIcon className="mr-1 h-3 w-3" />
+                                上傳訂單說明圖
+                              </>
+                            )}
+                          </Button>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </section>
 
               <section className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    明細品項
+                    品項明細
                   </h3>
                   <Button
                     type="button"
@@ -750,8 +963,76 @@ function OrderFormDialog({
                                   custom_notes: e.target.value,
                                 })
                               }
-                              className="min-h-[50px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              placeholder={'客製品名稱：\n尺寸：\n材料：\n客製化說明：'}
+                              className="min-h-[100px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                             />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-xs text-muted-foreground">
+                              圖片（用於列印）
+                            </span>
+                            <div className="flex items-center gap-3">
+                              {it.image_url ? (
+                                <div className="flex items-center gap-2">
+                                  <img
+                                    src={it.image_url}
+                                    alt="品項圖片預覽"
+                                    className="h-12 w-12 rounded-md border border-border object-cover"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-8 px-2 text-xs"
+                                    onClick={() => clearItemImage(it.id)}
+                                  >
+                                    移除圖片
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  尚未上傳圖片
+                                </span>
+                              )}
+                              <label className="inline-flex items-center gap-1.5">
+                                <input
+                                  type="file"
+                                  accept="image/jpeg,image/png,image/webp"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      void handleItemImageUpload(it.id, file);
+                                    }
+                                    e.target.value = "";
+                                  }}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 px-2 text-xs"
+                                  disabled={uploadingImageItemId === it.id}
+                                  onClick={(e) => {
+                                    const input = (e.currentTarget
+                                      .previousSibling as HTMLInputElement | null);
+                                    if (input) {
+                                      input.click();
+                                    }
+                                  }}
+                                >
+                                  {uploadingImageItemId === it.id ? (
+                                    <>
+                                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                      上傳中…
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ImageIcon className="mr-1 h-3 w-3" />
+                                      上傳圖片
+                                    </>
+                                  )}
+                                </Button>
+                              </label>
+                            </div>
                           </div>
                         </>
                       ) : (
@@ -890,8 +1171,76 @@ function OrderFormDialog({
                                   custom_description: e.target.value,
                                 })
                               }
-                              className="min-h-[50px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              placeholder={'客製品名稱：\n尺寸：\n材料：\n客製化說明：'}
+                              className="min-h-[100px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                             />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-xs text-muted-foreground">
+                              圖片（用於列印）
+                            </span>
+                            <div className="flex items-center gap-3">
+                              {it.image_url ? (
+                                <div className="flex items-center gap-2">
+                                  <img
+                                    src={it.image_url}
+                                    alt="品項圖片預覽"
+                                    className="h-12 w-12 rounded-md border border-border object-cover"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-8 px-2 text-xs"
+                                    onClick={() => clearItemImage(it.id)}
+                                  >
+                                    移除圖片
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  尚未上傳圖片
+                                </span>
+                              )}
+                              <label className="inline-flex items-center gap-1.5">
+                                <input
+                                  type="file"
+                                  accept="image/jpeg,image/png,image/webp"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      void handleItemImageUpload(it.id, file);
+                                    }
+                                    e.target.value = "";
+                                  }}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 px-2 text-xs"
+                                  disabled={uploadingImageItemId === it.id}
+                                  onClick={(e) => {
+                                    const input = (e.currentTarget
+                                      .previousSibling as HTMLInputElement | null);
+                                    if (input) {
+                                      input.click();
+                                    }
+                                  }}
+                                >
+                                  {uploadingImageItemId === it.id ? (
+                                    <>
+                                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                      上傳中…
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ImageIcon className="mr-1 h-3 w-3" />
+                                      上傳圖片
+                                    </>
+                                  )}
+                                </Button>
+                              </label>
+                            </div>
                           </div>
                         </>
                       )}
@@ -986,11 +1335,21 @@ function OrderFormDialog({
   );
 }
 
-export function OrdersPage() {
+type StatusFilterValue = OrderStatus | "全部" | "非報價中";
+
+const STATUS_FILTER_OPTIONS: StatusFilterValue[] = [
+  "全部",
+  "報價中",
+  "非報價中",
+];
+
+export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | "全部">("全部");
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>(
+    mode === "quotation" ? "報價中" : "非報價中"
+  );
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [variants, setVariants] = useState<VariantOption[]>([]);
   const [editingOrder, setEditingOrder] = useState<OrderRow | null>(null);
@@ -1000,27 +1359,30 @@ export function OrdersPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<OrderRow | null>(null);
 
+  async function fetchCustomers() {
+    const { data: customerData, error: customerError } = await supabase
+      .from("customers")
+      .select("id, name, delivery_address")
+      .order("name", { ascending: true });
+    if (!customerError && customerData) {
+      setCustomers(
+        (customerData as any[]).map((c) => ({
+          id: String(c.id),
+          name: String(c.name ?? ""),
+          delivery_address: c.delivery_address
+            ? String(c.delivery_address)
+            : null,
+        }))
+      );
+    } else {
+      setCustomers([]);
+    }
+  }
+
   useEffect(() => {
     async function bootstrap() {
       setLoading(true);
-      // 客戶選單：只連結到 customers.delivery_address
-      const { data: customerData, error: customerError } = await supabase
-        .from("customers")
-        .select("id, name, delivery_address")
-        .order("name", { ascending: true });
-      if (!customerError && customerData) {
-        setCustomers(
-          (customerData as any[]).map((c) => ({
-            id: String(c.id),
-            name: String(c.name ?? ""),
-            delivery_address: c.delivery_address
-              ? String(c.delivery_address)
-              : null,
-          }))
-        );
-      } else {
-        setCustomers([]);
-      }
+      await fetchCustomers();
 
       // 產品系列名稱（用於規格庫先選系列）
       const { data: seriesData } = await supabase
@@ -1079,7 +1441,9 @@ export function OrdersPage() {
     async function fetchOrders() {
       const { data, error } = await supabase
         .from("orders")
-        .select("id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, customer_id, customers(name)")
+        .select(
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, explanation_image_url, customer_id, customers(name)"
+        )
         .order("order_date", { ascending: false });
 
       if (error) {
@@ -1105,6 +1469,7 @@ export function OrdersPage() {
             (row.customers && row.customers.name) ||
             (Array.isArray(row.customers) && row.customers[0]?.name) ||
             "",
+          explanation_image_url: row.explanation_image_url ?? null,
         }))
       );
     }
@@ -1115,7 +1480,9 @@ export function OrdersPage() {
   async function reloadOrders() {
     const { data, error } = await supabase
       .from("orders")
-      .select("id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, customer_id, customers(name)")
+      .select(
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, explanation_image_url, customer_id, customers(name)"
+      )
       .order("order_date", { ascending: false });
 
     if (error) {
@@ -1141,6 +1508,7 @@ export function OrdersPage() {
           (row.customers && row.customers.name) ||
           (Array.isArray(row.customers) && row.customers[0]?.name) ||
           "",
+        explanation_image_url: row.explanation_image_url ?? null,
       }))
     );
   }
@@ -1153,7 +1521,11 @@ export function OrdersPage() {
         o.order_number.toLowerCase().includes(q) ||
         o.customer_name.toLowerCase().includes(q);
       const matchStatus =
-        statusFilter === "全部" || o.status === statusFilter;
+        statusFilter === "全部"
+          ? true
+          : statusFilter === "非報價中"
+          ? o.status !== "報價中"
+          : o.status === statusFilter;
       return matchSearch && matchStatus;
     });
   }, [orders, search, statusFilter]);
@@ -1163,7 +1535,7 @@ export function OrdersPage() {
     const { data, error } = await supabase
       .from("order_items")
       .select(
-        "id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h"
+        "id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, image_url"
       )
       .eq("order_id", order.id);
     if (error) {
@@ -1194,6 +1566,7 @@ export function OrdersPage() {
           d.custom_dimension_h !== undefined && d.custom_dimension_h !== null
             ? Number(d.custom_dimension_h)
             : null,
+        image_url: d.image_url ?? null,
       };
     });
     setEditingOrder(order);
@@ -1265,13 +1638,11 @@ export function OrdersPage() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex gap-1.5">
-            {(["全部", ...ORDER_STATUS_OPTIONS] as const).map((f) => (
+          <div className="flex flex-wrap gap-1.5">
+            {STATUS_FILTER_OPTIONS.map((f) => (
               <button
                 key={f}
-                onClick={() =>
-                  setStatusFilter(f === "全部" ? "全部" : (f as OrderStatus))
-                }
+                onClick={() => setStatusFilter(f)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
                   statusFilter === f
                     ? "bg-primary text-primary-foreground"
@@ -1292,7 +1663,7 @@ export function OrdersPage() {
             }}
           >
             <Plus className="h-4 w-4 mr-1" />
-            新增訂單
+            {mode === "quotation" ? "新增報價" : "新增訂單"}
           </Button>
         </div>
       </div>
@@ -1342,7 +1713,15 @@ export function OrdersPage() {
                   <TableCell className="font-mono text-xs font-medium">
                     {order.order_number}
                   </TableCell>
-                  <TableCell className="text-sm">{order.customer_name}</TableCell>
+                  <TableCell className="text-sm">
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(order)}
+                      className="text-left font-medium text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                    >
+                      {order.customer_name || "—"}
+                    </button>
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
                     {order.order_date ?? "—"}
                   </TableCell>
@@ -1398,17 +1777,21 @@ export function OrdersPage() {
                           e.preventDefault();
                           e.stopPropagation();
                           const id = encodeURIComponent(order.id);
-                          window.open(`/print/order/${id}`, "_blank", "noopener,noreferrer");
+                          const path =
+                            order.status === "報價中"
+                              ? `/print/quotation/${id}`
+                              : `/print/order/${id}`;
+                          window.open(path, "_blank", "noopener,noreferrer");
                         }}
                       >
-                        預覽列印
+                        {order.status === "報價中" ? "報價列印" : "訂單列印"}
                       </Button>
                       <Button
                         variant="ghost"
                         className="h-8 px-2 text-xs"
                         onClick={() => handleEdit(order)}
                       >
-                        總覽 / 編輯
+                        編輯
                       </Button>
                       <Button
                         type="button"
@@ -1447,6 +1830,7 @@ export function OrdersPage() {
         initialOrder={editingOrder}
         initialItems={editingItems}
         onSaved={reloadOrders}
+        onRefreshCustomers={fetchCustomers}
       />
 
       <ConfirmDialog
