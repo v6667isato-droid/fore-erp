@@ -16,7 +16,7 @@ import {
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
-import { Search, Plus, X, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2 } from "lucide-react";
+import { Search, Plus, X, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 
 type OrderStatus = "報價中" | "排程中" | "生產中" | "已出貨";
@@ -33,6 +33,7 @@ interface OrderRow {
   customer_id: string | null;
   customer_name: string;
   deposit_amount: number;
+  shipping_address?: string | null;
   explanation_image_url?: string | null;
 }
 
@@ -168,9 +169,12 @@ function OrderFormDialog({
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(
     initialOrder?.payment_status ?? "未付款"
   );
-  const [deposit, setDeposit] = useState<string>(
-    initialOrder?.total_amount ? "0" : "0"
+  // 折扣後總價（可手動輸入），預設為品項總金額
+  const [discountTotal, setDiscountTotal] = useState<string>(
+    initialOrder?.total_amount != null ? String(initialOrder.total_amount) : ""
   );
+  const [discountLocked, setDiscountLocked] = useState(false);
+  const [deposit, setDeposit] = useState<string>("0");
   const [depositPercent, setDepositPercent] = useState<string>("50");
   const [shippingAddress, setShippingAddress] = useState<string>("");
   const [internalNotes, setInternalNotes] = useState<string>(
@@ -220,6 +224,8 @@ function OrderFormDialog({
     setPaymentStatus("未付款");
     setDeposit("0");
     setDepositPercent("50");
+    setDiscountLocked(false);
+    setDiscountTotal("");
     setShippingAddress("");
     setInternalNotes("");
     setOrderExplanationImageUrls([]);
@@ -237,11 +243,10 @@ function OrderFormDialog({
 
   // 若是編輯模式，初始化送貨地址為既有訂單上的地址
   useEffect(() => {
-    if (initialOrder && initialOrder.customer_id === customerId) {
-      // 保留原本訂單上的 shipping_address（若之後想支援，可在 props 傳入）
-      // 目前維持空字串，由使用者自行輸入或使用客戶預設地址。
-    }
-  }, [initialOrder, customerId]);
+    if (!initialOrder) return;
+    // 將既有訂單上的 shipping_address 帶入表單
+    setShippingAddress(initialOrder.shipping_address ?? "");
+  }, [initialOrder]);
 
   const itemRows = items;
 
@@ -261,12 +266,25 @@ function OrderFormDialog({
   );
   const totalAmount = itemSubtotals.reduce((sum, v) => sum + v, 0);
 
+  // 若使用者尚未手動輸入折扣後總價，則自動跟隨品項總金額
+  useEffect(() => {
+    if (!discountLocked) {
+      setDiscountTotal(totalAmount > 0 ? String(totalAmount) : "");
+    }
+  }, [totalAmount, discountLocked]);
+
+  const discountBase = (() => {
+    const n = Number(discountTotal);
+    if (!Number.isFinite(n) || n < 0) return totalAmount;
+    return n;
+  })();
+
   // 訂金比例為 50% 時，隨總金額同步訂金
   useEffect(() => {
-    if (depositPercent === "50" && totalAmount > 0) {
-      setDeposit(String(Math.round(totalAmount * 0.5)));
+    if (depositPercent === "50" && discountBase > 0) {
+      setDeposit(String(Math.round(discountBase * 0.5)));
     }
-  }, [depositPercent, totalAmount]);
+  }, [depositPercent, discountBase]);
 
   async function handleItemImageUpload(id: string, file: File) {
     if (!file.type.startsWith("image/")) {
@@ -392,7 +410,8 @@ function OrderFormDialog({
         expected_delivery_date: expectedDate || null,
         status,
         payment_status: paymentStatus,
-        total_amount: totalAmount,
+        // 總金額以折扣後總價為主，若未輸入則回退為品項總金額
+        total_amount: discountBase,
         deposit_amount: Number(deposit) || 0,
         shipping_address: shippingAddress || null,
         internal_notes: internalNotes || null,
@@ -1266,7 +1285,7 @@ function OrderFormDialog({
                   <div className="flex flex-wrap items-center gap-3 text-sm">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">
-                        訂金比例
+                      訂金比例
                       </span>
                       <select
                         value={depositPercent}
@@ -1274,9 +1293,9 @@ function OrderFormDialog({
                           const v = e.target.value;
                           setDepositPercent(v);
                           const p = Number(v);
-                          if (p > 0 && totalAmount > 0) {
+                          if (p > 0 && discountBase > 0) {
                             const amt = Math.round(
-                              (totalAmount * p) / 100
+                              (discountBase * p) / 100
                             );
                             setDeposit(String(amt));
                           }
@@ -1288,6 +1307,22 @@ function OrderFormDialog({
                         <option value="40">40%</option>
                         <option value="50">50%</option>
                       </select>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">
+                        折扣後總價
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={discountTotal}
+                        onChange={(e) => {
+                          setDiscountLocked(true);
+                          setDiscountTotal(e.target.value);
+                        }}
+                        className="h-8 w-28 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        placeholder={totalAmount > 0 ? String(totalAmount) : "0"}
+                      />
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">
@@ -1308,7 +1343,7 @@ function OrderFormDialog({
                       </span>
                       <span className="text-sm font-semibold text-foreground">
                         {Math.max(
-                          totalAmount - (Number(deposit) || 0),
+                          discountBase - (Number(deposit) || 0),
                           0
                         ).toLocaleString()}
                       </span>
@@ -1442,7 +1477,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, explanation_image_url, customer_id, customers(name)"
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, explanation_image_url, customer_id, customers(name)"
         )
         .order("order_date", { ascending: false });
 
@@ -1469,6 +1504,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
             (row.customers && row.customers.name) ||
             (Array.isArray(row.customers) && row.customers[0]?.name) ||
             "",
+          shipping_address: row.shipping_address ?? null,
           explanation_image_url: row.explanation_image_url ?? null,
         }))
       );
@@ -1481,7 +1517,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, explanation_image_url, customer_id, customers(name)"
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, explanation_image_url, customer_id, customers(name)"
       )
       .order("order_date", { ascending: false });
 
@@ -1508,6 +1544,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
           (row.customers && row.customers.name) ||
           (Array.isArray(row.customers) && row.customers[0]?.name) ||
           "",
+        shipping_address: row.shipping_address ?? null,
         explanation_image_url: row.explanation_image_url ?? null,
       }))
     );
@@ -1539,8 +1576,12 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
     | "payment_status"
     | "deposit_amount"
     | "total_amount";
-  const [sortKey, setSortKey] = useState<OrderSortKey>("order_date");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [orderSort, setOrderSort] = useState<{ key: OrderSortKey; dir: "asc" | "desc" }>({
+    key: "order_date",
+    dir: "desc",
+  });
+  const sortKey = orderSort.key;
+  const sortDir = orderSort.dir;
 
   const sortedOrders = useMemo(() => {
     const list = [...filtered];
@@ -1562,20 +1603,29 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
   }, [filtered, sortKey, sortDir]);
 
   function toggleOrderSort(key: OrderSortKey) {
-    setSortKey((prev) => {
-      if (prev !== key) {
-        setSortDir("asc");
-        return key;
-      }
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-      return key;
-    });
+    setOrderSort((prev) =>
+      prev.key === key
+        ? { ...prev, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" }
+    );
   }
 
-  function orderHeaderLabel(label: string, key: OrderSortKey) {
-    const isActive = sortKey === key;
-    const arrow = isActive ? (sortDir === "asc" ? " ▲" : " ▼") : "";
-    return `${label}${arrow}`;
+  function OrderSortHeader({ label, sortKey: colKey }: { label: string; sortKey: OrderSortKey }) {
+    const active = sortKey === colKey;
+    return (
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active ? (
+          sortDir === "asc" ? (
+            <ArrowUp className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5 shrink-0" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        )}
+      </span>
+    );
   }
 
   async function handleEdit(order: OrderRow) {
@@ -1721,52 +1771,60 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead
-                className="text-xs font-semibold cursor-pointer select-none"
+                className="text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("order_number")}
+                title="點擊排序"
               >
-                {orderHeaderLabel("訂單編號", "order_number")}
+                <OrderSortHeader label="訂單編號" sortKey="order_number" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold cursor-pointer select-none"
+                className="text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("customer_name")}
+                title="點擊排序"
               >
-                {orderHeaderLabel("客戶姓名", "customer_name")}
+                <OrderSortHeader label="客戶姓名" sortKey="customer_name" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none"
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("order_date")}
+                title="點擊排序"
               >
-                {orderHeaderLabel("下單日", "order_date")}
+                <OrderSortHeader label="下單日" sortKey="order_date" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap cursor-pointer select-none"
+                className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("expected_delivery_date")}
+                title="點擊排序"
               >
-                {orderHeaderLabel("交期", "expected_delivery_date")}
+                <OrderSortHeader label="交期" sortKey="expected_delivery_date" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none"
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("status")}
+                title="點擊排序"
               >
-                {orderHeaderLabel("訂單狀態", "status")}
+                <OrderSortHeader label="訂單狀態" sortKey="status" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none"
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("payment_status")}
+                title="點擊排序"
               >
-                {orderHeaderLabel("付款狀態", "payment_status")}
+                <OrderSortHeader label="付款狀態" sortKey="payment_status" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell text-right cursor-pointer select-none"
+                className="text-xs font-semibold hidden sm:table-cell text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("deposit_amount")}
+                title="點擊排序"
               >
-                {orderHeaderLabel("訂金", "deposit_amount")}
+                <OrderSortHeader label="訂金" sortKey="deposit_amount" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold text-right cursor-pointer select-none"
+                className="text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("total_amount")}
+                title="點擊排序"
               >
-                {orderHeaderLabel("總金額", "total_amount")}
+                <OrderSortHeader label="總金額" sortKey="total_amount" />
               </TableHead>
               <TableHead
                 className="text-xs font-semibold text-right w-[1%] whitespace-nowrap"
