@@ -199,7 +199,7 @@ export default function PrintOrderPage() {
             }
 
             const dimText = hasDims
-              ? `${r.custom_dimension_w ?? "—"} × ${r.custom_dimension_d ?? "—"} × ${r.custom_dimension_h ?? "—"} cm`
+              ? `${r.custom_dimension_w ?? "—"} × ${r.custom_dimension_d ?? "—"} × ${r.custom_dimension_h ?? "—"}`
               : null;
 
             return {
@@ -231,7 +231,7 @@ export default function PrintOrderPage() {
             variant?.dimension_d != null ||
             variant?.dimension_h != null;
           const dimText = hasVariantDims
-            ? `${variant?.dimension_w ?? "—"} × ${variant?.dimension_d ?? "—"} × ${variant?.dimension_h ?? "—"} cm`
+            ? `${variant?.dimension_w ?? "—"} × ${variant?.dimension_d ?? "—"} × ${variant?.dimension_h ?? "—"}`
             : null;
 
           return {
