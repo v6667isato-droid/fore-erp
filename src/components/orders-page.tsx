@@ -16,7 +16,7 @@ import {
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
-import { Search, Plus, X, Image as ImageIcon, Loader2, UserPlus } from "lucide-react";
+import { Search, Plus, X, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 type OrderStatus = "報價中" | "排程中" | "生產中" | "已出貨";
@@ -1677,6 +1677,9 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
                 下單日
               </TableHead>
+              <TableHead className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap">
+                交期
+              </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
                 訂單狀態
               </TableHead>
@@ -1690,7 +1693,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
                 總金額
               </TableHead>
               <TableHead
-                className="text-xs font-semibold text-right min-w-[120px]"
+                className="text-xs font-semibold text-right w-[1%] whitespace-nowrap"
                 aria-label="操作"
               >
                 操作
@@ -1701,7 +1704,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                      colSpan={8}
+                  colSpan={9}
                   className="h-24 text-center text-muted-foreground"
                 >
                   查無符合條件的訂單
@@ -1724,6 +1727,9 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
                     {order.order_date ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                    {order.expected_delivery_date ?? "—"}
                   </TableCell>
                   <TableCell className="text-sm hidden sm:table-cell">
                     <select
@@ -1767,12 +1773,14 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
                   <TableCell className="text-right text-sm font-medium">
                     {order.total_amount.toLocaleString()}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                  <TableCell className="text-right p-1">
+                    <div className="flex justify-end gap-0.5">
                       <Button
                         type="button"
                         variant="ghost"
-                        className="h-8 px-2 text-xs"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        title={order.status === "報價中" ? "報價列印" : "訂單列印"}
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -1785,22 +1793,27 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
                           window.open(url, "_blank", "noopener,noreferrer");
                         }}
                       >
-                        {order.status === "報價中" ? "報價列印" : "訂單列印"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="h-8 px-2 text-xs"
-                        onClick={() => handleEdit(order)}
-                      >
-                        編輯
+                        <Printer className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
-                        className="h-8 px-2 text-xs text-destructive hover:text-destructive"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        title="編輯"
+                        onClick={() => handleEdit(order)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        title="刪除"
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(order); }}
                       >
-                        刪除
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </TableCell>
