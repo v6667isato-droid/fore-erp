@@ -192,21 +192,14 @@ export default function PrintQuotationPage() {
               const descParts: string[] = [];
               if (r.custom_description)
                 descParts.push(String(r.custom_description));
+              // 尺寸不加入 description（另有尺寸欄位顯示），備註列不顯示尺寸
 
               const hasDims =
                 r.custom_dimension_w != null ||
                 r.custom_dimension_d != null ||
                 r.custom_dimension_h != null;
-              if (hasDims) {
-                descParts.push(
-                  `尺寸：約 ${r.custom_dimension_w ?? '—'} × ${
-                    r.custom_dimension_d ?? '—'
-                  } × ${r.custom_dimension_h ?? '—'} cm`
-                );
-              }
-
               const dimText = hasDims
-                ? `約 ${r.custom_dimension_w ?? '—'} × ${r.custom_dimension_d ?? '—'} × ${r.custom_dimension_h ?? '—'} cm`
+                ? `${r.custom_dimension_w ?? '—'} × ${r.custom_dimension_d ?? '—'} × ${r.custom_dimension_h ?? '—'} cm`
                 : null;
 
               return {
@@ -449,7 +442,7 @@ export default function PrintQuotationPage() {
                 <th className="w-16 px-3 py-3 text-left font-semibold text-gray-700">圖片</th>
                 <th className="min-w-[140px] px-3 py-3 text-left font-semibold text-gray-700">報價品項</th>
                 <th className="w-20 px-3 py-3 text-left font-semibold text-gray-700">木種</th>
-                <th className="w-32 px-3 py-3 text-left font-semibold text-gray-700">尺寸</th>
+                <th className="w-32 px-3 py-3 text-left font-semibold text-gray-700">尺寸(cm)</th>
                 <th className="w-24 px-3 py-3 text-left font-semibold text-gray-700">規格</th>
                 <th className="w-14 px-3 py-3 text-right font-semibold text-gray-700">數量</th>
                 <th className="w-20 px-3 py-3 text-right font-semibold text-gray-700">單價</th>
