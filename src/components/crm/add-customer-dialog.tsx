@@ -15,6 +15,9 @@ export interface ChannelOption {
 export interface AddCustomerDialogProps {
   channels?: ChannelOption[];
   onSuccess: () => void;
+  /** 受控模式：由外部控制開關時傳入，不傳則使用內建 Trigger 按鈕 */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function isColumnError(err: { message?: string } | null): boolean {
@@ -22,8 +25,11 @@ function isColumnError(err: { message?: string } | null): boolean {
   return /column .* does not exist/i.test(msg) || /could not find.*column/i.test(msg) || /schema cache/i.test(msg);
 }
 
-export function AddCustomerDialog({ channels = [], onSuccess }: AddCustomerDialogProps) {
-  const [open, setOpen] = useState(false);
+export function AddCustomerDialog({ channels = [], onSuccess, open: controlledOpen, onOpenChange: controlledOnOpenChange }: AddCustomerDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined && controlledOnOpenChange !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = isControlled ? (controlledOnOpenChange ?? (() => {})) : setInternalOpen;
   const firstFocusRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -104,15 +110,17 @@ export function AddCustomerDialog({ channels = [], onSuccess }: AddCustomerDialo
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-        >
-          <Plus className="h-4 w-4" />
-          新增客戶
-        </button>
-      </Dialog.Trigger>
+      {!isControlled && (
+        <Dialog.Trigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          >
+            <Plus className="h-4 w-4" />
+            新增客戶
+          </button>
+        </Dialog.Trigger>
+      )}
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
