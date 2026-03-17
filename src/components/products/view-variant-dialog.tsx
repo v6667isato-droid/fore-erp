@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { VariantRow } from "@/types/products";
 import { supabase } from "@/lib/supabase";
+import { TABLE_PRODUCT_SERIES } from "@/lib/products-db";
 
 export interface ViewVariantDialogProps {
   open: boolean;
@@ -29,6 +30,31 @@ function formatDim(v: VariantRow): string {
 
 export function ViewVariantDialog({ open, onOpenChange, row }: ViewVariantDialogProps) {
   const [channelPrices, setChannelPrices] = useState<ChannelPriceRow[]>([]);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !row) {
+      setImageUrl(null);
+      return;
+    }
+    if (row.image_url) {
+      setImageUrl(row.image_url);
+      return;
+    }
+    (async () => {
+      const { data, error } = await supabase
+        .from(TABLE_PRODUCT_SERIES)
+        .select("image_url")
+        .eq("id", row.series_id)
+        .maybeSingle();
+      if (!error && data && typeof (data as any).image_url === "string") {
+        const val = ((data as any).image_url as string).trim();
+        setImageUrl(val || null);
+      } else {
+        setImageUrl(null);
+      }
+    })();
+  }, [open, row]);
 
   useEffect(() => {
     if (!open || !row) return;
@@ -100,7 +126,19 @@ export function ViewVariantDialog({ open, onOpenChange, row }: ViewVariantDialog
               </button>
             </Dialog.Close>
           </div>
-          <dl className="mt-4 space-y-3 text-sm">
+          <div className="mt-4 flex flex-col gap-4">
+            {imageUrl && (
+              <div className="flex justify-center">
+                <div className="h-40 w-40 overflow-hidden rounded-lg border border-border bg-muted">
+                  <img
+                    src={imageUrl}
+                    alt={row.product_code || "規格圖片"}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              </div>
+            )}
+            <dl className="space-y-3 text-sm">
             <div><dt className="text-muted-foreground">代碼</dt><dd className="font-medium">{row.product_code || "—"}</dd></div>
             <div><dt className="text-muted-foreground">木種</dt><dd>{row.wood_type || "—"}</dd></div>
             <div><dt className="text-muted-foreground">尺寸</dt><dd>{formatDim(row)}</dd></div>
@@ -124,7 +162,8 @@ export function ViewVariantDialog({ open, onOpenChange, row }: ViewVariantDialog
                   )}
               </dd>
             </div>
-          </dl>
+            </dl>
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

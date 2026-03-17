@@ -16,10 +16,10 @@ import {
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
-import { Search, Plus, X, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Search, Plus, X, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download } from "lucide-react";
 import { toast } from "sonner";
 
-type OrderStatus = "報價中" | "排程中" | "生產中" | "已出貨";
+type OrderStatus = "報價中" | "繪圖中" | "排程中" | "生產中" | "已出貨";
 type PaymentStatus = "未付款" | "部分付款" | "已付訂金" | "已結清";
 
 interface OrderRow {
@@ -32,6 +32,7 @@ interface OrderRow {
   payment_status: PaymentStatus;
   customer_id: string | null;
   customer_name: string;
+  customer_alias?: string | null;
   deposit_amount: number;
   shipping_address?: string | null;
   explanation_image_url?: string | null;
@@ -47,6 +48,7 @@ interface VariantOption {
   id: string;
   series_id: string;
   series_name: string;
+  series_category?: string | null;
   label: string;
   base_price: number | null;
   spec1?: string | null;
@@ -81,6 +83,7 @@ const IMAGE_COMPRESSION_OPTIONS = {
 
 const ORDER_STATUS_OPTIONS: OrderStatus[] = [
   "報價中",
+  "繪圖中",
   "排程中",
   "生產中",
   "已出貨",
@@ -92,15 +95,20 @@ const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = [
   "已結清",
 ];
 
+// 與「使用回饋」頁面狀態欄使用相同色系（較鮮明的色階）
 const statusStyles: Record<OrderStatus, string> = {
-  報價中:
-    "bg-[var(--badge-pending)] text-[var(--badge-pending-fg)] border-transparent",
-  排程中:
-    "bg-[var(--badge-progress)] text-[var(--badge-progress-fg)] border-transparent",
-  生產中:
-    "bg-[var(--badge-progress)] text-[var(--badge-progress-fg)] border-transparent",
-  已出貨:
-    "bg-[var(--badge-done)] text-[var(--badge-done-fg)] border-transparent",
+  報價中: "bg-amber-100 text-amber-800 border-amber-200",
+  繪圖中: "bg-amber-100 text-amber-800 border-amber-200",
+  排程中: "bg-amber-100 text-amber-800 border-amber-200",
+  生產中: "bg-blue-100 text-blue-800 border-blue-200",
+  已出貨: "bg-emerald-100 text-emerald-800 border-emerald-200",
+};
+
+const paymentStatusStyles: Record<PaymentStatus, string> = {
+  未付款: "bg-amber-100 text-amber-800 border-amber-200",
+  部分付款: "bg-blue-100 text-blue-800 border-blue-200",
+  已付訂金: "bg-blue-100 text-blue-800 border-blue-200",
+  已結清: "bg-emerald-100 text-emerald-800 border-emerald-200",
 };
 
 function StatusBadge({ status }: { status: OrderStatus }) {
@@ -185,6 +193,7 @@ function OrderFormDialog({
   );
   const [uploadingImageItemId, setUploadingImageItemId] = useState<string | null>(null);
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
+  const [editCustomerOpen, setEditCustomerOpen] = useState(false);
   const [items, setItems] = useState<OrderItemInput[]>(
     initialItems && initialItems.length
       ? initialItems
@@ -446,30 +455,42 @@ function OrderFormDialog({
         await supabase.from("order_items").delete().eq("order_id", orderId);
       }
 
-      const itemsPayload = validItems.map((it) => ({
-        order_id: orderId,
-        variant_id: it.kind === "variant" ? it.variant_id || null : null,
-        quantity: it.quantity,
-        unit_price: it.unit_price,
-        custom_notes: it.custom_notes || null,
-        custom_category: it.kind === "custom" ? it.custom_category || null : null,
-        custom_name: it.kind === "custom" ? it.custom_name || null : null,
-        custom_description:
-          it.kind === "custom" ? it.custom_description || null : null,
-        custom_dimension_w:
-          it.kind === "custom" && it.custom_dimension_w != null
-            ? it.custom_dimension_w
-            : null,
-        custom_dimension_d:
-          it.kind === "custom" && it.custom_dimension_d != null
-            ? it.custom_dimension_d
-            : null,
-        custom_dimension_h:
-          it.kind === "custom" && it.custom_dimension_h != null
-            ? it.custom_dimension_h
-            : null,
-        image_url: it.image_url ?? null,
-      }));
+      const itemsPayload = validItems.map((it) => {
+        // 若為規格品且尚未指定 custom_category，依 series 對應的 product_series.category 自動帶入
+        let resolvedCategory = it.custom_category ?? null;
+        if (it.kind === "variant" && !resolvedCategory && it.series_id) {
+          const vo = variants.find((v) => v.id === it.variant_id);
+          if (vo?.series_category) {
+            resolvedCategory = vo.series_category;
+          }
+        }
+
+        return {
+          order_id: orderId,
+          variant_id: it.kind === "variant" ? it.variant_id || null : null,
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          custom_notes: it.custom_notes || null,
+          custom_category:
+            it.kind === "custom" ? it.custom_category || null : resolvedCategory,
+          custom_name: it.kind === "custom" ? it.custom_name || null : null,
+          custom_description:
+            it.kind === "custom" ? it.custom_description || null : null,
+          custom_dimension_w:
+            it.kind === "custom" && it.custom_dimension_w != null
+              ? it.custom_dimension_w
+              : null,
+          custom_dimension_d:
+            it.kind === "custom" && it.custom_dimension_d != null
+              ? it.custom_dimension_d
+              : null,
+          custom_dimension_h:
+            it.kind === "custom" && it.custom_dimension_h != null
+              ? it.custom_dimension_h
+              : null,
+          image_url: it.image_url ?? null,
+        };
+      });
 
       const { data: insertedItems, error: itemsError } = await supabase
         .from("order_items")
@@ -582,11 +603,32 @@ function OrderFormDialog({
                         <UserPlus className="h-3.5 w-3.5 mr-1" />
                         新增客戶
                       </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 shrink-0 px-2 text-xs"
+                        onClick={() => {
+                          if (!customerId) return;
+                          setEditCustomerOpen(true);
+                        }}
+                        disabled={!customerId}
+                      >
+                        編輯客戶
+                      </Button>
                     </div>
                     <AddCustomerDialog
                       channels={[]}
                       open={addCustomerOpen}
                       onOpenChange={setAddCustomerOpen}
+                      onSuccess={async () => {
+                        await onRefreshCustomers();
+                      }}
+                    />
+                    <AddCustomerDialog
+                      channels={[]}
+                      open={editCustomerOpen}
+                      onOpenChange={setEditCustomerOpen}
+                      customerId={customerId || null}
                       onSuccess={async () => {
                         await onRefreshCustomers();
                       }}
@@ -669,12 +711,27 @@ function OrderFormDialog({
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="order-shipping"
-                      className="text-xs text-muted-foreground"
-                    >
-                      送貨地址
-                    </label>
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        htmlFor="order-shipping"
+                        className="text-xs text-muted-foreground"
+                      >
+                        送貨地址
+                      </label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => {
+                          const customer = customers.find((c) => c.id === customerId);
+                          if (customer?.delivery_address) {
+                            setShippingAddress(customer.delivery_address);
+                          }
+                        }}
+                      >
+                        帶入客戶地址
+                      </Button>
+                    </div>
                     <textarea
                       id="order-shipping"
                       value={shippingAddress}
@@ -1378,7 +1435,7 @@ const STATUS_FILTER_OPTIONS: StatusFilterValue[] = [
   "非報價中",
 ];
 
-export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
+export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersPageMode; isAdmin?: boolean } = {}) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -1419,15 +1476,22 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
       setLoading(true);
       await fetchCustomers();
 
-      // 產品系列名稱（用於規格庫先選系列）
+      // 產品系列名稱／類別（用於規格庫先選系列 & 自動帶入 custom_category）
       const { data: seriesData } = await supabase
         .from("product_series")
-        .select("id, series_name")
+        .select("id, series_name, category")
         .order("id", { ascending: true });
-      const seriesMap = new Map<string, string>();
+      const seriesNameMap = new Map<string, string>();
+      const seriesCategoryMap = new Map<string, string | null>();
       (seriesData ?? []).forEach((s: any) => {
         const name = s.series_name ?? "";
-        seriesMap.set(String(s.id), String(name));
+        const cat =
+          typeof s.category === "string" && s.category.trim()
+            ? String(s.category)
+            : null;
+        const id = String(s.id);
+        seriesNameMap.set(id, String(name));
+        seriesCategoryMap.set(id, cat);
       });
 
       // 產品規格選單（含 series_id）
@@ -1448,7 +1512,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
               ? ""
               : `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
           const seriesId = String(v.series_id ?? "");
-          const seriesName = seriesMap.get(seriesId) ?? "";
+          const seriesName = seriesNameMap.get(seriesId) ?? "";
           const labelParts = [
             v.product_code ?? "",
             v.wood_type ?? "",
@@ -1459,6 +1523,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
             id: String(v.id),
             series_id: seriesId,
             series_name: seriesName,
+            series_category: seriesCategoryMap.get(seriesId) ?? null,
             label: labelParts.join(" / "),
             base_price:
               v.base_price !== undefined && v.base_price !== null
@@ -1477,7 +1542,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, explanation_image_url, customer_id, customers(name)"
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, explanation_image_url, customer_id, customers(name, alias)"
         )
         .order("order_date", { ascending: false });
 
@@ -1504,6 +1569,10 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
             (row.customers && row.customers.name) ||
             (Array.isArray(row.customers) && row.customers[0]?.name) ||
             "",
+          customer_alias:
+            (row.customers && row.customers.alias) ||
+            (Array.isArray(row.customers) && row.customers[0]?.alias) ||
+            null,
           shipping_address: row.shipping_address ?? null,
           explanation_image_url: row.explanation_image_url ?? null,
         }))
@@ -1517,7 +1586,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, explanation_image_url, customer_id, customers(name)"
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, explanation_image_url, customer_id, customers(name, alias)"
       )
       .order("order_date", { ascending: false });
 
@@ -1544,11 +1613,27 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
           (row.customers && row.customers.name) ||
           (Array.isArray(row.customers) && row.customers[0]?.name) ||
           "",
+        customer_alias:
+          (row.customers && row.customers.alias) ||
+          (Array.isArray(row.customers) && row.customers[0]?.alias) ||
+          null,
         shipping_address: row.shipping_address ?? null,
         explanation_image_url: row.explanation_image_url ?? null,
       }))
     );
   }
+
+  const [monthFilter, setMonthFilter] = useState<string>("");
+
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>();
+    orders.forEach((o) => {
+      if (!o.order_date) return;
+      const ym = o.order_date.slice(0, 7);
+      if (ym) set.add(ym);
+    });
+    return Array.from(set).sort().reverse();
+  }, [orders]);
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
@@ -1563,9 +1648,18 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
           : statusFilter === "非報價中"
           ? o.status !== "報價中"
           : o.status === statusFilter;
-      return matchSearch && matchStatus;
+      const matchMonth =
+        !monthFilter || !o.order_date
+          ? !monthFilter
+          : o.order_date.slice(0, 7) === monthFilter;
+      return matchSearch && matchStatus && matchMonth;
     });
-  }, [orders, search, statusFilter]);
+  }, [orders, search, statusFilter, monthFilter]);
+
+  const filteredTotalAmount = useMemo(
+    () => filtered.reduce((sum, o) => sum + (o.total_amount || 0), 0),
+    [filtered]
+  );
 
   type OrderSortKey =
     | "order_number"
@@ -1628,12 +1722,80 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
     );
   }
 
+  function exportFilteredCsv() {
+    if (!filtered.length) {
+      toast.info("目前沒有可匯出的訂單資料");
+      return;
+    }
+    const header = [
+      "訂單編號",
+      "客戶姓名",
+      "下單日",
+      "預計交貨日",
+      "訂單狀態",
+      "付款狀態",
+      "訂金",
+      "總金額",
+    ];
+    const rows = filtered.map((o) => [
+      o.order_number,
+      o.customer_name,
+      o.order_date ?? "",
+      o.expected_delivery_date ?? "",
+      o.status,
+      o.payment_status,
+      String(o.deposit_amount ?? 0),
+      String(o.total_amount ?? 0),
+    ]);
+    const csv = [header, ...rows]
+      .map((cols) =>
+        cols
+          .map((v) => {
+            const s = String(v ?? "");
+            if (/[",\n]/.test(s)) {
+              return `"${s.replace(/"/g, '""')}"`;
+            }
+            return s;
+          })
+          .join(",")
+      )
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const fileLabel =
+      monthFilter || statusFilter !== "全部"
+        ? `orders_${monthFilter || "all"}_${statusFilter}`
+        : "orders_all";
+    a.href = url;
+    a.download = `${fileLabel}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("已匯出訂單 CSV");
+  }
+
   async function handleEdit(order: OrderRow) {
     // 讀取該訂單的明細
     const { data, error } = await supabase
       .from("order_items")
       .select(
-        "id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, image_url"
+        `
+        id,
+        variant_id,
+        quantity,
+        unit_price,
+        custom_notes,
+        custom_category,
+        custom_name,
+        custom_description,
+        custom_dimension_w,
+        custom_dimension_d,
+        custom_dimension_h,
+        image_url,
+        product_variants (
+          series_id
+        )
+      `
       )
       .eq("order_id", order.id);
     if (error) {
@@ -1645,6 +1807,11 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
       return {
         id: d.id ? String(d.id) : `item-${idx}`,
         variant_id: d.variant_id ? String(d.variant_id) : "",
+        // 從關聯的 product_variants 帶回系列，讓「系列」下拉在編輯時能維持原本選擇
+        series_id:
+          d.product_variants && d.product_variants.series_id != null
+            ? String(d.product_variants.series_id)
+            : undefined,
         quantity: Number(d.quantity ?? 1),
         unit_price: Number(d.unit_price ?? 0),
         custom_notes: d.custom_notes ?? "",
@@ -1725,15 +1892,34 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="搜尋訂單編號或客戶..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-72"
-          />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="搜尋訂單編號或客戶..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-72"
+            />
+          </div>
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">月份</span>
+              <select
+                value={monthFilter}
+                onChange={(e) => setMonthFilter(e.target.value)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">全部月份</option>
+                {availableMonths.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex flex-wrap gap-1.5">
@@ -1766,16 +1952,50 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
         </div>
       </div>
 
+      {isAdmin && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-2 text-xs">
+          <div className="text-muted-foreground">
+            {monthFilter ? `目前篩選月份：${monthFilter}` : "目前顯示：全部月份"}
+            {" · "}
+            {statusFilter === "全部"
+              ? "狀態：全部"
+              : statusFilter === "非報價中"
+              ? "狀態：非報價中"
+              : `狀態：${statusFilter}`}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-foreground">
+              篩選結果總金額：
+              <span className="font-semibold ml-1">
+                {filteredTotalAmount.toLocaleString()}
+              </span>
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-3 text-xs"
+              onClick={exportFilteredCsv}
+              disabled={!filtered.length}
+              aria-label="匯出篩選後訂單為 CSV"
+            >
+              <Download className="h-3.5 w-3.5 mr-1" />
+              匯出 CSV
+            </Button>
+          </div>
+        </div>
+      )
+      }
+
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead
-                className="text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
-                onClick={() => toggleOrderSort("order_number")}
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                onClick={() => toggleOrderSort("order_date")}
                 title="點擊排序"
               >
-                <OrderSortHeader label="訂單編號" sortKey="order_number" />
+                <OrderSortHeader label="下單日" sortKey="order_date" />
               </TableHead>
               <TableHead
                 className="text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
@@ -1783,13 +2003,6 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
                 title="點擊排序"
               >
                 <OrderSortHeader label="客戶姓名" sortKey="customer_name" />
-              </TableHead>
-              <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
-                onClick={() => toggleOrderSort("order_date")}
-                title="點擊排序"
-              >
-                <OrderSortHeader label="下單日" sortKey="order_date" />
               </TableHead>
               <TableHead
                 className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
@@ -1838,7 +2051,7 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={8}
                   className="h-24 text-center text-muted-foreground"
                 >
                   查無符合條件的訂單
@@ -1847,8 +2060,8 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
             ) : (
               sortedOrders.map((order) => (
                 <TableRow key={order.id} className="group">
-                  <TableCell className="font-mono text-xs font-medium">
-                    {order.order_number}
+                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                    {order.order_date ? order.order_date.replace(/-/g, "/") : "—"}
                   </TableCell>
                   <TableCell className="text-sm">
                     <button
@@ -1857,47 +2070,59 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
                       className="text-left font-medium text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                     >
                       {order.customer_name || "—"}
+                      {order.customer_alias && order.customer_alias.trim() && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          ({order.customer_alias})
+                        </span>
+                      )}
                     </button>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
-                    {order.order_date ?? "—"}
-                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">
-                    {order.expected_delivery_date ?? "—"}
+                    {order.expected_delivery_date
+                      ? order.expected_delivery_date.replace(/-/g, "/")
+                      : "—"}
                   </TableCell>
                   <TableCell className="text-sm hidden sm:table-cell">
-                    <select
-                      value={order.status}
-                      onChange={(e) =>
-                        updateOrderInline(order.id, {
-                          status: e.target.value as OrderStatus,
-                        })
-                      }
-                      className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    <div
+                      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${statusStyles[order.status] ?? ""}`}
                     >
-                      {ORDER_STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                      <select
+                        value={order.status}
+                        onChange={(e) =>
+                          updateOrderInline(order.id, {
+                            status: e.target.value as OrderStatus,
+                          })
+                        }
+                        className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
+                      >
+                        {ORDER_STATUS_OPTIONS.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
-                    <select
-                      value={order.payment_status}
-                      onChange={(e) =>
-                        updateOrderInline(order.id, {
-                          payment_status: e.target.value as PaymentStatus,
-                        })
-                      }
-                      className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  <TableCell className="text-sm hidden sm:table-cell">
+                    <div
+                      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${paymentStatusStyles[order.payment_status] ?? ""}`}
                     >
-                      {PAYMENT_STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                      <select
+                        value={order.payment_status}
+                        onChange={(e) =>
+                          updateOrderInline(order.id, {
+                            payment_status: e.target.value as PaymentStatus,
+                          })
+                        }
+                        className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
+                      >
+                        {PAYMENT_STATUS_OPTIONS.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </TableCell>
                   <TableCell className="text-right text-sm hidden sm:table-cell">
                     {order.deposit_amount
@@ -1928,6 +2153,23 @@ export function OrdersPage({ mode = "order" }: { mode?: OrdersPageMode } = {}) {
                         }}
                       >
                         <Printer className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        title="地址條"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const id = encodeURIComponent(order.id);
+                          const path = `/print/address-label/${id}`;
+                          const url = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
+                          window.open(url, "_blank", "noopener,noreferrer");
+                        }}
+                      >
+                        <span className="text-[10px] leading-none">標</span>
                       </Button>
                       <Button
                         type="button"

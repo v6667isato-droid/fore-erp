@@ -1,9 +1,10 @@
-"use client";
+ "use client";
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { TABLE_PRODUCT_VARIANTS, TABLE_PRODUCT_SERIES } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
+import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
@@ -29,6 +30,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
   const [seriesCodeRule, setSeriesCodeRule] = useState<string | null>(null);
   const [seriesCategory, setSeriesCategory] = useState<string | null>(null);
   const [spec1, setSpec1] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,6 +46,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       setSeriesCodeRule(null);
       setSeriesCategory(null);
       setSpec1(row.spec1 ?? "");
+      setImageUrl(typeof row.image_url === "string" && row.image_url ? row.image_url : null);
     }
   }, [open, row]);
 
@@ -131,8 +134,9 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       dimension_d: d.trim() ? Number(d) : null,
       dimension_h: h.trim() ? Number(h) : null,
       base_price: price.trim() ? Number(price) : null,
+      spec1: spec1.trim() || null,
+      image_url: imageUrl?.trim() || null,
     };
-    payload.spec1 = spec1.trim() || null;
     const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).update(payload).eq("id", row.id);
     if (err) {
       setSaving(false);
@@ -182,6 +186,10 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
             </Dialog.Close>
           </div>
           <form onSubmit={onSubmit} className="mt-4 space-y-3">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">規格圖片</span>
+              <ProductImageDropzone value={imageUrl} onChange={setImageUrl} disabled={saving} />
+            </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-variant-code" className="text-xs text-muted-foreground">產品代碼 *</label>
               <input ref={firstRef} id="edit-variant-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />

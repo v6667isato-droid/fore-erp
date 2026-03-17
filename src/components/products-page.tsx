@@ -73,6 +73,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     base_price: r.base_price != null ? Number(r.base_price) : null,
     desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
+    image_url: r.image_url != null ? String(r.image_url) : null,
   };
 }
 
@@ -88,7 +89,7 @@ function formatDim(v: VariantRow): string {
 type SeriesSortKey = "name" | "category" | "variantCount" | "website";
 type VariantSortKey = "product_code" | "wood_type" | "spec1" | "dimension" | "base_price";
 
-export function ProductsPage() {
+export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [seriesList, setSeriesList] = useState<SeriesRow[]>([]);
   const [variantsList, setVariantsList] = useState<VariantRow[]>([]);
   const [channels, setChannels] = useState<ChannelOption[]>([]);
@@ -424,16 +425,18 @@ export function ProductsPage() {
         </div>
         <div className="flex items-center gap-2">
           <AddSeriesDialog onSuccess={fetchData} />
-          <Button
-            variant="outline"
-            className="h-8 shrink-0 px-3 text-xs"
-            onClick={handleExport}
-            disabled={!seriesList.length || !variantsList.length}
-            aria-label="匯出產品規格 CSV"
-          >
-            <Download className="h-4 w-4" />
-            匯出 CSV
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="outline"
+              className="h-8 shrink-0 px-3 text-xs"
+              onClick={handleExport}
+              disabled={!seriesList.length || !variantsList.length}
+              aria-label="匯出產品規格 CSV"
+            >
+              <Download className="h-4 w-4" />
+              匯出 CSV
+            </Button>
+          )}
         </div>
       </div>
 
@@ -648,6 +651,9 @@ export function ProductsPage() {
                               <Table>
                                 <TableHeader>
                                   <TableRow className="hover:bg-transparent border-b border-border">
+                                    <TableHead className="text-xs font-semibold p-2 w-16">
+                                      圖片
+                                    </TableHead>
                                     <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
                                       <button
                                         type="button"
@@ -794,8 +800,25 @@ export function ProductsPage() {
                                           }
                                         }
                                       })
-                                      .map((v) => (
+                                      .map((v) => {
+                                        const displayImageUrl = v.image_url ?? series.image_url ?? null;
+                                        return (
                                       <TableRow key={v.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                                        <TableCell className="p-2 align-middle">
+                                          {displayImageUrl ? (
+                                            <span className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
+                                              <img
+                                                src={displayImageUrl}
+                                                alt={v.product_code || "規格圖片"}
+                                                className="h-full w-full object-cover"
+                                              />
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-dashed border-muted text-[10px] text-muted-foreground">
+                                              無圖
+                                            </span>
+                                          )}
+                                        </TableCell>
                                         <TableCell className="text-sm p-2">{v.product_code || "—"}</TableCell>
                                         <TableCell className="text-sm p-2">{v.wood_type || "—"}</TableCell>
                                         <TableCell className="text-sm p-2">{v.spec1 || "—"}</TableCell>
@@ -847,7 +870,8 @@ export function ProductsPage() {
                                           </div>
                                         </TableCell>
                                       </TableRow>
-                                    ))
+                                        );
+                                      })
                                   )}
                                 </TableBody>
                               </Table>

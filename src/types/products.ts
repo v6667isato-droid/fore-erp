@@ -38,4 +38,6 @@ export interface VariantRow {
   desktop_area?: number | null;
   /** 通用規格1（例如椅子的「坐墊規格」） */
   spec1?: string | null;
+  /** 產品規格圖片 Public URL（來自 product-images bucket） */
+  image_url?: string | null;
 }
