@@ -344,6 +344,26 @@ function OrderFormDialog({
     return n;
   })();
 
+  // 若為「編輯訂單」，且使用者對品項或價格做了異動：
+  // 之前儲存的折扣後總價／訂金視為「舊值」，自動解鎖並依目前金額與比例重新計算。
+  useEffect(() => {
+    if (!initialOrder) return;
+    if (!discountLocked) return;
+    const originalTotal = Number(initialOrder.total_amount ?? 0);
+    if (!Number.isFinite(originalTotal)) return;
+    if (totalAmount === originalTotal) return;
+
+    // 解鎖折扣後總價，讓其跟隨最新總金額
+    setDiscountLocked(false);
+
+    // 依目前折扣後總價與訂金比例重新計算訂金（若有設定比例）
+    const p = Number(depositPercent);
+    if (p > 0 && discountBase > 0) {
+      const amt = Math.round((discountBase * p) / 100);
+      setDeposit(String(amt));
+    }
+  }, [initialOrder, totalAmount, discountLocked, depositPercent, discountBase]);
+
   async function handleItemImageUpload(id: string, file: File) {
     if (!file.type.startsWith("image/")) {
       toast.error("請選擇圖片檔案");
@@ -764,7 +784,7 @@ function OrderFormDialog({
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-col gap-1.5 h-full">
                     <div className="flex items-center justify-between gap-2">
                       <label
                         htmlFor="order-shipping"
@@ -790,11 +810,11 @@ function OrderFormDialog({
                       id="order-shipping"
                       value={shippingAddress}
                       onChange={(e) => setShippingAddress(e.target.value)}
-                      className="min-h-[60px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="min-h-[60px] h-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="系統會自動帶入客戶預設地址，若不同可在此覆寫。"
                     />
                   </div>
-                  <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-col gap-1.5 h-full">
                     <label
                       htmlFor="order-notes"
                       className="text-xs text-muted-foreground"
@@ -805,7 +825,7 @@ function OrderFormDialog({
                       id="order-notes"
                       value={internalNotes}
                       onChange={(e) => setInternalNotes(e.target.value)}
-                      className="min-h-[60px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="min-h-[60px] h-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
                 </div>
