@@ -238,7 +238,8 @@ export default function PrintOrderPage() {
             image_url: imageUrl,
             wood_type: itemWoodType(r),
             dimension_text: dimText,
-            spec_text: variant?.product_code ?? null,
+            // 規格欄位顯示 product_variants.spec1，若無資料則留空
+            spec_text: variant?.spec1 ?? null,
           };
         });
 
