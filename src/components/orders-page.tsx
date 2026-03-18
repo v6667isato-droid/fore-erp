@@ -53,6 +53,9 @@ interface VariantOption {
   base_price: number | null;
   spec1?: string | null;
   wood_type?: string | null;
+  dimension_w?: number | null;
+  dimension_d?: number | null;
+  dimension_h?: number | null;
 }
 
 interface OrderItemInput {
@@ -979,6 +982,9 @@ function OrderFormDialog({
                                     (v) => v.id === value
                                   );
                                   const wt = selected?.wood_type?.trim();
+                                  const dimW = selected?.dimension_w ?? null;
+                                  const dimD = selected?.dimension_d ?? null;
+                                  const dimH = selected?.dimension_h ?? null;
                                   updateItem(it.id, {
                                     variant_id: value,
                                     unit_price:
@@ -986,6 +992,9 @@ function OrderFormDialog({
                                       it.unit_price ??
                                       0,
                                     wood_type: wt ? wt : null,
+                                    custom_dimension_w: dimW,
+                                    custom_dimension_d: dimD,
+                                    custom_dimension_h: dimH,
                                   });
                                 }}
                                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1659,6 +1668,9 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
                 : null,
             spec1: v.spec1 ?? null,
             wood_type: v.wood_type ?? null,
+            dimension_w: v.dimension_w != null ? Number(v.dimension_w) : null,
+            dimension_d: v.dimension_d != null ? Number(v.dimension_d) : null,
+            dimension_h: v.dimension_h != null ? Number(v.dimension_h) : null,
           };
         })
       );
@@ -1923,7 +1935,10 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
         image_url,
         wood_type,
         product_variants (
-          series_id
+          series_id,
+          dimension_w,
+          dimension_d,
+          dimension_h
         )
       `
       )
@@ -1934,13 +1949,38 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
     }
     const items: OrderItemInput[] = ((data ?? []) as any[]).map((d, idx) => {
       const isCustom = !d.variant_id;
+      const pv = d.product_variants as
+        | { series_id?: string | null; dimension_w?: number | null; dimension_d?: number | null; dimension_h?: number | null }
+        | null
+        | undefined;
+
+      // 若為規格品，且 custom_dimension_* 尚未有值，從 product_variants 尺寸回填一次，讓舊訂單也能顯示尺寸
+      const dimW =
+        d.custom_dimension_w !== undefined && d.custom_dimension_w !== null
+          ? Number(d.custom_dimension_w)
+          : pv?.dimension_w !== undefined && pv.dimension_w !== null
+          ? Number(pv.dimension_w)
+          : null;
+      const dimD =
+        d.custom_dimension_d !== undefined && d.custom_dimension_d !== null
+          ? Number(d.custom_dimension_d)
+          : pv?.dimension_d !== undefined && pv.dimension_d !== null
+          ? Number(pv.dimension_d)
+          : null;
+      const dimH =
+        d.custom_dimension_h !== undefined && d.custom_dimension_h !== null
+          ? Number(d.custom_dimension_h)
+          : pv?.dimension_h !== undefined && pv.dimension_h !== null
+          ? Number(pv.dimension_h)
+          : null;
+
       return {
         id: d.id ? String(d.id) : `item-${idx}`,
         variant_id: d.variant_id ? String(d.variant_id) : "",
         // 從關聯的 product_variants 帶回系列，讓「系列」下拉在編輯時能維持原本選擇
         series_id:
-          d.product_variants && d.product_variants.series_id != null
-            ? String(d.product_variants.series_id)
+          pv && pv.series_id != null
+            ? String(pv.series_id)
             : undefined,
         quantity: Number(d.quantity ?? 1),
         unit_price: Number(d.unit_price ?? 0),
@@ -1949,18 +1989,9 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
         custom_category: d.custom_category ?? null,
         custom_name: d.custom_name ?? null,
         custom_description: d.custom_description ?? null,
-        custom_dimension_w:
-          d.custom_dimension_w !== undefined && d.custom_dimension_w !== null
-            ? Number(d.custom_dimension_w)
-            : null,
-        custom_dimension_d:
-          d.custom_dimension_d !== undefined && d.custom_dimension_d !== null
-            ? Number(d.custom_dimension_d)
-            : null,
-        custom_dimension_h:
-          d.custom_dimension_h !== undefined && d.custom_dimension_h !== null
-            ? Number(d.custom_dimension_h)
-            : null,
+        custom_dimension_w: dimW,
+        custom_dimension_d: dimD,
+        custom_dimension_h: dimH,
         image_url: d.image_url ?? null,
         wood_type: d.wood_type != null && String(d.wood_type).trim() !== "" ? String(d.wood_type) : null,
       };

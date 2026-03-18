@@ -193,10 +193,13 @@ export default function PrintOrderPage() {
             : null;
 
           if (isCustom) {
-            const nameParts: string[] = [];
-            if (r.custom_category) nameParts.push(String(r.custom_category));
-            if (r.custom_name) nameParts.push(String(r.custom_name));
-            const name = nameParts.length > 0 ? nameParts.join(" ") : "客製品項";
+            // 客製品名稱：只顯示「客製名稱」，不再前綴類別（避免出現「櫃 訂製櫃」）
+            let name = "客製品項";
+            if (r.custom_name) {
+              name = String(r.custom_name);
+            } else if (r.custom_category) {
+              name = String(r.custom_category);
+            }
 
             const descParts: string[] = [];
             if (r.custom_description) descParts.push(String(r.custom_description));
