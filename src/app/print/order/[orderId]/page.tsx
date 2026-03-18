@@ -183,6 +183,15 @@ export default function PrintOrderPage() {
         const mappedItems: PrintOrderItem[] = itemRows.map((r: any, idx: number) => {
           const isCustom = !r.variant_id;
 
+          // 不論客製或規格，一律優先使用 order_items.custom_dimension_*
+          const hasDims =
+            r.custom_dimension_w != null ||
+            r.custom_dimension_d != null ||
+            r.custom_dimension_h != null;
+          const dimText = hasDims
+            ? `${r.custom_dimension_w ?? "—"} × ${r.custom_dimension_d ?? "—"} × ${r.custom_dimension_h ?? "—"}`
+            : null;
+
           if (isCustom) {
             const nameParts: string[] = [];
             if (r.custom_category) nameParts.push(String(r.custom_category));
@@ -191,22 +200,6 @@ export default function PrintOrderPage() {
 
             const descParts: string[] = [];
             if (r.custom_description) descParts.push(String(r.custom_description));
-
-            const hasDims =
-              r.custom_dimension_w != null ||
-              r.custom_dimension_d != null ||
-              r.custom_dimension_h != null;
-            if (hasDims) {
-              descParts.push(
-                `尺寸：約 ${r.custom_dimension_w ?? "—"} × ${r.custom_dimension_d ?? "—"} × ${
-                  r.custom_dimension_h ?? "—"
-                } cm`
-              );
-            }
-
-            const dimText = hasDims
-              ? `${r.custom_dimension_w ?? "—"} × ${r.custom_dimension_d ?? "—"} × ${r.custom_dimension_h ?? "—"}`
-              : null;
 
             return {
               id: String(r.id ?? `item-${idx}`),
@@ -227,18 +220,9 @@ export default function PrintOrderPage() {
           const series = variant?.series_id ? seriesMap[variant.series_id] || null : null;
 
           // 規格品：報價品項只顯示系列名稱（規格、木種、尺寸另有欄位）
-          const name =
-            series?.name || variant?.product_code || "產品項目";
+          const name = series?.name || variant?.product_code || "產品項目";
 
           const imageUrl = r.image_url ?? variant?.image_url ?? series?.image_url ?? null;
-
-          const hasVariantDims =
-            variant?.dimension_w != null ||
-            variant?.dimension_d != null ||
-            variant?.dimension_h != null;
-          const dimText = hasVariantDims
-            ? `${variant?.dimension_w ?? "—"} × ${variant?.dimension_d ?? "—"} × ${variant?.dimension_h ?? "—"}`
-            : null;
 
           return {
             id: String(r.id ?? `item-${idx}`),
