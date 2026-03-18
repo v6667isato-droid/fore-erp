@@ -35,6 +35,7 @@ interface OrderRow {
   customer_alias?: string | null;
   deposit_amount: number;
   shipping_address?: string | null;
+  internal_notes?: string | null;
   explanation_image_url?: string | null;
 }
 
@@ -226,6 +227,7 @@ function OrderFormDialog({
     return "0";
   });
   const [depositPercent, setDepositPercent] = useState<string>("50");
+  const prevCustomerIdRef = useRef<string>("");
   const [shippingAddress, setShippingAddress] = useState<string>("");
   const [internalNotes, setInternalNotes] = useState<string>(
     ""
@@ -260,6 +262,7 @@ function OrderFormDialog({
       setStatus(initialOrder.status);
       setPaymentStatus(initialOrder.payment_status);
       setOrderExplanationImageUrls(parseExplanationImageUrls(initialOrder.explanation_image_url));
+      setInternalNotes(initialOrder.internal_notes ?? "");
       // 編輯舊訂單時，帶入已儲存的折扣後總價與訂金
       setDiscountTotal(
         initialOrder.total_amount != null ? String(initialOrder.total_amount) : ""
@@ -288,6 +291,7 @@ function OrderFormDialog({
     setPaymentStatus("未付款");
     setDeposit("0");
     setDepositPercent("50");
+    prevCustomerIdRef.current = "";
     setDiscountLocked(false);
     setDiscountTotal("");
     setShippingAddress("");
@@ -305,6 +309,35 @@ function OrderFormDialog({
       },
     ]);
   }, [open, initialOrder]);
+
+  // 新增模式：選到特定通路時，將訂金%預設改為 0%
+  useEffect(() => {
+    if (isEdit) return;
+
+    const selected = customers.find((c) => c.id === customerId);
+    const isXiemumu = Boolean(selected?.name?.includes("謝木木工作室"));
+
+    const prevId = prevCustomerIdRef.current;
+    const prevSelected = customers.find((c) => c.id === prevId);
+    const wasXiemumu = Boolean(prevSelected?.name?.includes("謝木木工作室"));
+
+    prevCustomerIdRef.current = customerId;
+
+    // 只在「仍是預設狀態」時自動切換，避免覆蓋使用者手動輸入
+    if (isXiemumu) {
+      if (depositPercent === "50" && (deposit === "" || deposit === "0")) {
+        setDepositPercent("0");
+        setDeposit("0");
+      }
+      return;
+    }
+
+    if (wasXiemumu) {
+      if (depositPercent === "0" && (deposit === "" || deposit === "0")) {
+        setDepositPercent("50");
+      }
+    }
+  }, [customerId, customers, isEdit, deposit, depositPercent]);
 
   // 若是編輯模式，初始化送貨地址為既有訂單上的地址
   useEffect(() => {
@@ -1734,7 +1767,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, explanation_image_url, customer_id, customers(name, alias)"
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
         )
         .order("order_date", { ascending: false });
 
@@ -1766,6 +1799,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
             (Array.isArray(row.customers) && row.customers[0]?.alias) ||
             null,
           shipping_address: row.shipping_address ?? null,
+          internal_notes: row.internal_notes ?? null,
           explanation_image_url: row.explanation_image_url ?? null,
         }))
       );
@@ -1778,7 +1812,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, explanation_image_url, customer_id, customers(name, alias)"
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
       )
       .order("order_date", { ascending: false });
 
@@ -1810,6 +1844,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
           (Array.isArray(row.customers) && row.customers[0]?.alias) ||
           null,
         shipping_address: row.shipping_address ?? null,
+        internal_notes: row.internal_notes ?? null,
         explanation_image_url: row.explanation_image_url ?? null,
       }))
     );
@@ -1872,6 +1907,12 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
   const sortedOrders = useMemo(() => {
     const list = [...filtered];
     list.sort((a, b) => {
+      // 預設排序：已結清放底部，其餘依下單日新到舊
+      if (sortKey === "order_date" && sortDir === "desc") {
+        const aSettled = a.payment_status === "已結清";
+        const bSettled = b.payment_status === "已結清";
+        if (aSettled !== bSettled) return aSettled ? 1 : -1;
+      }
       const av = a[sortKey];
       const bv = b[sortKey];
       if (av == null && bv == null) return 0;

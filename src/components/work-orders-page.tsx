@@ -32,7 +32,9 @@ interface WorkOrderRow {
   order_id: string | null;
   order_number: string;
   customer_name: string;
+  customer_alias?: string | null;
   item_name: string;
+  quantity: number;
   category: string;
   stage: WorkStage;
   status: WorkStatus;
@@ -65,6 +67,42 @@ const STATUS_OPTIONS: WorkStatus[] = [
   "暫停",
   "已完成",
 ];
+
+function stageStyle(stage: WorkStage): string {
+  switch (stage) {
+    case "待排程":
+      return "bg-muted text-foreground border-border";
+    case "備料中":
+      return "bg-amber-100 text-amber-900 border-amber-200";
+    case "製作中":
+      return "bg-sky-100 text-sky-900 border-sky-200";
+    case "砂磨中":
+      return "bg-violet-100 text-violet-900 border-violet-200";
+    case "塗裝中":
+      return "bg-rose-100 text-rose-900 border-rose-200";
+    case "組裝中":
+      return "bg-indigo-100 text-indigo-900 border-indigo-200";
+    case "成品":
+      return "bg-emerald-100 text-emerald-900 border-emerald-200";
+    default:
+      return "bg-muted text-foreground border-border";
+  }
+}
+
+function statusStyle(status: WorkStatus): string {
+  switch (status) {
+    case "未開始":
+      return "bg-muted text-foreground border-border";
+    case "進行中":
+      return "bg-sky-100 text-sky-900 border-sky-200";
+    case "暫停":
+      return "bg-amber-100 text-amber-900 border-amber-200";
+    case "已完成":
+      return "bg-emerald-100 text-emerald-900 border-emerald-200";
+    default:
+      return "bg-muted text-foreground border-border";
+  }
+}
 
 export function WorkOrdersPage() {
   const [rows, setRows] = useState<WorkOrderRow[]>([]);
@@ -132,7 +170,7 @@ export function WorkOrdersPage() {
             order_number,
             status,
             expected_delivery_date,
-            customers(name)
+            customers(name, alias)
           ),
           product_variants(
             product_code,
@@ -165,6 +203,11 @@ export function WorkOrdersPage() {
         (Array.isArray(customerRel) && customerRel[0]?.name) ||
         "";
 
+      const customerAlias =
+        (customerRel && customerRel.alias) ||
+        (Array.isArray(customerRel) && customerRel[0]?.alias) ||
+        null;
+
       let itemName = "";
       if (oi?.custom_name) {
         itemName = String(oi.custom_name);
@@ -196,7 +239,9 @@ export function WorkOrdersPage() {
           ? String(order.order_number)
           : "",
         customer_name: customerName,
+        customer_alias: customerAlias != null ? String(customerAlias) : null,
         item_name: fullNameParts.join(" / "),
+        quantity: Number(oi?.quantity ?? 0),
         category: cat,
         stage: (r.stage as WorkStage) ?? "待排程",
         status: (r.status as WorkStatus) ?? "未開始",
@@ -448,6 +493,9 @@ export function WorkOrdersPage() {
               <TableHead className="text-xs font-semibold">
                 <SortHeader label="品項 / 尺寸" sortKey="item_name" />
               </TableHead>
+              <TableHead className="text-xs font-semibold text-right whitespace-nowrap">
+                數量
+              </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
                 <SortHeader label="類別" sortKey="category" />
               </TableHead>
@@ -494,10 +542,20 @@ export function WorkOrdersPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-sm">
-                    {w.customer_name || "—"}
+                    <span className="font-medium text-foreground">
+                      {w.customer_name || "—"}
+                    </span>
+                    {w.customer_alias && String(w.customer_alias).trim() && (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        ({w.customer_alias})
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     {w.item_name || "—"}
+                  </TableCell>
+                  <TableCell className="text-sm text-right tabular-nums">
+                    {Number.isFinite(w.quantity) && w.quantity > 0 ? w.quantity : "—"}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
                     {w.category || "—"}
@@ -510,7 +568,9 @@ export function WorkOrdersPage() {
                           stage: e.target.value as WorkStage,
                         })
                       }
-                      className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      className={`h-8 rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${stageStyle(
+                        w.stage
+                      )}`}
                     >
                       {STAGE_OPTIONS.map((s) => (
                         <option key={s} value={s}>
@@ -527,7 +587,9 @@ export function WorkOrdersPage() {
                           status: e.target.value as WorkStatus,
                         })
                       }
-                      className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      className={`h-8 rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${statusStyle(
+                        w.status
+                      )}`}
                     >
                       {STATUS_OPTIONS.map((s) => (
                         <option key={s} value={s}>

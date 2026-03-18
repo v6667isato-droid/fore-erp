@@ -332,8 +332,7 @@ export default function PrintOrderPage() {
   const showDiscountRow =
     (order.customer_type && order.customer_type === "通路") || totals.discount > 0;
 
-  const depositPercent =
-    order.total_amount > 0 ? Math.round((order.deposit_amount / order.total_amount) * 100) : 0;
+  const remainingAmount = Math.max(0, totals.total - (order.deposit_amount || 0));
 
   return (
     <div className="min-h-screen bg-white text-black">
@@ -375,7 +374,7 @@ export default function PrintOrderPage() {
             <div className="text-right space-y-2 text-sm text-gray-700 leading-relaxed">
               <p className="text-lg font-semibold text-gray-900">訂單確認單</p>
               <p>訂單編號：<span className="font-mono text-gray-900">{order.order_number}</span></p>
-              <p>日期：<span>{formattedDate(order.order_date)}</span></p>
+              <p>訂單日期：<span>{formattedDate(order.order_date)}</span></p>
               {order.expected_delivery_date && (
                 <p>預計交期：<span>{formattedDate(order.expected_delivery_date)}</span></p>
               )}
@@ -514,12 +513,15 @@ export default function PrintOrderPage() {
               <span className="font-semibold text-gray-900 tabular-nums">{totals.total.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-gray-700">訂金</span>
+              <span className="text-gray-700">已收訂金</span>
               <span className="text-gray-900 tabular-nums">
                 {order.deposit_amount.toLocaleString()}
-                {depositPercent > 0 && (
-                  <span className="ml-1 text-gray-600">({depositPercent}%)</span>
-                )}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-700">尾款金額</span>
+              <span className="text-gray-900 tabular-nums">
+                {remainingAmount.toLocaleString()}
               </span>
             </div>
           </div>
