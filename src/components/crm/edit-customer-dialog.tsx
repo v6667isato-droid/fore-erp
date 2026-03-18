@@ -29,6 +29,7 @@ function isColumnError(err: { message?: string } | null): boolean {
 export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onSuccess }: EditCustomerDialogProps) {
   const firstFocusRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
+  const [contact, setContact] = useState("");
   const [phone, setPhone] = useState("");
   const [lineId, setLineId] = useState("");
   const [igAccount, setIgAccount] = useState("");
@@ -37,12 +38,16 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
   const [source, setSource] = useState("");
   const [customerType, setCustomerType] = useState("");
   const [channelId, setChannelId] = useState("");
+  const [contactMethod, setContactMethod] = useState("");
+  const [alias, setAlias] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && row) {
       setName(row.name ?? "");
+      setAlias((row as any).alias ?? "");
+      setContact((row as any).contact_person ?? "");
       setPhone(row.phone ?? "");
       setLineId(row.line_id ?? "");
       setIgAccount(row.ig_account ?? "");
@@ -51,6 +56,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
       setSource(row.source ?? "");
       setCustomerType(row.customer_type ?? "");
       setChannelId(row.channel_id ?? "");
+      setContactMethod((row as any).contact_method ?? "");
       setError(null);
     }
   }, [open, row]);
@@ -67,12 +73,14 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
     if (!row) return;
     setError(null);
     if (!name.trim()) {
-      setError("請輸入客戶姓名");
+      setError("請輸入客戶名稱");
       return;
     }
     setSaving(true);
     const full: Record<string, unknown> = {
       name: name.trim(),
+      alias: alias.trim() || null,
+      contact_person: contact.trim() || null,
       phone: phone.trim() || null,
       line_id: lineId.trim() || null,
       ig_account: igAccount.trim() || null,
@@ -81,11 +89,22 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
       source: source.trim() || null,
       customer_type: customerType.trim() || null,
       channel_id: channelId.trim() || null,
+      contact_method: contactMethod.trim() || null,
     };
     let payload: Record<string, unknown> = { ...full };
     let { error: err } = await supabase.from("customers").update(payload).eq("id", row.id);
     if (err && isColumnError(err)) {
-      const optional = ["notes", "source", "customer_type", "delivery_address", "line_id", "ig_account", "phone"];
+      const optional = [
+        "alias",
+        "notes",
+        "source",
+        "customer_type",
+        "delivery_address",
+        "line_id",
+        "ig_account",
+        "phone",
+        "contact_method",
+      ];
       for (const key of optional) {
         const next = { ...payload };
         delete next[key];
@@ -137,80 +156,90 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
             </Dialog.Close>
           </div>
           <form onSubmit={onSubmit} className="mt-4 space-y-3">
+            {/* 1. 客戶名稱（含別名） */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-customer-name" className="text-xs text-muted-foreground">
-                姓名 <span className="text-destructive">*</span>
-              </label>
-              <input
-                ref={firstFocusRef}
-                id="edit-customer-name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="客戶姓名"
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-customer-source" className="text-xs text-muted-foreground">客戶來源</label>
-              <input
-                id="edit-customer-source"
-                type="text"
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-                list="edit-customer-source-list"
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="選擇或輸入"
-              />
-              <datalist id="edit-customer-source-list">
-                <option value="網路" />
-                <option value="引介" />
-                <option value="回購" />
-                <option value="展覽(好感生活)" />
-                <option value="展覽(木質生活)" />
-                <option value="通路(謝木木工作室)" />
-              </datalist>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-customer-type" className="text-xs text-muted-foreground">客戶種類</label>
-              <input
-                id="edit-customer-type"
-                type="text"
-                value={customerType}
-                onChange={(e) => setCustomerType(e.target.value)}
-                list="edit-customer-type-list"
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="選擇或輸入"
-              />
-              <datalist id="edit-customer-type-list">
-                <option value="一般民眾" />
-                <option value="合作通路" />
-                <option value="室內設計師" />
-                <option value="建築師" />
-                <option value="餐廳" />
-                <option value="政府機關" />
-                <option value="木工廠(代工)" />
-              </datalist>
-            </div>
-            {channels.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="edit-customer-channel" className="text-xs text-muted-foreground">所屬通路</label>
-                <select
-                  id="edit-customer-channel"
-                  value={channelId}
-                  onChange={(e) => setChannelId(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="">未指定</option>
-                  {channels.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+              <div className="flex items-end gap-2">
+                <div className="flex-1 flex flex-col gap-1">
+                  <label htmlFor="edit-customer-name" className="text-xs text-muted-foreground">
+                    客戶名稱 <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    ref={firstFocusRef}
+                    id="edit-customer-name"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="客戶名稱"
+                    required
+                  />
+                </div>
+                <div className="w-32 flex flex-col gap-1">
+                  <span className="text-[11px] text-muted-foreground">別名</span>
+                  <input
+                    id="edit-customer-alias"
+                    type="text"
+                    value={alias}
+                    onChange={(e) => setAlias(e.target.value)}
+                    className="h-9 rounded-lg border border-input bg-muted px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="例如 小明"
+                  />
+                </div>
               </div>
-            )}
+            </div>
+
+            {/* 2. 聯絡人 + 聯絡方式（同一列） */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-customer-phone" className="text-xs text-muted-foreground">電話</label>
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label htmlFor="edit-customer-contact" className="text-xs text-muted-foreground">
+                      聯絡人
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setContact(name)}
+                      className="text-[11px] rounded-md border border-input bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      同客戶名稱
+                    </button>
+                  </div>
+                  <input
+                    id="edit-customer-contact"
+                    type="text"
+                    value={contact}
+                    onChange={(e) => setContact(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="聯絡人姓名"
+                  />
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <label htmlFor="edit-customer-contact-method" className="text-xs text-muted-foreground">
+                    聯絡方式
+                  </label>
+                  <select
+                    id="edit-customer-contact-method"
+                    value={contactMethod}
+                    onChange={(e) => setContactMethod(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">未指定</option>
+                    <option value="line">LINE</option>
+                    <option value="ig">IG</option>
+                    <option value="fb">FB</option>
+                    <option value="email">Email</option>
+                    <option value="bingxueLine">秉學Line</option>
+                    <option value="others">Others</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. 電話 */}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-customer-phone" className="text-xs text-muted-foreground">
+                電話
+              </label>
               <input
                 id="edit-customer-phone"
                 type="tel"
@@ -220,30 +249,12 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                 placeholder="聯絡電話"
               />
             </div>
+
+            {/* 4. 地址 */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-customer-line" className="text-xs text-muted-foreground">LINE ID</label>
-              <input
-                id="edit-customer-line"
-                type="text"
-                value={lineId}
-                onChange={(e) => setLineId(e.target.value)}
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="LINE ID"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-customer-ig" className="text-xs text-muted-foreground">IG 帳號</label>
-              <input
-                id="edit-customer-ig"
-                type="text"
-                value={igAccount}
-                onChange={(e) => setIgAccount(e.target.value)}
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="Instagram 帳號"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="edit-customer-address" className="text-xs text-muted-foreground">送貨地址</label>
+              <label htmlFor="edit-customer-address" className="text-xs text-muted-foreground">
+                聯絡地址
+              </label>
               <input
                 id="edit-customer-address"
                 type="text"
@@ -253,6 +264,107 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                 placeholder="送貨／收件地址"
               />
             </div>
+
+            {/* 5. 客戶來源 + 客戶種類（同一列） */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-1.5">
+                  <label htmlFor="edit-customer-source" className="text-xs text-muted-foreground">
+                    客戶來源
+                  </label>
+                  <select
+                    id="edit-customer-source"
+                    value={source}
+                    onChange={(e) => setSource(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">未指定</option>
+                    <option value="網路">網路</option>
+                    <option value="客戶引介">客戶引介</option>
+                    <option value="設計師引介">設計師引介</option>
+                    <option value="展覽(好感生活)">展覽(好感生活)</option>
+                    <option value="展覽(木質生活)">展覽(木質生活)</option>
+                    <option value="通路(謝木木工作室)">通路(謝木木工作室)</option>
+                  </select>
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <label htmlFor="edit-customer-type" className="text-xs text-muted-foreground">
+                    客戶種類
+                  </label>
+                  <select
+                    id="edit-customer-type"
+                    value={customerType}
+                    onChange={(e) => setCustomerType(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">未指定</option>
+                    <option value="一般民眾">一般民眾</option>
+                    <option value="合作通路">合作通路</option>
+                    <option value="室內設計師">室內設計師</option>
+                    <option value="建築師">建築師</option>
+                    <option value="餐廳">餐廳</option>
+                    <option value="政府機關">政府機關</option>
+                    <option value="木工廠(代工)">木工廠(代工)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* 6. 所屬通路 */}
+            {channels.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="edit-customer-channel" className="text-xs text-muted-foreground">
+                  所屬通路
+                </label>
+                <select
+                  id="edit-customer-channel"
+                  value={channelId}
+                  onChange={(e) => setChannelId(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">未指定</option>
+                  {channels.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* 7. LINE ID + IG（同一列） */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-1.5">
+                  <label htmlFor="edit-customer-line" className="text-xs text-muted-foreground">
+                    LINE ID
+                  </label>
+                  <input
+                    id="edit-customer-line"
+                    type="text"
+                    value={lineId}
+                    onChange={(e) => setLineId(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="LINE ID"
+                  />
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <label htmlFor="edit-customer-ig" className="text-xs text-muted-foreground">
+                    IG 帳號
+                  </label>
+                  <input
+                    id="edit-customer-ig"
+                    type="text"
+                    value={igAccount}
+                    onChange={(e) => setIgAccount(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="Instagram 帳號"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 8. 客情備註（保留在最後） */}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-customer-notes" className="text-xs text-muted-foreground">客情備註</label>
               <textarea

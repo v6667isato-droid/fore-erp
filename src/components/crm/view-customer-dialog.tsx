@@ -37,6 +37,35 @@ function googleMapsUrl(address: string | null | undefined): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim())}`;
 }
 
+function contactMethodLabel(method: string | null | undefined): string | null {
+  const v = (method ?? "").toLowerCase();
+  if (!v) return null;
+  switch (v) {
+    case "line":
+      return "LINE";
+    case "ig":
+      return "IG";
+    case "fb":
+      return "FB";
+    case "email":
+      return "Email";
+    case "bingxueline":
+      return "秉學Line";
+    case "others":
+      return "Others";
+    default:
+      return method ?? null;
+  }
+}
+
+function shippingCity(address: string | null | undefined): string | null {
+  const raw = (address ?? "").trim();
+  if (!raw) return null;
+  const match = raw.match(/^(.{1,4}?[市縣])/);
+  if (match && match[1]) return match[1];
+  return null;
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
@@ -160,13 +189,24 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
             </Dialog.Close>
           </div>
 
-          <div className="mt-4 space-y-5">
-            <div className="grid gap-5 md:grid-cols-2">
+          <div className="mt-4 space-y-6">
+            <div className="grid gap-5 md:grid-cols-3">
               <Section title="基本資料">
                 <div>
                   <dt className="text-muted-foreground">客戶姓名</dt>
-                  <dd className="font-medium">{row.name || "—"}</dd>
+                  <dd className="font-medium">
+                    {row.name || "—"}
+                    {row.alias?.trim() && (
+                      <span className="ml-2 text-xs text-muted-foreground">（{row.alias.trim()}）</span>
+                    )}
+                  </dd>
                 </div>
+                {(row as any).contact_person?.trim() && (
+                  <div>
+                    <dt className="text-muted-foreground">聯絡人</dt>
+                    <dd>{(row as any).contact_person}</dd>
+                  </div>
+                )}
                 {row.source?.trim() && (
                   <div>
                     <dt className="text-muted-foreground">客戶來源</dt>
@@ -183,6 +223,12 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
 
               <Section title="聯絡方式">
                 <div>
+                  <dt className="text-muted-foreground">主要聯絡方式</dt>
+                  <dd>
+                    {contactMethodLabel(row.contact_method) ? contactMethodLabel(row.contact_method) : "—"}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-muted-foreground">電話</dt>
                   <dd>{row.phone ?? "—"}</dd>
                 </div>
@@ -192,13 +238,37 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                 </div>
                 <div>
                   <dt className="text-muted-foreground">IG 帳號</dt>
-                  <dd>{row.ig_account?.trim() ? row.ig_account.trim() : "—"}</dd>
+                  <dd>
+                    {row.ig_account?.trim() ? (
+                      row.ig_account.trim().startsWith("http") ? (
+                        <a
+                          href={row.ig_account.trim()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline break-all"
+                          title="在 Instagram 開啟"
+                        >
+                          {row.ig_account.trim()}
+                        </a>
+                      ) : (
+                        <a
+                          href={`https://www.instagram.com/${encodeURIComponent(row.ig_account.trim())}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline break-all"
+                          title="在 Instagram 開啟"
+                        >
+                          {row.ig_account.trim()}
+                        </a>
+                      )
+                    ) : (
+                      "—"
+                    )}
+                  </dd>
                 </div>
               </Section>
-            </div>
 
-            {(row.delivery_address?.trim() || row.notes?.trim()) && (
-              <Section title="送貨與備註">
+              <Section title="送貨資訊">
                 {row.delivery_address?.trim() && (
                   <div>
                     <dt className="text-muted-foreground">送貨地址</dt>
@@ -215,14 +285,16 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                     </dd>
                   </div>
                 )}
-                {row.notes?.trim() && (
-                  <div>
-                    <dt className="text-muted-foreground">客情備註</dt>
-                    <dd className="whitespace-pre-wrap text-muted-foreground">
-                      {row.notes.trim()}
-                    </dd>
-                  </div>
-                )}
+              </Section>
+            </div>
+
+            {row.notes?.trim() && (
+              <Section title="客情備註">
+                <div>
+                  <dd className="whitespace-pre-wrap text-muted-foreground">
+                    {row.notes.trim()}
+                  </dd>
+                </div>
               </Section>
             )}
 

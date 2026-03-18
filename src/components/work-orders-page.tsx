@@ -11,30 +11,32 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { User, Wrench, CalendarDays, RefreshCw, CalendarPlus } from "lucide-react";
+import { User, Wrench, CalendarDays, RefreshCw, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
 type WorkStage =
   | "待排程"
-  | "開料中"
-  | "榫接中"
-  | "打磨中"
-  | "上油中"
+  | "備料中"
+  | "製作中"
+  | "砂磨中"
+  | "塗裝中"
   | "組裝中"
-  | "完成待出貨";
+  | "成品";
 
 type WorkStatus = "未開始" | "進行中" | "暫停" | "已完成";
 
 interface WorkOrderRow {
   id: string;
   order_item_id: string;
+  order_id: string | null;
   order_number: string;
   customer_name: string;
   item_name: string;
   category: string;
   stage: WorkStage;
   status: WorkStatus;
+  order_status: string | null;
   assignee: string | null;
   expected_delivery_date: string | null;
   planned_start_date: string | null;
@@ -49,12 +51,12 @@ interface EmployeeOption {
 
 const STAGE_OPTIONS: WorkStage[] = [
   "待排程",
-  "開料中",
-  "榫接中",
-  "打磨中",
-  "上油中",
+  "備料中",
+  "製作中",
+  "砂磨中",
+  "塗裝中",
   "組裝中",
-  "完成待出貨",
+  "成品",
 ];
 
 const STATUS_OPTIONS: WorkStatus[] = [
@@ -68,9 +70,21 @@ export function WorkOrdersPage() {
   const [rows, setRows] = useState<WorkOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [stageFilter, setStageFilter] = useState<WorkStage | "全部">("全部");
-  const [statusFilter, setStatusFilter] = useState<WorkStatus | "全部">("進行中");
+  const [statusFilter, setStatusFilter] = useState<WorkStatus | "全部">("全部");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  type WorkSortKey =
+    | "order_number"
+    | "customer_name"
+    | "item_name"
+    | "category"
+    | "stage"
+    | "status"
+    | "assignee"
+    | "planned_end_date"
+    | "expected_delivery_date";
+  const [sortBy, setSortBy] = useState<WorkSortKey>("planned_end_date");
+  const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
     bootstrap();
@@ -114,7 +128,9 @@ export function WorkOrdersPage() {
           custom_dimension_h,
           quantity,
           orders(
+            id,
             order_number,
+            status,
             expected_delivery_date,
             customers(name)
           ),
@@ -175,6 +191,7 @@ export function WorkOrdersPage() {
       return {
         id: String(r.id),
         order_item_id: oi?.id ? String(oi.id) : "",
+        order_id: order?.id ? String(order.id) : null,
         order_number: order?.order_number
           ? String(order.order_number)
           : "",
@@ -183,6 +200,7 @@ export function WorkOrdersPage() {
         category: cat,
         stage: (r.stage as WorkStage) ?? "待排程",
         status: (r.status as WorkStatus) ?? "未開始",
+        order_status: (order?.status as string | null) ?? null,
         assignee: r.assignee ?? null,
         expected_delivery_date: order?.expected_delivery_date ?? null,
         planned_start_date: r.planned_start_date ?? null,
@@ -218,7 +236,7 @@ export function WorkOrdersPage() {
   }
 
   const filtered = useMemo(() => {
-    return rows.filter((w) => {
+    const list = rows.filter((w) => {
       const matchStage =
         stageFilter === "全部" || w.stage === stageFilter;
       const matchStatus =
@@ -231,12 +249,84 @@ export function WorkOrdersPage() {
         w.order_number.toLowerCase().includes(q);
       return matchStage && matchStatus && matchAssignee;
     });
-  }, [rows, stageFilter, statusFilter, assigneeFilter]);
+
+    // 排序：先依選定欄位，最後再把「已完成」排到最底
+    list.sort((a, b) => {
+      // 1) 依照選擇的欄位排序
+      const key = sortBy;
+      const av = (a as any)[key];
+      const bv = (b as any)[key];
+      let cmp = 0;
+
+      if (key === "planned_end_date" || key === "expected_delivery_date") {
+        const ad = av ? new Date(av) : null;
+        const bd = bv ? new Date(bv) : null;
+        const at = ad ? ad.getTime() : 0;
+        const bt = bd ? bd.getTime() : 0;
+        cmp = at - bt;
+      } else {
+        const as = av == null ? "" : String(av);
+        const bs = bv == null ? "" : String(bv);
+        cmp = as.localeCompare(bs, "zh-Hant", { numeric: true });
+      }
+
+      if (!sortAsc) cmp = -cmp;
+      if (cmp !== 0) return cmp;
+
+      // 2) 若同值，再依「是否已完成」決定順序（未完成在上、已完成在下）
+      const aw = a.status === "已完成" ? 1 : 0;
+      const bw = b.status === "已完成" ? 1 : 0;
+      return aw - bw;
+    });
+
+    return list;
+  }, [rows, stageFilter, statusFilter, assigneeFilter, sortBy, sortAsc]);
+
+  function openOrderDetail(w: WorkOrderRow) {
+    if (!w.order_id) return;
+    if (typeof window === "undefined") return;
+    const encodedId = encodeURIComponent(w.order_id);
+    // 導向主系統的訂單頁（非列印），在同一分頁透過 hash 傳遞訂單 ID
+    window.location.href = `/#orders:${encodedId}`;
+  }
 
   const uniqueAssignees = useMemo(
     () => employees.map((e) => e.name).filter(Boolean),
     [employees]
   );
+
+  function toggleSort(key: WorkSortKey) {
+    if (sortBy === key) {
+      setSortAsc((prev) => !prev);
+    } else {
+      setSortBy(key);
+      // 預設預計完成日為升冪，其餘欄位預設升冪
+      setSortAsc(true);
+    }
+  }
+
+  function SortHeader({ label, sortKey }: { label: string; sortKey: WorkSortKey }) {
+    const active = sortBy === sortKey;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSort(sortKey)}
+        className="inline-flex items-center gap-1 text-xs font-semibold p-1.5 align-middle hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded"
+        aria-label={`依${label}排序${active ? (sortAsc ? "升冪" : "降冪") : ""}`}
+      >
+        {label}
+        {active ? (
+          sortAsc ? (
+            <ArrowUp className="h-3.5 w-3.5" />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+      </button>
+    );
+  }
 
   function buildGoogleCalendarUrl(w: WorkOrderRow): string | null {
     const dateRaw = w.planned_end_date ?? w.expected_delivery_date;
@@ -349,27 +439,29 @@ export function WorkOrdersPage() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs font-semibold">訂單編號</TableHead>
               <TableHead className="text-xs font-semibold">
-                客戶 / 專案
+                <SortHeader label="訂單編號" sortKey="order_number" />
               </TableHead>
               <TableHead className="text-xs font-semibold">
-                品項 / 尺寸
+                <SortHeader label="客戶 / 專案" sortKey="customer_name" />
+              </TableHead>
+              <TableHead className="text-xs font-semibold">
+                <SortHeader label="品項 / 尺寸" sortKey="item_name" />
               </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                類別
+                <SortHeader label="類別" sortKey="category" />
               </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                工序站別
+                <SortHeader label="工序站別" sortKey="stage" />
               </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                工單狀態
+                <SortHeader label="工單狀態" sortKey="status" />
               </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                負責人
+                <SortHeader label="負責人" sortKey="assignee" />
               </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                預計完成
+                <SortHeader label="預計完成" sortKey="planned_end_date" />
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -388,8 +480,18 @@ export function WorkOrdersPage() {
                 const calendarUrl = buildGoogleCalendarUrl(w);
                 return (
                 <TableRow key={w.id} className="border-b border-border">
-                  <TableCell className="font-mono text-xs font-medium">
-                    {w.order_number || "—"}
+                  <TableCell className="p-2 align-middle whitespace-nowrap font-mono text-xs font-medium">
+                    {w.order_id ? (
+                      <button
+                        type="button"
+                        onClick={() => openOrderDetail(w)}
+                        className="text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded px-1 py-0.5"
+                      >
+                        {w.order_number || "—"}
+                      </button>
+                    ) : (
+                      w.order_number || "—"
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     {w.customer_name || "—"}

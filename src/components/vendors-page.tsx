@@ -40,7 +40,7 @@ function mapVendorRow(r: Record<string, unknown>): VendorRow {
   };
 }
 
-export function VendorsPage() {
+export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [records, setRecords] = useState<VendorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState("");
@@ -207,10 +207,18 @@ export function VendorsPage() {
         </div>
         <div className="flex items-center gap-2">
           <AddVendorDialog onSuccess={fetchVendors} categoryOptions={categories} />
-          <Button variant="outline" className="h-8 shrink-0 px-3 text-xs" onClick={handleExport} disabled={(filteredRecords?.length ?? 0) === 0} aria-label="匯出 CSV">
-            <Download className="h-4 w-4" />
-            匯出 CSV
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="outline"
+              className="h-8 shrink-0 px-3 text-xs"
+              onClick={handleExport}
+              disabled={(filteredRecords?.length ?? 0) === 0}
+              aria-label="匯出 CSV"
+            >
+              <Download className="h-4 w-4" />
+              匯出 CSV
+            </Button>
+          )}
         </div>
       </div>
 

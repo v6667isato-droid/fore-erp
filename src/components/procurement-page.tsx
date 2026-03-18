@@ -125,9 +125,10 @@ function mapRowNoVendor(row: SupabaseRowNoVendor): PurchaseRow {
 
 export interface ProcurementPageProps {
   onNavigateToVendors?: () => void;
+  isAdmin?: boolean;
 }
 
-export function ProcurementPage({ onNavigateToVendors }: ProcurementPageProps) {
+export function ProcurementPage({ onNavigateToVendors, isAdmin = false }: ProcurementPageProps) {
   const [records, setRecords] = useState<PurchaseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterYear, setFilterYear] = useState("");
@@ -303,16 +304,18 @@ export function ProcurementPage({ onNavigateToVendors }: ProcurementPageProps) {
       <ProcurementSummaryCard summaryLabel={summaryLabel} totalSpent={totalSpent}>
         <div className="flex flex-wrap items-center gap-2">
           <AddPurchaseDialog onSuccess={fetchPurchases} onNavigateToVendors={onNavigateToVendors} purchases={records} />
-          <Button
-            variant="outline"
-            className="h-8 shrink-0 px-3 text-xs"
-            onClick={handleExport}
-            disabled={filteredRecords.length === 0}
-            aria-label="匯出篩選結果為 CSV"
-          >
-            <Download className="h-4 w-4" />
-            匯出 CSV
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="outline"
+              className="h-8 shrink-0 px-3 text-xs"
+              onClick={handleExport}
+              disabled={filteredRecords.length === 0}
+              aria-label="匯出篩選結果為 CSV"
+            >
+              <Download className="h-4 w-4" />
+              匯出 CSV
+            </Button>
+          )}
         </div>
       </ProcurementSummaryCard>
 

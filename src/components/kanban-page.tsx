@@ -12,6 +12,9 @@ interface KanbanCard {
   process: string;
   craftsman: string;
   note: string;
+  orderId?: string;
+  orderNumber?: string;
+  orderStatus?: string | null;
 }
 
 interface KanbanColumn {
@@ -52,9 +55,30 @@ const statusToColumnId: Record<string, string> = {
 };
 
 function KanbanCardItem({ card }: { card: KanbanCard }) {
+  const handleOpenOrder = () => {
+    if (!card.orderId) return;
+    // 導向主系統的訂單頁（非列印），在同一分頁透過 hash 帶入訂單 ID
+    if (typeof window === "undefined") return;
+    const encodedId = encodeURIComponent(card.orderId);
+    window.location.href = `/#orders:${encodedId}`;
+  };
+
   return (
     <div className="group rounded-lg border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md hover:border-accent">
-      <h4 className="font-serif text-sm font-semibold text-card-foreground">{card.product}</h4>
+      <div className="flex flex-col gap-1">
+        {card.orderNumber && (
+          <button
+            type="button"
+            onClick={handleOpenOrder}
+            className="self-start text-[11px] font-mono text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+          >
+            {card.orderNumber}
+          </button>
+        )}
+        <h4 className="font-serif text-sm font-semibold text-card-foreground">
+          {card.product}
+        </h4>
+      </div>
       <div className="mt-2 flex items-center gap-1.5">
         <Wrench className="h-3 w-3 text-muted-foreground" />
         <span className="text-xs font-medium text-accent-foreground/80">{card.process}</span>
@@ -122,7 +146,12 @@ export function KanbanPage() {
           work_orders(
             batch_quantity,
             order_items(
-              products(name)
+              products(name),
+              orders(
+                id,
+                order_number,
+                status
+              )
             )
           )
         `);
@@ -145,13 +174,28 @@ export function KanbanPage() {
           notes: string | null;
           status: string | null;
           employees: NameRel;
-          work_orders: {
-            batch_quantity?: number;
-            order_items?: Array<{ products: { name: string } | null }>;
-          } | Array<{
-            batch_quantity?: number;
-            order_items?: Array<{ products: { name: string } | null }>;
-          }> | null;
+          work_orders:
+            | {
+                batch_quantity?: number;
+                order_items?: Array<{
+                  products: { name: string } | null;
+                  orders:
+                    | { id: string; order_number: string; status: string | null }
+                    | { id: string; order_number: string; status: string | null }[]
+                    | null;
+                }>;
+              }
+            | Array<{
+                batch_quantity?: number;
+                order_items?: Array<{
+                  products: { name: string } | null;
+                  orders:
+                    | { id: string; order_number: string; status: string | null }
+                    | { id: string; order_number: string; status: string | null }[]
+                    | null;
+                }>;
+              }>
+            | null;
         }>;
 
         for (const row of rows) {
@@ -159,13 +203,24 @@ export function KanbanPage() {
           const wo = Array.isArray(row.work_orders)
             ? row.work_orders[0]
             : row.work_orders;
-          const productName = wo?.order_items?.[0]?.products?.name ?? "—";
+          const firstItem = wo?.order_items?.[0];
+          const productName = firstItem?.products?.name ?? "—";
+          const orderRel = firstItem?.orders;
+          const orderObj = Array.isArray(orderRel) ? orderRel[0] : orderRel;
+
+          // 只顯示「排程中」狀態的訂單，報價中與其他狀態不排入生產看板
+          if (!orderObj || orderObj.status !== "排程中") {
+            continue;
+          }
           const card: KanbanCard = {
             id: row.id,
             product: productName,
             process: row.step_name ?? "",
             craftsman: relName(row.employees),
             note: row.notes ?? "",
+            orderId: orderObj.id,
+            orderNumber: orderObj.order_number,
+            orderStatus: orderObj.status ?? null,
           };
           if (colId === "todo") todo.push(card);
           else if (colId === "in-progress") inProgress.push(card);

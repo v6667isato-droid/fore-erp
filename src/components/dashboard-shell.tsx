@@ -84,10 +84,21 @@ function Logo() {
   );
 }
 
-function SidebarNav({ activePage, onNavigate }: { activePage: Page; onNavigate: (page: Page) => void }) {
+function SidebarNav({
+  activePage,
+  onNavigate,
+  userRole,
+}: {
+  activePage: Page;
+  onNavigate: (page: Page) => void;
+  userRole: AppRole;
+}) {
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
+        if (item.id === "employees" && userRole !== "admin") {
+          return null;
+        }
         const Icon = item.icon;
         const isActive = activePage === item.id;
         return (
@@ -127,7 +138,7 @@ function DesktopSidebar({
         <Logo />
       </div>
       <ScrollArea className="flex-1 py-4">
-        <SidebarNav activePage={activePage} onNavigate={onNavigate} />
+        <SidebarNav activePage={activePage} onNavigate={onNavigate} userRole={userRole} />
       </ScrollArea>
       <div className="px-3 py-2">
         <a
@@ -173,7 +184,15 @@ function DesktopSidebar({
   );
 }
 
-function MobileHeader({ activePage, onNavigate }: { activePage: Page; onNavigate: (page: Page) => void }) {
+function MobileHeader({
+  activePage,
+  onNavigate,
+  userRole,
+}: {
+  activePage: Page;
+  onNavigate: (page: Page) => void;
+  userRole: AppRole;
+}) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const currentLabel = navItems.find((i) => i.id === activePage)?.label ?? "總覽";
@@ -200,6 +219,9 @@ function MobileHeader({ activePage, onNavigate }: { activePage: Page; onNavigate
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
+                  if (item.id === "employees" && userRole !== "admin") {
+                    return null;
+                  }
                   const Icon = item.icon;
                   const isActive = activePage === item.id;
                   return (
@@ -288,7 +310,8 @@ export default function DashboardShell() {
   const [activePage, setActivePage] = useState<Page>(() =>
     pageParam && PAGE_IDS.has(pageParam as Page) ? (pageParam as Page) : "dashboard"
   );
-  const pageTitle = navItems.find((i) => i.id === activePage)?.label ?? "總覽";
+  const pageTitle =
+    navItems.find((i) => i.id === activePage)?.label ?? "總覽";
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<AppRole>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -364,7 +387,11 @@ export default function DashboardShell() {
         userRole={userRole}
         onLogout={handleLogout}
       />
-      <MobileHeader activePage={activePage} onNavigate={onNavigate} />
+      <MobileHeader
+        activePage={activePage}
+        onNavigate={onNavigate}
+        userRole={userRole}
+      />
 
       <main className="lg:pl-60">
         <div className="mx-auto max-w-7xl px-4 py-6 lg:px-8 lg:py-8">
@@ -379,17 +406,27 @@ export default function DashboardShell() {
           )}
 
           {activePage === "dashboard" && <DashboardOverview />}
-          {activePage === "quotes" && <OrdersPage mode="quotation" />}
-          {activePage === "orders" && <OrdersPage mode="order" />}
+          {activePage === "quotes" && (
+            <OrdersPage
+              mode="quotation"
+              isAdmin={userRole === "admin"}
+            />
+          )}
+          {activePage === "orders" && (
+            <OrdersPage
+              mode="order"
+              isAdmin={userRole === "admin"}
+            />
+          )}
           {activePage === "kanban" && <WorkOrdersPage />}
           {activePage === "procurement" && (
             <ProcurementPage onNavigateToVendors={() => setActivePage("vendors")} />
           )}
-          {activePage === "vendors" && <VendorsPage />}
-          {activePage === "products" && <ProductsPage />}
-          {activePage === "customers" && <CustomersPage />}
+          {activePage === "vendors" && <VendorsPage isAdmin={userRole === "admin"} />}
+          {activePage === "products" && <ProductsPage isAdmin={userRole === "admin"} />}
+          {activePage === "customers" && <CustomersPage isAdmin={userRole === "admin"} />}
           {activePage === "channels" && <ChannelsPage />}
-          {activePage === "employees" && <EmployeesPage />}
+          {activePage === "employees" && userRole === "admin" && <EmployeesPage />}
           {activePage === "feedback" && <FeedbackPage />}
         </div>
       </main>

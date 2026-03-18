@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -82,7 +82,7 @@ export default function PrintOrderPage() {
         const lineRes = await supabase
           .from("order_items")
           .select(
-            "id, order_id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, image_url"
+            "id, order_id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, image_url, wood_type"
           )
           .eq("order_id", orderId);
 
@@ -174,6 +174,12 @@ export default function PrintOrderPage() {
           }
         }
 
+        const itemWoodType = (r: any): string | null => {
+          const w = r.wood_type;
+          if (w == null || String(w).trim() === "") return null;
+          return String(w).trim();
+        };
+
         const mappedItems: PrintOrderItem[] = itemRows.map((r: any, idx: number) => {
           const isCustom = !r.variant_id;
 
@@ -211,7 +217,7 @@ export default function PrintOrderPage() {
               name,
               description: descParts.length > 0 ? descParts.join("；") : null,
               image_url: r.image_url ?? null,
-              wood_type: null,
+              wood_type: itemWoodType(r),
               dimension_text: dimText,
               spec_text: null,
             };
@@ -243,7 +249,7 @@ export default function PrintOrderPage() {
             name,
             description: null,
             image_url: imageUrl,
-            wood_type: variant?.wood_type ?? null,
+            wood_type: itemWoodType(r),
             dimension_text: dimText,
             spec_text: variant?.product_code ?? null,
           };
@@ -436,51 +442,66 @@ export default function PrintOrderPage() {
               ) : (
                 items.map((item) => {
                   const lineTotal = item.quantity * item.unit_price;
+                  const hasCustomNotes =
+                    item.custom_notes != null && String(item.custom_notes).trim() !== "";
+                  const hasDescription =
+                    item.description != null && String(item.description).trim() !== "";
+                  const hasNotes = hasCustomNotes || hasDescription;
+                  const notesContent = [item.description, item.custom_notes]
+                    .map((t) => t?.trim())
+                    .filter(Boolean)
+                    .join("\n");
+
                   return (
-                    <tr key={item.id} className="border-b border-gray-200 align-top">
-                      <td className="px-3 py-3">
-                        {item.image_url ? (
-                          <div className="h-14 w-14 overflow-hidden rounded border border-gray-200 bg-gray-100">
-                            <img
-                              src={item.image_url}
-                              alt={item.name}
-                              className="h-full w-full object-cover"
-                            />
-                          </div>
-                        ) : (
-                          <div className="h-14 w-14 rounded border border-dashed border-gray-200 bg-gray-50" />
-                        )}
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="font-medium text-gray-900">{item.name}</div>
-                        {item.description && (
-                          <div className="mt-1 text-xs text-gray-600 whitespace-pre-line leading-relaxed">
-                            {item.description}
-                          </div>
-                        )}
-                        {item.custom_notes && (
-                          <div className="mt-1 text-xs text-gray-600 whitespace-pre-line leading-relaxed">
-                            {item.custom_notes}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-gray-700">{item.wood_type ?? "—"}</td>
-                      <td className="px-3 py-3 text-gray-700 text-xs leading-relaxed">
-                        {item.dimension_text ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 text-gray-700 font-mono text-xs">
-                        {item.spec_text ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
-                        {item.quantity}
-                      </td>
-                      <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
-                        {item.unit_price.toLocaleString()}
-                      </td>
-                      <td className="px-3 py-3 text-right text-gray-900 font-medium tabular-nums">
-                        {lineTotal.toLocaleString()}
-                      </td>
-                    </tr>
+                    <Fragment key={item.id}>
+                      <tr className="border-b border-gray-200 align-top">
+                        <td className="px-3 py-3">
+                          {item.image_url ? (
+                            <div className="h-14 w-14 overflow-hidden rounded border border-gray-200 bg-gray-100">
+                              <img
+                                src={item.image_url}
+                                alt={item.name}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="h-14 w-14 rounded border border-dashed border-gray-200 bg-gray-50" />
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="font-medium text-gray-900">{item.name}</div>
+                        </td>
+                        <td className="px-3 py-3 text-gray-700">{item.wood_type ?? "—"}</td>
+                        <td className="px-3 py-3 text-gray-700 text-xs leading-relaxed">
+                          {item.dimension_text ?? "—"}
+                        </td>
+                        <td className="px-3 py-3 text-gray-700 font-mono text-xs">
+                          {item.spec_text ?? "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
+                          {item.quantity}
+                        </td>
+                        <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
+                          {item.unit_price.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-3 text-right text-gray-900 font-medium tabular-nums">
+                          {lineTotal.toLocaleString()}
+                        </td>
+                      </tr>
+                      {hasNotes && (
+                        <tr className="border-b border-gray-200">
+                          <td className="px-3 py-2 text-sm font-medium text-gray-600 align-top">
+                            備註
+                          </td>
+                          <td
+                            colSpan={7}
+                            className="px-3 py-2 align-top text-sm text-gray-800 whitespace-pre-line"
+                          >
+                            {notesContent}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })
               )}

@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { CustomerRow } from "@/types/crm";
-import { Users, Eye, Pencil, Trash2, Download } from "lucide-react";
+import { Users, Pencil, Trash2, Download } from "lucide-react";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { EditCustomerDialog } from "@/components/crm/edit-customer-dialog";
@@ -21,13 +21,14 @@ import { toast } from "sonner";
 import { exportCustomersCsv } from "@/components/crm/export-customers-csv";
 
 const CUSTOMER_SELECT =
-  "id, name, phone, line_id, ig_account, delivery_address, notes, source, customer_type, channel_id";
+  "id, name, alias, phone, line_id, ig_account, delivery_address, notes, source, customer_type, channel_id, contact_method";
 
 function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
   const addr = r.delivery_address ?? r.address;
   return {
     id: String(r.id),
     name: String(r.name ?? ""),
+    alias: r.alias != null ? String(r.alias) : null,
     phone: r.phone != null ? String(r.phone) : null,
     line_id: r.line_id != null ? String(r.line_id) : null,
     ig_account: r.ig_account != null ? String(r.ig_account) : null,
@@ -36,15 +37,44 @@ function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
     source: r.source != null ? String(r.source) : null,
     customer_type: r.customer_type != null ? String(r.customer_type) : null,
     channel_id: r.channel_id != null ? String(r.channel_id) : null,
+    contact_method: r.contact_method != null ? String(r.contact_method) : null,
   };
 }
 
-function SocialCell({ lineId, igAccount }: { lineId: string | null | undefined; igAccount: string | null | undefined }) {
-  const parts: string[] = [];
-  if (lineId?.trim()) parts.push(`LINE: ${lineId.trim()}`);
-  if (igAccount?.trim()) parts.push(`IG: ${igAccount.trim()}`);
-  if (parts.length === 0) return <span className="text-muted-foreground">—</span>;
-  return <span className="text-sm">{parts.join(" · ")}</span>;
+function contactMethodLabel(method: string | null | undefined): string | null {
+  const v = (method ?? "").toLowerCase();
+  if (!v) return null;
+  switch (v) {
+    case "line":
+      return "LINE";
+    case "ig":
+      return "IG";
+    case "fb":
+      return "FB";
+    case "email":
+      return "Email";
+    case "bingxueline":
+      return "秉學Line";
+    case "others":
+      return "Others";
+    default:
+      return method ?? null;
+  }
+}
+
+function ContactCell({ row }: { row: CustomerRow }) {
+  const label = contactMethodLabel(row.contact_method);
+  if (!label) return <span className="text-muted-foreground">—</span>;
+  return <span className="text-sm">{label}</span>;
+}
+
+function shippingCity(address: string | null | undefined): string | null {
+  const raw = (address ?? "").trim();
+  if (!raw) return null;
+  // 嘗試抓出「XX市」或「XX縣」開頭
+  const match = raw.match(/^(.{1,4}?[市縣])/);
+  if (match && match[1]) return match[1];
+  return null;
 }
 
 export interface ChannelOption {
@@ -52,12 +82,12 @@ export interface ChannelOption {
   name: string;
 }
 
-export function CustomersPage() {
+export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [channels, setChannels] = useState<ChannelOption[]>([]);
-  const [lastOrders, setLastOrders] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
   const [filterSource, setFilterSource] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [viewRow, setViewRow] = useState<CustomerRow | null>(null);
   const [editRow, setEditRow] = useState<CustomerRow | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<CustomerRow | null>(null);
@@ -77,9 +107,27 @@ export function CustomersPage() {
   }, [customers]);
 
   const filteredCustomers = useMemo(() => {
-    if (!filterSource) return customers;
-    return customers.filter((c) => c.source === filterSource);
-  }, [customers, filterSource]);
+    let list = customers;
+    if (filterSource) {
+      list = list.filter((c) => c.source === filterSource);
+    }
+    if (searchTerm.trim()) {
+      const q = searchTerm.trim().toLowerCase();
+      list = list.filter((c: any) => {
+        const name = (c.name ?? "").toLowerCase();
+        const alias = (c.alias ?? "").toLowerCase();
+        const contact = (c.contact_person ?? "").toLowerCase();
+        const phone = (c.phone ?? "").toLowerCase();
+        return (
+          name.includes(q) ||
+          alias.includes(q) ||
+          contact.includes(q) ||
+          phone.includes(q)
+        );
+      });
+    }
+    return list;
+  }, [customers, filterSource, searchTerm]);
 
   async function fetchCustomers() {
     setLoading(true);
@@ -130,30 +178,9 @@ export function CustomersPage() {
     setChannels(((data ?? []) as ChannelOption[]).map((r) => ({ id: r.id, name: String(r.name ?? "") })));
   }
 
-  async function fetchLastOrders() {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("customer_id, order_date")
-      .order("order_date", { ascending: false });
-    if (error) {
-      // 不影響主畫面，靜默失敗即可
-      return;
-    }
-    const map: Record<string, string | null> = {};
-    (data ?? []).forEach((row: any) => {
-      const cid = row.customer_id ? String(row.customer_id) : "";
-      if (!cid) return;
-      if (map[cid] == null) {
-        map[cid] = row.order_date ?? null;
-      }
-    });
-    setLastOrders(map);
-  }
-
   useEffect(() => {
     fetchCustomers();
     fetchChannels();
-    fetchLastOrders();
   }, []);
 
   function requestDelete(row: CustomerRow) {
@@ -220,16 +247,18 @@ export function CustomersPage() {
         </div>
         <div className="flex items-center gap-2">
           <AddCustomerDialog channels={channels} onSuccess={fetchCustomers} />
-          <Button
-            variant="outline"
-            className="h-8 shrink-0 px-3 text-xs"
-            onClick={handleExport}
-            disabled={!filteredCustomers.length}
-            aria-label="匯出客戶 CSV"
-          >
-            <Download className="h-4 w-4" />
-            匯出 CSV
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="outline"
+              className="h-8 shrink-0 px-3 text-xs"
+              onClick={handleExport}
+              disabled={!filteredCustomers.length}
+              aria-label="匯出客戶 CSV"
+            >
+              <Download className="h-4 w-4" />
+              匯出 CSV
+            </Button>
+          )}
         </div>
       </div>
 
@@ -256,28 +285,34 @@ export function CustomersPage() {
               清除篩選
             </button>
           )}
-          <span className="text-xs text-muted-foreground ml-auto">
-            共 {filteredCustomers.length} 筆{filterSource ? "（已篩選）" : ""}
-          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="搜尋客戶姓名 / 別名 / 聯絡人 / 電話"
+              className="h-8 w-52 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <span className="text-xs text-muted-foreground">
+              共 {filteredCustomers.length} 筆{filterSource || searchTerm ? "（已篩選）" : ""}
+            </span>
+          </div>
         </div>
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent border-b border-border">
               <TableHead className="text-xs font-semibold p-2 align-middle">客戶姓名</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">電話</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">最近訂購日期</TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">聯絡方式</TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">客戶來源</TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">客戶種類</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">所屬通路</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">送貨地址</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">客情備註</TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">聯絡區域</TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredCustomers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   {customers.length === 0
                     ? "尚無客戶資料，請點「新增客戶」建立第一筆。"
                     : "無符合篩選條件的客戶。"}
@@ -286,23 +321,21 @@ export function CustomersPage() {
             ) : (
               filteredCustomers.map((row) => (
                 <TableRow key={row.id} className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="text-sm font-medium p-2">
+                  <TableCell className="align-middle whitespace-nowrap text-sm font-medium p-2">
                     <button
                       type="button"
                       onClick={() => setViewRow(row)}
-                      className="text-left underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
+                      className="flex flex-col items-start gap-0.5 text-left underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
                     >
-                      {row.name || "—"}
+                      <span>{row.name || "—"}</span>
+                      {row.alias && row.alias.trim() && (
+                        <span className="text-xs text-muted-foreground">({row.alias.trim()})</span>
+                      )}
                     </button>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {row.phone ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm p-2">
-                    {lastOrders[row.id]
-                      ? String(lastOrders[row.id]).slice(0, 10)
-                      : "—"}
-                  </TableCell>
+                      <TableCell className="text-sm text-muted-foreground p-2">
+                        <ContactCell row={row} />
+                      </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
                     {row.source ?? "—"}
                   </TableCell>
@@ -310,13 +343,7 @@ export function CustomersPage() {
                     {row.customer_type ?? "—"}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
-                    {row.channel_id ? (channelMap[row.channel_id] ?? "—") : "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2 max-w-[180px] truncate" title={row.delivery_address ?? undefined}>
-                    {row.delivery_address ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2 max-w-[200px] truncate" title={row.notes ?? undefined}>
-                    {row.notes ?? "—"}
+                    {shippingCity(row.delivery_address) ?? "—"}
                   </TableCell>
                   <TableCell className="p-2">
                     <div className="flex items-center gap-2">

@@ -83,7 +83,7 @@ export default function PrintQuotationPage() {
         const lineRes = await supabase
           .from('order_items')
           .select(
-            'id, order_id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, image_url'
+            'id, order_id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, image_url, wood_type'
           )
           .eq('order_id', orderId);
 
@@ -178,6 +178,12 @@ export default function PrintQuotationPage() {
           }
         }
 
+        const itemWoodType = (r: any): string | null => {
+          const w = r.wood_type;
+          if (w == null || String(w).trim() === '') return null;
+          return String(w).trim();
+        };
+
         const mappedItems: PrintOrderItem[] = itemRows.map(
           (r: any, idx: number) => {
             const isCustom = !r.variant_id;
@@ -212,7 +218,7 @@ export default function PrintQuotationPage() {
                 description:
                   descParts.length > 0 ? descParts.join('；') : null,
                 image_url: r.image_url ?? null,
-                wood_type: null,
+                wood_type: itemWoodType(r),
                 dimension_text: dimText,
                 spec_text: null,
               };
@@ -246,7 +252,7 @@ export default function PrintQuotationPage() {
               name,
               description: null,
               image_url: imageUrl,
-              wood_type: variant?.wood_type ?? null,
+              wood_type: itemWoodType(r),
               dimension_text: dimText,
               spec_text: variant?.spec1 ?? null,
             };

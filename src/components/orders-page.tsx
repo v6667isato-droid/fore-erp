@@ -52,6 +52,7 @@ interface VariantOption {
   label: string;
   base_price: number | null;
   spec1?: string | null;
+  wood_type?: string | null;
 }
 
 interface OrderItemInput {
@@ -69,6 +70,7 @@ interface OrderItemInput {
   custom_dimension_d?: number | null;
   custom_dimension_h?: number | null;
   image_url?: string | null;
+  wood_type?: string | null;
 }
 
 type OrdersPageMode = "all" | "quotation" | "order";
@@ -98,7 +100,7 @@ const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = [
 // 與「使用回饋」頁面狀態欄使用相同色系（較鮮明的色階）
 const statusStyles: Record<OrderStatus, string> = {
   報價中: "bg-amber-100 text-amber-800 border-amber-200",
-  繪圖中: "bg-amber-100 text-amber-800 border-amber-200",
+  繪圖中: "bg-violet-100 text-violet-800 border-violet-200",
   排程中: "bg-amber-100 text-amber-800 border-amber-200",
   生產中: "bg-blue-100 text-blue-800 border-blue-200",
   已出貨: "bg-emerald-100 text-emerald-800 border-emerald-200",
@@ -110,6 +112,34 @@ const paymentStatusStyles: Record<PaymentStatus, string> = {
   已付訂金: "bg-blue-100 text-blue-800 border-blue-200",
   已結清: "bg-emerald-100 text-emerald-800 border-emerald-200",
 };
+
+const WOOD_TYPE_OPTIONS = ["白橡木", "胡桃木", "柚木", "雞翅木"] as const;
+const WOOD_TYPE_DATALIST_ID = "order-form-wood-type-list";
+
+function WoodTypeComboboxInput({
+  id,
+  value,
+  onChange,
+  placeholder = "選擇或輸入木種",
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      id={id}
+      type="text"
+      list={WOOD_TYPE_DATALIST_ID}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      autoComplete="off"
+    />
+  );
+}
 
 function StatusBadge({ status }: { status: OrderStatus }) {
   return (
@@ -205,6 +235,7 @@ function OrderFormDialog({
             unit_price: 0,
             custom_notes: "",
             kind: "variant",
+            wood_type: null,
           },
         ]
   );
@@ -246,6 +277,7 @@ function OrderFormDialog({
         unit_price: 0,
         custom_notes: "",
         kind: "variant",
+        wood_type: null,
       },
     ]);
   }, [open, initialOrder]);
@@ -382,6 +414,7 @@ function OrderFormDialog({
         unit_price: 0,
         custom_notes: "",
         kind: "variant",
+        wood_type: null,
       },
       ...prev,
     ]);
@@ -477,18 +510,13 @@ function OrderFormDialog({
           custom_description:
             it.kind === "custom" ? it.custom_description || null : null,
           custom_dimension_w:
-            it.kind === "custom" && it.custom_dimension_w != null
-              ? it.custom_dimension_w
-              : null,
+            it.custom_dimension_w != null ? it.custom_dimension_w : null,
           custom_dimension_d:
-            it.kind === "custom" && it.custom_dimension_d != null
-              ? it.custom_dimension_d
-              : null,
+            it.custom_dimension_d != null ? it.custom_dimension_d : null,
           custom_dimension_h:
-            it.kind === "custom" && it.custom_dimension_h != null
-              ? it.custom_dimension_h
-              : null,
+            it.custom_dimension_h != null ? it.custom_dimension_h : null,
           image_url: it.image_url ?? null,
+          wood_type: it.wood_type ?? null,
         };
       });
 
@@ -560,6 +588,11 @@ function OrderFormDialog({
             className="mt-4 flex flex-1 flex-col overflow-hidden"
           >
             <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5">
+              <datalist id={WOOD_TYPE_DATALIST_ID}>
+                {WOOD_TYPE_OPTIONS.map((w) => (
+                  <option key={w} value={w} />
+                ))}
+              </datalist>
               <section className="space-y-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   訂單主檔
@@ -945,12 +978,14 @@ function OrderFormDialog({
                                   const selected = variants.find(
                                     (v) => v.id === value
                                   );
+                                  const wt = selected?.wood_type?.trim();
                                   updateItem(it.id, {
                                     variant_id: value,
                                     unit_price:
                                       selected?.base_price ??
                                       it.unit_price ??
                                       0,
+                                    wood_type: wt ? wt : null,
                                   });
                                 }}
                                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1021,6 +1056,82 @@ function OrderFormDialog({
                                   })
                                 }
                                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                            <div className="flex flex-col gap-1.5">
+                              <label
+                                className="text-xs text-muted-foreground"
+                                htmlFor={`item-wood-variant-${it.id}`}
+                              >
+                                木種
+                              </label>
+                              <WoodTypeComboboxInput
+                                id={`item-wood-variant-${it.id}`}
+                                value={it.wood_type ?? ""}
+                                onChange={(v) =>
+                                  updateItem(it.id, {
+                                    wood_type: v.trim() || null,
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs text-muted-foreground">
+                                長
+                              </label>
+                              <input
+                                type="number"
+                                placeholder="長"
+                                value={it.custom_dimension_w ?? ""}
+                                onChange={(e) =>
+                                  updateItem(it.id, {
+                                    custom_dimension_w:
+                                      e.target.value === ""
+                                        ? null
+                                        : Number(e.target.value),
+                                  })
+                                }
+                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs text-muted-foreground">
+                                寬
+                              </label>
+                              <input
+                                type="number"
+                                placeholder="寬"
+                                value={it.custom_dimension_d ?? ""}
+                                onChange={(e) =>
+                                  updateItem(it.id, {
+                                    custom_dimension_d:
+                                      e.target.value === ""
+                                        ? null
+                                        : Number(e.target.value),
+                                  })
+                                }
+                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs text-muted-foreground">
+                                高
+                              </label>
+                              <input
+                                type="number"
+                                placeholder="高"
+                                value={it.custom_dimension_h ?? ""}
+                                onChange={(e) =>
+                                  updateItem(it.id, {
+                                    custom_dimension_h:
+                                      e.target.value === ""
+                                        ? null
+                                        : Number(e.target.value),
+                                  })
+                                }
+                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                               />
                             </div>
                           </div>
@@ -1202,6 +1313,23 @@ function OrderFormDialog({
                             </div>
                           </div>
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 mt-1.5">
+                            <div className="flex flex-col gap-1.5">
+                              <label
+                                className="text-xs text-muted-foreground"
+                                htmlFor={`item-wood-custom-${it.id}`}
+                              >
+                                木種
+                              </label>
+                              <WoodTypeComboboxInput
+                                id={`item-wood-custom-${it.id}`}
+                                value={it.wood_type ?? ""}
+                                onChange={(v) =>
+                                  updateItem(it.id, {
+                                    wood_type: v.trim() || null,
+                                  })
+                                }
+                              />
+                            </div>
                             <div className="flex flex-col gap-1.5">
                               <label className="text-xs text-muted-foreground">
                                 數量
@@ -1530,6 +1658,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
                 ? Number(v.base_price)
                 : null,
             spec1: v.spec1 ?? null,
+            wood_type: v.wood_type ?? null,
           };
         })
       );
@@ -1792,6 +1921,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
         custom_dimension_d,
         custom_dimension_h,
         image_url,
+        wood_type,
         product_variants (
           series_id
         )
@@ -1832,6 +1962,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
             ? Number(d.custom_dimension_h)
             : null,
         image_url: d.image_url ?? null,
+        wood_type: d.wood_type != null && String(d.wood_type).trim() !== "" ? String(d.wood_type) : null,
       };
     });
     setEditingOrder(order);

@@ -2,6 +2,8 @@
 export interface CustomerRow {
   id: string;
   name: string;
+  /** 客戶別名 */
+  alias?: string | null;
   phone?: string | null;
   line_id?: string | null;
   ig_account?: string | null;
@@ -13,4 +15,6 @@ export interface CustomerRow {
   customer_type?: string | null;
   /** 所屬通路 ID（報價/訂單用該通路價） */
   channel_id?: string | null;
+  /** 主要聯絡方式（line / ig / fb / email / boss / others） */
+  contact_method?: string | null;
 }
