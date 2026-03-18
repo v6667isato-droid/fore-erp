@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { exportCustomersCsv } from "@/components/crm/export-customers-csv";
 
 const CUSTOMER_SELECT =
-  "id, name, alias, phone, line_id, ig_account, delivery_address, notes, source, customer_type, channel_id, contact_method";
+  "id, name, alias, contact_person, phone, line_id, ig_account, delivery_address, notes, source, customer_type, channel_id, contact_method";
 
 function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
   const addr = r.delivery_address ?? r.address;
@@ -29,6 +29,7 @@ function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
     id: String(r.id),
     name: String(r.name ?? ""),
     alias: r.alias != null ? String(r.alias) : null,
+    contact_person: (r as any).contact_person != null ? String((r as any).contact_person) : null,
     phone: r.phone != null ? String(r.phone) : null,
     line_id: r.line_id != null ? String(r.line_id) : null,
     ig_account: r.ig_account != null ? String(r.ig_account) : null,

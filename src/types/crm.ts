@@ -4,6 +4,8 @@ export interface CustomerRow {
   name: string;
   /** 客戶別名 */
   alias?: string | null;
+  /** 聯絡人姓名 */
+  contact_person?: string | null;
   phone?: string | null;
   line_id?: string | null;
   ig_account?: string | null;
