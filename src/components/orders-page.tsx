@@ -215,7 +215,16 @@ function OrderFormDialog({
     initialOrder?.total_amount != null ? String(initialOrder.total_amount) : ""
   );
   const [discountLocked, setDiscountLocked] = useState(false);
-  const [deposit, setDeposit] = useState<string>("0");
+  const [deposit, setDeposit] = useState<string>(() => {
+    if (initialOrder?.deposit_amount != null) {
+      return String(initialOrder.deposit_amount);
+    }
+    if (initialOrder?.total_amount != null) {
+      // 若舊訂單沒有訂金紀錄，預設用折扣後總價的 50% 當作初始顯示值
+      return String(Math.round(Number(initialOrder.total_amount) * 0.5));
+    }
+    return "0";
+  });
   const [depositPercent, setDepositPercent] = useState<string>("50");
   const [shippingAddress, setShippingAddress] = useState<string>("");
   const [internalNotes, setInternalNotes] = useState<string>(
@@ -251,6 +260,18 @@ function OrderFormDialog({
       setStatus(initialOrder.status);
       setPaymentStatus(initialOrder.payment_status);
       setOrderExplanationImageUrls(parseExplanationImageUrls(initialOrder.explanation_image_url));
+      // 編輯舊訂單時，帶入已儲存的折扣後總價與訂金
+      setDiscountTotal(
+        initialOrder.total_amount != null ? String(initialOrder.total_amount) : ""
+      );
+      setDiscountLocked(true);
+      setDeposit(
+        initialOrder.deposit_amount != null
+          ? String(initialOrder.deposit_amount)
+          : initialOrder.total_amount != null
+          ? String(Math.round(Number(initialOrder.total_amount) * 0.5))
+          : "0"
+      );
     }
     if (initialItems && initialItems.length) {
       setItems(initialItems);
@@ -322,13 +343,6 @@ function OrderFormDialog({
     if (!Number.isFinite(n) || n < 0) return totalAmount;
     return n;
   })();
-
-  // 訂金比例為 50% 時，隨總金額同步訂金
-  useEffect(() => {
-    if (depositPercent === "50" && discountBase > 0) {
-      setDeposit(String(Math.round(discountBase * 0.5)));
-    }
-  }, [depositPercent, discountBase]);
 
   async function handleItemImageUpload(id: string, file: File) {
     if (!file.type.startsWith("image/")) {
@@ -553,6 +567,10 @@ function OrderFormDialog({
       toast.success(isEdit ? "已更新訂單" : "已建立訂單");
       onSaved();
       onOpenChange(false);
+      // 使用者希望修改訂單後整個畫面重新整理，確保列表與相關檢視都反映最新資料
+      if (typeof window !== "undefined") {
+        window.location.reload();
+      }
     } finally {
       setSaving(false);
     }
