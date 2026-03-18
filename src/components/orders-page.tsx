@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
@@ -344,16 +344,25 @@ function OrderFormDialog({
     return n;
   })();
 
-  // 若為「編輯訂單」，且使用者對品項或價格做了異動：
-  // 之前儲存的折扣後總價／訂金視為「舊值」，自動解鎖並依目前金額與比例重新計算。
+  // 記錄上一次的品項總金額，用來判斷是否真的發生「品項／價格變動」
+  const prevTotalAmountRef = useRef<number | null>(null);
+
+  // 若為「編輯訂單」，且品項或價格有變化：
+  // 之前儲存的折扣後總價／訂金視為「舊值」，自動解鎖並依目前金額與比例重新計算一次。
+  // 使用 ref 避免在僅調整折扣或訂金時又被覆蓋。
   useEffect(() => {
     if (!initialOrder) return;
-    if (!discountLocked) return;
-    const originalTotal = Number(initialOrder.total_amount ?? 0);
-    if (!Number.isFinite(originalTotal)) return;
-    if (totalAmount === originalTotal) return;
 
-    // 解鎖折扣後總價，讓其跟隨最新總金額
+    const prev = prevTotalAmountRef.current;
+    if (prev === null) {
+      prevTotalAmountRef.current = totalAmount;
+      return;
+    }
+    if (prev === totalAmount) return;
+
+    prevTotalAmountRef.current = totalAmount;
+
+    // 解鎖折扣後總價，讓其跟隨最新總金額（下一個 effect 會自動同步）
     setDiscountLocked(false);
 
     // 依目前折扣後總價與訂金比例重新計算訂金（若有設定比例）
@@ -362,7 +371,7 @@ function OrderFormDialog({
       const amt = Math.round((discountBase * p) / 100);
       setDeposit(String(amt));
     }
-  }, [initialOrder, totalAmount, discountLocked, depositPercent, discountBase]);
+  }, [initialOrder, totalAmount, depositPercent, discountBase]);
 
   async function handleItemImageUpload(id: string, file: File) {
     if (!file.type.startsWith("image/")) {
@@ -1508,16 +1517,38 @@ function OrderFormDialog({
 
               <section className="flex flex-col gap-3 border-t border-border pt-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-muted-foreground">
-                    總金額：
+                  <p className="text-xs text-muted-foreground">
+                    總計：
                     <span className="ml-1 text-lg font-semibold text-foreground">
                       {totalAmount.toLocaleString()}
                     </span>
                   </p>
                   <div className="flex flex-wrap items-center gap-3 text-sm">
                     <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-semibold text-foreground">
+                        折扣後總金額
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={discountTotal}
+                        onChange={(e) => {
+                          setDiscountLocked(true);
+                          setDiscountTotal(e.target.value);
+                          const v = Number(e.target.value);
+                          const p = Number(depositPercent);
+                          if (p > 0 && Number.isFinite(v) && v > 0) {
+                            const amt = Math.round((v * p) / 100);
+                            setDeposit(String(amt));
+                          }
+                        }}
+                        className="h-8 w-28 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        placeholder={totalAmount > 0 ? String(totalAmount) : "0"}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">
-                      訂金比例
+                        訂金比例
                       </span>
                       <select
                         value={depositPercent}
@@ -1526,9 +1557,7 @@ function OrderFormDialog({
                           setDepositPercent(v);
                           const p = Number(v);
                           if (p > 0 && discountBase > 0) {
-                            const amt = Math.round(
-                              (discountBase * p) / 100
-                            );
+                            const amt = Math.round((discountBase * p) / 100);
                             setDeposit(String(amt));
                           }
                         }}
@@ -1539,22 +1568,6 @@ function OrderFormDialog({
                         <option value="40">40%</option>
                         <option value="50">50%</option>
                       </select>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">
-                        折扣後總價
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={discountTotal}
-                        onChange={(e) => {
-                          setDiscountLocked(true);
-                          setDiscountTotal(e.target.value);
-                        }}
-                        className="h-8 w-28 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        placeholder={totalAmount > 0 ? String(totalAmount) : "0"}
-                      />
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">
