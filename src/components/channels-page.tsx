@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Pencil, Trash2, X } from "lucide-react";
+import { ClipboardList, Pencil, Trash2, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
@@ -45,6 +45,11 @@ export function ChannelsPage() {
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<ChannelRow | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [discountChannel, setDiscountChannel] = useState<ChannelRow | null>(null);
+
+  function openChannelOrders(channelId: string) {
+    if (!channelId) return;
+    window.open(`/channels/${channelId}/orders`, "_blank", "noopener,noreferrer");
+  }
 
   async function fetchChannels() {
     setLoading(true);
@@ -121,6 +126,15 @@ export function ChannelsPage() {
                     <TableCell>{row.portal_code ?? "—"}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex flex-nowrap justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 px-3 text-xs"
+                          onClick={() => openChannelOrders(row.id)}
+                        >
+                          <ClipboardList className="h-3.5 w-3.5 mr-1" />
+                          通路訂單
+                        </Button>
                         <Button
                           type="button"
                           variant="outline"
