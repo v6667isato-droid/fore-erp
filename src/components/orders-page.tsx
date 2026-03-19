@@ -160,16 +160,49 @@ function generateOrderNumber() {
   return `ORD-${ymd}-${suffix}`;
 }
 
-/** 將 DB 的 explanation_image_url 解析為 URL 陣列（支援舊版單一 URL 或 JSON 陣列） */
-function parseExplanationImageUrls(raw: string | null | undefined): string[] {
+type ExplanationImage = { url: string; title?: string | null };
+
+/** 將 DB 的 explanation_image_url 解析為圖片資料（相容舊版 URL 字串/字串陣列，以及新版 {url,title} 陣列） */
+function parseExplanationImages(raw: string | null | undefined): ExplanationImage[] {
   if (raw == null || raw === "") return [];
+  const normalizeUrl = (u: unknown): string | null => {
+    if (typeof u !== "string") return null;
+    const s = u.trim();
+    return s ? s : null;
+  };
+  const normalizeTitle = (t: unknown): string | null => {
+    if (typeof t !== "string") return null;
+    const s = t.trim();
+    return s ? s : null;
+  };
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string");
-    if (typeof parsed === "string") return [parsed];
+    if (Array.isArray(parsed)) {
+      // 1) ["url", ...]
+      if (parsed.every((x) => typeof x === "string")) {
+        return (parsed as string[])
+          .map((u) => normalizeUrl(u))
+          .filter((u): u is string => Boolean(u))
+          .map((url) => ({ url }));
+      }
+      // 2) [{url,title}, ...]
+      return (parsed as any[])
+        .map((x): ExplanationImage | null => {
+          const url = normalizeUrl((x as any)?.url);
+          if (!url) return null;
+          const title = normalizeTitle((x as any)?.title);
+          return { url, title };
+        })
+        .filter((x): x is ExplanationImage => x != null);
+    }
+    if (typeof parsed === "string") {
+      const url = normalizeUrl(parsed);
+      return url ? [{ url }] : [];
+    }
     return [];
   } catch {
-    return typeof raw === "string" ? [raw] : [];
+    const url = normalizeUrl(raw);
+    return url ? [{ url }] : [];
   }
 }
 
@@ -228,12 +261,15 @@ function OrderFormDialog({
   });
   const [depositPercent, setDepositPercent] = useState<string>("50");
   const prevCustomerIdRef = useRef<string>("");
+  const [draftOrderNumber, setDraftOrderNumber] = useState<string>(() => {
+    return initialOrder?.order_number ?? generateOrderNumber();
+  });
   const [shippingAddress, setShippingAddress] = useState<string>("");
   const [internalNotes, setInternalNotes] = useState<string>(
     ""
   );
-  const [orderExplanationImageUrls, setOrderExplanationImageUrls] = useState<string[]>(() =>
-    parseExplanationImageUrls(initialOrder?.explanation_image_url)
+  const [orderExplanationImages, setOrderExplanationImages] = useState<ExplanationImage[]>(() =>
+    parseExplanationImages(initialOrder?.explanation_image_url)
   );
   const [uploadingImageItemId, setUploadingImageItemId] = useState<string | null>(null);
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
@@ -261,8 +297,9 @@ function OrderFormDialog({
       setExpectedDate(initialOrder.expected_delivery_date ?? "");
       setStatus(initialOrder.status);
       setPaymentStatus(initialOrder.payment_status);
-      setOrderExplanationImageUrls(parseExplanationImageUrls(initialOrder.explanation_image_url));
+      setOrderExplanationImages(parseExplanationImages(initialOrder.explanation_image_url));
       setInternalNotes(initialOrder.internal_notes ?? "");
+      setDraftOrderNumber(initialOrder.order_number);
       // 編輯舊訂單時，帶入已儲存的折扣後總價與訂金
       setDiscountTotal(
         initialOrder.total_amount != null ? String(initialOrder.total_amount) : ""
@@ -292,11 +329,12 @@ function OrderFormDialog({
     setDeposit("0");
     setDepositPercent("50");
     prevCustomerIdRef.current = "";
+    setDraftOrderNumber(generateOrderNumber());
     setDiscountLocked(false);
     setDiscountTotal("");
     setShippingAddress("");
     setInternalNotes("");
-    setOrderExplanationImageUrls([]);
+    setOrderExplanationImages([]);
     setItems([
       {
         id: "item-0",
@@ -464,7 +502,7 @@ function OrderFormDialog({
       const {
         data: { publicUrl },
       } = supabase.storage.from(ORDER_EXPLANATION_BUCKET).getPublicUrl(data.path);
-      setOrderExplanationImageUrls((prev) => [...prev, publicUrl]);
+      setOrderExplanationImages((prev) => [...prev, { url: publicUrl, title: null }]);
       toast.success("訂單說明圖已上傳");
     } catch (err) {
       console.error(err);
@@ -475,7 +513,15 @@ function OrderFormDialog({
   }
 
   function clearOrderImageAtIndex(index: number) {
-    setOrderExplanationImageUrls((prev) => prev.filter((_, i) => i !== index));
+    setOrderExplanationImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updateOrderImageTitle(index: number, title: string) {
+    setOrderExplanationImages((prev) =>
+      prev.map((it, i) =>
+        i === index ? { ...it, title: title.trim() || null } : it
+      )
+    );
   }
 
   function updateItem(id: string, patch: Partial<OrderItemInput>) {
@@ -525,7 +571,7 @@ function OrderFormDialog({
     setSaving(true);
     try {
       const orderPayload = {
-        order_number: initialOrder?.order_number ?? generateOrderNumber(),
+        order_number: initialOrder?.order_number ?? draftOrderNumber,
         customer_id: customerId,
         order_date: orderDate || null,
         expected_delivery_date: expectedDate || null,
@@ -536,7 +582,15 @@ function OrderFormDialog({
         deposit_amount: Number(deposit) || 0,
         shipping_address: shippingAddress || null,
         internal_notes: internalNotes || null,
-          explanation_image_url: orderExplanationImageUrls.length > 0 ? JSON.stringify(orderExplanationImageUrls) : null,
+        explanation_image_url:
+          orderExplanationImages.length > 0
+            ? JSON.stringify(
+                orderExplanationImages.map((img) => ({
+                  url: img.url,
+                  title: img.title ?? null,
+                }))
+              )
+            : null,
       };
 
       const hasOrderId =
@@ -677,9 +731,19 @@ function OrderFormDialog({
                 ))}
               </datalist>
               <section className="space-y-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  訂單主檔
-                </h3>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    訂單主檔
+                  </h3>
+                  {draftOrderNumber && (
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">
+                      訂單編號：{" "}
+                      <span className="font-mono text-foreground">
+                        {draftOrderNumber}
+                      </span>
+                    </div>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
                     <label
@@ -877,23 +941,43 @@ function OrderFormDialog({
                       訂單說明圖（用於列印，建議放訂製品尺寸／圖樣示意，可多張）
                     </span>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3 sm:flex-wrap">
-                      {orderExplanationImageUrls.length > 0 ? (
-                        orderExplanationImageUrls.map((url, idx) => (
+                      {orderExplanationImages.length > 0 ? (
+                        orderExplanationImages.map((img, idx) => (
                           <div key={idx} className="flex items-start gap-2">
                             <img
-                              src={url}
+                              src={img.url}
                               alt={`訂單說明圖 ${idx + 1}`}
                               className="h-32 w-32 rounded-md border border-border object-cover"
                             />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-8 px-2 text-xs"
-                              onClick={() => clearOrderImageAtIndex(idx)}
-                              disabled={uploadingImageItemId === "order"}
-                            >
-                              移除
-                            </Button>
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 px-2 text-xs"
+                                  onClick={() => clearOrderImageAtIndex(idx)}
+                                  disabled={uploadingImageItemId === "order"}
+                                >
+                                  移除
+                                </Button>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label
+                                  className="text-[11px] text-muted-foreground"
+                                  htmlFor={`order-explain-title-${idx}`}
+                                >
+                                  圖片標題（選填）
+                                </label>
+                                <input
+                                  id={`order-explain-title-${idx}`}
+                                  type="text"
+                                  value={img.title ?? ""}
+                                  onChange={(e) => updateOrderImageTitle(idx, e.target.value)}
+                                  placeholder={`訂單說明圖 ${idx + 1}`}
+                                  className="h-8 w-56 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                />
+                              </div>
+                            </div>
                           </div>
                         ))
                       ) : (

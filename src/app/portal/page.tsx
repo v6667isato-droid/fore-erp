@@ -255,6 +255,11 @@ export default function PortalPage() {
     setDeleteConfirmOrder(order);
   }
 
+  function viewOrder(orderId: string) {
+    if (!orderId) return;
+    window.open(`/print/order/${orderId}`, "_blank", "noopener,noreferrer");
+  }
+
   async function performDeleteOrder() {
     if (!deleteConfirmOrder) return;
     const order = deleteConfirmOrder;
@@ -844,30 +849,40 @@ export default function PortalPage() {
                         ${o.total_amount.toLocaleString()}
                       </td>
                       <td className="py-2.5 pl-4">
-                        {canEditOrDelete(o.status) ? (
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="h-8 px-2 text-xs"
-                              onClick={() => setEditingOrderId(o.id)}
-                            >
-                              <Pencil className="h-3.5 w-3.5 mr-1" />
-                              編輯
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="h-8 px-2 text-xs text-destructive hover:text-destructive"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteOrder(o); }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5 mr-1" />
-                              刪除
-                            </Button>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">已進入生產，無法修改/刪除</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => viewOrder(o.id)}
+                          >
+                            檢視訂單
+                          </Button>
+                          {canEditOrDelete(o.status) ? (
+                            <>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="h-8 px-2 text-xs"
+                                onClick={() => setEditingOrderId(o.id)}
+                              >
+                                <Pencil className="h-3.5 w-3.5 mr-1" />
+                                編輯
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="h-8 px-2 text-xs text-destructive hover:text-destructive"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteOrder(o); }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                刪除
+                              </Button>
+                            </>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">已進入生產，無法修改/刪除</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

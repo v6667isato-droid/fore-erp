@@ -21,15 +21,46 @@ interface PrintOrder {
   explanation_image_url?: string | null;
 }
 
-function parseExplanationImageUrls(raw: string | null | undefined): string[] {
+type ExplanationImage = { url: string; title?: string | null };
+
+function parseExplanationImages(raw: string | null | undefined): ExplanationImage[] {
   if (raw == null || raw === '') return [];
+  const normalizeUrl = (u: unknown): string | null => {
+    if (typeof u !== 'string') return null;
+    const s = u.trim();
+    return s ? s : null;
+  };
+  const normalizeTitle = (t: unknown): string | null => {
+    if (typeof t !== 'string') return null;
+    const s = t.trim();
+    return s ? s : null;
+  };
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === 'string');
-    if (typeof parsed === 'string') return [parsed];
+    if (Array.isArray(parsed)) {
+      if (parsed.every((x) => typeof x === 'string')) {
+        return (parsed as string[])
+          .map((u) => normalizeUrl(u))
+          .filter((u): u is string => Boolean(u))
+          .map((url) => ({ url }));
+      }
+      return (parsed as any[])
+        .map((x): ExplanationImage | null => {
+          const url = normalizeUrl((x as any)?.url);
+          if (!url) return null;
+          const title = normalizeTitle((x as any)?.title);
+          return { url, title };
+        })
+        .filter((x): x is ExplanationImage => x != null);
+    }
+    if (typeof parsed === 'string') {
+      const url = normalizeUrl(parsed);
+      return url ? [{ url }] : [];
+    }
     return [];
   } catch {
-    return typeof raw === 'string' ? [raw] : [];
+    const url = normalizeUrl(raw);
+    return url ? [{ url }] : [];
   }
 }
 
@@ -468,14 +499,16 @@ export default function PrintQuotationPage() {
               ) : (
                 items.map((item) => {
                   const lineTotal = item.quantity * item.unit_price;
-                  const hasCustomNotes = item.custom_notes != null && String(item.custom_notes).trim() !== '';
-                  const hasDescription = item.description != null && String(item.description).trim() !== '';
+                  const customNotesTrimmed = item.custom_notes == null ? '' : String(item.custom_notes).trim();
+                  const descriptionTrimmed = item.description == null ? '' : String(item.description).trim();
+                  const hasCustomNotes = customNotesTrimmed !== '';
+                  const hasDescription = descriptionTrimmed !== '';
                   // 規格品：有 custom_notes 才顯示備註列；客製品：有 description 或 custom_notes 就顯示備註列
                   const hasNotes = hasCustomNotes || (item.kind === 'custom' && hasDescription);
                   const notesContent =
                     item.kind === 'custom'
-                      ? [item.description?.trim(), item.custom_notes?.trim()].filter(Boolean).join('\n')
-                      : item.custom_notes!.trim();
+                      ? [descriptionTrimmed, customNotesTrimmed].filter(Boolean).join('\n')
+                      : customNotesTrimmed;
                   return (
                     <Fragment key={item.id}>
                       <tr className="border-b border-gray-200 align-top">
@@ -567,15 +600,20 @@ export default function PrintQuotationPage() {
         </div>
 
         <footer className="pt-6 border-t border-gray-200 space-y-6 text-sm text-gray-800 leading-relaxed">
-          {parseExplanationImageUrls(order.explanation_image_url).length > 0 && (
-            <div className="space-y-4">
-              {parseExplanationImageUrls(order.explanation_image_url).map((url, idx) => (
-                <div key={idx} className="w-full overflow-hidden rounded-md border border-gray-200 bg-gray-50">
-                  <img
-                    src={url}
-                    alt={`訂單說明圖 ${idx + 1}`}
-                    className="w-full max-h-[520px] object-contain"
-                  />
+          {parseExplanationImages(order.explanation_image_url).length > 0 && (
+            <div className="space-y-5">
+              {parseExplanationImages(order.explanation_image_url).map((img, idx) => (
+                <div key={idx} className="space-y-2">
+                  <div className="text-sm font-semibold text-gray-900">
+                    {img.title?.trim() ? img.title : `訂單說明圖 ${idx + 1}`}
+                  </div>
+                  <div className="w-full overflow-hidden rounded-md border border-gray-200 bg-gray-50">
+                    <img
+                      src={img.url}
+                      alt={img.title?.trim() ? img.title : `訂單說明圖 ${idx + 1}`}
+                      className="w-full max-h-[520px] object-contain"
+                    />
+                  </div>
                 </div>
               ))}
             </div>

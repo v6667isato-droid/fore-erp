@@ -21,15 +21,46 @@ interface PrintOrder {
   explanation_image_url?: string | null;
 }
 
-function parseExplanationImageUrls(raw: string | null | undefined): string[] {
+type ExplanationImage = { url: string; title?: string | null };
+
+function parseExplanationImages(raw: string | null | undefined): ExplanationImage[] {
   if (raw == null || raw === "") return [];
+  const normalizeUrl = (u: unknown): string | null => {
+    if (typeof u !== "string") return null;
+    const s = u.trim();
+    return s ? s : null;
+  };
+  const normalizeTitle = (t: unknown): string | null => {
+    if (typeof t !== "string") return null;
+    const s = t.trim();
+    return s ? s : null;
+  };
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string");
-    if (typeof parsed === "string") return [parsed];
+    if (Array.isArray(parsed)) {
+      if (parsed.every((x) => typeof x === "string")) {
+        return (parsed as string[])
+          .map((u) => normalizeUrl(u))
+          .filter((u): u is string => Boolean(u))
+          .map((url) => ({ url }));
+      }
+      return (parsed as any[])
+        .map((x): ExplanationImage | null => {
+          const url = normalizeUrl((x as any)?.url);
+          if (!url) return null;
+          const title = normalizeTitle((x as any)?.title);
+          return { url, title };
+        })
+        .filter((x): x is ExplanationImage => x != null);
+    }
+    if (typeof parsed === "string") {
+      const url = normalizeUrl(parsed);
+      return url ? [{ url }] : [];
+    }
     return [];
   } catch {
-    return typeof raw === "string" ? [raw] : [];
+    const url = normalizeUrl(raw);
+    return url ? [{ url }] : [];
   }
 }
 
@@ -529,30 +560,43 @@ export default function PrintOrderPage() {
 
         <div className="mb-8 space-y-1 text-sm text-gray-600 leading-relaxed">
           <p>備註：此報價單內容如有疑義，請於 3 日內與我們聯繫確認。</p>
-          <p>本報價單效期為一個月。</p>
         </div>
 
         <footer className="pt-6 border-t border-gray-200 space-y-6 text-sm text-gray-800 leading-relaxed">
-          {parseExplanationImageUrls(order.explanation_image_url).length > 0 && (
-            <div className="space-y-4">
-              {parseExplanationImageUrls(order.explanation_image_url).map((url, idx) => (
-                <div key={idx} className="w-full overflow-hidden rounded-md border border-gray-200 bg-gray-50">
-                  <img
-                    src={url}
-                    alt={`訂單說明圖 ${idx + 1}`}
-                    className="w-full max-h-[520px] object-contain"
-                  />
+          {parseExplanationImages(order.explanation_image_url).length > 0 && (
+            <div className="space-y-5">
+              {parseExplanationImages(order.explanation_image_url).map((img, idx) => (
+                <div key={idx} className="space-y-2">
+                  <div className="text-sm font-semibold text-gray-900">
+                    {img.title?.trim() ? img.title : `訂單說明圖 ${idx + 1}`}
+                  </div>
+                  <div className="w-full overflow-hidden rounded-md border border-gray-200 bg-gray-50">
+                    <img
+                      src={img.url}
+                      alt={img.title?.trim() ? img.title : `訂單說明圖 ${idx + 1}`}
+                      className="w-full max-h-[520px] object-contain"
+                    />
+                  </div>
                 </div>
               ))}
             </div>
           )}
 
-          <div className="space-y-2">
-            <p className="font-semibold text-gray-900">匯款帳號資訊</p>
-            <div className="space-y-1.5 leading-snug">
-              <p>銀行名稱：台灣銀行 安南分行（銀行代碼 004）</p>
-              <p>戶名：蔡秉學</p>
-              <p>帳號：137-004-356269</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
+            <div className="space-y-2">
+              <p className="font-semibold text-gray-900">匯款帳號資訊</p>
+              <div className="space-y-1.5 leading-snug">
+                <p>銀行名稱：台灣銀行 安南分行（銀行代碼 004）</p>
+                <p>戶名：蔡秉學</p>
+                <p>帳號：137-004-356269</p>
+              </div>
+            </div>
+            <div className="flex justify-start sm:justify-end">
+              <img
+                src="/company-stamp.png"
+                alt="公司章"
+                className="w-32 max-w-full object-contain"
+              />
             </div>
           </div>
 
