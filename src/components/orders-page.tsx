@@ -34,6 +34,7 @@ interface OrderRow {
   customer_name: string;
   customer_alias?: string | null;
   deposit_amount: number;
+  shipping_fee?: number;
   shipping_address?: string | null;
   shipping_contact_name?: string | null;
   shipping_contact_phone?: string | null;
@@ -266,6 +267,12 @@ function OrderFormDialog({
     return "0";
   });
   const [depositPercent, setDepositPercent] = useState<string>("50");
+  const [shippingFee, setShippingFee] = useState<string>(() => {
+    if (initialOrder?.shipping_fee != null) {
+      return String(initialOrder.shipping_fee);
+    }
+    return "0";
+  });
   const prevCustomerIdRef = useRef<string>("");
   const [draftOrderNumber, setDraftOrderNumber] = useState<string>(() => {
     return initialOrder?.order_number ?? generateOrderNumber();
@@ -322,6 +329,9 @@ function OrderFormDialog({
           ? String(Math.round(Number(initialOrder.total_amount) * 0.5))
           : "0"
       );
+      setShippingFee(
+        initialOrder.shipping_fee != null ? String(initialOrder.shipping_fee) : "0"
+      );
     }
     if (initialItems && initialItems.length) {
       setItems(initialItems);
@@ -338,6 +348,7 @@ function OrderFormDialog({
     setPaymentStatus("未付款");
     setDeposit("0");
     setDepositPercent("50");
+    setShippingFee("0");
     prevCustomerIdRef.current = "";
     setDraftOrderNumber(generateOrderNumber());
     setDiscountLocked(false);
@@ -442,6 +453,7 @@ function OrderFormDialog({
     (it) => (Number(it.quantity) || 0) * (Number(it.unit_price) || 0)
   );
   const totalAmount = itemSubtotals.reduce((sum, v) => sum + v, 0);
+  const shippingFeeAmount = Math.max(0, Number(shippingFee) || 0);
 
   // 若使用者尚未手動輸入折扣後總價，則自動跟隨品項總金額
   useEffect(() => {
@@ -455,16 +467,15 @@ function OrderFormDialog({
     if (!Number.isFinite(n) || n < 0) return totalAmount;
     return n;
   })();
+  const grandTotal = discountBase + shippingFeeAmount;
 
   // 記錄上一次的品項總金額，用來判斷是否真的發生「品項／價格變動」
   const prevTotalAmountRef = useRef<number | null>(null);
 
-  // 若為「編輯訂單」，且品項或價格有變化：
-  // 之前儲存的折扣後總價／訂金視為「舊值」，自動解鎖並依目前金額與比例重新計算一次。
-  // 使用 ref 避免在僅調整折扣或訂金時又被覆蓋。
+  // 品項/價格有變化時同步更新「折扣後總金額」：
+  // - 未手動鎖定：直接跟隨品項總額
+  // - 已手動鎖定：依品項總額差值調整，保留使用者手動調整的差額
   useEffect(() => {
-    if (!initialOrder) return;
-
     const prev = prevTotalAmountRef.current;
     if (prev === null) {
       prevTotalAmountRef.current = totalAmount;
@@ -472,18 +483,27 @@ function OrderFormDialog({
     }
     if (prev === totalAmount) return;
 
+    const delta = totalAmount - prev;
     prevTotalAmountRef.current = totalAmount;
 
-    // 解鎖折扣後總價，讓其跟隨最新總金額（下一個 effect 會自動同步）
-    setDiscountLocked(false);
-
-    // 依目前折扣後總價與訂金比例重新計算訂金（若有設定比例）
-    const p = Number(depositPercent);
-    if (p > 0 && discountBase > 0) {
-      const amt = Math.round((discountBase * p) / 100);
-      setDeposit(String(amt));
+    if (!discountLocked) {
+      return;
     }
-  }, [initialOrder, totalAmount, depositPercent, discountBase]);
+
+    setDiscountTotal((prevDiscountTotal) => {
+      const current = Number(prevDiscountTotal);
+      const nextBase = Math.max(
+        0,
+        (Number.isFinite(current) ? current : totalAmount) + delta
+      );
+      const p = Number(depositPercent);
+      if (p > 0) {
+        const amt = Math.round((nextBase * p) / 100);
+        setDeposit(String(amt));
+      }
+      return String(nextBase);
+    });
+  }, [totalAmount, discountLocked, depositPercent]);
 
   async function handleItemImageUpload(id: string, file: File) {
     if (!file.type.startsWith("image/")) {
@@ -619,8 +639,9 @@ function OrderFormDialog({
         status,
         payment_status: paymentStatus,
         // 總金額以折扣後總價為主，若未輸入則回退為品項總金額
-        total_amount: discountBase,
+        total_amount: grandTotal,
         deposit_amount: Number(deposit) || 0,
+        shipping_fee: shippingFeeAmount,
         shipping_address: shippingAddress || null,
         shipping_contact_name: shippingContactName.trim() || null,
         shipping_contact_phone: shippingContactPhone.trim() || null,
@@ -1229,8 +1250,8 @@ function OrderFormDialog({
 
                       {it.kind === "variant" ? (
                         <>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
-                            <div className="flex flex-col gap-1.5 sm:col-span-2">
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                            <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-2">
                               <label className="text-xs text-muted-foreground">
                                 系列
                               </label>
@@ -1253,7 +1274,7 @@ function OrderFormDialog({
                                 ))}
                               </select>
                             </div>
-                            <div className="flex flex-col gap-1.5 sm:col-span-2">
+                            <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-2">
                               <label
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`item-variant-${it.id}`}
@@ -1608,8 +1629,8 @@ function OrderFormDialog({
                               </div>
                             </div>
                           </div>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 mt-1.5">
-                            <div className="flex flex-col gap-1.5">
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 mt-1.5">
+                            <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
                               <label
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`item-wood-custom-${it.id}`}
@@ -1756,84 +1777,104 @@ function OrderFormDialog({
               </section>
 
               <section className="flex flex-col gap-3 border-t border-border pt-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-muted-foreground">
-                    總計：
-                    <span className="ml-1 text-lg font-semibold text-foreground">
-                      {totalAmount.toLocaleString()}
-                    </span>
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    金額摘要
                   </p>
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-semibold text-foreground">
-                        折扣後總金額
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={discountTotal}
-                        onChange={(e) => {
-                          setDiscountLocked(true);
-                          setDiscountTotal(e.target.value);
-                          const v = Number(e.target.value);
-                          const p = Number(depositPercent);
-                          if (p > 0 && Number.isFinite(v) && v > 0) {
-                            const amt = Math.round((v * p) / 100);
-                            setDeposit(String(amt));
-                          }
-                        }}
-                        className="h-8 w-28 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        placeholder={totalAmount > 0 ? String(totalAmount) : "0"}
-                      />
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">
-                        訂金比例
-                      </span>
-                      <select
-                        value={depositPercent}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setDepositPercent(v);
-                          const p = Number(v);
-                          if (p > 0 && discountBase > 0) {
-                            const amt = Math.round((discountBase * p) / 100);
-                            setDeposit(String(amt));
-                          }
-                        }}
-                        className="h-8 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">自訂</option>
-                        <option value="30">30%</option>
-                        <option value="40">40%</option>
-                        <option value="50">50%</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">
-                        預收訂金
-                      </span>
-                      <input
-                        id="order-deposit"
-                        type="number"
-                        min={0}
-                        value={deposit}
-                        onChange={(e) => setDeposit(e.target.value)}
-                        className="h-8 w-28 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">
-                        尾款金額
-                      </span>
-                      <span className="text-sm font-semibold text-foreground">
-                        {Math.max(
-                          discountBase - (Number(deposit) || 0),
-                          0
-                        ).toLocaleString()}
-                      </span>
-                    </div>
+                  <p className="text-[11px] text-muted-foreground">單位：NTD</p>
+                </div>
+
+                <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border/40 bg-background px-3 py-2.5">
+                    <p className="text-[11px] text-muted-foreground">品項總計</p>
+                    <p className="mt-1 text-right text-lg font-semibold tabular-nums text-foreground">
+                      {totalAmount.toLocaleString()}
+                    </p>
                   </div>
+                  <div className="rounded-lg border border-border/40 bg-background px-3 py-2.5">
+                    <p className="text-[11px] text-muted-foreground">應收總額</p>
+                    <p className="mt-1 text-right text-lg font-semibold tabular-nums text-foreground">
+                      {grandTotal.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2.5">
+                    <p className="text-[11px] text-emerald-700">尾款金額</p>
+                    <p className="mt-1 text-right text-lg font-semibold tabular-nums text-emerald-700">
+                      {Math.max(
+                        grandTotal - (Number(deposit) || 0),
+                        0
+                      ).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">折扣後總金額</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={discountTotal}
+                      onChange={(e) => {
+                        setDiscountLocked(true);
+                        setDiscountTotal(e.target.value);
+                        const v = Number(e.target.value);
+                        const p = Number(depositPercent);
+                        if (p > 0 && Number.isFinite(v) && v > 0) {
+                          const amt = Math.round((v * p) / 100);
+                          setDeposit(String(amt));
+                        }
+                      }}
+                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder={totalAmount > 0 ? String(totalAmount) : "0"}
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">運費</span>
+                    <input
+                      id="order-shipping-fee"
+                      type="number"
+                      min={0}
+                      value={shippingFee}
+                      onChange={(e) => setShippingFee(e.target.value)}
+                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">訂金比例</span>
+                    <select
+                      value={depositPercent}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setDepositPercent(v);
+                        const p = Number(v);
+                        if (p > 0 && discountBase > 0) {
+                          const amt = Math.round((discountBase * p) / 100);
+                          setDeposit(String(amt));
+                        }
+                      }}
+                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="">自訂</option>
+                      <option value="30">30%</option>
+                      <option value="40">40%</option>
+                      <option value="50">50%</option>
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">預收訂金</span>
+                    <input
+                      id="order-deposit"
+                      type="number"
+                      min={0}
+                      value={deposit}
+                      onChange={(e) => setDeposit(e.target.value)}
+                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </label>
                 </div>
               </section>
             </div>
@@ -1980,7 +2021,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
         )
         .order("order_date", { ascending: false });
 
@@ -2002,6 +2043,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
           payment_status:
             (row.payment_status as PaymentStatus) ?? "未付款",
           deposit_amount: Number(row.deposit_amount ?? 0),
+          shipping_fee: Number(row.shipping_fee ?? 0),
           customer_id: row.customer_id ? String(row.customer_id) : null,
           customer_name:
             (row.customers && row.customers.name) ||
@@ -2031,7 +2073,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
       )
       .order("order_date", { ascending: false });
 
@@ -2053,6 +2095,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
         payment_status:
           (row.payment_status as PaymentStatus) ?? "未付款",
         deposit_amount: Number(row.deposit_amount ?? 0),
+        shipping_fee: Number(row.shipping_fee ?? 0),
         customer_id: row.customer_id ? String(row.customer_id) : null,
         customer_name:
           (row.customers && row.customers.name) ||

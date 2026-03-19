@@ -13,9 +13,11 @@ interface PrintOrder {
   total_amount: number;
   original_amount: number;
   discount_amount: number;
+  shipping_fee: number;
   customer_name: string;
-  customer_phone?: string | null;
-  customer_address?: string | null;
+  shipping_contact_name?: string | null;
+  shipping_contact_phone?: string | null;
+  shipping_address?: string | null;
   customer_type?: string | null;
   deposit_amount: number;
   explanation_image_url?: string | null;
@@ -100,7 +102,7 @@ export default function PrintQuotationPage() {
         const { data: orderRow, error: orderErr } = await supabase
           .from('orders')
           .select(
-            'id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, explanation_image_url, customer_id, customers(name, phone, delivery_address, customer_type)'
+            'id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, shipping_contact_name, shipping_contact_phone, shipping_address, explanation_image_url, customer_id, customers(name, customer_type)'
           )
           .eq('id', orderId)
           .single();
@@ -110,6 +112,7 @@ export default function PrintQuotationPage() {
         }
 
         const safeTotal = Number(orderRow.total_amount ?? 0);
+        const shippingFee = Number(orderRow.shipping_fee ?? 0);
 
         const lineRes = await supabase
           .from('order_items')
@@ -295,7 +298,11 @@ export default function PrintQuotationPage() {
           0
         );
 
-        const discountAmount = Math.max(0, originalAmount - safeTotal);
+        // total_amount 已含運費；折扣只計算商品本體差異
+        const discountAmount = Math.max(
+          0,
+          originalAmount - Math.max(0, safeTotal - shippingFee)
+        );
 
         const customer =
           (orderRow.customers &&
@@ -313,9 +320,11 @@ export default function PrintQuotationPage() {
           total_amount: safeTotal,
           original_amount: originalAmount,
           discount_amount: discountAmount,
+          shipping_fee: shippingFee,
           customer_name: customer?.name ?? '',
-          customer_phone: customer?.phone ?? null,
-          customer_address: customer?.delivery_address ?? null,
+          shipping_contact_name: orderRow.shipping_contact_name ?? null,
+          shipping_contact_phone: orderRow.shipping_contact_phone ?? null,
+          shipping_address: orderRow.shipping_address ?? null,
           customer_type: customer?.customer_type ?? null,
           deposit_amount: Number(orderRow.deposit_amount ?? 0),
           explanation_image_url: orderRow.explanation_image_url ?? null,
@@ -418,16 +427,18 @@ export default function PrintQuotationPage() {
           </button>
         </div>
 
-        <header className="mb-10 border-b border-gray-200 pb-8">
-          <div className="flex items-start justify-between gap-8">
-            <div className="flex flex-col items-start gap-3">
+        <header className="mb-8 border-b border-gray-200 pb-8">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex flex-col items-start gap-3">
               <img
                 src="/logo.png"
                 alt="Føre Furniture"
-                className="h-24 object-contain"
+                className="block h-24 w-auto object-contain object-left-top"
               />
               <div className="space-y-1 text-xs text-gray-700 leading-relaxed">
                 <p>電話：06-2302861</p>
+                <p>聯絡時間：上班日 9:00 - 17:00</p>
                 <p>地址：台南市歸仁區丁厝街125號</p>
                 <p>
                   Line：
@@ -442,29 +453,29 @@ export default function PrintQuotationPage() {
                 </p>
               </div>
             </div>
-            <div className="text-right space-y-2 text-sm text-gray-700 leading-relaxed">
-              <p className="text-lg font-semibold text-gray-900">報價單</p>
-              <p>
-                報價單號：<span className="font-mono text-gray-900">{order.order_number}</span>
-              </p>
-              <p>報價日期：<span>{formattedDate(order.order_date)}</span></p>
+            </div>
+            <div className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700 leading-relaxed">
+              <p className="mb-2 text-lg font-semibold leading-tight text-gray-900">報價單</p>
+              <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-1.5">
+                <span className="text-gray-500">報價單號</span>
+                <span className="font-mono text-gray-900">{order.order_number}</span>
+                <span className="text-gray-500">報價日期</span>
+                <span className="text-gray-900">{formattedDate(order.order_date)}</span>
+              </div>
             </div>
           </div>
 
-          <div className="mt-8 grid grid-cols-2 gap-8 text-sm leading-relaxed">
-            <div className="space-y-2">
-              <p className="font-semibold text-gray-900">客戶資訊</p>
-              <p className="text-gray-800">
-                客戶名稱：<span className="font-medium">{order.customer_name || '—'}</span>
-              </p>
-              {order.customer_phone && (
-                <p className="text-gray-800">聯絡電話：{order.customer_phone}</p>
-              )}
-              {order.customer_address && (
-                <p className="text-gray-800">送貨地址：{order.customer_address}</p>
-              )}
+          <div className="mt-6 rounded-lg border border-gray-200 p-4 text-sm leading-relaxed">
+            <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-2 text-gray-800">
+              <span className="text-gray-500">客戶名稱</span>
+              <span className="font-medium text-gray-900">{order.customer_name || '—'}</span>
+              <span className="text-gray-500">寄送聯絡人</span>
+              <span className="font-medium">{order.shipping_contact_name?.trim() || '—'}</span>
+              <span className="text-gray-500">聯絡電話</span>
+              <span className="font-medium">{order.shipping_contact_phone?.trim() || '—'}</span>
+              <span className="text-gray-500">送貨地址</span>
+              <span className="font-medium break-words">{order.shipping_address?.trim() || '—'}</span>
             </div>
-            <div />
           </div>
         </header>
 
@@ -473,17 +484,17 @@ export default function PrintQuotationPage() {
         </section>
 
         <section className="mb-8">
-          <table className="w-full border-collapse text-sm leading-snug">
+          <table className="w-full table-fixed border-collapse text-sm leading-snug">
             <thead>
               <tr className="border-b-2 border-gray-300 bg-gray-50">
-                <th className="w-16 px-3 py-3 text-left font-semibold text-gray-700">圖片</th>
-                <th className="min-w-[140px] px-3 py-3 text-left font-semibold text-gray-700">報價品項</th>
-                <th className="w-20 px-3 py-3 text-left font-semibold text-gray-700">木種</th>
-                <th className="w-32 px-3 py-3 text-left font-semibold text-gray-700">尺寸(cm)</th>
-                <th className="w-24 px-3 py-3 text-left font-semibold text-gray-700">規格</th>
-                <th className="w-14 px-3 py-3 text-right font-semibold text-gray-700">數量</th>
-                <th className="w-20 px-3 py-3 text-right font-semibold text-gray-700">單價</th>
-                <th className="w-24 px-3 py-3 text-right font-semibold text-gray-700">小計</th>
+                <th className="w-16 px-2 py-3 text-left font-semibold text-gray-700">圖片</th>
+                <th className="w-[4.75rem] px-2 py-3 text-left font-semibold text-gray-700">報價品項</th>
+                <th className="w-[7.5rem] px-2 py-3 text-left font-semibold text-gray-700">木種</th>
+                <th className="w-[32%] px-2 py-3 text-left font-semibold text-gray-700">尺寸(cm)</th>
+                <th className="w-[4.5rem] px-2 py-3 text-left font-semibold text-gray-700">規格</th>
+                <th className="w-12 px-2 py-3 text-right font-semibold text-gray-700">數量</th>
+                <th className="w-[4.25rem] px-2 py-3 text-right font-semibold text-gray-700">單價</th>
+                <th className="w-[4.75rem] px-2 py-3 text-right font-semibold text-gray-700">小計</th>
               </tr>
             </thead>
             <tbody>
@@ -512,7 +523,7 @@ export default function PrintQuotationPage() {
                   return (
                     <Fragment key={item.id}>
                       <tr className="border-b border-gray-200 align-top">
-                        <td className="px-3 py-3">
+                        <td className="px-2 py-3">
                           {item.image_url ? (
                             <div className="h-14 w-14 overflow-hidden rounded border border-gray-200 bg-gray-100">
                               <img
@@ -525,28 +536,28 @@ export default function PrintQuotationPage() {
                             <div className="h-14 w-14 rounded border border-dashed border-gray-200 bg-gray-50" />
                           )}
                         </td>
-                        <td className="px-3 py-3">
-                          <div className="font-medium text-gray-900">{item.name}</div>
+                        <td className="px-2 py-3 min-w-0">
+                          <div className="font-medium text-gray-900 break-words">{item.name}</div>
                           {item.kind === 'variant' && item.description && (
                             <div className="mt-1 text-xs text-gray-600 whitespace-pre-line leading-relaxed">
                               {item.description}
                             </div>
                           )}
                         </td>
-                        <td className="px-3 py-3 text-gray-700">{item.wood_type ?? '—'}</td>
-                        <td className="px-3 py-3 text-gray-700 text-xs leading-relaxed">
+                        <td className="px-2 py-3 text-gray-700 break-words min-w-0">{item.wood_type ?? '—'}</td>
+                        <td className="px-2 py-3 text-gray-700 text-xs leading-relaxed break-words min-w-0">
                           {item.dimension_text ?? '—'}
                         </td>
-                        <td className="px-3 py-3 text-gray-700 font-mono text-xs">
+                        <td className="px-2 py-3 text-gray-700 font-mono text-xs break-all min-w-0">
                           {item.spec_text ?? '—'}
                         </td>
-                        <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
+                        <td className="px-2 py-3 text-right text-gray-900 tabular-nums">
                           {item.quantity}
                         </td>
-                        <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
+                        <td className="px-2 py-3 text-right text-gray-900 tabular-nums text-xs">
                           {item.unit_price.toLocaleString()}
                         </td>
-                        <td className="px-3 py-3 text-right text-gray-900 font-medium tabular-nums">
+                        <td className="px-2 py-3 text-right text-gray-900 font-medium tabular-nums text-xs">
                           {lineTotal.toLocaleString()}
                         </td>
                       </tr>
@@ -566,8 +577,9 @@ export default function PrintQuotationPage() {
           </table>
         </section>
 
-        <section className="flex justify-end mb-8">
-          <div className="w-full max-w-xs space-y-3 text-sm leading-relaxed">
+        <section className="mb-8 flex justify-end">
+          <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed">
+            <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-gray-700">商品總計</span>
               <span className="text-gray-900 tabular-nums">{totals.original.toLocaleString()}</span>
@@ -578,6 +590,10 @@ export default function PrintQuotationPage() {
                 <span className="text-gray-900 tabular-nums">{totals.discount.toLocaleString()}</span>
               </div>
             )}
+            <div className="flex items-center justify-between">
+              <span className="text-gray-700">運費</span>
+              <span className="text-gray-900 tabular-nums">{order.shipping_fee.toLocaleString()}</span>
+            </div>
             <div className="flex items-center justify-between pt-2 border-t border-gray-200">
               <span className="font-semibold text-gray-900">報價總金額</span>
               <span className="font-semibold text-gray-900 tabular-nums">{totals.total.toLocaleString()}</span>
@@ -591,12 +607,15 @@ export default function PrintQuotationPage() {
                 )}
               </span>
             </div>
+            </div>
           </div>
         </section>
 
         <div className="mb-8 space-y-1 text-sm text-gray-600 leading-relaxed">
-          <p>備註：此報價單內容如有疑義，請於 3 日內與我們聯繫確認。</p>
+          <p>備註：</p>
+          <p>本報價單內容如有疑義，請於 3 日內與我們聯繫確認。</p>
           <p>本報價單效期為一個月。</p>
+          <p>為確保設計與實作精準對接，正式設計圖稿將於報價核定並進入訂製程序後開始製作。</p>
         </div>
 
         <footer className="pt-6 border-t border-gray-200 space-y-6 text-sm text-gray-800 leading-relaxed">
@@ -619,12 +638,21 @@ export default function PrintQuotationPage() {
             </div>
           )}
 
-          <div className="space-y-2">
-            <p className="font-semibold text-gray-900">匯款帳號資訊</p>
-            <div className="space-y-1.5 leading-snug">
-              <p>銀行名稱：台灣銀行 安南分行（銀行代碼 004）</p>
-              <p>戶名：蔡秉學</p>
-              <p>帳號：137-004-356269</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
+            <div className="space-y-2">
+              <p className="font-semibold text-gray-900">匯款帳號資訊</p>
+              <div className="space-y-1.5 leading-snug">
+                <p>銀行名稱：台灣銀行 安南分行（銀行代碼 004）</p>
+                <p>戶名：蔡秉學</p>
+                <p>帳號：137-004-356269</p>
+              </div>
+            </div>
+            <div className="flex justify-start sm:justify-end">
+              <img
+                src="/company-stamp.png"
+                alt="公司章"
+                className="w-32 max-w-full object-contain"
+              />
             </div>
           </div>
 

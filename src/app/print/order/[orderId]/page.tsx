@@ -13,6 +13,7 @@ interface PrintOrder {
   total_amount: number;
   original_amount: number;
   discount_amount: number;
+  shipping_fee: number;
   customer_name: string;
   customer_type?: string | null;
   deposit_amount: number;
@@ -101,7 +102,7 @@ export default function PrintOrderPage() {
         const { data: orderRow, error: orderErr } = await supabase
           .from("orders")
           .select(
-            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, customer_id, customers(name, customer_type)"
+            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, customer_id, customers(name, customer_type)"
           )
           .eq("id", orderId)
           .single();
@@ -111,6 +112,7 @@ export default function PrintOrderPage() {
         }
 
         const safeTotal = Number(orderRow.total_amount ?? 0);
+        const shippingFee = Number(orderRow.shipping_fee ?? 0);
 
         const lineRes = await supabase
           .from("order_items")
@@ -281,7 +283,8 @@ export default function PrintOrderPage() {
           0
         );
 
-        const discountAmount = Math.max(0, originalAmount - safeTotal);
+        // total_amount 已含運費，折扣僅計算商品金額的差異
+        const discountAmount = Math.max(0, originalAmount - Math.max(0, safeTotal - shippingFee));
 
         const customer =
           (orderRow.customers &&
@@ -299,6 +302,7 @@ export default function PrintOrderPage() {
           total_amount: safeTotal,
           original_amount: originalAmount,
           discount_amount: discountAmount,
+          shipping_fee: shippingFee,
           customer_name: customer?.name ?? "",
           customer_type: customer?.customer_type ?? null,
           deposit_amount: Number(orderRow.deposit_amount ?? 0),
@@ -393,9 +397,10 @@ export default function PrintOrderPage() {
           </button>
         </div>
 
-        <header className="mb-10 border-b border-gray-200 pb-8">
-          <div className="flex items-start justify-between gap-8">
-            <div className="flex flex-col items-start gap-3">
+        <header className="mb-8 border-b border-gray-200 pb-8">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex flex-col items-start gap-3">
               <img
                 src="/logo.png"
                 alt="Føre Furniture"
@@ -418,41 +423,36 @@ export default function PrintOrderPage() {
                 </p>
               </div>
             </div>
-            <div className="text-right space-y-2 pt-2 text-sm text-gray-700 leading-relaxed">
-              <p className="text-lg font-semibold leading-tight text-gray-900">訂單確認單</p>
-              <p>訂單編號：<span className="font-mono text-gray-900">{order.order_number}</span></p>
-              <p>訂單日期：<span>{formattedDate(order.order_date)}</span></p>
-              {order.expected_delivery_date && (
-                <p>預計交期：<span>{formattedDate(order.expected_delivery_date)}</span></p>
-              )}
+            </div>
+            <div className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700 leading-relaxed">
+              <p className="mb-2 text-lg font-semibold leading-tight text-gray-900">訂單確認單</p>
+              <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-1.5">
+                <span className="text-gray-500">訂單編號</span>
+                <span className="font-mono text-gray-900">{order.order_number}</span>
+                <span className="text-gray-500">訂單日期</span>
+                <span className="text-gray-900">{formattedDate(order.order_date)}</span>
+                {order.expected_delivery_date && (
+                  <>
+                    <span className="text-gray-500">預計交期</span>
+                    <span className="text-gray-900">{formattedDate(order.expected_delivery_date)}</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="mt-8 w-full text-sm leading-relaxed">
-            <div className="space-y-2 w-full">
-              <p className="font-semibold text-gray-900">客戶資訊</p>
-              <p className="text-gray-800">
-                客戶名稱：<span className="font-medium">{order.customer_name || "—"}</span>
-              </p>
-              <p className="text-gray-800">
-                寄送聯絡人：
-                <span className="font-medium">
-                  {order.shipping_contact_name?.trim() || "—"}
-                </span>
-              </p>
-              <p className="text-gray-800">
-                電話：
-                <span className="font-medium">
-                  {order.shipping_contact_phone?.trim() || "—"}
-                </span>
-              </p>
-              <p className="text-gray-800 break-words">
-                地址：
-                <span className="font-medium">
-                  {order.shipping_address?.trim() || "—"}
-                </span>
-                <span className="whitespace-nowrap">　{elevatorLabel}</span>
-              </p>
+          <div className="mt-6 rounded-lg border border-gray-200 p-4 text-sm leading-relaxed">
+            <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-2 text-gray-800">
+              <span className="text-gray-500">客戶名稱</span>
+              <span className="font-medium text-gray-900">{order.customer_name || "—"}</span>
+              <span className="text-gray-500">寄送聯絡人</span>
+              <span className="font-medium">{order.shipping_contact_name?.trim() || "—"}</span>
+              <span className="text-gray-500">電話</span>
+              <span className="font-medium">{order.shipping_contact_phone?.trim() || "—"}</span>
+              <span className="text-gray-500">地址</span>
+              <span className="font-medium break-words">{order.shipping_address?.trim() || "—"}</span>
+              <span className="text-gray-500">電梯</span>
+              <span className="font-medium">{elevatorLabel}</span>
             </div>
           </div>
         </header>
@@ -559,8 +559,12 @@ export default function PrintOrderPage() {
           </table>
         </section>
 
-        <section className="flex justify-end mb-8">
-          <div className="w-full max-w-xs space-y-3 text-sm leading-relaxed">
+        <section className="mb-8 flex justify-end">
+          <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+              金額摘要
+            </p>
+            <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-gray-700">商品總計</span>
               <span className="text-gray-900 tabular-nums">{totals.original.toLocaleString()}</span>
@@ -571,6 +575,10 @@ export default function PrintOrderPage() {
                 <span className="text-gray-900 tabular-nums">{totals.discount.toLocaleString()}</span>
               </div>
             )}
+            <div className="flex items-center justify-between">
+              <span className="text-gray-700">運費</span>
+              <span className="text-gray-900 tabular-nums">{order.shipping_fee.toLocaleString()}</span>
+            </div>
             <div className="flex items-center justify-between pt-2 border-t border-gray-200">
               <span className="font-semibold text-gray-900">報價總金額</span>
               <span className="font-semibold text-gray-900 tabular-nums">{totals.total.toLocaleString()}</span>
@@ -583,9 +591,10 @@ export default function PrintOrderPage() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-700">尾款金額</span>
-              <span className="text-gray-900 tabular-nums">
+              <span className="font-semibold text-gray-900 tabular-nums">
                 {remainingAmount.toLocaleString()}
               </span>
+            </div>
             </div>
           </div>
         </section>
