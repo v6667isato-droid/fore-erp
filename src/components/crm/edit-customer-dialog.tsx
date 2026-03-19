@@ -34,6 +34,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
   const [lineId, setLineId] = useState("");
   const [igAccount, setIgAccount] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [hasElevator, setHasElevator] = useState(false);
   const [notes, setNotes] = useState("");
   const [source, setSource] = useState("");
   const [customerType, setCustomerType] = useState("");
@@ -52,6 +53,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
       setLineId(row.line_id ?? "");
       setIgAccount(row.ig_account ?? "");
       setDeliveryAddress(row.delivery_address ?? "");
+      setHasElevator(Boolean(row.has_elevator));
       setNotes(row.notes ?? "");
       setSource(row.source ?? "");
       setCustomerType(row.customer_type ?? "");
@@ -85,6 +87,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
       line_id: lineId.trim() || null,
       ig_account: igAccount.trim() || null,
       delivery_address: deliveryAddress.trim() || null,
+      has_elevator: hasElevator,
       notes: notes.trim() || null,
       source: source.trim() || null,
       customer_type: customerType.trim() || null,
@@ -100,6 +103,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
         "source",
         "customer_type",
         "delivery_address",
+        "has_elevator",
         "line_id",
         "ig_account",
         "phone",
@@ -250,19 +254,31 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
               />
             </div>
 
-            {/* 4. 地址 */}
+            {/* 4. 地址 + 有電梯 */}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-customer-address" className="text-xs text-muted-foreground">
                 聯絡地址
               </label>
-              <input
-                id="edit-customer-address"
-                type="text"
-                value={deliveryAddress}
-                onChange={(e) => setDeliveryAddress(e.target.value)}
-                className="min-h-[2.5rem] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="送貨／收件地址"
-              />
+              <div className="flex gap-3 items-center">
+                <input
+                  id="edit-customer-address"
+                  type="text"
+                  value={deliveryAddress}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                  className="min-h-[2.5rem] min-w-0 flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="送貨／收件地址"
+                />
+                <label className="flex shrink-0 cursor-pointer select-none items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={hasElevator}
+                    onChange={(e) => setHasElevator(e.target.checked)}
+                    className="h-4 w-4 rounded border-input accent-primary"
+                    aria-label="有電梯"
+                  />
+                  <span className="whitespace-nowrap">有電梯</span>
+                </label>
+              </div>
             </div>
 
             {/* 5. 客戶來源 + 客戶種類（同一列） */}

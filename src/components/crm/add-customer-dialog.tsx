@@ -45,6 +45,7 @@ export function AddCustomerDialog({
   const [lineId, setLineId] = useState("");
   const [igAccount, setIgAccount] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [hasElevator, setHasElevator] = useState(false);
   const [notes, setNotes] = useState("");
   const [source, setSource] = useState("");
   const [customerType, setCustomerType] = useState("");
@@ -63,7 +64,7 @@ export function AddCustomerDialog({
         const { data, error } = await supabase
           .from("customers")
           .select(
-            "name, alias, contact_person, phone, line_id, ig_account, delivery_address, notes, source, customer_type, channel_id, contact_method"
+            "name, alias, contact_person, phone, line_id, ig_account, delivery_address, has_elevator, notes, source, customer_type, channel_id, contact_method"
           )
           .eq("id", customerId)
           .single();
@@ -77,6 +78,7 @@ export function AddCustomerDialog({
         setLineId(data.line_id ?? "");
         setIgAccount(data.ig_account ?? "");
         setDeliveryAddress(data.delivery_address ?? "");
+        setHasElevator(Boolean((data as { has_elevator?: boolean }).has_elevator));
         setNotes(data.notes ?? "");
         setSource(data.source ?? "");
         setCustomerType(data.customer_type ?? "");
@@ -91,6 +93,7 @@ export function AddCustomerDialog({
         setLineId("");
         setIgAccount("");
         setDeliveryAddress("");
+        setHasElevator(false);
         setNotes("");
         setSource("");
         setCustomerType("");
@@ -125,6 +128,7 @@ export function AddCustomerDialog({
       line_id: lineId.trim() || null,
       ig_account: igAccount.trim() || null,
       delivery_address: deliveryAddress.trim() || null,
+      has_elevator: hasElevator,
       notes: notes.trim() || null,
       source: source.trim() || null,
       customer_type: customerType.trim() || null,
@@ -149,6 +153,7 @@ export function AddCustomerDialog({
           "source",
           "customer_type",
           "delivery_address",
+          "has_elevator",
           "line_id",
           "ig_account",
           "phone",
@@ -171,6 +176,7 @@ export function AddCustomerDialog({
         "source",
         "customer_type",
         "delivery_address",
+        "has_elevator",
         "line_id",
         "ig_account",
         "phone",
@@ -179,7 +185,9 @@ export function AddCustomerDialog({
       for (const key of optional) {
         const next = { ...payload };
         delete next[key];
-        const res = await supabase.from("customers").insert(next);
+        const res = customerId
+          ? await supabase.from("customers").update(next).eq("id", customerId)
+          : await supabase.from("customers").insert(next);
         err = res.error;
         if (!err) break;
         if (!isColumnError(err)) break;
@@ -333,19 +341,31 @@ export function AddCustomerDialog({
               />
             </div>
 
-            {/* 4. 地址 */}
+            {/* 4. 地址 + 有電梯 */}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-customer-address" className="text-xs text-muted-foreground">
                 聯絡地址
               </label>
-              <input
-                id="add-customer-address"
-                type="text"
-                value={deliveryAddress}
-                onChange={(e) => setDeliveryAddress(e.target.value)}
-                className="min-h-[2.5rem] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="送貨／收件地址"
-              />
+              <div className="flex gap-3 items-center">
+                <input
+                  id="add-customer-address"
+                  type="text"
+                  value={deliveryAddress}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                  className="min-h-[2.5rem] min-w-0 flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="送貨／收件地址"
+                />
+                <label className="flex shrink-0 cursor-pointer select-none items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={hasElevator}
+                    onChange={(e) => setHasElevator(e.target.checked)}
+                    className="h-4 w-4 rounded border-input accent-primary"
+                    aria-label="有電梯"
+                  />
+                  <span className="whitespace-nowrap">有電梯</span>
+                </label>
+              </div>
             </div>
 
             {/* 5. 客戶來源 + 客戶種類（同一列） */}

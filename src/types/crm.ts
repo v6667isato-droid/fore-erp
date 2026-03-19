@@ -10,6 +10,8 @@ export interface CustomerRow {
   line_id?: string | null;
   ig_account?: string | null;
   delivery_address?: string | null;
+  /** 送貨地址是否有電梯 */
+  has_elevator?: boolean | null;
   notes?: string | null;
   /** 客戶來源 */
   source?: string | null;

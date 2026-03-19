@@ -11,6 +11,7 @@ export function exportCustomersCsv(records: CustomerRow[]) {
     "客戶來源",
     "客戶種類",
     "送貨地址",
+    "有電梯",
     "客情備註",
   ];
 
@@ -22,6 +23,7 @@ export function exportCustomersCsv(records: CustomerRow[]) {
     r.source ?? "",
     r.customer_type ?? "",
     r.delivery_address ?? "",
+    r.has_elevator === true ? "是" : r.has_elevator === false ? "否" : "",
     r.notes ?? "",
   ]);
 

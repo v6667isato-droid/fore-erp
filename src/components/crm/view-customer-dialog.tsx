@@ -285,6 +285,16 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                     </dd>
                   </div>
                 )}
+                <div>
+                  <dt className="text-muted-foreground">電梯</dt>
+                  <dd>
+                    {row.has_elevator === true
+                      ? "有電梯"
+                      : row.has_elevator === false
+                        ? "無電梯"
+                        : "—"}
+                  </dd>
+                </div>
               </Section>
             </div>
 
