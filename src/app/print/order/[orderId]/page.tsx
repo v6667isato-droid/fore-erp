@@ -14,11 +14,13 @@ interface PrintOrder {
   original_amount: number;
   discount_amount: number;
   customer_name: string;
-  customer_phone?: string | null;
-  customer_address?: string | null;
   customer_type?: string | null;
   deposit_amount: number;
   explanation_image_url?: string | null;
+  shipping_contact_name?: string | null;
+  shipping_contact_phone?: string | null;
+  shipping_address?: string | null;
+  shipping_has_elevator?: boolean | null;
 }
 
 type ExplanationImage = { url: string; title?: string | null };
@@ -99,7 +101,7 @@ export default function PrintOrderPage() {
         const { data: orderRow, error: orderErr } = await supabase
           .from("orders")
           .select(
-            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, explanation_image_url, customer_id, customers(name, phone, delivery_address, customer_type)"
+            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, customer_id, customers(name, customer_type)"
           )
           .eq("id", orderId)
           .single();
@@ -298,11 +300,17 @@ export default function PrintOrderPage() {
           original_amount: originalAmount,
           discount_amount: discountAmount,
           customer_name: customer?.name ?? "",
-          customer_phone: customer?.phone ?? null,
-          customer_address: customer?.delivery_address ?? null,
           customer_type: customer?.customer_type ?? null,
           deposit_amount: Number(orderRow.deposit_amount ?? 0),
           explanation_image_url: orderRow.explanation_image_url ?? null,
+          shipping_contact_name: orderRow.shipping_contact_name ?? null,
+          shipping_contact_phone: orderRow.shipping_contact_phone ?? null,
+          shipping_address: orderRow.shipping_address ?? null,
+          shipping_has_elevator:
+            orderRow.shipping_has_elevator === true ||
+            orderRow.shipping_has_elevator === false
+              ? Boolean(orderRow.shipping_has_elevator)
+              : null,
         });
 
         setItems(mappedItems);
@@ -365,6 +373,13 @@ export default function PrintOrderPage() {
 
   const remainingAmount = Math.max(0, totals.total - (order.deposit_amount || 0));
 
+  const elevatorLabel =
+    order.shipping_has_elevator === true
+      ? "有電梯"
+      : order.shipping_has_elevator === false
+        ? "無電梯"
+        : "—";
+
   return (
     <div className="min-h-screen bg-white text-black">
       <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:shadow-none print:px-10 print:py-8">
@@ -419,12 +434,25 @@ export default function PrintOrderPage() {
               <p className="text-gray-800">
                 客戶名稱：<span className="font-medium">{order.customer_name || "—"}</span>
               </p>
-              {order.customer_phone && (
-                <p className="text-gray-800">聯絡電話：{order.customer_phone}</p>
-              )}
-              {order.customer_address && (
-                <p className="text-gray-800 break-words">送貨地址：{order.customer_address}</p>
-              )}
+              <p className="text-gray-800">
+                寄送聯絡人：
+                <span className="font-medium">
+                  {order.shipping_contact_name?.trim() || "—"}
+                </span>
+              </p>
+              <p className="text-gray-800">
+                電話：
+                <span className="font-medium">
+                  {order.shipping_contact_phone?.trim() || "—"}
+                </span>
+              </p>
+              <p className="text-gray-800 break-words">
+                地址：
+                <span className="font-medium">
+                  {order.shipping_address?.trim() || "—"}
+                </span>
+                <span className="whitespace-nowrap">　{elevatorLabel}</span>
+              </p>
             </div>
           </div>
         </header>

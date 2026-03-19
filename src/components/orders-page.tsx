@@ -35,6 +35,9 @@ interface OrderRow {
   customer_alias?: string | null;
   deposit_amount: number;
   shipping_address?: string | null;
+  shipping_contact_name?: string | null;
+  shipping_contact_phone?: string | null;
+  shipping_has_elevator?: boolean | null;
   internal_notes?: string | null;
   explanation_image_url?: string | null;
 }
@@ -42,7 +45,10 @@ interface OrderRow {
 interface CustomerOption {
   id: string;
   name: string;
+  contact_person: string | null;
+  phone: string | null;
   delivery_address: string | null;
+  has_elevator: boolean | null;
 }
 
 interface VariantOption {
@@ -265,6 +271,10 @@ function OrderFormDialog({
     return initialOrder?.order_number ?? generateOrderNumber();
   });
   const [shippingAddress, setShippingAddress] = useState<string>("");
+  const [shippingContactName, setShippingContactName] = useState<string>("");
+  const [shippingContactPhone, setShippingContactPhone] = useState<string>("");
+  /** null = 未填；true/false = 有／無電梯 */
+  const [shippingHasElevator, setShippingHasElevator] = useState<boolean | null>(null);
   const [internalNotes, setInternalNotes] = useState<string>(
     ""
   );
@@ -333,6 +343,9 @@ function OrderFormDialog({
     setDiscountLocked(false);
     setDiscountTotal("");
     setShippingAddress("");
+    setShippingContactName("");
+    setShippingContactPhone("");
+    setShippingHasElevator(null);
     setInternalNotes("");
     setOrderExplanationImages([]);
     setItems([
@@ -377,12 +390,40 @@ function OrderFormDialog({
     }
   }, [customerId, customers, isEdit, deposit, depositPercent]);
 
-  // 若是編輯模式，初始化送貨地址為既有訂單上的地址
+  // 若是編輯模式，初始化寄送資訊
   useEffect(() => {
     if (!initialOrder) return;
-    // 將既有訂單上的 shipping_address 帶入表單
     setShippingAddress(initialOrder.shipping_address ?? "");
+    setShippingContactName(initialOrder.shipping_contact_name ?? "");
+    setShippingContactPhone(initialOrder.shipping_contact_phone ?? "");
+    setShippingHasElevator(
+      initialOrder.shipping_has_elevator === true ||
+        initialOrder.shipping_has_elevator === false
+        ? initialOrder.shipping_has_elevator
+        : null
+    );
   }, [initialOrder]);
+
+  function applyShippingFromCustomer() {
+    if (!customerId) {
+      toast.error("請先選擇客戶");
+      return;
+    }
+    const customer = customers.find((c) => c.id === customerId);
+    if (!customer) {
+      toast.error("找不到客戶資料");
+      return;
+    }
+    setShippingContactName(customer.contact_person?.trim() ?? "");
+    setShippingContactPhone(customer.phone?.trim() ?? "");
+    setShippingAddress(customer.delivery_address?.trim() ?? "");
+    setShippingHasElevator(
+      customer.has_elevator === true || customer.has_elevator === false
+        ? customer.has_elevator
+        : null
+    );
+    toast.success("已帶入客戶寄送資料");
+  }
 
   const itemRows = items;
 
@@ -581,6 +622,9 @@ function OrderFormDialog({
         total_amount: discountBase,
         deposit_amount: Number(deposit) || 0,
         shipping_address: shippingAddress || null,
+        shipping_contact_name: shippingContactName.trim() || null,
+        shipping_contact_phone: shippingContactPhone.trim() || null,
+        shipping_has_elevator: shippingHasElevator,
         internal_notes: internalNotes || null,
         explanation_image_url:
           orderExplanationImages.length > 0
@@ -890,37 +934,116 @@ function OrderFormDialog({
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5 h-full">
-                    <div className="flex items-center justify-between gap-2">
-                      <label
-                        htmlFor="order-shipping"
-                        className="text-xs text-muted-foreground"
-                      >
-                        送貨地址
-                      </label>
+                  <div className="flex flex-col gap-3 h-full sm:col-span-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        寄送資訊
+                      </h4>
                       <Button
                         type="button"
                         variant="outline"
                         className="h-7 px-2 text-[11px]"
-                        onClick={() => {
-                          const customer = customers.find((c) => c.id === customerId);
-                          if (customer?.delivery_address) {
-                            setShippingAddress(customer.delivery_address);
-                          }
-                        }}
+                        onClick={applyShippingFromCustomer}
+                        disabled={!customerId}
                       >
-                        帶入客戶地址
+                        帶入客戶資料
                       </Button>
                     </div>
-                    <textarea
-                      id="order-shipping"
-                      value={shippingAddress}
-                      onChange={(e) => setShippingAddress(e.target.value)}
-                      className="min-h-[60px] h-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder="系統會自動帶入客戶預設地址，若不同可在此覆寫。"
-                    />
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label
+                          htmlFor="order-ship-contact"
+                          className="text-xs text-muted-foreground"
+                        >
+                          聯絡人
+                        </label>
+                        <input
+                          id="order-ship-contact"
+                          type="text"
+                          value={shippingContactName}
+                          onChange={(e) => setShippingContactName(e.target.value)}
+                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="收貨聯絡人"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label
+                          htmlFor="order-ship-phone"
+                          className="text-xs text-muted-foreground"
+                        >
+                          聯絡電話
+                        </label>
+                        <input
+                          id="order-ship-phone"
+                          type="text"
+                          value={shippingContactPhone}
+                          onChange={(e) => setShippingContactPhone(e.target.value)}
+                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="手機或市話"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label
+                          htmlFor="order-ship-elevator"
+                          className="text-xs text-muted-foreground"
+                        >
+                          有無電梯
+                        </label>
+                        <select
+                          id="order-ship-elevator"
+                          value={
+                            shippingHasElevator === null
+                              ? ""
+                              : shippingHasElevator
+                              ? "yes"
+                              : "no"
+                          }
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "") setShippingHasElevator(null);
+                            else if (v === "yes") setShippingHasElevator(true);
+                            else setShippingHasElevator(false);
+                          }}
+                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          <option value="">未填</option>
+                          <option value="yes">有電梯</option>
+                          <option value="no">無電梯</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <label
+                          htmlFor="order-shipping"
+                          className="text-xs text-muted-foreground"
+                        >
+                          送貨地址
+                        </label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => {
+                            const customer = customers.find((c) => c.id === customerId);
+                            if (customer?.delivery_address) {
+                              setShippingAddress(customer.delivery_address);
+                            }
+                          }}
+                        >
+                          僅帶入地址
+                        </Button>
+                      </div>
+                      <textarea
+                        id="order-shipping"
+                        value={shippingAddress}
+                        onChange={(e) => setShippingAddress(e.target.value)}
+                        className="min-h-[72px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        placeholder="送貨地址；選客戶時可自動帶入預設地址，亦可按「帶入客戶資料」一次帶入聯絡人／電話／地址／電梯。"
+                      />
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-1.5 h-full">
+                  <div className="flex flex-col gap-1.5 h-full sm:col-span-2">
                     <label
                       htmlFor="order-notes"
                       className="text-xs text-muted-foreground"
@@ -1759,16 +1882,22 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
   async function fetchCustomers() {
     const { data: customerData, error: customerError } = await supabase
       .from("customers")
-      .select("id, name, delivery_address")
+      .select("id, name, contact_person, phone, delivery_address, has_elevator")
       .order("name", { ascending: true });
     if (!customerError && customerData) {
       setCustomers(
         (customerData as any[]).map((c) => ({
           id: String(c.id),
           name: String(c.name ?? ""),
+          contact_person: c.contact_person != null ? String(c.contact_person) : null,
+          phone: c.phone != null ? String(c.phone) : null,
           delivery_address: c.delivery_address
             ? String(c.delivery_address)
             : null,
+          has_elevator:
+            c.has_elevator === true || c.has_elevator === false
+              ? Boolean(c.has_elevator)
+              : null,
         }))
       );
     } else {
@@ -1851,7 +1980,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
         )
         .order("order_date", { ascending: false });
 
@@ -1883,6 +2012,12 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
             (Array.isArray(row.customers) && row.customers[0]?.alias) ||
             null,
           shipping_address: row.shipping_address ?? null,
+          shipping_contact_name: row.shipping_contact_name ?? null,
+          shipping_contact_phone: row.shipping_contact_phone ?? null,
+          shipping_has_elevator:
+            row.shipping_has_elevator === true || row.shipping_has_elevator === false
+              ? Boolean(row.shipping_has_elevator)
+              : null,
           internal_notes: row.internal_notes ?? null,
           explanation_image_url: row.explanation_image_url ?? null,
         }))
@@ -1896,7 +2031,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
       )
       .order("order_date", { ascending: false });
 
@@ -1928,6 +2063,12 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
           (Array.isArray(row.customers) && row.customers[0]?.alias) ||
           null,
         shipping_address: row.shipping_address ?? null,
+        shipping_contact_name: row.shipping_contact_name ?? null,
+        shipping_contact_phone: row.shipping_contact_phone ?? null,
+        shipping_has_elevator:
+          row.shipping_has_elevator === true || row.shipping_has_elevator === false
+            ? Boolean(row.shipping_has_elevator)
+            : null,
         internal_notes: row.internal_notes ?? null,
         explanation_image_url: row.explanation_image_url ?? null,
       }))
