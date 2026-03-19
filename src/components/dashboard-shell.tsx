@@ -315,12 +315,33 @@ export default function DashboardShell() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<AppRole>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [externalOrderId, setExternalOrderId] = useState<string | null>(null);
 
   // 從 URL 同步頁面（例如瀏覽器上一頁 / 開新視窗後重繪時維持在當前頁）
   useEffect(() => {
     const p = searchParams.get("page");
     if (p && PAGE_IDS.has(p as Page)) setActivePage(p as Page);
   }, [searchParams]);
+
+  // 監聽網址 hash，如為 orders:<id>，則切換到訂單頁並記住要自動打開的訂單
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function handleHashChange() {
+      const hash = window.location.hash.startsWith("#")
+        ? window.location.hash.slice(1)
+        : window.location.hash;
+      if (!hash.startsWith("orders:")) return;
+      const id = decodeURIComponent(hash.slice("orders:".length));
+      if (!id) return;
+      setExternalOrderId(id);
+      setActivePage("orders");
+      // 清掉 hash，避免重新整理後又重複觸發
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+    handleHashChange();
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
 
   function onNavigate(page: Page) {
     setActivePage(page);
@@ -416,6 +437,7 @@ export default function DashboardShell() {
             <OrdersPage
               mode="order"
               isAdmin={userRole === "admin"}
+              initialOpenOrderId={externalOrderId ?? undefined}
             />
           )}
           {activePage === "kanban" && <WorkOrdersPage />}

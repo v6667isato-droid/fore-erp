@@ -16,6 +16,7 @@ interface ChannelOrderRow {
   order_number: string;
   order_date: string | null;
   notes: string | null;
+  contact_person: string | null;
   expected_delivery_date: string | null;
   status: string;
   total_amount: number;
@@ -48,7 +49,7 @@ export default function ChannelOrdersPage() {
         supabase
           .from("orders")
           .select(
-            "id, order_number, order_date, internal_notes, expected_delivery_date, status, total_amount, customers!inner(channel_id)"
+            "id, order_number, order_date, internal_notes, expected_delivery_date, status, total_amount, customers!inner(channel_id, contact_person)"
           )
           .eq("customers.channel_id", channelId)
           .order("order_date", { ascending: false })
@@ -72,6 +73,10 @@ export default function ChannelOrdersPage() {
           order_number: String(r.order_number ?? ""),
           order_date: r.order_date ?? null,
           notes: r.internal_notes != null ? String(r.internal_notes) : null,
+          contact_person:
+            (r.customers && r.customers.contact_person != null
+              ? String(r.customers.contact_person)
+              : null),
           expected_delivery_date: r.expected_delivery_date ?? null,
           status: r.status ?? "—",
           total_amount: Number(r.total_amount ?? 0),
@@ -111,6 +116,7 @@ export default function ChannelOrdersPage() {
                   <tr className="border-b border-border text-left text-muted-foreground">
                     <th className="pb-2 pr-4 font-medium">訂單編號</th>
                     <th className="pb-2 pr-4 font-medium">下單日</th>
+                    <th className="pb-2 pr-4 font-medium">聯絡人</th>
                     <th className="pb-2 pr-4 font-medium">備註</th>
                     <th className="pb-2 pr-4 font-medium">預計交貨</th>
                     <th className="pb-2 pr-4 font-medium">狀態</th>
@@ -124,6 +130,9 @@ export default function ChannelOrdersPage() {
                       <td className="py-2.5 pr-4 font-mono text-foreground">{o.order_number}</td>
                       <td className="py-2.5 pr-4 text-muted-foreground">
                         {o.order_date ? o.order_date.slice(0, 10) : "—"}
+                      </td>
+                      <td className="py-2.5 pr-4 text-muted-foreground max-w-[10rem] truncate" title={o.contact_person ?? undefined}>
+                        {o.contact_person?.trim() || "—"}
                       </td>
                       <td
                         className="py-2.5 pr-4 text-muted-foreground max-w-[12rem] truncate"

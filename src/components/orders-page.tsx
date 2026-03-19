@@ -50,6 +50,7 @@ interface CustomerOption {
   phone: string | null;
   delivery_address: string | null;
   has_elevator: boolean | null;
+  channel_id?: string | null;
 }
 
 interface VariantOption {
@@ -291,6 +292,9 @@ function OrderFormDialog({
   const [uploadingImageItemId, setUploadingImageItemId] = useState<string | null>(null);
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [editCustomerOpen, setEditCustomerOpen] = useState(false);
+  const [seriesDiscounts, setSeriesDiscounts] = useState<
+    Record<string, { channel_id: string; discount_percent: number }[]>
+  >({});
   const [items, setItems] = useState<OrderItemInput[]>(
     initialItems && initialItems.length
       ? initialItems
@@ -306,6 +310,33 @@ function OrderFormDialog({
           },
         ]
   );
+
+  // 讀取系列 x 通路折扣（表單掛載時載入一次即可）
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDiscounts() {
+      const { data, error } = await supabase
+        .from("product_series_channel_discounts")
+        .select("series_id, channel_id, discount_percent");
+      if (error || !data || cancelled) return;
+      const map: Record<string, { channel_id: string; discount_percent: number }[]> = {};
+      (data as any[]).forEach((row) => {
+        const sid = String(row.series_id);
+        if (!map[sid]) map[sid] = [];
+        map[sid].push({
+          channel_id: String(row.channel_id),
+          discount_percent: Number(row.discount_percent ?? 0),
+        });
+      });
+      if (!cancelled) {
+        setSeriesDiscounts(map);
+      }
+    }
+    loadDiscounts();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (initialOrder) {
@@ -1041,19 +1072,6 @@ function OrderFormDialog({
                         >
                           送貨地址
                         </label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={() => {
-                            const customer = customers.find((c) => c.id === customerId);
-                            if (customer?.delivery_address) {
-                              setShippingAddress(customer.delivery_address);
-                            }
-                          }}
-                        >
-                          僅帶入地址
-                        </Button>
                       </div>
                       <textarea
                         id="order-shipping"
@@ -1250,7 +1268,7 @@ function OrderFormDialog({
 
                       {it.kind === "variant" ? (
                         <>
-                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
                             <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-2">
                               <label className="text-xs text-muted-foreground">
                                 系列
@@ -1295,6 +1313,7 @@ function OrderFormDialog({
                                   const dimH = selected?.dimension_h ?? null;
                                   updateItem(it.id, {
                                     variant_id: value,
+                                    series_id: selected?.series_id ?? it.series_id ?? null,
                                     unit_price:
                                       selected?.base_price ??
                                       it.unit_price ??
@@ -1374,6 +1393,32 @@ function OrderFormDialog({
                                 }
                                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                               />
+                            </div>
+                            <div className="flex flex-col gap-1.5 sm:col-span-1">
+                              <span className="text-xs text-muted-foreground">
+                                通路價格
+                              </span>
+                              {(() => {
+                                const customer = customers.find((c) => c.id === customerId);
+                                const channelId = customer?.channel_id ?? null;
+                                const seriesId = it.series_id ?? null;
+                                let channelPrice: number | null = null;
+                                if (channelId && seriesId) {
+                                  const discounts = seriesDiscounts[seriesId] ?? [];
+                                  const row = discounts.find((d) => d.channel_id === channelId);
+                                  const pct = row?.discount_percent ?? 0;
+                                  const variant = variants.find((v) => v.id === it.variant_id);
+                                  const base = variant?.base_price ?? null;
+                                  if (base != null && Number.isFinite(base) && pct > 0) {
+                                    channelPrice = Math.round(base * (1 - pct / 100));
+                                  }
+                                }
+                                return (
+                                  <div className="h-9 flex items-center justify-end rounded-lg border border-dashed border-border bg-muted/40 px-3 text-xs tabular-nums text-muted-foreground">
+                                    {channelPrice != null ? channelPrice.toLocaleString() : "—"}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
@@ -1792,7 +1837,7 @@ function OrderFormDialog({
                     </p>
                   </div>
                   <div className="rounded-lg border border-border/40 bg-background px-3 py-2.5">
-                    <p className="text-[11px] text-muted-foreground">應收總額</p>
+                    <p className="text-[11px] text-muted-foreground">應收總額（含運費總額）</p>
                     <p className="mt-1 text-right text-lg font-semibold tabular-nums text-foreground">
                       {grandTotal.toLocaleString()}
                     </p>
@@ -1865,7 +1910,7 @@ function OrderFormDialog({
                   </label>
 
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-xs text-muted-foreground">預收訂金</span>
+                    <span className="text-xs text-muted-foreground">預收訂金（計算訂金不含運費）</span>
                     <input
                       id="order-deposit"
                       type="number"
@@ -1904,7 +1949,16 @@ const STATUS_FILTER_OPTIONS: StatusFilterValue[] = [
   "非報價中",
 ];
 
-export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersPageMode; isAdmin?: boolean } = {}) {
+export function OrdersPage({
+  mode = "order",
+  isAdmin = false,
+  initialOpenOrderId,
+}: {
+  mode?: OrdersPageMode;
+  isAdmin?: boolean;
+  /** 若提供，會在載入後自動開啟該筆訂單的編輯窗格 */
+  initialOpenOrderId?: string;
+} = {}) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -1919,11 +1973,12 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
   );
   const [formOpen, setFormOpen] = useState(false);
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<OrderRow | null>(null);
+  const hasAppliedInitialOpenRef = useRef(false);
 
   async function fetchCustomers() {
     const { data: customerData, error: customerError } = await supabase
       .from("customers")
-      .select("id, name, contact_person, phone, delivery_address, has_elevator")
+      .select("id, name, contact_person, phone, delivery_address, has_elevator, channel_id")
       .order("name", { ascending: true });
     if (!customerError && customerData) {
       setCustomers(
@@ -1939,6 +1994,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
             c.has_elevator === true || c.has_elevator === false
               ? Boolean(c.has_elevator)
               : null,
+          channel_id: c.channel_id != null ? String(c.channel_id) : null,
         }))
       );
     } else {
@@ -2069,6 +2125,17 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
     bootstrap();
   }, []);
 
+  // 若外部有指定要打開的訂單（例如從生產看板點過來），在首次載入完訂單列表後自動開啟編輯窗格
+  useEffect(() => {
+    if (!initialOpenOrderId) return;
+    if (hasAppliedInitialOpenRef.current) return;
+    if (!orders.length) return;
+    const target = orders.find((o) => o.id === initialOpenOrderId);
+    if (!target) return;
+    hasAppliedInitialOpenRef.current = true;
+    handleEdit(target);
+  }, [initialOpenOrderId, orders]);
+
   async function reloadOrders() {
     const { data, error } = await supabase
       .from("orders")
@@ -2101,10 +2168,10 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
           (row.customers && row.customers.name) ||
           (Array.isArray(row.customers) && row.customers[0]?.name) ||
           "",
-        customer_alias:
-          (row.customers && row.customers.alias) ||
-          (Array.isArray(row.customers) && row.customers[0]?.alias) ||
-          null,
+          customer_alias:
+            (row.customers && row.customers.alias) ||
+            (Array.isArray(row.customers) && row.customers[0]?.alias) ||
+            null,
         shipping_address: row.shipping_address ?? null,
         shipping_contact_name: row.shipping_contact_name ?? null,
         shipping_contact_phone: row.shipping_contact_phone ?? null,
@@ -2159,6 +2226,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
   type OrderSortKey =
     | "order_number"
     | "customer_name"
+    | "shipping_contact_name"
     | "order_date"
     | "expected_delivery_date"
     | "status"
@@ -2231,6 +2299,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
     const header = [
       "訂單編號",
       "客戶姓名",
+      "聯絡人",
       "下單日",
       "預計交貨日",
       "訂單狀態",
@@ -2241,6 +2310,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
     const rows = filtered.map((o) => [
       o.order_number,
       o.customer_name,
+      o.shipping_contact_name ?? "",
       o.order_date ?? "",
       o.expected_delivery_date ?? "",
       o.status,
@@ -2512,6 +2582,9 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
+              <TableHead className="text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors">
+                <OrderSortHeader label="訂單編號" sortKey="order_number" />
+              </TableHead>
               <TableHead
                 className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("order_date")}
@@ -2525,6 +2598,13 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
                 title="點擊排序"
               >
                 <OrderSortHeader label="客戶姓名" sortKey="customer_name" />
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                onClick={() => toggleOrderSort("shipping_contact_name")}
+                title="點擊排序"
+              >
+                <OrderSortHeader label="聯絡人" sortKey="shipping_contact_name" />
               </TableHead>
               <TableHead
                 className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
@@ -2573,7 +2653,7 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="h-24 text-center text-muted-foreground"
                 >
                   查無符合條件的訂單
@@ -2581,7 +2661,24 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
               </TableRow>
             ) : (
               sortedOrders.map((order) => (
-                <TableRow key={order.id} className="group">
+                <TableRow
+                  key={order.id}
+                  className="group cursor-pointer"
+                  onClick={() => handleEdit(order)}
+                >
+                  <TableCell className="text-sm font-mono text-primary">
+                    <button
+                      type="button"
+                      className="text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded px-1 py-0.5"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleEdit(order);
+                      }}
+                    >
+                      {order.order_number}
+                    </button>
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
                     {order.order_date ? order.order_date.replace(/-/g, "/") : "—"}
                   </TableCell>
@@ -2598,6 +2695,9 @@ export function OrdersPage({ mode = "order", isAdmin = false }: { mode?: OrdersP
                         </span>
                       )}
                     </button>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                    {order.shipping_contact_name?.trim() || "—"}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">
                     {order.expected_delivery_date

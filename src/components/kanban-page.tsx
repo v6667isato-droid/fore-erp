@@ -57,10 +57,10 @@ const statusToColumnId: Record<string, string> = {
 function KanbanCardItem({ card }: { card: KanbanCard }) {
   const handleOpenOrder = () => {
     if (!card.orderId) return;
-    // 導向主系統的訂單頁（非列印），在同一分頁透過 hash 帶入訂單 ID
     if (typeof window === "undefined") return;
     const encodedId = encodeURIComponent(card.orderId);
-    window.location.href = `/#orders:${encodedId}`;
+    // 保留在目前頁面，只更新網址 hash，交由主系統視情況處理
+    window.location.hash = `orders:${encodedId}`;
   };
 
   return (

@@ -36,7 +36,7 @@ interface MyOrderRow {
   id: string;
   order_number: string;
   order_date: string | null;
-  notes: string | null;
+  shipping_contact_name: string | null;
   expected_delivery_date: string | null;
   status: string;
   total_amount: number;
@@ -88,6 +88,9 @@ export default function PortalPage() {
   const [expectedDate, setExpectedDate] = useState("");
   const [shippingAddress, setShippingAddress] = useState("");
   const [orderNotes, setOrderNotes] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactAddress, setContactAddress] = useState("");
   const [items, setItems] = useState<PortalItem[]>([
     { id: "item-0", variant_id: "", quantity: 1, unit_price: 0, notes: "" },
   ]);
@@ -181,7 +184,9 @@ export default function PortalPage() {
     try {
       const { data } = await supabase
         .from("orders")
-        .select("id, order_number, order_date, internal_notes, expected_delivery_date, status, total_amount")
+        .select(
+          "id, order_number, order_date, shipping_contact_name, expected_delivery_date, status, total_amount"
+        )
         .eq("customer_id", session.customer_id)
         .order("order_date", { ascending: false })
         .limit(50);
@@ -190,7 +195,8 @@ export default function PortalPage() {
           id: String(r.id),
           order_number: String(r.order_number ?? ""),
           order_date: r.order_date ?? null,
-          notes: r.internal_notes != null ? String(r.internal_notes) : null,
+          shipping_contact_name:
+            r.shipping_contact_name != null ? String(r.shipping_contact_name) : null,
           expected_delivery_date: r.expected_delivery_date ?? null,
           status: r.status ?? "—",
           total_amount: Number(r.total_amount ?? 0),
@@ -473,7 +479,10 @@ export default function PortalPage() {
         payment_status: "未付款",
         total_amount: totalAmount,
         deposit_amount: 0,
-        shipping_address: shippingAddress || null,
+        shipping_contact_name: contactName.trim() || null,
+        shipping_contact_phone: contactPhone.trim() || null,
+        shipping_address:
+          (contactAddress.trim() || shippingAddress.trim() || "") || null,
         internal_notes: orderNotes || null,
         source: "portal",
       };
@@ -663,6 +672,42 @@ export default function PortalPage() {
                   <p className="text-sm text-muted-foreground py-1">{session.customer_name}</p>
                 </div>
                 <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-foreground">
+                    客戶名稱
+                  </label>
+                  <input
+                    type="text"
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                    placeholder="客戶姓名"
+                    className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-foreground">
+                    聯絡電話
+                  </label>
+                  <input
+                    type="tel"
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                    placeholder="例如 09xx-xxx-xxx"
+                    className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <label className="text-sm font-medium text-foreground">
+                    聯絡地址
+                  </label>
+                  <input
+                    type="text"
+                    value={contactAddress}
+                    onChange={(e) => setContactAddress(e.target.value)}
+                    placeholder="送貨地址"
+                    className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
                   <label htmlFor="portal-order-date" className="text-sm font-medium text-foreground">
                     下單日期
                   </label>
@@ -688,21 +733,8 @@ export default function PortalPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
-                  <label htmlFor="portal-shipping" className="text-sm font-medium text-foreground">
-                    送貨地址
-                  </label>
-                  <input
-                    id="portal-shipping"
-                    type="text"
-                    value={shippingAddress}
-                    onChange={(e) => setShippingAddress(e.target.value)}
-                    placeholder="登入後會帶入預設地址，可修改"
-                    className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5 sm:col-span-2">
                   <label htmlFor="portal-notes" className="text-sm font-medium text-foreground">
-                    備註（例如客人姓名，方便辨識）
+                    備註（輸入坐墊高度、布墊尺寸）
                   </label>
                   <input
                     id="portal-notes"
@@ -822,7 +854,7 @@ export default function PortalPage() {
                   <tr className="border-b border-border text-left text-muted-foreground">
                     <th className="pb-2 pr-4 font-medium">訂單編號</th>
                     <th className="pb-2 pr-4 font-medium">下單日</th>
-                    <th className="pb-2 pr-4 font-medium">備註</th>
+                    <th className="pb-2 pr-4 font-medium">客戶</th>
                     <th className="pb-2 pr-4 font-medium">預計交貨</th>
                     <th className="pb-2 pr-4 font-medium">狀態</th>
                     <th className="pb-2 text-right font-medium">金額</th>
@@ -836,8 +868,8 @@ export default function PortalPage() {
                       <td className="py-2.5 pr-4 text-muted-foreground">
                         {o.order_date ? o.order_date.slice(0, 10) : "—"}
                       </td>
-                      <td className="py-2.5 pr-4 text-muted-foreground max-w-[12rem] truncate" title={o.notes ?? undefined}>
-                        {o.notes?.trim() || "—"}
+                      <td className="py-2.5 pr-4 text-muted-foreground max-w-[12rem] truncate" title={o.shipping_contact_name ?? undefined}>
+                        {o.shipping_contact_name?.trim() || "—"}
                       </td>
                       <td className="py-2.5 pr-4 text-muted-foreground">
                         {o.expected_delivery_date

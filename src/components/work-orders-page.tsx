@@ -22,9 +22,9 @@ type WorkStage =
   | "砂磨中"
   | "塗裝中"
   | "組裝中"
-  | "成品";
-
-type WorkStatus = "未開始" | "進行中" | "暫停" | "已完成";
+  | "成品"
+  | "暫停"
+  | "已出貨";
 
 interface WorkOrderRow {
   id: string;
@@ -33,11 +33,11 @@ interface WorkOrderRow {
   order_number: string;
   customer_name: string;
   customer_alias?: string | null;
+  shipping_contact_name?: string | null;
   item_name: string;
   quantity: number;
   category: string;
   stage: WorkStage;
-  status: WorkStatus;
   order_status: string | null;
   assignee: string | null;
   expected_delivery_date: string | null;
@@ -59,13 +59,8 @@ const STAGE_OPTIONS: WorkStage[] = [
   "塗裝中",
   "組裝中",
   "成品",
-];
-
-const STATUS_OPTIONS: WorkStatus[] = [
-  "未開始",
-  "進行中",
   "暫停",
-  "已完成",
+  "已出貨",
 ];
 
 function stageStyle(stage: WorkStage): string {
@@ -84,20 +79,9 @@ function stageStyle(stage: WorkStage): string {
       return "bg-indigo-100 text-indigo-900 border-indigo-200";
     case "成品":
       return "bg-emerald-100 text-emerald-900 border-emerald-200";
-    default:
-      return "bg-muted text-foreground border-border";
-  }
-}
-
-function statusStyle(status: WorkStatus): string {
-  switch (status) {
-    case "未開始":
-      return "bg-muted text-foreground border-border";
-    case "進行中":
-      return "bg-sky-100 text-sky-900 border-sky-200";
     case "暫停":
       return "bg-amber-100 text-amber-900 border-amber-200";
-    case "已完成":
+    case "已出貨":
       return "bg-emerald-100 text-emerald-900 border-emerald-200";
     default:
       return "bg-muted text-foreground border-border";
@@ -108,7 +92,6 @@ export function WorkOrdersPage() {
   const [rows, setRows] = useState<WorkOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [stageFilter, setStageFilter] = useState<WorkStage | "全部">("全部");
-  const [statusFilter, setStatusFilter] = useState<WorkStatus | "全部">("全部");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   type WorkSortKey =
@@ -117,11 +100,10 @@ export function WorkOrdersPage() {
     | "item_name"
     | "category"
     | "stage"
-    | "status"
     | "assignee"
     | "planned_end_date"
     | "expected_delivery_date";
-  const [sortBy, setSortBy] = useState<WorkSortKey>("planned_end_date");
+  const [sortBy, setSortBy] = useState<WorkSortKey>("stage");
   const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
@@ -152,7 +134,6 @@ export function WorkOrdersPage() {
         `
         id,
         stage,
-        status,
         assignee,
         planned_start_date,
         planned_end_date,
@@ -170,6 +151,7 @@ export function WorkOrdersPage() {
             order_number,
             status,
             expected_delivery_date,
+            shipping_contact_name,
             customers(name, alias)
           ),
           product_variants(
@@ -240,11 +222,14 @@ export function WorkOrdersPage() {
           : "",
         customer_name: customerName,
         customer_alias: customerAlias != null ? String(customerAlias) : null,
+        shipping_contact_name:
+          order?.shipping_contact_name != null
+            ? String(order.shipping_contact_name)
+            : null,
         item_name: fullNameParts.join(" / "),
         quantity: Number(oi?.quantity ?? 0),
         category: cat,
         stage: (r.stage as WorkStage) ?? "待排程",
-        status: (r.status as WorkStatus) ?? "未開始",
         order_status: (order?.status as string | null) ?? null,
         assignee: r.assignee ?? null,
         expected_delivery_date: order?.expected_delivery_date ?? null,
@@ -254,16 +239,17 @@ export function WorkOrdersPage() {
       };
     });
 
-    setRows(mapped);
+    // 排除「報價中」的訂單，不進入生產看板
+    const filtered = mapped.filter((w) => w.order_status !== "報價中");
+    setRows(filtered);
   }
 
   async function updateWorkOrderInline(
     id: string,
-    patch: Partial<Pick<WorkOrderRow, "stage" | "status" | "assignee">>
+    patch: Partial<Pick<WorkOrderRow, "stage" | "assignee">>
   ) {
     const payload: any = {};
     if (patch.stage) payload.stage = patch.stage;
-    if (patch.status) payload.status = patch.status;
     if (patch.assignee !== undefined) payload.assignee = patch.assignee;
     if (Object.keys(payload).length === 0) return;
 
@@ -284,55 +270,83 @@ export function WorkOrdersPage() {
     const list = rows.filter((w) => {
       const matchStage =
         stageFilter === "全部" || w.stage === stageFilter;
-      const matchStatus =
-        statusFilter === "全部" || w.status === statusFilter;
       const q = assigneeFilter.trim().toLowerCase();
       const matchAssignee =
         !q ||
         (w.assignee ?? "").toLowerCase().includes(q) ||
         w.customer_name.toLowerCase().includes(q) ||
         w.order_number.toLowerCase().includes(q);
-      return matchStage && matchStatus && matchAssignee;
+      return matchStage && matchAssignee;
     });
 
-    // 排序：先依選定欄位，最後再把「已完成」排到最底
+    // 排序：先依選定欄位；若為工序站別，依固定順序：
+    // 待排程 → 備料中 → 製作中 → 砂磨中 → 塗裝中 → 組裝中 → 成品 → 暫停 → 已出貨
     list.sort((a, b) => {
-      // 1) 依照選擇的欄位排序
+      function stageWeight(stage: WorkStage): number {
+        switch (stage) {
+          case "待排程":
+            return 0;
+          case "備料中":
+            return 1;
+          case "製作中":
+            return 2;
+          case "砂磨中":
+            return 3;
+          case "塗裝中":
+            return 4;
+          case "組裝中":
+            return 5;
+          case "成品":
+            return 6;
+          case "暫停":
+            return 7;
+          case "已出貨":
+            return 8;
+          default:
+            return 9;
+        }
+      }
+
       const key = sortBy;
-      const av = (a as any)[key];
-      const bv = (b as any)[key];
       let cmp = 0;
 
-      if (key === "planned_end_date" || key === "expected_delivery_date") {
-        const ad = av ? new Date(av) : null;
-        const bd = bv ? new Date(bv) : null;
-        const at = ad ? ad.getTime() : 0;
-        const bt = bd ? bd.getTime() : 0;
-        cmp = at - bt;
+      if (key === "stage") {
+        // 1) 以工序站別權重排序
+        cmp = stageWeight(a.stage) - stageWeight(b.stage);
       } else {
-        const as = av == null ? "" : String(av);
-        const bs = bv == null ? "" : String(bv);
-        cmp = as.localeCompare(bs, "zh-Hant", { numeric: true });
+        // 1) 依照選擇的欄位排序
+        const av = (a as any)[key];
+        const bv = (b as any)[key];
+
+        if (key === "planned_end_date" || key === "expected_delivery_date") {
+          const ad = av ? new Date(av) : null;
+          const bd = bv ? new Date(bv) : null;
+          const at = ad ? ad.getTime() : 0;
+          const bt = bd ? bd.getTime() : 0;
+          cmp = at - bt;
+        } else {
+          const as = av == null ? "" : String(av);
+          const bs = bv == null ? "" : String(bv);
+          cmp = as.localeCompare(bs, "zh-Hant", { numeric: true });
+        }
       }
 
       if (!sortAsc) cmp = -cmp;
       if (cmp !== 0) return cmp;
 
-      // 2) 若同值，再依「是否已完成」決定順序（未完成在上、已完成在下）
-      const aw = a.status === "已完成" ? 1 : 0;
-      const bw = b.status === "已完成" ? 1 : 0;
-      return aw - bw;
+      // 2) 若同值，再依工序階段權重決定順序
+      return stageWeight(a.stage) - stageWeight(b.stage);
     });
 
     return list;
-  }, [rows, stageFilter, statusFilter, assigneeFilter, sortBy, sortAsc]);
+  }, [rows, stageFilter, assigneeFilter, sortBy, sortAsc]);
 
   function openOrderDetail(w: WorkOrderRow) {
     if (!w.order_id) return;
     if (typeof window === "undefined") return;
     const encodedId = encodeURIComponent(w.order_id);
-    // 導向主系統的訂單頁（非列印），在同一分頁透過 hash 傳遞訂單 ID
-    window.location.href = `/#orders:${encodedId}`;
+    // 保留在目前頁面，只更新網址 hash，交由主系統視情況處理
+    window.location.hash = `orders:${encodedId}`;
   }
 
   const uniqueAssignees = useMemo(
@@ -442,24 +456,6 @@ export function WorkOrdersPage() {
               </option>
             ))}
           </select>
-          <select
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(
-                e.target.value === "全部"
-                  ? "全部"
-                  : (e.target.value as WorkStatus)
-              )
-            }
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="全部">狀態：全部</option>
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
           <input
             type="text"
             value={assigneeFilter}
@@ -490,6 +486,9 @@ export function WorkOrdersPage() {
               <TableHead className="text-xs font-semibold">
                 <SortHeader label="客戶 / 專案" sortKey="customer_name" />
               </TableHead>
+              <TableHead className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap">
+                聯絡人
+              </TableHead>
               <TableHead className="text-xs font-semibold">
                 <SortHeader label="品項 / 尺寸" sortKey="item_name" />
               </TableHead>
@@ -501,9 +500,6 @@ export function WorkOrdersPage() {
               </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
                 <SortHeader label="工序站別" sortKey="stage" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                <SortHeader label="工單狀態" sortKey="status" />
               </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
                 <SortHeader label="負責人" sortKey="assignee" />
@@ -551,6 +547,9 @@ export function WorkOrdersPage() {
                       </span>
                     )}
                   </TableCell>
+                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                    {w.shipping_contact_name?.trim() || "—"}
+                  </TableCell>
                   <TableCell className="text-sm">
                     {w.item_name || "—"}
                   </TableCell>
@@ -573,25 +572,6 @@ export function WorkOrdersPage() {
                       )}`}
                     >
                       {STAGE_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </TableCell>
-                  <TableCell className="text-sm hidden sm:table-cell">
-                    <select
-                      value={w.status}
-                      onChange={(e) =>
-                        updateWorkOrderInline(w.id, {
-                          status: e.target.value as WorkStatus,
-                        })
-                      }
-                      className={`h-8 rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${statusStyle(
-                        w.status
-                      )}`}
-                    >
-                      {STATUS_OPTIONS.map((s) => (
                         <option key={s} value={s}>
                           {s}
                         </option>
