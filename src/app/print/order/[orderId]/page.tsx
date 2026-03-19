@@ -384,10 +384,11 @@ export default function PrintOrderPage() {
               <img
                 src="/logo.png"
                 alt="Føre Furniture"
-                className="h-24 object-contain"
+                className="block h-24 w-auto object-contain object-left-top"
               />
               <div className="space-y-1 text-xs text-gray-700 leading-relaxed">
                 <p>電話：06-2302861</p>
+                <p>聯絡時間：上班日 9:00 - 17:00</p>
                 <p>地址：台南市歸仁區丁厝街125號</p>
                 <p>
                   Line：
@@ -402,8 +403,8 @@ export default function PrintOrderPage() {
                 </p>
               </div>
             </div>
-            <div className="text-right space-y-2 text-sm text-gray-700 leading-relaxed">
-              <p className="text-lg font-semibold text-gray-900">訂單確認單</p>
+            <div className="text-right space-y-2 pt-2 text-sm text-gray-700 leading-relaxed">
+              <p className="text-lg font-semibold leading-tight text-gray-900">訂單確認單</p>
               <p>訂單編號：<span className="font-mono text-gray-900">{order.order_number}</span></p>
               <p>訂單日期：<span>{formattedDate(order.order_date)}</span></p>
               {order.expected_delivery_date && (
@@ -412,8 +413,8 @@ export default function PrintOrderPage() {
             </div>
           </div>
 
-          <div className="mt-8 grid grid-cols-2 gap-8 text-sm leading-relaxed">
-            <div className="space-y-2">
+          <div className="mt-8 w-full text-sm leading-relaxed">
+            <div className="space-y-2 w-full">
               <p className="font-semibold text-gray-900">客戶資訊</p>
               <p className="text-gray-800">
                 客戶名稱：<span className="font-medium">{order.customer_name || "—"}</span>
@@ -422,10 +423,9 @@ export default function PrintOrderPage() {
                 <p className="text-gray-800">聯絡電話：{order.customer_phone}</p>
               )}
               {order.customer_address && (
-                <p className="text-gray-800">送貨地址：{order.customer_address}</p>
+                <p className="text-gray-800 break-words">送貨地址：{order.customer_address}</p>
               )}
             </div>
-            <div />
           </div>
         </header>
 
@@ -434,17 +434,17 @@ export default function PrintOrderPage() {
         </section>
 
         <section className="mb-8">
-          <table className="w-full border-collapse text-sm leading-snug">
+          <table className="w-full table-fixed border-collapse text-sm leading-snug">
             <thead>
               <tr className="border-b-2 border-gray-300 bg-gray-50">
-                <th className="w-16 px-3 py-3 text-left font-semibold text-gray-700">圖片</th>
-                <th className="min-w-[140px] px-3 py-3 text-left font-semibold text-gray-700">報價品項</th>
-                <th className="w-20 px-3 py-3 text-left font-semibold text-gray-700">木種</th>
-                <th className="w-32 px-3 py-3 text-left font-semibold text-gray-700">尺寸(cm)</th>
-                <th className="w-24 px-3 py-3 text-left font-semibold text-gray-700">規格</th>
-                <th className="w-14 px-3 py-3 text-right font-semibold text-gray-700">數量</th>
-                <th className="w-20 px-3 py-3 text-right font-semibold text-gray-700">單價</th>
-                <th className="w-24 px-3 py-3 text-right font-semibold text-gray-700">小計</th>
+                <th className="w-16 px-2 py-3 text-left font-semibold text-gray-700">圖片</th>
+                <th className="w-[4.75rem] px-2 py-3 text-left font-semibold text-gray-700">報價品項</th>
+                <th className="w-[7.5rem] px-2 py-3 text-left font-semibold text-gray-700">木種</th>
+                <th className="w-[32%] px-2 py-3 text-left font-semibold text-gray-700">尺寸(cm)</th>
+                <th className="w-[4.5rem] px-2 py-3 text-left font-semibold text-gray-700">規格</th>
+                <th className="w-12 px-2 py-3 text-right font-semibold text-gray-700">數量</th>
+                <th className="w-[4.25rem] px-2 py-3 text-right font-semibold text-gray-700">單價</th>
+                <th className="w-[4.75rem] px-2 py-3 text-right font-semibold text-gray-700">小計</th>
               </tr>
             </thead>
             <tbody>
@@ -473,7 +473,7 @@ export default function PrintOrderPage() {
                   return (
                     <Fragment key={item.id}>
                       <tr className="border-b border-gray-200 align-top">
-                        <td className="px-3 py-3">
+                        <td className="px-2 py-3">
                           {item.image_url ? (
                             <div className="h-14 w-14 overflow-hidden rounded border border-gray-200 bg-gray-100">
                               <img
@@ -486,23 +486,27 @@ export default function PrintOrderPage() {
                             <div className="h-14 w-14 rounded border border-dashed border-gray-200 bg-gray-50" />
                           )}
                         </td>
-                        <td className="px-3 py-3">
-                          <div className="font-medium text-gray-900">{item.name}</div>
+                        <td className="px-2 py-3 min-w-0">
+                          <div className="font-medium text-gray-900 break-words">
+                            {item.name}
+                          </div>
                         </td>
-                        <td className="px-3 py-3 text-gray-700">{item.wood_type ?? "—"}</td>
-                        <td className="px-3 py-3 text-gray-700 text-xs leading-relaxed">
+                        <td className="px-2 py-3 text-gray-700 break-words min-w-0">
+                          {item.wood_type ?? "—"}
+                        </td>
+                        <td className="px-2 py-3 text-gray-700 text-xs leading-relaxed break-words min-w-0">
                           {item.dimension_text ?? "—"}
                         </td>
-                        <td className="px-3 py-3 text-gray-700 font-mono text-xs">
+                        <td className="px-2 py-3 text-gray-700 font-mono text-xs break-all min-w-0">
                           {item.spec_text ?? "—"}
                         </td>
-                        <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
+                        <td className="px-2 py-3 text-right text-gray-900 tabular-nums">
                           {item.quantity}
                         </td>
-                        <td className="px-3 py-3 text-right text-gray-900 tabular-nums">
+                        <td className="px-2 py-3 text-right text-gray-900 tabular-nums text-xs">
                           {item.unit_price.toLocaleString()}
                         </td>
-                        <td className="px-3 py-3 text-right text-gray-900 font-medium tabular-nums">
+                        <td className="px-2 py-3 text-right text-gray-900 font-medium tabular-nums text-xs">
                           {lineTotal.toLocaleString()}
                         </td>
                       </tr>
@@ -559,7 +563,7 @@ export default function PrintOrderPage() {
         </section>
 
         <div className="mb-8 space-y-1 text-sm text-gray-600 leading-relaxed">
-          <p>備註：此報價單內容如有疑義，請於 3 日內與我們聯繫確認。</p>
+          <p>備註：尾款金額請於收到商品確認無誤後，一週內匯款至指定帳戶。</p>
         </div>
 
         <footer className="pt-6 border-t border-gray-200 space-y-6 text-sm text-gray-800 leading-relaxed">
@@ -613,6 +617,18 @@ export default function PrintOrderPage() {
             </p>
             <p>
               運費說明：配送地區為一般台灣本島西部縣市，若為東部、外島及偏遠山區，則運費將視實際情況另行調整與報價。
+            </p>
+            <p>
+              每件 FØRE Furniture 作品均為您的空間量身打造。為確保高品質木料與製作排程的優先權，需於支付訂金並確認設計圖後正式啟動。
+            </p>
+            <p>
+              由於訂製家具具備唯一性與不可逆之生產特質，合約生效後若因個人因素異動或取消，已繳納之訂金將用於補償已投入之木材採購、設計研擬與行政成本，恕不予退還。
+            </p>
+            <p>
+              為追求結構的極致穩固與精準度，圖面核對完成即視為「最終製作規格」。
+            </p>
+            <p>
+              進入正式生產排程後，恕不接受品項、尺寸或細節變更。若因不可抗力或特殊需求需進行重大變動，客戶需負擔已產生之全額材料損失與延伸工時費用，且交期將依實際進度重新調整。
             </p>
           </div>
         </footer>
