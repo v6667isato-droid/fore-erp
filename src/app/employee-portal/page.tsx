@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   activeAnnouncements,
@@ -12,10 +13,19 @@ import {
   type WorkProgressSeedRow,
   type WorkProgressUiStatus,
 } from "@/lib/employee-portal-mock";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { CalendarPlus, ClipboardList, Factory, Leaf, Megaphone, Sparkles, X } from "lucide-react";
+import {
+  CalendarPlus,
+  ClipboardList,
+  Factory,
+  Home,
+  Leaf,
+  Megaphone,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 function leaveStatusBadge(row: LeaveRequestRow) {
@@ -176,8 +186,15 @@ export default function EmployeePortalPage() {
 
   if (loading || !data) {
     return (
-      <div className="min-h-dvh flex items-center justify-center bg-background">
+      <div className="min-h-dvh flex flex-col items-center justify-center gap-6 bg-background px-4">
         <p className="text-sm text-muted-foreground tracking-wide">載入個人儀表板…</p>
+        <Link
+          href="/"
+          className={cn(buttonVariants({ variant: "outline" }), "gap-2 text-muted-foreground")}
+        >
+          <Home className="h-4 w-4" />
+          返回 ERP 主頁（暫用）
+        </Link>
       </div>
     );
   }
@@ -194,13 +211,25 @@ export default function EmployeePortalPage() {
       )}
     >
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
-        <header className="mb-10 lg:mb-12">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            Føre Furniture · 實木工坊
-          </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-            員工個人儀表板
-          </h1>
+        <header className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between lg:mb-12">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              Føre Furniture · 實木工坊
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              員工個人儀表板
+            </h1>
+          </div>
+          <Link
+            href="/"
+            className={cn(
+              buttonVariants({ variant: "outline" }),
+              "shrink-0 gap-2 self-start text-muted-foreground hover:text-foreground sm:self-auto"
+            )}
+          >
+            <Home className="h-4 w-4" />
+            返回 ERP 主頁（暫用）
+          </Link>
         </header>
 
         <div className="flex flex-col gap-8 lg:gap-10">

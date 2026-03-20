@@ -2700,7 +2700,10 @@ export function OrdersPage({
                   <TableCell className="text-sm">
                     <button
                       type="button"
-                      onClick={() => handleEdit(order)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEdit(order);
+                      }}
                       className="text-left font-medium text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                     >
                       {order.customer_name || "—"}
@@ -2722,14 +2725,19 @@ export function OrdersPage({
                   <TableCell className="text-sm hidden sm:table-cell">
                     <div
                       className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${statusStyles[order.status] ?? ""}`}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
                     >
                       <select
                         value={order.status}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          e.stopPropagation();
                           updateOrderInline(order.id, {
                             status: e.target.value as OrderStatus,
-                          })
-                        }
+                          });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
                       >
                         {ORDER_STATUS_OPTIONS.map((s) => (
@@ -2743,14 +2751,19 @@ export function OrdersPage({
                   <TableCell className="text-sm hidden sm:table-cell">
                     <div
                       className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${paymentStatusStyles[order.payment_status] ?? ""}`}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
                     >
                       <select
                         value={order.payment_status}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          e.stopPropagation();
                           updateOrderInline(order.id, {
                             payment_status: e.target.value as PaymentStatus,
-                          })
-                        }
+                          });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
                       >
                         {PAYMENT_STATUS_OPTIONS.map((s) => (
