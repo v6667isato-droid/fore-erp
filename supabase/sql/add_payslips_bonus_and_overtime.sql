@@ -1,0 +1,2 @@
+-- 已合併至 payslips_settlement_columns.sql（一次補齊所有欄位）
+-- 請改執行：supabase/sql/payslips_settlement_columns.sql

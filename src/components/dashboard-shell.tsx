@@ -17,6 +17,8 @@ import {
   ExternalLink,
   MessageSquare,
   UserCircle2,
+  Calendar,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,16 +31,25 @@ import { VendorsPage } from "@/components/vendors-page";
 import { ProductsPage } from "@/components/products-page";
 import { CustomersPage } from "@/components/customers-page";
 import { EmployeesPage } from "@/components/employees-page";
+import { LeaveApprovalsPage } from "@/components/leave-approvals-page";
 import { FeedbackPage } from "@/components/feedback-page";
 import { ChannelsPage } from "@/components/channels-page";
 import { DashboardOverview } from "@/components/dashboard-overview";
+import { CompanyCalendarPage } from "@/components/company-calendar-page";
 import { dashboardStats } from "@/lib/mock-data";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { supabase } from "@/lib/supabase";
+import {
+  isAuthSessionMissingError,
+  isLikelySupabaseNetworkError,
+  isSupabaseConfigured,
+  supabase,
+  SUPABASE_CONFIG_HELP,
+} from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Page =
   | "dashboard"
+  | "calendar"
   | "quotes"
   | "orders"
   | "kanban"
@@ -48,11 +59,13 @@ type Page =
   | "customers"
   | "channels"
   | "employees"
+  | "leave_approvals"
   | "feedback";
 type AppRole = "admin" | "staff" | null;
 
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "總覽", icon: LayoutGrid },
+  { id: "calendar", label: "公司行事曆", icon: Calendar },
   { id: "products", label: "產品資料", icon: Package },
   { id: "quotes", label: "報價管理", icon: ClipboardList },
   { id: "orders", label: "訂單管理", icon: ShoppingCart },
@@ -62,6 +75,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "procurement", label: "採購成本", icon: ShoppingCart },
   { id: "vendors", label: "廠商資料", icon: Building2 },
   { id: "employees", label: "員工資料", icon: Users },
+  { id: "leave_approvals", label: "假單審核", icon: ClipboardCheck },
   { id: "feedback", label: "使用回饋 / 待辦事項", icon: MessageSquare },
 ];
 
@@ -97,7 +111,10 @@ function SidebarNav({
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
-        if (item.id === "employees" && userRole !== "admin") {
+        if (
+          (item.id === "employees" || item.id === "leave_approvals") &&
+          userRole !== "admin"
+        ) {
           return null;
         }
         const Icon = item.icon;
@@ -152,7 +169,7 @@ function DesktopSidebar({
           通路下單
         </a>
         <a
-          href="/employee-portal"
+          href="/employee/dashboard"
           className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
         >
           <UserCircle2 className="h-4 w-4" />
@@ -227,7 +244,10 @@ function MobileHeader({
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
-                  if (item.id === "employees" && userRole !== "admin") {
+                  if (
+                    (item.id === "employees" || item.id === "leave_approvals") &&
+                    userRole !== "admin"
+                  ) {
                     return null;
                   }
                   const Icon = item.icon;
@@ -260,7 +280,7 @@ function MobileHeader({
                   通路下單
                 </a>
                 <a
-                  href="/employee-portal"
+                  href="/employee/dashboard"
                   onClick={() => setOpen(false)}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                 >
@@ -331,6 +351,7 @@ export default function DashboardShell() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<AppRole>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [externalOrderId, setExternalOrderId] = useState<string | null>(null);
 
   // 從 URL 同步頁面（例如瀏覽器上一頁 / 開新視窗後重繪時維持在當前頁）
@@ -366,41 +387,72 @@ export default function DashboardShell() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (cancelled) return;
 
-      // 若尚未登入，導向 /login，並清空本地狀態
-      if (!user) {
-        setUserEmail(null);
-        setUserRole(null);
-        setAuthChecked(true);
-        router.replace("/login");
+    async function checkAuth() {
+      if (!isSupabaseConfigured) {
+        if (!cancelled) {
+          setAuthError(SUPABASE_CONFIG_HELP);
+          setAuthChecked(true);
+        }
         return;
       }
 
-      setUserEmail(user.email ?? null);
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("role")
-        .eq("user_id", user.id)
-        .single();
-      const raw = ((profile?.role as string) ?? "").trim().toLowerCase();
-      // 只要不是明確 staff 或空字串，其餘有值的角色一律視為 admin（與 EmployeesPage 一致）
-      const appRole: AppRole =
-        raw === "staff" || raw === "" ? "staff" : "admin";
-      setUserRole(appRole);
-      setAuthChecked(true);
-    })();
+      try {
+        const {
+          data: { session },
+          error: sessionErr,
+        } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (sessionErr && !isAuthSessionMissingError(sessionErr)) throw sessionErr;
+
+        const user = session?.user ?? null;
+        if (!user) {
+          setUserEmail(null);
+          setUserRole(null);
+          setAuthChecked(true);
+          router.replace("/login");
+          return;
+        }
+
+        setUserEmail(user.email ?? null);
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("role")
+          .eq("user_id", user.id)
+          .single();
+
+        if (cancelled) return;
+
+        const raw = ((profile?.role as string) ?? "").trim().toLowerCase();
+        const appRole: AppRole =
+          raw === "staff" || raw === "" ? "staff" : "admin";
+        setUserRole(appRole);
+        setAuthChecked(true);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("[fore-erp] auth check failed:", err);
+        const hint = isLikelySupabaseNetworkError(err)
+          ? "無法連線至 Supabase（網路中斷、專案暫停或 URL 錯誤）。請檢查網路與 .env.local，或稍後再試。"
+          : err instanceof Error
+            ? err.message
+            : "登入狀態檢查失敗";
+        setAuthError(hint);
+        setAuthChecked(true);
+      }
+    }
+
+    void checkAuth();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [router]);
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      if (!isAuthSessionMissingError(e)) console.error("[fore-erp] signOut:", e);
+    }
     setUserEmail(null);
     setUserRole(null);
     router.push("/login");
@@ -411,6 +463,20 @@ export default function DashboardShell() {
     return (
       <div className="min-h-dvh bg-background flex items-center justify-center text-sm text-muted-foreground">
         檢查登入狀態中…
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="min-h-dvh bg-background flex items-center justify-center p-6">
+        <div className="max-w-md space-y-4 rounded-xl border border-border bg-card p-6 text-center shadow-sm">
+          <p className="text-sm font-medium text-destructive">無法載入 ERP</p>
+          <p className="text-sm text-muted-foreground leading-relaxed">{authError}</p>
+          <Button type="button" className="w-full" onClick={() => window.location.reload()}>
+            重新載入
+          </Button>
+        </div>
       </div>
     );
   }
@@ -443,6 +509,7 @@ export default function DashboardShell() {
           )}
 
           {activePage === "dashboard" && <DashboardOverview />}
+          {activePage === "calendar" && <CompanyCalendarPage />}
           {activePage === "quotes" && (
             <OrdersPage
               mode="quotation"
@@ -465,6 +532,9 @@ export default function DashboardShell() {
           {activePage === "customers" && <CustomersPage isAdmin={userRole === "admin"} />}
           {activePage === "channels" && <ChannelsPage />}
           {activePage === "employees" && userRole === "admin" && <EmployeesPage />}
+          {activePage === "leave_approvals" && userRole === "admin" && (
+            <LeaveApprovalsPage />
+          )}
           {activePage === "feedback" && <FeedbackPage />}
         </div>
       </main>

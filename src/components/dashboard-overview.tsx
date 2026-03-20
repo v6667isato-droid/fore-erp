@@ -122,7 +122,7 @@ export function DashboardOverview() {
           <p className="text-xs text-muted-foreground">公告、交辦、假勤與工單進度（暫用入口）</p>
         </div>
         <Link
-          href="/employee-portal"
+          href="/employee/dashboard"
           className={cn(buttonVariants({ variant: "outline" }), "gap-2 shrink-0 self-start sm:self-auto")}
         >
           <UserCircle2 className="h-4 w-4" />

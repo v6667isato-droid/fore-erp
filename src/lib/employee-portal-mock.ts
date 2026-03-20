@@ -10,6 +10,8 @@ export interface EmployeePortalEmployee {
   id: string;
   full_name: string;
   base_salary: number;
+  /** 特休剩餘天數（可小數）；對應 employees.annual_leave_remaining */
+  annual_leave_remaining?: number | null;
 }
 
 /** 頂部三格統計（本月薪資為固定顯示用數字，可與薪資試算分開） */
@@ -48,7 +50,19 @@ export interface LeaveRequestRow {
   /** 已核准且為扣薪假時，計入本月扣薪天數 */
   deducts_salary: boolean;
   days_count: number;
+  /** 特休：請假起始日之整點區間（與 DB start_hour/end_hour 對齊） */
+  start_hour?: number | null;
+  end_hour?: number | null;
+  /** 請假結束日之整點區間（跨日特休） */
+  end_day_start_hour?: number | null;
+  end_day_end_hour?: number | null;
+  hours_count?: number | null;
+  /** 請假事由（leave_requests.reason） */
+  reason?: string | null;
 }
+
+/** 進度下拉：待處理 | 進行中 | 已完成 */
+export type WorkProgressUiStatus = "pending" | "in_progress" | "done";
 
 /** 生產工單進度列（狀態由頁面 React state 管理，此處僅種子資料） */
 export interface WorkProgressSeedRow {
@@ -58,6 +72,45 @@ export interface WorkProgressSeedRow {
   /** 負責工序 */
   stage_label: string;
   expected_complete_date: string;
+  /** 自 work_orders 等帶入時，用於初始下拉狀態 */
+  initial_ui_status?: WorkProgressUiStatus;
+}
+
+/** payslips 資料表（Mock）；未來 supabase.from('payslips').select(...) */
+export type PayslipStatus = "paid" | "calculating";
+
+export interface PayslipDetailBreakdown {
+  base_salary: number;
+  /** 勞保自付額（結算快照） */
+  labor_insurance_employee: number;
+  /** 健保自付額（結算快照） */
+  health_insurance_employee: number;
+  /** 健保加保人數（employees.health_insured_persons 快照） */
+  health_insured_persons: number | null;
+  /** 加班天數 */
+  overtime_days: number;
+  /** 加班費（正數） */
+  overtime_pay: number;
+  /** 本月核准特休天數（結算自餘額扣除） */
+  special_leave_days_settled: number;
+  /** 請假扣款：事假／病假等（正數金額，顯示為減項） */
+  leave_deduction: number;
+  /** 其他加減項（正數加、負數減；0 可省略列） */
+  other_adjust: number;
+  /** 實發總額 */
+  net_pay: number;
+}
+
+export interface PayslipRow {
+  id: string;
+  /** 排序用 YYYY-MM */
+  period_key: string;
+  /** 顯示用，例如 2026 年 2 月 */
+  month_label: string;
+  /** 列表與明細結算應一致 */
+  net_pay: number;
+  status: PayslipStatus;
+  breakdown: PayslipDetailBreakdown;
 }
 
 export interface EmployeePortalPayload {
@@ -67,10 +120,8 @@ export interface EmployeePortalPayload {
   tasks: EmployeeTaskRow[];
   leave_requests: LeaveRequestRow[];
   work_progress_seed: WorkProgressSeedRow[];
+  payslips: PayslipRow[];
 }
-
-/** 進度下拉：待處理 | 進行中 | 已完成 */
-export type WorkProgressUiStatus = "pending" | "in_progress" | "done";
 
 export const workProgressStatusLabels: Record<WorkProgressUiStatus, string> = {
   pending: "待處理",
@@ -83,6 +134,7 @@ export const employeePortalMock: EmployeePortalPayload = {
     id: "emp-mock-001",
     full_name: "林雅婷",
     base_salary: 42000,
+    annual_leave_remaining: 12.5,
   },
   stats: {
     monthly_salary_ntd: 43800,
@@ -174,6 +226,10 @@ export const employeePortalMock: EmployeePortalPayload = {
       status: "pending",
       deducts_salary: false,
       days_count: 1,
+      start_hour: 9,
+      end_hour: 18,
+      hours_count: 8,
+      reason: "返鄉掃墓",
     },
     {
       id: "lr2",
@@ -192,6 +248,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       status: "rejected",
       deducts_salary: true,
       days_count: 1,
+      reason: "辦理證件",
     },
   ],
   work_progress_seed: [
@@ -220,10 +277,89 @@ export const employeePortalMock: EmployeePortalPayload = {
       expected_complete_date: "2026-03-27",
     },
   ],
+  payslips: [
+    {
+      id: "ps-2026-03",
+      period_key: "2026-03",
+      month_label: "2026 年 3 月",
+      net_pay: 43800,
+      status: "calculating",
+      breakdown: {
+        base_salary: 42000,
+        labor_insurance_employee: 1260,
+        health_insurance_employee: 826,
+        health_insured_persons: 3,
+        overtime_days: 4,
+        overtime_pay: 4800,
+        special_leave_days_settled: 1,
+        leave_deduction: 914,
+        other_adjust: 0,
+        net_pay: 43800,
+      },
+    },
+    {
+      id: "ps-2026-02",
+      period_key: "2026-02",
+      month_label: "2026 年 2 月",
+      net_pay: 45120,
+      status: "paid",
+      breakdown: {
+        base_salary: 42000,
+        labor_insurance_employee: 1260,
+        health_insurance_employee: 826,
+        health_insured_persons: 3,
+        overtime_days: 5,
+        overtime_pay: 6120,
+        special_leave_days_settled: 0,
+        leave_deduction: 914,
+        other_adjust: 0,
+        net_pay: 45120,
+      },
+    },
+    {
+      id: "ps-2026-01",
+      period_key: "2026-01",
+      month_label: "2026 年 1 月",
+      net_pay: 42850,
+      status: "paid",
+      breakdown: {
+        base_salary: 42000,
+        labor_insurance_employee: 1260,
+        health_insurance_employee: 826,
+        health_insured_persons: 3,
+        overtime_days: 3,
+        overtime_pay: 3850,
+        special_leave_days_settled: 2,
+        leave_deduction: 914,
+        other_adjust: 0,
+        net_pay: 42850,
+      },
+    },
+    {
+      id: "ps-2025-12",
+      period_key: "2025-12",
+      month_label: "2025 年 12 月",
+      net_pay: 46500,
+      status: "paid",
+      breakdown: {
+        base_salary: 42000,
+        labor_insurance_employee: 1260,
+        health_insurance_employee: 826,
+        health_insured_persons: 4,
+        overtime_days: 7,
+        overtime_pay: 10500,
+        special_leave_days_settled: 0,
+        leave_deduction: 3914,
+        other_adjust: 0,
+        net_pay: 46500,
+      },
+    },
+  ],
 };
 
 /**
  * 預留：改為 Supabase 查詢後組裝為 EmployeePortalPayload。
+ * payslips：await supabase.from('payslips').select('*').eq('employee_id', id).order('period_key', { ascending: false })
  */
 export async function fetchEmployeePortalData(): Promise<EmployeePortalPayload> {
   await new Promise((r) => setTimeout(r, 120));

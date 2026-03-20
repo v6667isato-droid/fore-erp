@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { isAuthSessionMissingError, supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -16,6 +16,12 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { cn, formatDate } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
+import { SalarySettlementCenter } from "@/components/salary-settlement-center";
+import {
+  annualLeavePartsToDecimal,
+  formatDayDecimalAsDayHour,
+  splitRemainingDaysToDayHour,
+} from "@/lib/employee-leave-time";
 
 type Role = "admin" | "staff" | null;
 
@@ -38,11 +44,17 @@ interface EmployeeRow {
   pension_employer: number | null;
   health_self: number | null;
   health_employer: number | null;
+  /** 健保投保人數（含自己） */
+  health_insured_persons: number | null;
+  /** 休息日加班「每日」基準金額（資料庫維護或計算欄位 overtime_rate） */
+  overtime_rate: number | null;
+  /** 特休剩餘天數（annual_leave_remaining） */
+  annual_leave_remaining: number | null;
 }
 
 // 對應資料庫 employees 表實際欄位
 const EMP_SELECT_ADMIN =
-  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden";
+  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate";
 
 const EMP_SELECT_STAFF =
   "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status";
@@ -96,6 +108,18 @@ function mapEmployee(r: Record<string, unknown>): EmployeeRow {
       (r as Record<string, unknown>).health_employer_burden != null
         ? Number((r as Record<string, unknown>).health_employer_burden as number)
         : null,
+    health_insured_persons:
+      (r as Record<string, unknown>).health_employee_burden_number != null
+        ? Number((r as Record<string, unknown>).health_employee_burden_number as number)
+        : null,
+    overtime_rate:
+      (r as Record<string, unknown>).overtime_rate != null
+        ? Number((r as Record<string, unknown>).overtime_rate as number)
+        : null,
+    annual_leave_remaining:
+      (r as Record<string, unknown>).annual_leave_remaining != null
+        ? Number((r as Record<string, unknown>).annual_leave_remaining as number)
+        : null,
   };
 }
 
@@ -109,11 +133,15 @@ function useCurrentUserRole() {
     (async () => {
       try {
         const {
-          data: { user },
+          data: { session },
           error,
-        } = await supabase.auth.getUser();
+        } = await supabase.auth.getSession();
+        if (!cancelled && error && !isAuthSessionMissingError(error)) {
+          console.error("[employees-page] getSession:", error);
+        }
+        const user = session?.user ?? null;
         // 若尚未登入，暫時以 staff 權限顯示（僅基本欄位）
-        if (error || !user) {
+        if (!user) {
           if (!cancelled) {
             setRole("staff");
             setName(null);
@@ -191,6 +219,8 @@ function EmployeeForm({
 }: EmployeeFormProps) {
   const [tab, setTab] = useState<TabKey>("basic");
   const [values, setValues] = useState<Partial<EmployeeRow>>(initial);
+  const [annualLeaveDaysInput, setAnnualLeaveDaysInput] = useState("");
+  const [annualLeaveHoursInput, setAnnualLeaveHoursInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement | null>(null);
@@ -199,6 +229,15 @@ function EmployeeForm({
     setValues(initial);
     setError(null);
     setTab("basic");
+    const r = initial.annual_leave_remaining;
+    if (r == null || !Number.isFinite(Number(r))) {
+      setAnnualLeaveDaysInput("");
+      setAnnualLeaveHoursInput("");
+    } else {
+      const { days, hours } = splitRemainingDaysToDayHour(Number(r));
+      setAnnualLeaveDaysInput(String(days));
+      setAnnualLeaveHoursInput(String(hours));
+    }
   }, [initial, mode]);
 
   useEffect(() => {
@@ -259,6 +298,14 @@ function EmployeeForm({
           values.health_employer != null
             ? Number(values.health_employer)
             : null;
+        payload.health_employee_burden_number =
+          values.health_insured_persons != null
+            ? Number(values.health_insured_persons)
+            : null;
+        payload.annual_leave_remaining = annualLeavePartsToDecimal(
+          annualLeaveDaysInput,
+          annualLeaveHoursInput,
+        );
       }
       await onSubmit(payload);
     } finally {
@@ -457,6 +504,64 @@ function EmployeeForm({
               />
             </div>
             <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">特休剩餘</span>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label
+                    htmlFor="emp-special-leave-days"
+                    className="text-[10px] text-muted-foreground"
+                  >
+                    日
+                  </label>
+                  <input
+                    id="emp-special-leave-days"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={annualLeaveDaysInput}
+                    onChange={(e) => setAnnualLeaveDaysInput(e.target.value)}
+                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label
+                    htmlFor="emp-special-leave-hours"
+                    className="text-[10px] text-muted-foreground"
+                  >
+                    小時
+                  </label>
+                  <input
+                    id="emp-special-leave-hours"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={annualLeaveHoursInput}
+                    onChange={(e) => setAnnualLeaveHoursInput(e.target.value)}
+                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="col-span-2 flex flex-col gap-1.5 rounded-lg border border-dashed border-border bg-muted/25 px-3 py-2.5">
+              <span className="text-xs text-muted-foreground">
+                休息日加班費基準／日（overtime_rate，由資料庫計算或維護）
+              </span>
+              <output
+                id="emp-overtime-rate-display"
+                className="text-sm font-semibold tabular-nums text-foreground"
+                aria-live="polite"
+              >
+                {values.overtime_rate != null &&
+                Number.isFinite(values.overtime_rate) ? (
+                  `NT$ ${Math.round(values.overtime_rate).toLocaleString("zh-TW")}`
+                ) : (
+                  <span className="font-normal text-muted-foreground">
+                    —（儲存月薪後由資料庫更新，或請於 Supabase 檢查欄位／觸發器）
+                  </span>
+                )}
+              </output>
+            </div>
+            <div className="flex flex-col gap-1.5">
               <label
                 htmlFor="emp-labor-salary"
                 className="text-xs text-muted-foreground"
@@ -472,23 +577,6 @@ function EmployeeForm({
                     "labor_insured_salary",
                     Number(e.target.value) || 0,
                   )
-                }
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label
-                htmlFor="emp-labor-self"
-                className="text-xs text-muted-foreground"
-              >
-                勞保自付額
-              </label>
-              <input
-                id="emp-labor-self"
-                type="number"
-                value={values.labor_self ?? ""}
-                onChange={(e) =>
-                  setField("labor_self", Number(e.target.value) || 0)
                 }
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
@@ -512,6 +600,23 @@ function EmployeeForm({
             </div>
             <div className="flex flex-col gap-1.5">
               <label
+                htmlFor="emp-health-employer"
+                className="text-xs text-muted-foreground"
+              >
+                健保雇主負擔
+              </label>
+              <input
+                id="emp-health-employer"
+                type="number"
+                value={values.health_employer ?? ""}
+                onChange={(e) =>
+                  setField("health_employer", Number(e.target.value) || 0)
+                }
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label
                 htmlFor="emp-pension"
                 className="text-xs text-muted-foreground"
               >
@@ -523,6 +628,23 @@ function EmployeeForm({
                 value={values.pension_employer ?? ""}
                 onChange={(e) =>
                   setField("pension_employer", Number(e.target.value) || 0)
+                }
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="emp-labor-self"
+                className="text-xs text-muted-foreground"
+              >
+                勞保自付額
+              </label>
+              <input
+                id="emp-labor-self"
+                type="number"
+                value={values.labor_self ?? ""}
+                onChange={(e) =>
+                  setField("labor_self", Number(e.target.value) || 0)
                 }
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
@@ -546,18 +668,34 @@ function EmployeeForm({
             </div>
             <div className="flex flex-col gap-1.5">
               <label
-                htmlFor="emp-health-employer"
+                htmlFor="emp-health-insured-persons"
                 className="text-xs text-muted-foreground"
               >
-                健保雇主負擔
+                健保投保人數（含自己）
               </label>
               <input
-                id="emp-health-employer"
+                id="emp-health-insured-persons"
                 type="number"
-                value={values.health_employer ?? ""}
-                onChange={(e) =>
-                  setField("health_employer", Number(e.target.value) || 0)
+                min={0}
+                step={1}
+                placeholder="例如：1、2、3…"
+                value={
+                  values.health_insured_persons != null
+                    ? values.health_insured_persons
+                    : ""
                 }
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    setField("health_insured_persons", null);
+                    return;
+                  }
+                  const n = parseInt(raw, 10);
+                  setField(
+                    "health_insured_persons",
+                    Number.isFinite(n) ? Math.max(0, n) : null,
+                  );
+                }}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -843,22 +981,30 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                         </span>
                       </div>
                       <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">特休剩餘</span>
+                        <span className="text-foreground tabular-nums">
+                          {row.annual_leave_remaining != null
+                            ? formatDayDecimalAsDayHour(row.annual_leave_remaining)
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">
+                          休息日加班基準／日 (overtime_rate)
+                        </span>
+                        <span className="text-foreground tabular-nums">
+                          {row.overtime_rate != null
+                            ? `NT$ ${Math.round(row.overtime_rate).toLocaleString("zh-TW")}`
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
                         <span className="text-muted-foreground">
                           勞保投保薪資
                         </span>
                         <span className="text-foreground tabular-nums">
                           {row.labor_insured_salary != null
                             ? row.labor_insured_salary.toLocaleString()
-                            : "—"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">
-                          勞保自付額
-                        </span>
-                        <span className="text-foreground tabular-nums">
-                          {row.labor_self != null
-                            ? row.labor_self.toLocaleString()
                             : "—"}
                         </span>
                       </div>
@@ -874,11 +1020,31 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                       </div>
                       <div className="flex justify-between gap-4">
                         <span className="text-muted-foreground">
+                          健保雇主負擔
+                        </span>
+                        <span className="text-foreground tabular-nums">
+                          {row.health_employer != null
+                            ? row.health_employer.toLocaleString()
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">
                           勞退雇主負擔
                         </span>
                         <span className="text-foreground tabular-nums">
                           {row.pension_employer != null
                             ? row.pension_employer.toLocaleString()
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">
+                          勞保自付額
+                        </span>
+                        <span className="text-foreground tabular-nums">
+                          {row.labor_self != null
+                            ? row.labor_self.toLocaleString()
                             : "—"}
                         </span>
                       </div>
@@ -894,11 +1060,11 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                       </div>
                       <div className="flex justify-between gap-4">
                         <span className="text-muted-foreground">
-                          健保雇主負擔
+                          健保投保人數（含自己）
                         </span>
                         <span className="text-foreground tabular-nums">
-                          {row.health_employer != null
-                            ? row.health_employer.toLocaleString()
+                          {row.health_insured_persons != null
+                            ? row.health_insured_persons.toLocaleString()
                             : "—"}
                         </span>
                       </div>
@@ -1030,6 +1196,8 @@ export function EmployeesPage() {
         </div>
         <AddEmployeeDialog onSuccess={() => fetchEmployees(role)} isAdmin={isAdmin} />
       </div>
+
+      {isAdmin && <SalarySettlementCenter />}
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/20 px-4 py-3">

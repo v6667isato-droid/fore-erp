@@ -2,9 +2,18 @@
 
 import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { getPathAfterLogin } from "@/lib/post-login-redirect";
+import {
+  isAuthSessionMissingError,
+  isLikelySupabaseNetworkError,
+  isSupabaseConfigured,
+  supabase,
+  SUPABASE_CONFIG_HELP,
+} from "@/lib/supabase";
+import { cn } from "@/lib/utils";
+
+const inputFocusClass =
+  "focus:border-[#5c4033] focus:outline-none focus:ring-2 focus:ring-[#5c4033]/30 focus:ring-offset-0";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,22 +21,49 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // 若已經登入，直接導向首頁
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!cancelled) {
-        if (user) {
-          router.replace("/");
+
+    async function init() {
+      if (!isSupabaseConfigured) {
+        if (!cancelled) {
+          setConnectionError(SUPABASE_CONFIG_HELP);
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (error && !isAuthSessionMissingError(error)) throw error;
+        if (session?.user) {
+          const path = await getPathAfterLogin(session.user.id);
+          router.replace(path);
         } else {
           setLoading(false);
         }
+      } catch (err) {
+        if (cancelled) return;
+        console.error("[fore-erp] employee login init:", err);
+        setConnectionError(
+          isLikelySupabaseNetworkError(err)
+            ? "無法連線至 Supabase。請檢查網路、VPN／防火牆，以及 .env.local 中的 URL 是否正確。"
+            : err instanceof Error
+              ? err.message
+              : "無法檢查登入狀態"
+        );
+        setLoading(false);
       }
-    })();
+    }
+
+    void init();
     return () => {
       cancelled = true;
     };
@@ -35,99 +71,145 @@ export default function LoginPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setSubmitError(null);
+
     if (!email.trim() || !password) {
-      toast.error("請輸入 Email 與密碼");
+      setSubmitError("請輸入工坊信箱與通行密碼。");
       return;
     }
+
     setSubmitting(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    setSubmitting(false);
-    if (error) {
-      toast.error(error.message || "登入失敗，請再試一次");
-      return;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (error) {
+        setSubmitError("帳號或密碼錯誤，請聯絡管理員。");
+        return;
+      }
+      const uid = data.user?.id;
+      if (!uid) {
+        router.push("/employee/dashboard");
+        return;
+      }
+      const path = await getPathAfterLogin(uid);
+      router.push(path);
+    } catch (err) {
+      console.error("[fore-erp] employee signIn:", err);
+      setSubmitError(
+        isLikelySupabaseNetworkError(err)
+          ? "無法連線至伺服器，請檢查網路與 Supabase 設定。"
+          : "登入失敗，請稍後再試或聯絡管理員。"
+      );
+    } finally {
+      setSubmitting(false);
     }
-    toast.success("登入成功");
-    router.replace("/");
   }
 
   if (loading) {
     return (
-      <div className="min-h-dvh bg-background flex items-center justify-center">
-        <div className="rounded-xl border border-border bg-card px-6 py-4 text-sm text-muted-foreground">
-          準備登入畫面中…
-        </div>
+      <div className="flex min-h-dvh items-center justify-center bg-[#F5F2E9] px-4">
+        <p className="text-sm text-[#5c4033]/70">載入中…</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-dvh bg-background flex items-center justify-center px-4">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card px-6 py-8 shadow-sm">
-        <div className="mb-6 text-center">
-          <h1 className="font-serif text-2xl font-semibold text-foreground">
-            Fore ERP 登入
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            內部系統 · 請使用工坊帳號登入
+    <div className="min-h-dvh bg-[#F5F2E9] px-4 py-10 flex items-center justify-center">
+      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
+        <div className="mb-8 text-center">
+          <p className="font-serif text-2xl font-semibold tracking-wide text-[#2c2418] md:text-[1.65rem]">
+            Føre Furniture
+          </p>
+          <p className="mt-2 text-sm font-medium tracking-[0.12em] text-[#5c4033]">
+            員工專屬入口
+          </p>
+          <p className="mt-3 text-xs leading-relaxed text-[#7a6b5d]">
+            請使用工坊配發之帳號登入。驗證由 Supabase Auth 處理。
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="login-email"
-              className="text-xs text-muted-foreground"
-            >
-              Email
+        {connectionError && (
+          <div
+            role="alert"
+            className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-left text-xs leading-relaxed text-red-800"
+          >
+            {connectionError}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="flex flex-col gap-2">
+            <label htmlFor="employee-email" className="text-xs font-medium text-[#5c4033]">
+              工坊信箱 (Email)
             </label>
             <input
-              id="login-email"
+              id="employee-email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="h-9 rounded-lg border border-input bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="you@workshop.tw"
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (submitError) setSubmitError(null);
+              }}
               autoComplete="email"
+              placeholder="name@workshop.tw"
+              className={cn(
+                "h-11 w-full rounded-xl border border-[#ddd4c4] bg-white px-4 text-sm text-[#2c2418]",
+                "placeholder:text-[#a89984]",
+                inputFocusClass
+              )}
             />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="login-password"
-              className="text-xs text-muted-foreground"
-            >
-              密碼
+          <div className="flex flex-col gap-2">
+            <label htmlFor="employee-password" className="text-xs font-medium text-[#5c4033]">
+              通行密碼 (Password)
             </label>
             <input
-              id="login-password"
+              id="employee-password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="h-9 rounded-lg border border-input bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="請輸入密碼"
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (submitError) setSubmitError(null);
+              }}
               autoComplete="current-password"
+              placeholder="請輸入密碼"
+              className={cn(
+                "h-11 w-full rounded-xl border border-[#ddd4c4] bg-white px-4 text-sm text-[#2c2418]",
+                "placeholder:text-[#a89984]",
+                inputFocusClass
+              )}
             />
           </div>
 
-          <div className="pt-2">
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={submitting}
+          {submitError && (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-center text-sm text-red-800"
             >
-              {submitting ? "登入中…" : "登入"}
-            </Button>
-          </div>
+              {submitError}
+            </div>
+          )}
 
-          <p className="mt-2 text-xs text-muted-foreground text-center">
-            此系統僅供 Fore 工坊內部使用。如有登入問題，請聯繫管理者。
-          </p>
+          <button
+            type="submit"
+            disabled={submitting || !isSupabaseConfigured}
+            className={cn(
+              "h-11 w-full rounded-xl bg-[#5c4033] text-sm font-semibold text-white",
+              "transition-colors hover:bg-[#4a3429] active:bg-[#3d2e1e]",
+              "disabled:pointer-events-none disabled:opacity-55"
+            )}
+          >
+            {submitting ? "驗證中…" : "登入"}
+          </button>
         </form>
+
+        <p className="mt-6 text-center text-[11px] leading-relaxed text-[#7a6b5d]">
+          此入口僅供 Føre 工坊同仁使用。如有問題請聯繫管理者。
+        </p>
       </div>
     </div>
   );
 }
-
