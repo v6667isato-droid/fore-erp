@@ -63,7 +63,7 @@ type Page =
   | "feedback";
 type AppRole = "admin" | "manager" | "staff" | null;
 
-/** 報價／訂單／產品等：admin 與 manager 可編輯；假單審核／員工資料僅 admin */
+/** 報價／訂單／產品等：admin 與 manager 可編輯；批准作業／員工資料僅 admin */
 function isErpEditorRole(role: AppRole): boolean {
   return role === "admin" || role === "manager";
 }
@@ -459,7 +459,7 @@ export default function DashboardShell() {
     };
   }, [router]);
 
-  // 非 admin 不可開員工資料／假單審核（含書籤或手動改 ?page=）
+  // 非 admin 不可開員工資料／批准作業（含書籤或手動改 ?page=）
   useEffect(() => {
     if (!authChecked || userRole === null) return;
     if (userRole !== "admin" && (activePage === "employees" || activePage === "leave_approvals")) {

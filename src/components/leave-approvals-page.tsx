@@ -17,7 +17,16 @@ import {
 } from "@/components/ui/table";
 import { cn, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
-import { ClipboardList, Inbox, RefreshCw } from "lucide-react";
+import {
+  Banknote,
+  ClipboardCheck,
+  ClipboardList,
+  Inbox,
+  Receipt,
+  RefreshCw,
+} from "lucide-react";
+import { SalarySettlementCenter } from "@/components/salary-settlement-center";
+import { PayslipPaidHistoryPanel } from "@/components/payslip-paid-history-panel";
 
 interface LeaveRequestAdminRow {
   id: string;
@@ -129,8 +138,10 @@ function leaveBadgeStyles(typeLabel: string): string {
 }
 
 type TabKey = "pending" | "history";
+type MainSection = "leave" | "payroll" | "paid_history";
 
 export function LeaveApprovalsPage() {
+  const [mainSection, setMainSection] = useState<MainSection>("leave");
   const [tab, setTab] = useState<TabKey>("pending");
   const [historyMonth, setHistoryMonth] = useState(ymNow);
   const [rows, setRows] = useState<LeaveRequestAdminRow[]>([]);
@@ -290,85 +301,145 @@ export function LeaveApprovalsPage() {
     });
   }
 
-  if (!isSupabaseConfigured) {
-    return (
-      <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-        {SUPABASE_CONFIG_HELP}
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-primary">
-            <ClipboardList className="h-5 w-5" strokeWidth={1.75} />
+            <ClipboardCheck className="h-5 w-5" strokeWidth={1.75} />
           </div>
           <div>
             <p className="font-serif text-lg font-semibold text-foreground">
-              假單審核中心
+              批准作業
             </p>
             <p className="text-xs text-muted-foreground">
-              待審核與歷史紀錄；核准／退回會即時寫入 leave_requests。
+              假單核准、薪資結算與已發放紀錄查詢（依月份篩選）。
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 gap-2 text-xs"
-            onClick={() => void load()}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", loading && "animate-spin")}
-            />
-            重新整理
-          </Button>
-        </div>
       </div>
 
-      {error && (
-        <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {error}
-        </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setMainSection("leave")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "leave"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <ClipboardList className="h-4 w-4 shrink-0 opacity-90" />
+          假單審核
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainSection("payroll")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "payroll"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <Banknote className="h-4 w-4 shrink-0 opacity-90" />
+          薪資結算
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainSection("paid_history")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "paid_history"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <Receipt className="h-4 w-4 shrink-0 opacity-90" />
+          已發放查詢
+        </button>
+      </div>
+
+      {mainSection === "payroll" && <SalarySettlementCenter />}
+
+      {mainSection === "paid_history" && <PayslipPaidHistoryPanel />}
+
+      {mainSection === "leave" && !isSupabaseConfigured && (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+          {SUPABASE_CONFIG_HELP}
+        </div>
       )}
 
-      <div className="flex flex-wrap gap-2 border-b border-border pb-2">
-        <button
-          type="button"
-          onClick={() => setTab("pending")}
-          className={cn(
-            "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-            tab === "pending"
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted/60 text-muted-foreground hover:bg-muted",
-          )}
-        >
-          待審核
-          {pendingList.length > 0 && (
-            <span className="ml-2 rounded-full bg-primary-foreground/20 px-2 py-0.5 text-xs tabular-nums">
-              {pendingList.length}
-            </span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("history")}
-          className={cn(
-            "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-            tab === "history"
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted/60 text-muted-foreground hover:bg-muted",
-          )}
-        >
-          歷史紀錄
-        </button>
-      </div>
+      {mainSection === "leave" && isSupabaseConfigured && (
+        <>
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/80 text-primary">
+                <ClipboardList className="h-4 w-4" strokeWidth={1.75} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">請假單</p>
+                <p className="text-xs text-muted-foreground">
+                  待審核與歷史；核准／退回寫入 leave_requests。
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 gap-2 text-xs"
+              onClick={() => void load()}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={cn("h-3.5 w-3.5", loading && "animate-spin")}
+              />
+              重新整理
+            </Button>
+          </div>
 
-      {tab === "pending" && (
+          {error && isSupabaseConfigured && (
+            <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2 border-b border-border pb-2">
+            <button
+              type="button"
+              onClick={() => setTab("pending")}
+              className={cn(
+                "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                tab === "pending"
+                  ? "bg-secondary text-secondary-foreground"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted",
+              )}
+            >
+              待審核
+              {pendingList.length > 0 && (
+                <span className="ml-2 rounded-full bg-foreground/10 px-2 py-0.5 text-xs tabular-nums">
+                  {pendingList.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("history")}
+              className={cn(
+                "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                tab === "history"
+                  ? "bg-secondary text-secondary-foreground"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted",
+              )}
+            >
+              歷史紀錄
+            </button>
+          </div>
+        </>
+      )}
+
+      {mainSection === "leave" && isSupabaseConfigured && tab === "pending" && (
         <div className="space-y-3">
           {loading ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
@@ -461,7 +532,7 @@ export function LeaveApprovalsPage() {
         </div>
       )}
 
-      {tab === "history" && (
+      {mainSection === "leave" && isSupabaseConfigured && tab === "history" && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs font-medium text-muted-foreground">

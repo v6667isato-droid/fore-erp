@@ -16,7 +16,6 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { cn, formatDate } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
-import { SalarySettlementCenter } from "@/components/salary-settlement-center";
 import {
   annualLeavePartsToDecimal,
   formatDayDecimalAsDayHour,
@@ -1196,8 +1195,6 @@ export function EmployeesPage() {
         </div>
         <AddEmployeeDialog onSuccess={() => fetchEmployees(role)} isAdmin={isAdmin} />
       </div>
-
-      {isAdmin && <SalarySettlementCenter />}
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/20 px-4 py-3">
