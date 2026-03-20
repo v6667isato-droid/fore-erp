@@ -43,6 +43,16 @@ interface OrderRow {
   explanation_image_url?: string | null;
 }
 
+/** DB total_amount 為應收總額（折扣後小計+運費）→ 表單「折扣後總金額」欄位 */
+function orderDiscountSubtotalField(order: OrderRow): string {
+  if (order.total_amount == null || !Number.isFinite(Number(order.total_amount))) {
+    return "";
+  }
+  const grand = Number(order.total_amount);
+  const ship = Math.max(0, Number(order.shipping_fee) || 0);
+  return String(Math.max(0, grand - ship));
+}
+
 interface CustomerOption {
   id: string;
   name: string;
@@ -260,11 +270,11 @@ function OrderFormDialog({
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(
     initialOrder?.payment_status ?? "未付款"
   );
-  // 折扣後總價（可手動輸入），預設為品項總金額
-  const [discountTotal, setDiscountTotal] = useState<string>(
-    initialOrder?.total_amount != null ? String(initialOrder.total_amount) : ""
+  // 折扣後總價（可手動輸入）；編輯模式一進來就要 locked=true，否則第一輪 effect 仍讀到 false 而覆寫掉 DB 帶入的值
+  const [discountTotal, setDiscountTotal] = useState<string>(() =>
+    initialOrder ? orderDiscountSubtotalField(initialOrder) : ""
   );
-  const [discountLocked, setDiscountLocked] = useState(false);
+  const [discountLocked, setDiscountLocked] = useState(() => Boolean(initialOrder));
   const [deposit, setDeposit] = useState<string>(() => {
     if (initialOrder?.deposit_amount != null) {
       return String(initialOrder.deposit_amount);
@@ -358,17 +368,7 @@ function OrderFormDialog({
       setOrderExplanationImages(parseExplanationImages(initialOrder.explanation_image_url));
       setInternalNotes(initialOrder.internal_notes ?? "");
       setDraftOrderNumber(initialOrder.order_number);
-      // 編輯舊訂單：DB 的 total_amount 為「應收總額」（折扣後小計 + 運費），折扣欄位應為扣掉運費後的小計
-      if (
-        initialOrder.total_amount != null &&
-        Number.isFinite(Number(initialOrder.total_amount))
-      ) {
-        const storedGrand = Number(initialOrder.total_amount);
-        const storedShip = Math.max(0, Number(initialOrder.shipping_fee) || 0);
-        setDiscountTotal(String(Math.max(0, storedGrand - storedShip)));
-      } else {
-        setDiscountTotal("");
-      }
+      setDiscountTotal(orderDiscountSubtotalField(initialOrder));
       setDiscountLocked(true);
       setDeposit(
         initialOrder.deposit_amount != null
@@ -507,13 +507,6 @@ function OrderFormDialog({
   const totalAmount = itemSubtotals.reduce((sum, v) => sum + v, 0);
   const shippingFeeAmount = Math.max(0, Number(shippingFee) || 0);
 
-  // 若使用者尚未手動輸入折扣後總價，則自動跟隨品項總金額
-  useEffect(() => {
-    if (!discountLocked) {
-      setDiscountTotal(totalAmount > 0 ? String(totalAmount) : "");
-    }
-  }, [totalAmount, discountLocked]);
-
   const discountBase = (() => {
     const raw = discountTotal.trim();
     if (raw === "") return totalAmount;
@@ -523,10 +516,16 @@ function OrderFormDialog({
   })();
   const grandTotal = discountBase + shippingFeeAmount;
 
-  // 品項/價格有變化時同步更新「折扣後總金額」：
-  // - 未手動鎖定：直接跟隨品項總額
-  // - 已手動鎖定：依品項總額差值調整，保留使用者手動調整的差額
+  // 品項總額變動 → 同步「折扣後總金額」（單一 effect，避免與載入 effect 競態）
+  // - 未鎖定（新增或尚未手改折扣）：直接等於品項總計
+  // - 已鎖定（編輯載入／手改過）：依品項總額差值調整，保留整單手動折扣差
   useEffect(() => {
+    if (!discountLocked) {
+      setDiscountTotal(totalAmount > 0 ? String(totalAmount) : "");
+      prevTotalAmountRef.current = totalAmount;
+      return;
+    }
+
     const prev = prevTotalAmountRef.current;
     if (prev === null) {
       prevTotalAmountRef.current = totalAmount;
@@ -536,10 +535,6 @@ function OrderFormDialog({
 
     const delta = totalAmount - prev;
     prevTotalAmountRef.current = totalAmount;
-
-    if (!discountLocked) {
-      return;
-    }
 
     setDiscountTotal((prevDiscountTotal) => {
       const current = Number(prevDiscountTotal);
@@ -2847,6 +2842,7 @@ export function OrdersPage({
       </p>
 
       <OrderFormDialog
+        key={editingOrder?.id ?? "new-order"}
         open={formOpen}
         onOpenChange={(open) => {
           if (!open) {

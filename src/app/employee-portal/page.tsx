@@ -4,27 +4,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   activeAnnouncements,
-  estimateMonthlyPayout,
   fetchEmployeePortalData,
+  workProgressStatusLabels,
   type EmployeePortalPayload,
   type LeaveRequestRow,
   type TaskStatus,
+  type WorkProgressSeedRow,
+  type WorkProgressUiStatus,
 } from "@/lib/employee-portal-mock";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import {
-  Ban,
-  CalendarPlus,
-  CheckCircle2,
-  ClipboardList,
-  Leaf,
-  Megaphone,
-  Shield,
-  Sparkles,
-  Wallet,
-  X,
-} from "lucide-react";
+import { CalendarPlus, ClipboardList, Factory, Leaf, Megaphone, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 
 function leaveStatusBadge(row: LeaveRequestRow) {
@@ -70,10 +61,50 @@ function taskStatusStyle(s: TaskStatus) {
   return "bg-[var(--kanban-done)] text-[var(--badge-done-fg)]";
 }
 
+function StatMini({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-[5.5rem] min-w-[7.25rem] flex-1 flex-col justify-center rounded-xl border border-border/80 bg-background/85 px-4 py-3.5 shadow-sm backdrop-blur-sm">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <span className="mt-1.5 text-lg font-semibold tabular-nums tracking-tight text-primary sm:text-xl">
+        {children}
+      </span>
+    </div>
+  );
+}
+
+function workProgressRowTone(status: WorkProgressUiStatus) {
+  switch (status) {
+    case "done":
+      return "bg-muted/50 opacity-[0.88]";
+    case "in_progress":
+      return "bg-secondary/35";
+    default:
+      return "bg-card hover:bg-muted/25";
+  }
+}
+
+const PROGRESS_DEFAULTS: WorkProgressUiStatus[] = [
+  "pending",
+  "in_progress",
+  "in_progress",
+  "done",
+];
+
+function seedProgressState(rows: WorkProgressSeedRow[]): Record<string, WorkProgressUiStatus> {
+  const next: Record<string, WorkProgressUiStatus> = {};
+  rows.forEach((r, i) => {
+    next[r.id] = PROGRESS_DEFAULTS[i % PROGRESS_DEFAULTS.length];
+  });
+  return next;
+}
+
 export default function EmployeePortalPage() {
   const [data, setData] = useState<EmployeePortalPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
+  const [progressById, setProgressById] = useState<Record<string, WorkProgressUiStatus>>({});
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveForm, setLeaveForm] = useState({
     type: "特休",
@@ -97,6 +128,11 @@ export default function EmployeePortalPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (!data?.work_progress_seed?.length) return;
+    setProgressById(seedProgressState(data.work_progress_seed));
+  }, [data]);
+
   const announcements = useMemo(
     () => (data ? activeAnnouncements(data.announcements) : []),
     [data]
@@ -107,9 +143,16 @@ export default function EmployeePortalPage() {
     return data.tasks.filter((t) => t.status === "todo" || t.status === "in_progress");
   }, [data]);
 
-  const payout = data
-    ? estimateMonthlyPayout(data.employee.base_salary, data.monthly_salary_deduct_days)
-    : 0;
+  const todayLabel = useMemo(
+    () =>
+      new Date().toLocaleDateString("zh-TW", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        weekday: "long",
+      }),
+    []
+  );
 
   function toggleTaskComplete(id: string, checked: boolean) {
     setCompletedTaskIds((prev) => {
@@ -139,120 +182,77 @@ export default function EmployeePortalPage() {
     );
   }
 
-  const { employee, monthly_salary_deduct_days, leave_requests, machine_authorizations } = data;
-  const perDay = Math.round(employee.base_salary / 30);
+  const { employee, stats, leave_requests, work_progress_seed } = data;
 
   return (
     <div
       className={cn(
         "min-h-dvh text-foreground",
         "bg-background",
-        "bg-[radial-gradient(ellipse_120%_80%_at_100%_-20%,rgba(196,168,130,0.18),transparent_50%)]",
-        "dark:bg-[radial-gradient(ellipse_120%_80%_at_100%_-20%,rgba(196,168,130,0.12),transparent_50%)]"
+        "bg-[radial-gradient(ellipse_120%_80%_at_100%_-20%,rgba(196,168,130,0.14),transparent_50%)]",
+        "dark:bg-[radial-gradient(ellipse_120%_80%_at_100%_-20%,rgba(196,168,130,0.1),transparent_50%)]"
       )}
     >
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
-        <header className="mb-8 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Føre Furniture · 實木工坊
-            </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-              員工個人儀表板
-            </h1>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {new Date().toLocaleDateString("zh-TW", {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-              weekday: "long",
-            })}
+      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+        <header className="mb-10 lg:mb-12">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Føre Furniture · 實木工坊
           </p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            員工個人儀表板
+          </h1>
         </header>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8 lg:items-start">
-          {/* 左欄 2/3 */}
-          <div className="flex flex-col gap-6 lg:col-span-2">
-            {/* 歡迎 + 薪資水位 */}
-            <section
-              className={cn(
-                "relative overflow-hidden rounded-2xl border border-border/90",
-                "bg-gradient-to-br from-card via-card to-secondary/40",
-                "shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_12px_40px_-12px_rgba(44,36,24,0.12)]",
-                "dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_12px_40px_-12px_rgba(0,0,0,0.45)]",
-                "p-6 sm:p-8"
-              )}
-            >
-              <div
-                className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-accent/20 blur-3xl"
-                aria-hidden
-              />
-              <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                <div className="space-y-3">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-background/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur-sm">
-                    <Sparkles className="h-3.5 w-3.5 text-accent" />
-                    今日工作台
-                  </div>
-                  <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                    歡迎回來，{employee.full_name}
-                  </h2>
-                  <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-                    以下是公司公告、交辦與假勤摘要。數據目前為展示用 Mock，之後將與 Supabase
-                    同步。
-                  </p>
+        <div className="flex flex-col gap-8 lg:gap-10">
+          {/* 今日工作台 */}
+          <section
+            className={cn(
+              "relative overflow-hidden rounded-2xl border border-border/90",
+              "bg-gradient-to-br from-card via-card to-secondary/35",
+              "shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_12px_40px_-12px_rgba(44,36,24,0.1)]",
+              "dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_12px_40px_-12px_rgba(0,0,0,0.4)]",
+              "p-6 sm:p-8 lg:p-10"
+            )}
+          >
+            <div
+              className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent/15 blur-3xl"
+              aria-hidden
+            />
+            <div className="relative flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between lg:gap-12">
+              <div className="flex min-w-0 flex-1 flex-col justify-center gap-4">
+                <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border/80 bg-background/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur-sm">
+                  <Sparkles className="h-3.5 w-3.5 text-accent" />
+                  今日工作台
                 </div>
-                <div
-                  className={cn(
-                    "shrink-0 rounded-xl border border-border/80 bg-background/80 p-5 backdrop-blur-sm",
-                    "w-full lg:max-w-[280px]"
-                  )}
-                >
-                  <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    <Wallet className="h-3.5 w-3.5" />
-                    本月預估發放薪資水位
-                  </div>
-                  <p className="mt-3 text-3xl font-semibold tabular-nums text-primary">
-                    NT${" "}
-                    {payout.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}
-                  </p>
-                  <dl className="mt-4 space-y-2 border-t border-border/70 pt-4 text-xs text-muted-foreground">
-                    <div className="flex justify-between gap-4">
-                      <dt>底薪</dt>
-                      <dd className="tabular-nums text-foreground">
-                        NT$ {employee.base_salary.toLocaleString("zh-TW")}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt>扣薪請假天數（本月已核准）</dt>
-                      <dd className="tabular-nums text-foreground">{monthly_salary_deduct_days} 天</dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt>日薪換算（底薪÷30）</dt>
-                      <dd className="tabular-nums text-foreground">約 NT$ {perDay}</dd>
-                    </div>
-                  </dl>
-                  <p className="mt-3 text-[11px] leading-snug text-muted-foreground/90">
-                    試算公式：底薪 −（底薪÷30 × 扣薪請假天數），結果四捨五入至整數。
-                  </p>
-                </div>
+                <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                  歡迎回來，{employee.full_name}
+                </h2>
+                <p className="text-sm tabular-nums text-muted-foreground">{todayLabel}</p>
               </div>
-            </section>
+              <div className="flex w-full shrink-0 flex-col gap-3 sm:flex-row lg:max-w-xl lg:flex-1">
+                <StatMini label="本月薪資">
+                  NT${" "}
+                  {stats.monthly_salary_ntd.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}
+                </StatMini>
+                <StatMini label="本月加班天數">{stats.monthly_overtime_days} 天</StatMini>
+                <StatMini label="本月請假天數">{stats.monthly_leave_days} 天</StatMini>
+              </div>
+            </div>
+          </section>
 
-            {/* 公司公告 */}
-            <section
-              className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-7"
-            >
-              <div className="mb-5 flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
-                  <Megaphone className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold">公司公告</h3>
-                  <p className="text-xs text-muted-foreground">announcements · is_active = true</p>
-                </div>
+          {/* 公司公告 */}
+          <section className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-8">
+            <div className="mb-5 flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
+                <Megaphone className="h-4 w-4" />
               </div>
-              <ul className="space-y-4">
+              <div>
+                <h3 className="text-base font-semibold">公司公告</h3>
+                <p className="text-xs text-muted-foreground">announcements · is_active = true</p>
+              </div>
+            </div>
+            <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
+              <ul className="space-y-4 pr-2">
                 {announcements.length === 0 ? (
                   <li className="text-sm text-muted-foreground">目前沒有有效公告。</li>
                 ) : (
@@ -272,20 +272,22 @@ export default function EmployeePortalPage() {
                   ))
                 )}
               </ul>
-            </section>
+            </div>
+          </section>
 
-            {/* 我的交辦 */}
-            <section className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-7">
-              <div className="mb-5 flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
-                  <ClipboardList className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold">我的交辦事項</h3>
-                  <p className="text-xs text-muted-foreground">employee_tasks · 待辦與進行中</p>
-                </div>
+          {/* 我的交辦 */}
+          <section className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-8">
+            <div className="mb-5 flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
+                <ClipboardList className="h-4 w-4" />
               </div>
-              <ul className="space-y-2">
+              <div>
+                <h3 className="text-base font-semibold">我的交辦事項</h3>
+                <p className="text-xs text-muted-foreground">employee_tasks · 待辦與進行中</p>
+              </div>
+            </div>
+            <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
+              <ul className="space-y-2 pr-2">
                 {visibleTasks.length === 0 ? (
                   <li className="text-sm text-muted-foreground">沒有待辦或進行中的任務。</li>
                 ) : (
@@ -296,7 +298,7 @@ export default function EmployeePortalPage() {
                         key={t.id}
                         className={cn(
                           "flex gap-3 rounded-xl border border-border/60 px-3 py-3 sm:px-4",
-                          "bg-muted/15 hover:bg-muted/25 transition-colors"
+                          "bg-muted/15 transition-colors hover:bg-muted/25"
                         )}
                       >
                         <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
@@ -337,112 +339,153 @@ export default function EmployeePortalPage() {
                   })
                 )}
               </ul>
-            </section>
+            </div>
+          </section>
 
-            {/* 請假追蹤 */}
-            <section className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-7">
-              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
-                    <Leaf className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-semibold">請假狀態追蹤</h3>
-                    <p className="text-xs text-muted-foreground">leave_requests · 近期紀錄</p>
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  size="default"
-                  className="shrink-0 gap-1.5 self-start sm:self-auto"
-                  onClick={() => setLeaveOpen(true)}
-                >
-                  <CalendarPlus className="h-4 w-4" />
-                  申請休假
-                </Button>
-              </div>
-              <div className="overflow-x-auto rounded-xl border border-border/60">
-                <table className="w-full min-w-[520px] text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/30 text-left text-xs text-muted-foreground">
-                      <th className="px-4 py-3 font-medium">假別</th>
-                      <th className="px-4 py-3 font-medium">區間</th>
-                      <th className="px-4 py-3 font-medium">天數</th>
-                      <th className="px-4 py-3 font-medium">狀態</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {leave_requests.map((row) => (
-                      <tr
-                        key={row.id}
-                        className="border-b border-border/60 last:border-0 hover:bg-muted/15"
-                      >
-                        <td className="px-4 py-3 font-medium text-foreground">{row.type_label}</td>
-                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
-                          {row.start_date} — {row.end_date}
-                        </td>
-                        <td className="px-4 py-3 tabular-nums text-muted-foreground">
-                          {row.days_count}
-                        </td>
-                        <td className="px-4 py-3">{leaveStatusBadge(row)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
-
-          {/* 右欄 1/3 */}
-          <aside className="flex flex-col gap-6 lg:col-span-1">
-            <section
-              className={cn(
-                "rounded-2xl border border-border/90 bg-card p-6 shadow-sm",
-                "lg:sticky lg:top-8"
-              )}
-            >
-              <div className="mb-5 flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
-                  <Shield className="h-4 w-4" />
+          {/* 我的進度追蹤 */}
+          <section
+            className={cn(
+              "rounded-2xl border-2 border-primary/15 bg-card p-6 shadow-md sm:p-8 lg:p-10",
+              "ring-1 ring-border/40"
+            )}
+          >
+            <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Factory className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold">機具授權通行證</h3>
-                  <p className="text-xs text-muted-foreground">machine_authorizations</p>
+                  <h3 className="text-lg font-semibold tracking-tight sm:text-xl">我的進度追蹤</h3>
+                  <p className="text-xs text-muted-foreground">生產工單 · 現場狀態（Mock，下拉為本地 State）</p>
                 </div>
               </div>
-              <ul className="space-y-3">
-                {machine_authorizations.map((m) => (
-                  <li
-                    key={m.machine_id}
-                    className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/15 px-3 py-3"
-                  >
-                    {m.authorized ? (
-                      <CheckCircle2
-                        className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
-                        aria-hidden
-                      />
-                    ) : (
-                      <Ban
-                        className="h-5 w-5 shrink-0 text-red-600 dark:text-red-400"
-                        aria-hidden
-                      />
-                    )}
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 text-sm font-medium leading-snug",
-                        m.authorized ? "text-foreground" : "text-muted-foreground"
-                      )}
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-border/70">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
+                    <th className="px-4 py-3.5 font-medium">訂單／生產單號</th>
+                    <th className="px-4 py-3.5 font-medium">負責工序</th>
+                    <th className="px-4 py-3.5 font-medium">預計完成日</th>
+                    <th className="px-4 py-3.5 font-medium min-w-[9rem]">目前狀態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {work_progress_seed.map((row) => {
+                    const status = progressById[row.id] ?? "pending";
+                    const isDone = status === "done";
+                    return (
+                      <tr
+                        key={row.id}
+                        className={cn(
+                          "border-b border-border/60 transition-colors last:border-0",
+                          workProgressRowTone(status)
+                        )}
+                      >
+                        <td
+                          className={cn(
+                            "px-4 py-3.5 font-medium text-foreground",
+                            isDone && "text-muted-foreground line-through decoration-border/80"
+                          )}
+                        >
+                          {row.order_ref}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-4 py-3.5 text-muted-foreground",
+                            isDone && "line-through opacity-90"
+                          )}
+                        >
+                          {row.stage_label}
+                        </td>
+                        <td
+                          className={cn(
+                            "px-4 py-3.5 tabular-nums text-muted-foreground",
+                            isDone && "line-through opacity-90"
+                          )}
+                        >
+                          {row.expected_complete_date}
+                        </td>
+                        <td className="px-4 py-3">
+                          <select
+                            value={status}
+                            onChange={(e) => {
+                              const v = e.target.value as WorkProgressUiStatus;
+                              setProgressById((prev) => ({ ...prev, [row.id]: v }));
+                            }}
+                            className={cn(
+                              "h-9 w-full max-w-[11rem] rounded-lg border border-input bg-background px-2.5 text-sm text-foreground",
+                              "focus:outline-none focus:ring-2 focus:ring-ring"
+                            )}
+                            aria-label={`${row.order_ref} 狀態`}
+                          >
+                            {(Object.keys(workProgressStatusLabels) as WorkProgressUiStatus[]).map((k) => (
+                              <option key={k} value={k}>
+                                {workProgressStatusLabels[k]}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* 我的請假狀態 */}
+          <section className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-8">
+            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
+                  <Leaf className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold">我的請假狀態</h3>
+                  <p className="text-xs text-muted-foreground">leave_requests · 近期紀錄</p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                size="default"
+                className="shrink-0 gap-1.5 self-start sm:self-auto"
+                onClick={() => setLeaveOpen(true)}
+              >
+                <CalendarPlus className="h-4 w-4" />
+                申請休假
+              </Button>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-border/60">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30 text-left text-xs text-muted-foreground">
+                    <th className="px-4 py-3 font-medium">假別</th>
+                    <th className="px-4 py-3 font-medium">區間</th>
+                    <th className="px-4 py-3 font-medium">天數</th>
+                    <th className="px-4 py-3 font-medium">狀態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leave_requests.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="border-b border-border/60 last:border-0 hover:bg-muted/15"
                     >
-                      {m.machine_name}
-                    </span>
-                    <span className="sr-only">
-                      {m.authorized ? "已授權" : "未授權"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </aside>
+                      <td className="px-4 py-3 font-medium text-foreground">{row.type_label}</td>
+                      <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                        {row.start_date} — {row.end_date}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                        {row.days_count}
+                      </td>
+                      <td className="px-4 py-3">{leaveStatusBadge(row)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -452,9 +495,7 @@ export default function EmployeePortalPage() {
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-card p-6 shadow-xl focus:outline-none">
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
-                <Dialog.Title className="text-lg font-semibold text-foreground">
-                  申請休假
-                </Dialog.Title>
+                <Dialog.Title className="text-lg font-semibold text-foreground">申請休假</Dialog.Title>
                 <Dialog.Description className="mt-1 text-sm text-muted-foreground">
                   填寫後送出（Mock）。實際將寫入 leave_requests 並進入審核流程。
                 </Dialog.Description>
@@ -471,7 +512,7 @@ export default function EmployeePortalPage() {
             </div>
             <form onSubmit={submitLeaveRequest} className="space-y-4">
               <div>
-                <label htmlFor="leave-type" className="block text-sm font-medium text-foreground mb-1.5">
+                <label htmlFor="leave-type" className="mb-1.5 block text-sm font-medium text-foreground">
                   假別
                 </label>
                 <select
@@ -488,7 +529,7 @@ export default function EmployeePortalPage() {
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label htmlFor="leave-start" className="block text-sm font-medium text-foreground mb-1.5">
+                  <label htmlFor="leave-start" className="mb-1.5 block text-sm font-medium text-foreground">
                     開始日
                   </label>
                   <input
@@ -500,7 +541,7 @@ export default function EmployeePortalPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="leave-end" className="block text-sm font-medium text-foreground mb-1.5">
+                  <label htmlFor="leave-end" className="mb-1.5 block text-sm font-medium text-foreground">
                     結束日
                   </label>
                   <input
@@ -513,7 +554,7 @@ export default function EmployeePortalPage() {
                 </div>
               </div>
               <div>
-                <label htmlFor="leave-reason" className="block text-sm font-medium text-foreground mb-1.5">
+                <label htmlFor="leave-reason" className="mb-1.5 block text-sm font-medium text-foreground">
                   事由
                 </label>
                 <textarea
