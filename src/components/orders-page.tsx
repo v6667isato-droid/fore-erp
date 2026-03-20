@@ -95,6 +95,14 @@ const IMAGE_COMPRESSION_OPTIONS = {
   useWebWorker: true,
 } as const;
 
+/** 訂單說明／尺寸圖需保留線條與文字可讀性，比品項縮圖寬鬆 */
+const ORDER_EXPLANATION_COMPRESSION_OPTIONS = {
+  maxSizeMB: 3,
+  maxWidthOrHeight: 2880,
+  initialQuality: 0.95,
+  useWebWorker: true,
+} as const;
+
 const ORDER_STATUS_OPTIONS: OrderStatus[] = [
   "報價中",
   "繪圖中",
@@ -580,7 +588,7 @@ function OrderFormDialog({
     }
     setUploadingImageItemId("order");
     try {
-      const compressed = await imageCompression(file, IMAGE_COMPRESSION_OPTIONS);
+      const compressed = await imageCompression(file, ORDER_EXPLANATION_COMPRESSION_OPTIONS);
       const ext = compressed.name.split(".").pop()?.toLowerCase() || "webp";
       const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "webp";
       const filename = `${crypto.randomUUID()}.${safeExt}`;
