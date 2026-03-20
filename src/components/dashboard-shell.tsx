@@ -16,6 +16,7 @@ import {
   LogIn,
   ExternalLink,
   MessageSquare,
+  UserCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -140,7 +141,7 @@ function DesktopSidebar({
       <ScrollArea className="flex-1 py-4">
         <SidebarNav activePage={activePage} onNavigate={onNavigate} userRole={userRole} />
       </ScrollArea>
-      <div className="px-3 py-2">
+      <div className="flex flex-col gap-1 px-3 py-2">
         <a
           href="/portal"
           target="_blank"
@@ -149,6 +150,13 @@ function DesktopSidebar({
         >
           <ExternalLink className="h-4 w-4" />
           通路下單
+        </a>
+        <a
+          href="/employee-portal"
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+        >
+          <UserCircle2 className="h-4 w-4" />
+          員工儀表板
         </a>
       </div>
       <div className="border-t border-sidebar-border p-4">
@@ -250,6 +258,14 @@ function MobileHeader({
                 >
                   <ExternalLink className="h-[18px] w-[18px] shrink-0" />
                   通路下單
+                </a>
+                <a
+                  href="/employee-portal"
+                  onClick={() => setOpen(false)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                >
+                  <UserCircle2 className="h-[18px] w-[18px] shrink-0" />
+                  員工儀表板
                 </a>
               </nav>
             </div>

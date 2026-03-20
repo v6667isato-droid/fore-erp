@@ -239,8 +239,10 @@ export function WorkOrdersPage() {
       };
     });
 
-    // 排除「報價中」的訂單，不進入生產看板
-    const filtered = mapped.filter((w) => w.order_status !== "報價中");
+    // 排除「報價中」「結案」訂單，不進入生產列表
+    const filtered = mapped.filter(
+      (w) => w.order_status !== "報價中" && w.order_status !== "結案"
+    );
     setRows(filtered);
   }
 

@@ -208,8 +208,8 @@ export function KanbanPage() {
           const orderRel = firstItem?.orders;
           const orderObj = Array.isArray(orderRel) ? orderRel[0] : orderRel;
 
-          // 只顯示「非報價中」的訂單品項（報價中的品項可能更改，不排入生產看板）
-          if (!orderObj || orderObj.status === "報價中") {
+          // 報價中／結案不排入生產看板
+          if (!orderObj || orderObj.status === "報價中" || orderObj.status === "結案") {
             continue;
           }
           const card: KanbanCard = {

@@ -67,6 +67,31 @@ function parseExplanationImages(raw: string | null | undefined): ExplanationImag
   }
 }
 
+/** 另存 PDF 時瀏覽器多會用 document.title 當預設檔名 */
+function orderDateToYyMmDd(orderDate: string | null): string {
+  if (orderDate && /^\d{4}-\d{2}-\d{2}/.test(orderDate)) {
+    return `${orderDate.slice(2, 4)}${orderDate.slice(5, 7)}${orderDate.slice(8, 10)}`;
+  }
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yy}${mm}${dd}`;
+}
+
+function sanitizeForPdfFilename(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "客戶";
+  const cleaned = trimmed
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
+    .replace(/\s+/g, "");
+  return cleaned.slice(0, 80) || "客戶";
+}
+
+function buildPrintPdfFilename(o: PrintOrder): string {
+  return `${orderDateToYyMmDd(o.order_date)}_${sanitizeForPdfFilename(o.customer_name)}`;
+}
+
 interface PrintOrderItem {
   id: string;
   quantity: number;
@@ -91,6 +116,11 @@ export default function PrintOrderPage() {
   const [order, setOrder] = useState<PrintOrder | null>(null);
   const [items, setItems] = useState<PrintOrderItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!order) return;
+    document.title = buildPrintPdfFilename(order);
+  }, [order]);
 
   useEffect(() => {
     if (!orderId) return;
@@ -390,7 +420,10 @@ export default function PrintOrderPage() {
         <div className="flex justify-end mb-6 print:hidden">
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => {
+              document.title = buildPrintPdfFilename(order);
+              window.print();
+            }}
             className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400"
           >
             <span>🖨️ 列印 / 存成 PDF</span>

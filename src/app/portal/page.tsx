@@ -67,8 +67,8 @@ function generateOrderNumber() {
   return `ORD-${ymd}-${suffix}`;
 }
 
-/** 狀態為「生產中」「已出貨」時不可修改或刪除 */
-const LOCKED_STATUSES = ["生產中", "已出貨"];
+/** 僅「結案」時不可修改或刪除 */
+const LOCKED_STATUSES = ["結案"];
 function canEditOrDelete(status: string) {
   return !LOCKED_STATUSES.includes(status);
 }
@@ -255,7 +255,7 @@ export default function PortalPage() {
 
   function requestDeleteOrder(order: MyOrderRow) {
     if (!canEditOrDelete(order.status)) {
-      toast.error("訂單已進入生產或已出貨，無法刪除");
+      toast.error("訂單已結案，無法刪除");
       return;
     }
     setDeleteConfirmOrder(order);
@@ -297,7 +297,7 @@ export default function PortalPage() {
       }
       const o = orderRes.data as any;
       if (o.status && LOCKED_STATUSES.includes(o.status)) {
-        toast.error("此訂單已進入生產或已出貨，無法修改");
+        toast.error("此訂單已結案，無法修改");
         setEditingOrderId(null);
         setEditFormLoading(false);
         return;

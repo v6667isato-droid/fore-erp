@@ -19,7 +19,14 @@ import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
 import { Search, Plus, X, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download } from "lucide-react";
 import { toast } from "sonner";
 
-type OrderStatus = "報價中" | "繪圖中" | "排程中" | "生產中" | "已出貨";
+type OrderStatus =
+  | "報價中"
+  | "繪圖中"
+  | "排程中"
+  | "生產中"
+  | "已完工"
+  | "已出貨"
+  | "結案";
 type PaymentStatus = "未付款" | "部分付款" | "已付訂金" | "已結清";
 
 interface OrderRow {
@@ -51,6 +58,11 @@ function orderDiscountSubtotalField(order: OrderRow): string {
   const grand = Number(order.total_amount);
   const ship = Math.max(0, Number(order.shipping_fee) || 0);
   return String(Math.max(0, grand - ship));
+}
+
+/** 僅「結案」訂單後台僅能檢視，不可改寫（其餘狀態含已出貨、已結清仍可編輯） */
+function isOrderAdminReadOnly(order: Pick<OrderRow, "status">): boolean {
+  return order.status === "結案";
 }
 
 interface CustomerOption {
@@ -118,7 +130,9 @@ const ORDER_STATUS_OPTIONS: OrderStatus[] = [
   "繪圖中",
   "排程中",
   "生產中",
+  "已完工",
   "已出貨",
+  "結案",
 ];
 
 const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = [
@@ -133,7 +147,9 @@ const statusStyles: Record<OrderStatus, string> = {
   繪圖中: "bg-violet-100 text-violet-800 border-violet-200",
   排程中: "bg-amber-100 text-amber-800 border-amber-200",
   生產中: "bg-blue-100 text-blue-800 border-blue-200",
+  已完工: "bg-teal-100 text-teal-900 border-teal-200",
   已出貨: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  結案: "bg-slate-200 text-slate-800 border-slate-300",
 };
 
 const paymentStatusStyles: Record<PaymentStatus, string> = {
@@ -150,22 +166,25 @@ function WoodTypeComboboxInput({
   id,
   value,
   onChange,
+  readOnly = false,
   placeholder = "選擇或輸入木種",
 }: {
   id: string;
   value: string;
   onChange: (v: string) => void;
+  readOnly?: boolean;
   placeholder?: string;
 }) {
   return (
     <input
       id={id}
       type="text"
-      list={WOOD_TYPE_DATALIST_ID}
+      list={readOnly ? undefined : WOOD_TYPE_DATALIST_ID}
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      readOnly={readOnly}
       placeholder={placeholder}
-      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
       autoComplete="off"
     />
   );
@@ -239,6 +258,7 @@ interface OrderFormProps {
   variants: VariantOption[];
   initialOrder?: OrderRow | null;
   initialItems?: OrderItemInput[];
+  readOnly?: boolean;
   onSaved: () => void;
   onRefreshCustomers: () => Promise<void>;
 }
@@ -250,10 +270,14 @@ function OrderFormDialog({
   variants,
   initialOrder,
   initialItems,
+  readOnly = false,
   onSaved,
   onRefreshCustomers,
 }: OrderFormProps) {
   const isEdit = Boolean(initialOrder);
+  /** 結案檢視：勿用 fieldset disabled（會讓 select 無法展開閱讀），改以唯讀欄位呈現 */
+  const viewFieldClass =
+    "flex min-h-9 w-full items-center rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]";
   const [saving, setSaving] = useState(false);
   const [customerId, setCustomerId] = useState<string>(
     initialOrder?.customer_id ?? ""
@@ -661,6 +685,7 @@ function OrderFormDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     if (!customerId) {
       toast.error("請選擇客戶");
       return;
@@ -814,10 +839,12 @@ function OrderFormDialog({
           <div className="flex items-start justify-between gap-4 border-b border-border p-5 pb-0">
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">
-                {isEdit ? "編輯訂單" : "新增訂單"}
+                {isEdit ? (readOnly ? "檢視訂單" : "編輯訂單") : "新增訂單"}
               </Dialog.Title>
               <p className="mt-1 text-sm text-muted-foreground">
-                設定訂單主檔與品項明細。
+                {readOnly
+                  ? "此訂單已結案，僅供檢視。"
+                  : "設定訂單主檔與品項明細。"}
               </p>
             </div>
             <Dialog.Close asChild>
@@ -835,6 +862,12 @@ function OrderFormDialog({
             onSubmit={handleSubmit}
             className="mt-4 flex flex-1 flex-col overflow-hidden"
           >
+            {readOnly ? (
+              <div className="mx-5 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                已結案之訂單無法修改；請關閉視窗離開。
+              </div>
+            ) : null}
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5">
               <datalist id={WOOD_TYPE_DATALIST_ID}>
                 {WOOD_TYPE_OPTIONS.map((w) => (
@@ -864,48 +897,58 @@ function OrderFormDialog({
                       客戶 *
                     </label>
                     <div className="flex items-center gap-2">
-                      <select
-                        id="order-customer"
-                        value={customerId}
-                        onChange={(e) => {
-                          const id = e.target.value;
-                          setCustomerId(id);
-                          const customer = customers.find((c) => c.id === id);
-                          if (customer?.delivery_address) {
-                            setShippingAddress(customer.delivery_address);
-                          }
-                        }}
-                        className="h-9 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        required
-                      >
-                        <option value="">請選擇客戶</option>
-                        {customers.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9 shrink-0 px-2 text-xs"
-                        onClick={() => setAddCustomerOpen(true)}
-                      >
-                        <UserPlus className="h-3.5 w-3.5 mr-1" />
-                        新增客戶
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9 shrink-0 px-2 text-xs"
-                        onClick={() => {
-                          if (!customerId) return;
-                          setEditCustomerOpen(true);
-                        }}
-                        disabled={!customerId}
-                      >
-                        編輯客戶
-                      </Button>
+                      {readOnly ? (
+                        <div className={`${viewFieldClass} flex-1`}>
+                          {customers.find((c) => c.id === customerId)?.name ?? "—"}
+                        </div>
+                      ) : (
+                        <select
+                          id="order-customer"
+                          value={customerId}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            setCustomerId(id);
+                            const customer = customers.find((c) => c.id === id);
+                            if (customer?.delivery_address) {
+                              setShippingAddress(customer.delivery_address);
+                            }
+                          }}
+                          className="h-9 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          required
+                        >
+                          <option value="">請選擇客戶</option>
+                          {customers.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {!readOnly ? (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9 shrink-0 px-2 text-xs"
+                            onClick={() => setAddCustomerOpen(true)}
+                          >
+                            <UserPlus className="h-3.5 w-3.5 mr-1" />
+                            新增客戶
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9 shrink-0 px-2 text-xs"
+                            onClick={() => {
+                              if (!customerId) return;
+                              setEditCustomerOpen(true);
+                            }}
+                            disabled={!customerId}
+                          >
+                            編輯客戶
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                     <AddCustomerDialog
                       channels={[]}
@@ -937,7 +980,8 @@ function OrderFormDialog({
                       type="date"
                       value={orderDate ?? ""}
                       onChange={(e) => setOrderDate(e.target.value)}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      readOnly={readOnly}
+                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -952,7 +996,8 @@ function OrderFormDialog({
                       type="date"
                       value={expectedDate ?? ""}
                       onChange={(e) => setExpectedDate(e.target.value)}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      readOnly={readOnly}
+                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -962,20 +1007,26 @@ function OrderFormDialog({
                     >
                       訂單狀態
                     </label>
-                    <select
-                      id="order-status"
-                      value={status}
-                      onChange={(e) =>
-                        setStatus(e.target.value as OrderStatus)
-                      }
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      {ORDER_STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                    {readOnly ? (
+                      <div id="order-status" className={viewFieldClass}>
+                        {status}
+                      </div>
+                    ) : (
+                      <select
+                        id="order-status"
+                        value={status}
+                        onChange={(e) =>
+                          setStatus(e.target.value as OrderStatus)
+                        }
+                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        {ORDER_STATUS_OPTIONS.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label
@@ -984,20 +1035,26 @@ function OrderFormDialog({
                     >
                       付款狀態
                     </label>
-                    <select
-                      id="order-payment"
-                      value={paymentStatus}
-                      onChange={(e) =>
-                        setPaymentStatus(e.target.value as PaymentStatus)
-                      }
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      {PAYMENT_STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                    {readOnly ? (
+                      <div id="order-payment" className={viewFieldClass}>
+                        {paymentStatus}
+                      </div>
+                    ) : (
+                      <select
+                        id="order-payment"
+                        value={paymentStatus}
+                        onChange={(e) =>
+                          setPaymentStatus(e.target.value as PaymentStatus)
+                        }
+                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        {PAYMENT_STATUS_OPTIONS.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1011,7 +1068,7 @@ function OrderFormDialog({
                         variant="outline"
                         className="h-7 px-2 text-[11px]"
                         onClick={applyShippingFromCustomer}
-                        disabled={!customerId}
+                        disabled={readOnly || !customerId}
                       >
                         帶入客戶資料
                       </Button>
@@ -1029,7 +1086,8 @@ function OrderFormDialog({
                           type="text"
                           value={shippingContactName}
                           onChange={(e) => setShippingContactName(e.target.value)}
-                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          readOnly={readOnly}
+                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                           placeholder="收貨聯絡人"
                         />
                       </div>
@@ -1045,7 +1103,8 @@ function OrderFormDialog({
                           type="text"
                           value={shippingContactPhone}
                           onChange={(e) => setShippingContactPhone(e.target.value)}
-                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          readOnly={readOnly}
+                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                           placeholder="手機或市話"
                         />
                       </div>
@@ -1056,27 +1115,37 @@ function OrderFormDialog({
                         >
                           有無電梯
                         </label>
-                        <select
-                          id="order-ship-elevator"
-                          value={
-                            shippingHasElevator === null
-                              ? ""
+                        {readOnly ? (
+                          <div id="order-ship-elevator" className={viewFieldClass}>
+                            {shippingHasElevator === null
+                              ? "未填"
                               : shippingHasElevator
-                              ? "yes"
-                              : "no"
-                          }
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === "") setShippingHasElevator(null);
-                            else if (v === "yes") setShippingHasElevator(true);
-                            else setShippingHasElevator(false);
-                          }}
-                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        >
-                          <option value="">未填</option>
-                          <option value="yes">有電梯</option>
-                          <option value="no">無電梯</option>
-                        </select>
+                                ? "有電梯"
+                                : "無電梯"}
+                          </div>
+                        ) : (
+                          <select
+                            id="order-ship-elevator"
+                            value={
+                              shippingHasElevator === null
+                                ? ""
+                                : shippingHasElevator
+                                ? "yes"
+                                : "no"
+                            }
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === "") setShippingHasElevator(null);
+                              else if (v === "yes") setShippingHasElevator(true);
+                              else setShippingHasElevator(false);
+                            }}
+                            className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                            <option value="">未填</option>
+                            <option value="yes">有電梯</option>
+                            <option value="no">無電梯</option>
+                          </select>
+                        )}
                       </div>
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -1092,7 +1161,8 @@ function OrderFormDialog({
                         id="order-shipping"
                         value={shippingAddress}
                         onChange={(e) => setShippingAddress(e.target.value)}
-                        className="min-h-[72px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        readOnly={readOnly}
+                        className="min-h-[72px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                         placeholder="送貨地址；選客戶時可自動帶入預設地址，亦可按「帶入客戶資料」一次帶入聯絡人／電話／地址／電梯。"
                       />
                     </div>
@@ -1108,7 +1178,8 @@ function OrderFormDialog({
                       id="order-notes"
                       value={internalNotes}
                       onChange={(e) => setInternalNotes(e.target.value)}
-                      className="min-h-[60px] h-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      readOnly={readOnly}
+                      className="min-h-[60px] h-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                     />
                   </div>
                 </div>
@@ -1133,7 +1204,7 @@ function OrderFormDialog({
                                   variant="outline"
                                   className="h-8 px-2 text-xs"
                                   onClick={() => clearOrderImageAtIndex(idx)}
-                                  disabled={uploadingImageItemId === "order"}
+                                  disabled={readOnly || uploadingImageItemId === "order"}
                                 >
                                   移除
                                 </Button>
@@ -1150,8 +1221,9 @@ function OrderFormDialog({
                                   type="text"
                                   value={img.title ?? ""}
                                   onChange={(e) => updateOrderImageTitle(idx, e.target.value)}
+                                  readOnly={readOnly}
                                   placeholder={`訂單說明圖 ${idx + 1}`}
-                                  className="h-8 w-56 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                  className="h-8 w-56 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                                 />
                               </div>
                             </div>
@@ -1162,47 +1234,49 @@ function OrderFormDialog({
                           尚未上傳訂單說明圖。
                         </p>
                       )}
-                      <div className="flex items-center gap-2">
-                        <label className="inline-flex items-center gap-1.5 text-xs">
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                void handleOrderImageUpload(file);
-                              }
-                              e.target.value = "";
-                            }}
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-8 px-2 text-xs"
-                            disabled={uploadingImageItemId === "order"}
-                            onClick={(e) => {
-                              const input = (e.currentTarget
-                                .previousSibling as HTMLInputElement | null);
-                              if (input) {
-                                input.click();
-                              }
-                            }}
-                          >
-                            {uploadingImageItemId === "order" ? (
-                              <>
-                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                上傳中…
-                              </>
-                            ) : (
-                              <>
-                                <ImageIcon className="mr-1 h-3 w-3" />
-                                上傳訂單說明圖
-                              </>
-                            )}
-                          </Button>
-                        </label>
-                      </div>
+                      {!readOnly ? (
+                        <div className="flex items-center gap-2">
+                          <label className="inline-flex items-center gap-1.5 text-xs">
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  void handleOrderImageUpload(file);
+                                }
+                                e.target.value = "";
+                              }}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 px-2 text-xs"
+                              disabled={uploadingImageItemId === "order"}
+                              onClick={(e) => {
+                                const input = (e.currentTarget
+                                  .previousSibling as HTMLInputElement | null);
+                                if (input) {
+                                  input.click();
+                                }
+                              }}
+                            >
+                              {uploadingImageItemId === "order" ? (
+                                <>
+                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                  上傳中…
+                                </>
+                              ) : (
+                                <>
+                                  <ImageIcon className="mr-1 h-3 w-3" />
+                                  上傳訂單說明圖
+                                </>
+                              )}
+                            </Button>
+                          </label>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -1213,15 +1287,17 @@ function OrderFormDialog({
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     品項明細
                   </h3>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 px-3 text-xs"
-                    onClick={addItem}
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" />
-                    新增品項
-                  </Button>
+                  {!readOnly ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 px-3 text-xs"
+                      onClick={addItem}
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      新增品項
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="space-y-3">
                   {itemRows.map((it, idx) => (
@@ -1233,7 +1309,7 @@ function OrderFormDialog({
                         <p className="text-xs font-medium text-muted-foreground">
                           品項 {idx + 1}
                         </p>
-                        {itemRows.length > 1 && (
+                        {itemRows.length > 1 && !readOnly && (
                           <button
                             type="button"
                             onClick={() => removeItem(it.id)}
@@ -1248,6 +1324,7 @@ function OrderFormDialog({
                           <span>品項類型：</span>
                           <button
                             type="button"
+                            disabled={readOnly}
                             onClick={() =>
                               updateItem(it.id, {
                                 kind: "variant",
@@ -1258,12 +1335,13 @@ function OrderFormDialog({
                               it.kind === "variant"
                                 ? "border-primary bg-primary/10 text-primary"
                                 : "border-border bg-background"
-                            }`}
+                            } disabled:opacity-50 disabled:pointer-events-none`}
                           >
                             規格庫
                           </button>
                           <button
                             type="button"
+                            disabled={readOnly}
                             onClick={() =>
                               updateItem(it.id, {
                                 kind: "custom",
@@ -1274,7 +1352,7 @@ function OrderFormDialog({
                               it.kind === "custom"
                                 ? "border-primary bg-primary/10 text-primary"
                                 : "border-border bg-background"
-                            }`}
+                            } disabled:opacity-50 disabled:pointer-events-none`}
                           >
                             客製品項
                           </button>
@@ -1288,24 +1366,33 @@ function OrderFormDialog({
                               <label className="text-xs text-muted-foreground">
                                 系列
                               </label>
-                              <select
-                                value={it.series_id ?? ""}
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    series_id: e.target.value || null,
-                                    // 重選系列時先清空規格
-                                    variant_id: "",
-                                  })
-                                }
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                              >
-                                <option value="">全部系列</option>
-                                {seriesOptions.map((s) => (
-                                  <option key={s.id} value={s.id}>
-                                    {s.name}
-                                  </option>
-                                ))}
-                              </select>
+                              {readOnly ? (
+                                <div className={viewFieldClass}>
+                                  {it.series_id
+                                    ? seriesOptions.find((s) => s.id === it.series_id)
+                                        ?.name ?? "—"
+                                    : "全部系列"}
+                                </div>
+                              ) : (
+                                <select
+                                  value={it.series_id ?? ""}
+                                  onChange={(e) =>
+                                    updateItem(it.id, {
+                                      series_id: e.target.value || null,
+                                      // 重選系列時先清空規格
+                                      variant_id: "",
+                                    })
+                                  }
+                                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                >
+                                  <option value="">全部系列</option>
+                                  {seriesOptions.map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                      {s.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
                             </div>
                             <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-2">
                               <label
@@ -1314,50 +1401,68 @@ function OrderFormDialog({
                               >
                                 產品規格 *
                               </label>
-                              <select
-                                id={`item-variant-${it.id}`}
-                                value={it.variant_id}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  const selected = variants.find(
-                                    (v) => v.id === value
-                                  );
-                                  const wt = selected?.wood_type?.trim();
-                                  const dimW = selected?.dimension_w ?? null;
-                                  const dimD = selected?.dimension_d ?? null;
-                                  const dimH = selected?.dimension_h ?? null;
-                                  updateItem(it.id, {
-                                    variant_id: value,
-                                    series_id: selected?.series_id ?? it.series_id ?? null,
-                                    unit_price:
-                                      selected?.base_price ??
-                                      it.unit_price ??
-                                      0,
-                                    wood_type: wt ? wt : null,
-                                    custom_dimension_w: dimW,
-                                    custom_dimension_d: dimD,
-                                    custom_dimension_h: dimH,
-                                  });
-                                }}
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                required
-                              >
-                                <option value="">請選擇規格</option>
-                                {variants
-                                  .filter((v) =>
-                                    it.series_id
-                                      ? v.series_id === it.series_id
-                                      : true
-                                  )
-                                  .map((v) => (
-                                    <option key={v.id} value={v.id}>
-                                      {v.series_name
-                                        ? `${v.series_name} / ${v.label}`
-                                        : v.label}
-                                    </option>
-                                  ))}
-                              </select>
-                              {variants.find((v) => v.id === it.variant_id) && (
+                              {readOnly ? (
+                                <div
+                                  id={`item-variant-${it.id}`}
+                                  className={viewFieldClass}
+                                >
+                                  {(() => {
+                                    const v = variants.find(
+                                      (vv) => vv.id === it.variant_id
+                                    );
+                                    if (!v) return "—";
+                                    return v.series_name
+                                      ? `${v.series_name} / ${v.label}`
+                                      : v.label;
+                                  })()}
+                                </div>
+                              ) : (
+                                <select
+                                  id={`item-variant-${it.id}`}
+                                  value={it.variant_id}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    const selected = variants.find(
+                                      (v) => v.id === value
+                                    );
+                                    const wt = selected?.wood_type?.trim();
+                                    const dimW = selected?.dimension_w ?? null;
+                                    const dimD = selected?.dimension_d ?? null;
+                                    const dimH = selected?.dimension_h ?? null;
+                                    updateItem(it.id, {
+                                      variant_id: value,
+                                      series_id: selected?.series_id ?? it.series_id ?? null,
+                                      unit_price:
+                                        selected?.base_price ??
+                                        it.unit_price ??
+                                        0,
+                                      wood_type: wt ? wt : null,
+                                      custom_dimension_w: dimW,
+                                      custom_dimension_d: dimD,
+                                      custom_dimension_h: dimH,
+                                    });
+                                  }}
+                                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                  required
+                                >
+                                  <option value="">請選擇規格</option>
+                                  {variants
+                                    .filter((v) =>
+                                      it.series_id
+                                        ? v.series_id === it.series_id
+                                        : true
+                                    )
+                                    .map((v) => (
+                                      <option key={v.id} value={v.id}>
+                                        {v.series_name
+                                          ? `${v.series_name} / ${v.label}`
+                                          : v.label}
+                                      </option>
+                                    ))}
+                                </select>
+                              )}
+                              {!readOnly &&
+                                variants.find((v) => v.id === it.variant_id) && (
                                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                                   {(() => {
                                     const v = variants.find((vv) => vv.id === it.variant_id)!;
@@ -1385,7 +1490,8 @@ function OrderFormDialog({
                                     quantity: Number(e.target.value) || 1,
                                   })
                                 }
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5 sm:col-span-1">
@@ -1406,7 +1512,8 @@ function OrderFormDialog({
                                       Number(e.target.value) || 0,
                                   })
                                 }
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5 sm:col-span-1">
@@ -1447,6 +1554,7 @@ function OrderFormDialog({
                               <WoodTypeComboboxInput
                                 id={`item-wood-variant-${it.id}`}
                                 value={it.wood_type ?? ""}
+                                readOnly={readOnly}
                                 onChange={(v) =>
                                   updateItem(it.id, {
                                     wood_type: v.trim() || null,
@@ -1470,7 +1578,8 @@ function OrderFormDialog({
                                         : Number(e.target.value),
                                   })
                                 }
-                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
@@ -1489,7 +1598,8 @@ function OrderFormDialog({
                                         : Number(e.target.value),
                                   })
                                 }
-                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
@@ -1508,7 +1618,8 @@ function OrderFormDialog({
                                         : Number(e.target.value),
                                   })
                                 }
-                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                           </div>
@@ -1527,8 +1638,9 @@ function OrderFormDialog({
                                   custom_notes: e.target.value,
                                 })
                               }
+                              readOnly={readOnly}
                               placeholder={'客製品名稱：\n尺寸：\n材料：\n客製化說明：'}
-                              className="min-h-[100px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              className="min-h-[100px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                             />
                           </div>
                           <div className="flex flex-col gap-1.5">
@@ -1543,59 +1655,63 @@ function OrderFormDialog({
                                     alt="品項圖片預覽"
                                     className="h-12 w-12 rounded-md border border-border object-cover"
                                   />
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-8 px-2 text-xs"
-                                    onClick={() => clearItemImage(it.id)}
-                                  >
-                                    移除圖片
-                                  </Button>
+                                  {!readOnly ? (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="h-8 px-2 text-xs"
+                                      onClick={() => clearItemImage(it.id)}
+                                    >
+                                      移除圖片
+                                    </Button>
+                                  ) : null}
                                 </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground">
                                   尚未上傳圖片
                                 </span>
                               )}
-                              <label className="inline-flex items-center gap-1.5">
-                                <input
-                                  type="file"
-                                  accept="image/jpeg,image/png,image/webp"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      void handleItemImageUpload(it.id, file);
-                                    }
-                                    e.target.value = "";
-                                  }}
-                                />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 px-2 text-xs"
-                                  disabled={uploadingImageItemId === it.id}
-                                  onClick={(e) => {
-                                    const input = (e.currentTarget
-                                      .previousSibling as HTMLInputElement | null);
-                                    if (input) {
-                                      input.click();
-                                    }
-                                  }}
-                                >
-                                  {uploadingImageItemId === it.id ? (
-                                    <>
-                                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                      上傳中…
-                                    </>
-                                  ) : (
-                                    <>
-                                      <ImageIcon className="mr-1 h-3 w-3" />
-                                      上傳圖片
-                                    </>
-                                  )}
-                                </Button>
-                              </label>
+                              {!readOnly ? (
+                                <label className="inline-flex items-center gap-1.5">
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        void handleItemImageUpload(it.id, file);
+                                      }
+                                      e.target.value = "";
+                                    }}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-8 px-2 text-xs"
+                                    disabled={uploadingImageItemId === it.id}
+                                    onClick={(e) => {
+                                      const input = (e.currentTarget
+                                        .previousSibling as HTMLInputElement | null);
+                                      if (input) {
+                                        input.click();
+                                      }
+                                    }}
+                                  >
+                                    {uploadingImageItemId === it.id ? (
+                                      <>
+                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                        上傳中…
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ImageIcon className="mr-1 h-3 w-3" />
+                                        上傳圖片
+                                      </>
+                                    )}
+                                  </Button>
+                                </label>
+                              ) : null}
                             </div>
                           </div>
                         </>
@@ -1606,22 +1722,30 @@ function OrderFormDialog({
                               <label className="text-xs text-muted-foreground">
                                 類別
                               </label>
-                              <select
-                                value={it.custom_category ?? ""}
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    custom_category: e.target.value || null,
-                                  })
-                                }
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                              >
-                                <option value="">請選擇類別</option>
-                                <option value="桌">桌</option>
-                                <option value="椅">椅</option>
-                                <option value="櫃">櫃</option>
-                                <option value="架">架</option>
-                                <option value="其他">其他</option>
-                              </select>
+                              {readOnly ? (
+                                <div className={viewFieldClass}>
+                                  {it.custom_category?.trim()
+                                    ? it.custom_category
+                                    : "—"}
+                                </div>
+                              ) : (
+                                <select
+                                  value={it.custom_category ?? ""}
+                                  onChange={(e) =>
+                                    updateItem(it.id, {
+                                      custom_category: e.target.value || null,
+                                    })
+                                  }
+                                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                >
+                                  <option value="">請選擇類別</option>
+                                  <option value="桌">桌</option>
+                                  <option value="椅">椅</option>
+                                  <option value="櫃">櫃</option>
+                                  <option value="架">架</option>
+                                  <option value="其他">其他</option>
+                                </select>
+                              )}
                             </div>
                             <div className="flex flex-col gap-1.5">
                               <label className="text-xs text-muted-foreground">
@@ -1635,8 +1759,9 @@ function OrderFormDialog({
                                     custom_name: e.target.value,
                                   })
                                 }
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                required
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                                required={!readOnly}
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
@@ -1656,7 +1781,8 @@ function OrderFormDialog({
                                           : Number(e.target.value),
                                     })
                                   }
-                                  className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                  readOnly={readOnly}
+                                  className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                                 />
                                 <input
                                   type="number"
@@ -1670,7 +1796,8 @@ function OrderFormDialog({
                                           : Number(e.target.value),
                                     })
                                   }
-                                  className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                  readOnly={readOnly}
+                                  className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                                 />
                                 <input
                                   type="number"
@@ -1684,7 +1811,8 @@ function OrderFormDialog({
                                           : Number(e.target.value),
                                     })
                                   }
-                                  className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                  readOnly={readOnly}
+                                  className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                                 />
                               </div>
                             </div>
@@ -1700,6 +1828,7 @@ function OrderFormDialog({
                               <WoodTypeComboboxInput
                                 id={`item-wood-custom-${it.id}`}
                                 value={it.wood_type ?? ""}
+                                readOnly={readOnly}
                                 onChange={(v) =>
                                   updateItem(it.id, {
                                     wood_type: v.trim() || null,
@@ -1720,7 +1849,8 @@ function OrderFormDialog({
                                     quantity: Number(e.target.value) || 1,
                                   })
                                 }
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
@@ -1737,7 +1867,8 @@ function OrderFormDialog({
                                       Number(e.target.value) || 0,
                                   })
                                 }
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                           </div>
@@ -1752,8 +1883,9 @@ function OrderFormDialog({
                                   custom_description: e.target.value,
                                 })
                               }
+                              readOnly={readOnly}
                               placeholder={'客製品名稱：\n尺寸：\n材料：\n客製化說明：'}
-                              className="min-h-[100px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              className="min-h-[100px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                             />
                           </div>
                           <div className="flex flex-col gap-1.5">
@@ -1768,59 +1900,63 @@ function OrderFormDialog({
                                     alt="品項圖片預覽"
                                     className="h-12 w-12 rounded-md border border-border object-cover"
                                   />
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-8 px-2 text-xs"
-                                    onClick={() => clearItemImage(it.id)}
-                                  >
-                                    移除圖片
-                                  </Button>
+                                  {!readOnly ? (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="h-8 px-2 text-xs"
+                                      onClick={() => clearItemImage(it.id)}
+                                    >
+                                      移除圖片
+                                    </Button>
+                                  ) : null}
                                 </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground">
                                   尚未上傳圖片
                                 </span>
                               )}
-                              <label className="inline-flex items-center gap-1.5">
-                                <input
-                                  type="file"
-                                  accept="image/jpeg,image/png,image/webp"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      void handleItemImageUpload(it.id, file);
-                                    }
-                                    e.target.value = "";
-                                  }}
-                                />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 px-2 text-xs"
-                                  disabled={uploadingImageItemId === it.id}
-                                  onClick={(e) => {
-                                    const input = (e.currentTarget
-                                      .previousSibling as HTMLInputElement | null);
-                                    if (input) {
-                                      input.click();
-                                    }
-                                  }}
-                                >
-                                  {uploadingImageItemId === it.id ? (
-                                    <>
-                                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                      上傳中…
-                                    </>
-                                  ) : (
-                                    <>
-                                      <ImageIcon className="mr-1 h-3 w-3" />
-                                      上傳圖片
-                                    </>
-                                  )}
-                                </Button>
-                              </label>
+                              {!readOnly ? (
+                                <label className="inline-flex items-center gap-1.5">
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        void handleItemImageUpload(it.id, file);
+                                      }
+                                      e.target.value = "";
+                                    }}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-8 px-2 text-xs"
+                                    disabled={uploadingImageItemId === it.id}
+                                    onClick={(e) => {
+                                      const input = (e.currentTarget
+                                        .previousSibling as HTMLInputElement | null);
+                                      if (input) {
+                                        input.click();
+                                      }
+                                    }}
+                                  >
+                                    {uploadingImageItemId === it.id ? (
+                                      <>
+                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                        上傳中…
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ImageIcon className="mr-1 h-3 w-3" />
+                                        上傳圖片
+                                      </>
+                                    )}
+                                  </Button>
+                                </label>
+                              ) : null}
                             </div>
                           </div>
                         </>
@@ -1871,83 +2007,116 @@ function OrderFormDialog({
                 <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-4">
                   <label className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">折扣後總金額</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={discountTotal}
-                      onChange={(e) => {
-                        setDiscountLocked(true);
-                        setDiscountTotal(e.target.value);
-                        const v = Number(e.target.value);
-                        const p = Number(depositPercent);
-                        if (p > 0 && Number.isFinite(v) && v > 0) {
-                          const amt = Math.round((v * p) / 100);
-                          setDeposit(String(amt));
-                        }
-                      }}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder={totalAmount > 0 ? String(totalAmount) : "0"}
-                    />
+                    {readOnly ? (
+                      <div className={`${viewFieldClass} tabular-nums`}>
+                        {discountTotal !== "" && discountTotal != null
+                          ? Number(discountTotal).toLocaleString()
+                          : totalAmount > 0
+                            ? totalAmount.toLocaleString()
+                            : "0"}
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min={0}
+                        value={discountTotal}
+                        onChange={(e) => {
+                          setDiscountLocked(true);
+                          setDiscountTotal(e.target.value);
+                          const v = Number(e.target.value);
+                          const p = Number(depositPercent);
+                          if (p > 0 && Number.isFinite(v) && v > 0) {
+                            const amt = Math.round((v * p) / 100);
+                            setDeposit(String(amt));
+                          }
+                        }}
+                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        placeholder={totalAmount > 0 ? String(totalAmount) : "0"}
+                      />
+                    )}
                   </label>
 
                   <label className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">運費</span>
-                    <input
-                      id="order-shipping-fee"
-                      type="number"
-                      min={0}
-                      value={shippingFee}
-                      onChange={(e) => setShippingFee(e.target.value)}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
+                    {readOnly ? (
+                      <div className={`${viewFieldClass} tabular-nums`}>
+                        {(Number(shippingFee) || 0).toLocaleString()}
+                      </div>
+                    ) : (
+                      <input
+                        id="order-shipping-fee"
+                        type="number"
+                        min={0}
+                        value={shippingFee}
+                        onChange={(e) => setShippingFee(e.target.value)}
+                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    )}
                   </label>
 
                   <label className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">訂金比例</span>
-                    <select
-                      value={depositPercent}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setDepositPercent(v);
-                        const p = Number(v);
-                        if (p > 0 && discountBase > 0) {
-                          const amt = Math.round((discountBase * p) / 100);
-                          setDeposit(String(amt));
-                        }
-                      }}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      <option value="">自訂</option>
-                      <option value="30">30%</option>
-                      <option value="40">40%</option>
-                      <option value="50">50%</option>
-                    </select>
+                    {readOnly ? (
+                      <div className={viewFieldClass}>
+                        {depositPercent === "" || depositPercent == null
+                          ? "自訂"
+                          : `${depositPercent}%`}
+                      </div>
+                    ) : (
+                      <select
+                        value={depositPercent}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDepositPercent(v);
+                          const p = Number(v);
+                          if (p > 0 && discountBase > 0) {
+                            const amt = Math.round((discountBase * p) / 100);
+                            setDeposit(String(amt));
+                          }
+                        }}
+                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        <option value="">自訂</option>
+                        <option value="30">30%</option>
+                        <option value="40">40%</option>
+                        <option value="50">50%</option>
+                      </select>
+                    )}
                   </label>
 
                   <label className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">預收訂金（計算訂金不含運費）</span>
-                    <input
-                      id="order-deposit"
-                      type="number"
-                      min={0}
-                      value={deposit}
-                      onChange={(e) => setDeposit(e.target.value)}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
+                    {readOnly ? (
+                      <div className={`${viewFieldClass} tabular-nums`}>
+                        {(Number(deposit) || 0).toLocaleString()}
+                      </div>
+                    ) : (
+                      <input
+                        id="order-deposit"
+                        type="number"
+                        min={0}
+                        value={deposit}
+                        onChange={(e) => setDeposit(e.target.value)}
+                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    )}
                   </label>
                 </div>
               </section>
+            </div>
             </div>
 
             <div className="flex justify-end gap-2 border-t border-border p-5 pt-4">
               <Dialog.Close asChild>
                 <Button type="button" variant="ghost" disabled={saving}>
-                  取消
+                  {readOnly ? "關閉" : "取消"}
                 </Button>
               </Dialog.Close>
-              <Button type="submit" disabled={saving}>
-                {saving ? "儲存中…" : "儲存訂單"}
-              </Button>
+              {!readOnly ? (
+                <Button type="submit" disabled={saving}>
+                  {saving ? "儲存中…" : "儲存訂單"}
+                </Button>
+              ) : null}
             </div>
           </form>
         </Dialog.Content>
@@ -2447,6 +2616,10 @@ export function OrdersPage({
   }
 
   function requestDelete(order: OrderRow) {
+    if (isOrderAdminReadOnly(order)) {
+      toast.error("已結案之訂單無法刪除");
+      return;
+    }
     setDeleteConfirmOrder(order);
   }
 
@@ -2454,6 +2627,10 @@ export function OrdersPage({
     if (!deleteConfirmOrder) return;
     const order = deleteConfirmOrder;
     setDeleteConfirmOrder(null);
+    if (isOrderAdminReadOnly(order)) {
+      toast.error("已結案之訂單無法刪除");
+      return;
+    }
     const { error } = await supabase.from("orders").delete().eq("id", order.id);
     if (error) {
       toast.error(error.message || "刪除訂單失敗");
@@ -2467,6 +2644,11 @@ export function OrdersPage({
     id: string,
     patch: Partial<Pick<OrderRow, "status" | "payment_status" | "deposit_amount">>
   ) {
+    const row = orders.find((o) => o.id === id);
+    if (row && isOrderAdminReadOnly(row)) {
+      toast.error("已結案之訂單無法變更");
+      return;
+    }
     const payload: any = {};
     if (patch.status) payload.status = patch.status;
     if (patch.payment_status) payload.payment_status = patch.payment_status;
@@ -2675,11 +2857,13 @@ export function OrdersPage({
                 </TableCell>
               </TableRow>
             ) : (
-              sortedOrders.map((order) => (
+              sortedOrders.map((order) => {
+                const rowReadOnly = isOrderAdminReadOnly(order);
+                return (
                 <TableRow
                   key={order.id}
-                  className="group cursor-pointer"
-                  onClick={() => handleEdit(order)}
+                  className={rowReadOnly ? "group" : "group cursor-pointer"}
+                  onClick={rowReadOnly ? undefined : () => handleEdit(order)}
                 >
                   <TableCell className="text-sm font-mono text-primary">
                     <button
@@ -2723,56 +2907,69 @@ export function OrdersPage({
                       : "—"}
                   </TableCell>
                   <TableCell className="text-sm hidden sm:table-cell">
-                    <div
-                      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${statusStyles[order.status] ?? ""}`}
-                      onClick={(e) => e.stopPropagation()}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      <select
-                        value={order.status}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          updateOrderInline(order.id, {
-                            status: e.target.value as OrderStatus,
-                          });
-                        }}
+                    {rowReadOnly ? (
+                      <StatusBadge status={order.status} />
+                    ) : (
+                      <div
+                        className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${statusStyles[order.status] ?? ""}`}
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
-                        className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
                       >
-                        {ORDER_STATUS_OPTIONS.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                        <select
+                          value={order.status}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            updateOrderInline(order.id, {
+                              status: e.target.value as OrderStatus,
+                            });
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
+                        >
+                          {ORDER_STATUS_OPTIONS.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm hidden sm:table-cell">
-                    <div
-                      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${paymentStatusStyles[order.payment_status] ?? ""}`}
-                      onClick={(e) => e.stopPropagation()}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      <select
-                        value={order.payment_status}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          updateOrderInline(order.id, {
-                            payment_status: e.target.value as PaymentStatus,
-                          });
-                        }}
+                    {rowReadOnly ? (
+                      <Badge
+                        variant="outline"
+                        className={paymentStatusStyles[order.payment_status] ?? ""}
+                      >
+                        {order.payment_status}
+                      </Badge>
+                    ) : (
+                      <div
+                        className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${paymentStatusStyles[order.payment_status] ?? ""}`}
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
-                        className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
                       >
-                        {PAYMENT_STATUS_OPTIONS.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                        <select
+                          value={order.payment_status}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            updateOrderInline(order.id, {
+                              payment_status: e.target.value as PaymentStatus,
+                            });
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
+                        >
+                          {PAYMENT_STATUS_OPTIONS.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right text-sm hidden sm:table-cell">
                     {order.deposit_amount
@@ -2826,8 +3023,12 @@ export function OrdersPage({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                        title="編輯"
-                        onClick={() => handleEdit(order)}
+                        title={rowReadOnly ? "檢視" : "編輯"}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleEdit(order);
+                        }}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
@@ -2835,8 +3036,9 @@ export function OrdersPage({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        title="刪除"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive disabled:opacity-40"
+                        title={rowReadOnly ? "已結案無法刪除" : "刪除"}
+                        disabled={rowReadOnly}
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(order); }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -2844,7 +3046,8 @@ export function OrdersPage({
                     </div>
                   </TableCell>
                 </TableRow>
-              ))
+              );
+              })
             )}
           </TableBody>
         </Table>
@@ -2856,6 +3059,7 @@ export function OrdersPage({
 
       <OrderFormDialog
         key={editingOrder?.id ?? "new-order"}
+        readOnly={Boolean(editingOrder && isOrderAdminReadOnly(editingOrder))}
         open={formOpen}
         onOpenChange={(open) => {
           if (!open) {

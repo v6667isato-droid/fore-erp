@@ -249,30 +249,33 @@ export default function AddressLabelPage() {
           {labels.map((l) => (
             <div
               key={l.seq}
-              className="border border-gray-300 rounded-md px-4 py-3 text-sm leading-relaxed break-words"
+              className="border border-gray-300 rounded-md px-4 py-4 text-base leading-relaxed break-words print:px-5 print:py-4 print:text-lg"
             >
-              <div className="font-semibold text-gray-900 text-base">
-                訂單號碼：{order.id}
+              <div className="font-semibold text-gray-900 text-xl tracking-tight print:text-2xl">
+                訂單號碼：
+                <span className="font-mono font-bold">
+                  {order.order_number?.trim() || "—"}
+                </span>
               </div>
               {showContact && (
-                <div className="text-gray-800">
+                <div className="mt-1 text-lg text-gray-800 print:text-xl">
                   聯絡人：{effectiveContact || "—"}
                 </div>
               )}
               {showPhone && (
-                <div className="text-gray-800">
+                <div className="mt-0.5 text-lg text-gray-800 print:text-xl">
                   電話：{order.phone || "—"}
                 </div>
               )}
               {showAddress && (
-                <div className="text-gray-800">
+                <div className="mt-0.5 text-lg text-gray-800 print:text-xl">
                   地址：{effectiveAddress || "—"}
                 </div>
               )}
               {showItems && items.length > 0 && (
-                <div className="mt-1 text-gray-800 text-xs leading-snug">
+                <div className="mt-2 text-gray-800 text-sm leading-snug print:text-base">
                   出貨品項：
-                  <ul className="list-disc ml-4 mt-0.5 space-y-0.5">
+                  <ul className="list-disc ml-5 mt-1 space-y-1">
                     {items.map((it) => (
                       <li key={it.id}>
                         {it.name} × {it.quantity}
