@@ -61,7 +61,12 @@ type Page =
   | "employees"
   | "leave_approvals"
   | "feedback";
-type AppRole = "admin" | "staff" | null;
+type AppRole = "admin" | "manager" | "staff" | null;
+
+/** 報價／訂單／產品等：admin 與 manager 可編輯；假單審核／員工資料僅 admin */
+function isErpEditorRole(role: AppRole): boolean {
+  return role === "admin" || role === "manager";
+}
 
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "總覽", icon: LayoutGrid },
@@ -184,7 +189,11 @@ function DesktopSidebar({
             </div>
             <div className="flex flex-col min-w-0">
               <span className="text-sm font-medium text-sidebar-foreground">
-                {userRole === "admin" ? "Admin" : "Staff"}
+                {userRole === "admin"
+                  ? "Admin"
+                  : userRole === "manager"
+                    ? "Manager"
+                    : "Staff"}
               </span>
               <span className="text-[11px] text-sidebar-foreground/50 truncate">
                 {userEmail ?? "尚未登入"}
@@ -424,8 +433,11 @@ export default function DashboardShell() {
         if (cancelled) return;
 
         const raw = ((profile?.role as string) ?? "").trim().toLowerCase();
-        const appRole: AppRole =
-          raw === "staff" || raw === "" ? "staff" : "admin";
+        let appRole: AppRole;
+        if (raw === "admin") appRole = "admin";
+        else if (raw === "manager") appRole = "manager";
+        else if (raw === "staff" || raw === "") appRole = "staff";
+        else appRole = "admin";
         setUserRole(appRole);
         setAuthChecked(true);
       } catch (err) {
@@ -446,6 +458,15 @@ export default function DashboardShell() {
       cancelled = true;
     };
   }, [router]);
+
+  // 非 admin 不可開員工資料／假單審核（含書籤或手動改 ?page=）
+  useEffect(() => {
+    if (!authChecked || userRole === null) return;
+    if (userRole !== "admin" && (activePage === "employees" || activePage === "leave_approvals")) {
+      setActivePage("dashboard");
+      router.replace("/?page=dashboard");
+    }
+  }, [authChecked, userRole, activePage, router]);
 
   async function handleLogout() {
     try {
@@ -513,13 +534,13 @@ export default function DashboardShell() {
           {activePage === "quotes" && (
             <OrdersPage
               mode="quotation"
-              isAdmin={userRole === "admin"}
+              isAdmin={isErpEditorRole(userRole)}
             />
           )}
           {activePage === "orders" && (
             <OrdersPage
               mode="order"
-              isAdmin={userRole === "admin"}
+              isAdmin={isErpEditorRole(userRole)}
               initialOpenOrderId={externalOrderId ?? undefined}
             />
           )}
@@ -527,9 +548,9 @@ export default function DashboardShell() {
           {activePage === "procurement" && (
             <ProcurementPage onNavigateToVendors={() => setActivePage("vendors")} />
           )}
-          {activePage === "vendors" && <VendorsPage isAdmin={userRole === "admin"} />}
-          {activePage === "products" && <ProductsPage isAdmin={userRole === "admin"} />}
-          {activePage === "customers" && <CustomersPage isAdmin={userRole === "admin"} />}
+          {activePage === "vendors" && <VendorsPage isAdmin={isErpEditorRole(userRole)} />}
+          {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
+          {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "channels" && <ChannelsPage />}
           {activePage === "employees" && userRole === "admin" && <EmployeesPage />}
           {activePage === "leave_approvals" && userRole === "admin" && (
