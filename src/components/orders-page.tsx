@@ -303,6 +303,8 @@ function OrderFormDialog({
   const [seriesDiscounts, setSeriesDiscounts] = useState<
     Record<string, { channel_id: string; discount_percent: number }[]>
   >({});
+  /** 用於品項總額變動時同步「折扣後總金額」；從 props 載入表單時須重設，否則會沿用上一筆對話的總計造成 delta 錯誤 */
+  const prevTotalAmountRef = useRef<number | null>(null);
   const [items, setItems] = useState<OrderItemInput[]>(
     initialItems && initialItems.length
       ? initialItems
@@ -356,10 +358,17 @@ function OrderFormDialog({
       setOrderExplanationImages(parseExplanationImages(initialOrder.explanation_image_url));
       setInternalNotes(initialOrder.internal_notes ?? "");
       setDraftOrderNumber(initialOrder.order_number);
-      // 編輯舊訂單時，帶入已儲存的折扣後總價與訂金
-      setDiscountTotal(
-        initialOrder.total_amount != null ? String(initialOrder.total_amount) : ""
-      );
+      // 編輯舊訂單：DB 的 total_amount 為「應收總額」（折扣後小計 + 運費），折扣欄位應為扣掉運費後的小計
+      if (
+        initialOrder.total_amount != null &&
+        Number.isFinite(Number(initialOrder.total_amount))
+      ) {
+        const storedGrand = Number(initialOrder.total_amount);
+        const storedShip = Math.max(0, Number(initialOrder.shipping_fee) || 0);
+        setDiscountTotal(String(Math.max(0, storedGrand - storedShip)));
+      } else {
+        setDiscountTotal("");
+      }
       setDiscountLocked(true);
       setDeposit(
         initialOrder.deposit_amount != null
@@ -374,6 +383,9 @@ function OrderFormDialog({
     }
     if (initialItems && initialItems.length) {
       setItems(initialItems);
+    }
+    if (initialOrder || (initialItems != null && initialItems.length > 0)) {
+      prevTotalAmountRef.current = null;
     }
   }, [initialOrder, initialItems]);
 
@@ -409,6 +421,7 @@ function OrderFormDialog({
         wood_type: null,
       },
     ]);
+    prevTotalAmountRef.current = null;
   }, [open, initialOrder]);
 
   // 新增模式：選到特定通路時，將訂金%預設改為 0%
@@ -502,14 +515,13 @@ function OrderFormDialog({
   }, [totalAmount, discountLocked]);
 
   const discountBase = (() => {
-    const n = Number(discountTotal);
+    const raw = discountTotal.trim();
+    if (raw === "") return totalAmount;
+    const n = Number(raw);
     if (!Number.isFinite(n) || n < 0) return totalAmount;
     return n;
   })();
   const grandTotal = discountBase + shippingFeeAmount;
-
-  // 記錄上一次的品項總金額，用來判斷是否真的發生「品項／價格變動」
-  const prevTotalAmountRef = useRef<number | null>(null);
 
   // 品項/價格有變化時同步更新「折扣後總金額」：
   // - 未手動鎖定：直接跟隨品項總額
