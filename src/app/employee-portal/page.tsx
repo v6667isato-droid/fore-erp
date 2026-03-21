@@ -153,35 +153,71 @@ function PayslipBreakdownPanel({
   periodKey,
   b,
   notes,
+  compact = false,
 }: {
   monthLabel: string;
   periodKey: string;
   b: PayslipDetailBreakdown;
   notes: string | null;
+  /** 對話框內：較矮、較緊湊，減少整體高度 */
+  compact?: boolean;
 }) {
   const hp =
     b.health_insured_persons != null && Number.isFinite(b.health_insured_persons)
       ? String(b.health_insured_persons)
       : "—";
-  const slipLabel =
-    "w-[56%] min-w-0 py-2.5 pl-4 pr-2 align-top text-xs leading-snug text-muted-foreground sm:w-[52%] sm:py-3 sm:pl-5 sm:pr-3 sm:text-[13px]";
-  const slipVal =
-    "py-2.5 pl-2 pr-4 text-right align-top text-xs font-semibold tabular-nums text-foreground sm:py-3 sm:pr-5 sm:text-[13px]";
+  const slipLabel = cn(
+    "w-[56%] min-w-0 align-top text-xs leading-snug text-muted-foreground sm:w-[52%]",
+    compact
+      ? "py-1.5 pl-3 pr-1.5 sm:py-2 sm:pl-3.5 sm:pr-2 sm:text-[12px]"
+      : "py-2.5 pl-4 pr-2 sm:py-3 sm:pl-5 sm:pr-3 sm:text-[13px]",
+  );
+  const slipVal = cn(
+    "pl-2 text-right align-top text-xs font-semibold tabular-nums text-foreground",
+    compact
+      ? "py-1.5 pr-3 sm:py-2 sm:pr-3.5 sm:text-[12px]"
+      : "py-2.5 pr-4 sm:py-3 sm:pr-5 sm:text-[13px]",
+  );
   const slipValMoney = cn(slipVal, "text-primary");
 
   return (
-    <div className="w-full border-t border-border/70 bg-gradient-to-b from-muted/25 via-muted/15 to-muted/10 px-4 py-4 sm:px-6 sm:py-5">
-      <div className="mx-auto w-full max-w-md sm:max-w-lg">
-        <h3 className="px-1 text-center text-sm font-semibold tracking-tight text-foreground sm:px-0">
+    <div
+      className={cn(
+        "w-full border-t border-border/70 bg-gradient-to-b from-muted/25 via-muted/15 to-muted/10",
+        compact ? "px-3 py-2.5 sm:px-4 sm:py-3" : "px-4 py-4 sm:px-6 sm:py-5",
+      )}
+    >
+      <div
+        className={cn(
+          "mx-auto w-full",
+          compact ? "max-w-2xl" : "max-w-md sm:max-w-lg",
+        )}
+      >
+        <h3
+          className={cn(
+            "px-1 text-center font-semibold tracking-tight text-foreground sm:px-0",
+            compact ? "text-xs sm:text-sm" : "text-sm",
+          )}
+        >
           {monthLabel}薪資明細
         </h3>
         {periodKey ? (
-          <p className="mt-1 px-1 text-center text-[11px] tabular-nums text-muted-foreground sm:mt-0.5 sm:px-0">
+          <p
+            className={cn(
+              "px-1 text-center tabular-nums text-muted-foreground sm:px-0",
+              compact ? "mt-0.5 text-[10px] sm:text-[11px]" : "mt-1 text-[11px] sm:mt-0.5",
+            )}
+          >
             結算期間 {periodKey}
           </p>
         ) : null}
 
-        <div className="mt-4 overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm ring-1 ring-border/20 sm:mt-5">
+        <div
+          className={cn(
+            "overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm ring-1 ring-border/20",
+            compact ? "mt-2 sm:mt-2.5" : "mt-4 sm:mt-5",
+          )}
+        >
           <table className="w-full table-fixed border-collapse">
             <tbody>
               <tr className="border-b border-border/55 bg-muted/5">
@@ -250,10 +286,24 @@ function PayslipBreakdownPanel({
             </tbody>
             <tfoot>
               <tr className="bg-primary/[0.09]">
-                <td className="px-4 py-3 text-xs font-semibold text-foreground sm:px-5 sm:py-3.5 sm:text-sm">
+                <td
+                  className={cn(
+                    "font-semibold text-foreground",
+                    compact
+                      ? "px-3 py-2 text-[11px] sm:px-3.5 sm:py-2 sm:text-xs"
+                      : "px-4 py-3 text-xs sm:px-5 sm:py-3.5 sm:text-sm",
+                  )}
+                >
                   實發總額
                 </td>
-                <td className="px-4 py-3 text-right text-base font-bold tabular-nums text-primary sm:px-5 sm:py-3.5 sm:text-lg">
+                <td
+                  className={cn(
+                    "text-right font-bold tabular-nums text-primary",
+                    compact
+                      ? "px-3 py-2 text-sm sm:px-3.5 sm:py-2 sm:text-base"
+                      : "px-4 py-3 text-base sm:px-5 sm:py-3.5 sm:text-lg",
+                  )}
+                >
                   {formatNtd(b.net_pay)}
                 </td>
               </tr>
@@ -261,16 +311,38 @@ function PayslipBreakdownPanel({
           </table>
         </div>
 
-        <div className="mt-4 rounded-xl border border-border/65 bg-muted/35 px-4 py-3 sm:mt-5 sm:px-5 sm:py-3.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+        <div
+          className={cn(
+            "rounded-xl border border-border/65 bg-muted/35",
+            compact ? "mt-2 px-3 py-2 sm:mt-2.5 sm:px-3.5 sm:py-2" : "mt-4 px-4 py-3 sm:mt-5 sm:px-5 sm:py-3.5",
+          )}
+        >
+          <p
+            className={cn(
+              "font-semibold uppercase tracking-wide text-muted-foreground",
+              compact ? "text-[9px] sm:text-[10px]" : "text-[10px] sm:text-[11px]",
+            )}
+          >
             出勤備註
           </p>
           {notes && notes.trim() ? (
-            <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/95 sm:text-[13px] sm:leading-relaxed">
+            <p
+              className={cn(
+                "whitespace-pre-wrap break-words leading-relaxed text-foreground/95",
+                compact
+                  ? "mt-1 text-[11px] leading-snug sm:text-xs"
+                  : "mt-2 text-xs sm:text-[13px] sm:leading-relaxed",
+              )}
+            >
               {notes.trim()}
             </p>
           ) : (
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            <p
+              className={cn(
+                "leading-relaxed text-muted-foreground",
+                compact ? "mt-1 text-[11px] sm:text-xs" : "mt-2 text-xs",
+              )}
+            >
               此筆薪資單尚無出勤備註說明。
             </p>
           )}
@@ -1235,14 +1307,14 @@ export default function EmployeePortalPage() {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(92vh,44rem)] w-[calc(100%-1.25rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl focus:outline-none sm:max-w-xl sm:w-[calc(100%-2rem)]">
-            <div className="shrink-0 border-b border-border/70 bg-secondary/20 px-4 py-3">
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(90vh,44rem)] w-[calc(100%-1.5rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl focus:outline-none sm:max-w-3xl sm:w-[calc(100%-2.5rem)] lg:max-w-4xl">
+            <div className="shrink-0 border-b border-border/70 bg-secondary/20 px-3 py-2 sm:px-4 sm:py-2.5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <Dialog.Title className="text-base font-semibold tracking-tight text-foreground">
+                  <Dialog.Title className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
                     歷史薪資單
                   </Dialog.Title>
-                  <Dialog.Description className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                  <Dialog.Description className="mt-0.5 text-[10px] leading-snug text-muted-foreground sm:text-[11px]">
                     點「明細」展開完整項目與出勤備註。
                     {dataSource === "supabase" ? " 資料來源：payslips。" : " （Mock）"}
                   </Dialog.Description>
@@ -1258,18 +1330,24 @@ export default function EmployeePortalPage() {
                 </Dialog.Close>
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5 sm:py-4">
+            <div className="min-h-0 max-h-[min(72vh,28rem)] overflow-y-auto overscroll-contain px-3 py-2.5 sm:max-h-[min(78vh,36rem)] sm:px-5 sm:py-4 lg:max-h-[min(82vh,40rem)]">
               {payslipsSorted.length === 0 ? (
-                <p className="px-2 py-6 text-center text-xs text-muted-foreground sm:text-sm">尚無薪資單紀錄</p>
+                <p className="px-2 py-5 text-center text-xs text-muted-foreground sm:py-6 sm:text-sm">
+                  尚無薪資單紀錄
+                </p>
               ) : (
                 <div className="overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm">
                   <table className="w-full min-w-0 text-xs sm:text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/30 text-left text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
-                        <th className="min-w-0 px-2.5 py-2 font-medium normal-case sm:px-3">薪資月份</th>
-                        <th className="px-2 py-2 text-right font-medium normal-case sm:px-3">實發總額</th>
-                        <th className="px-2 py-2 font-medium normal-case sm:px-3">狀態</th>
-                        <th className="w-11 shrink-0 px-1 py-2 sm:w-[4.5rem]" aria-hidden />
+                        <th className="min-w-0 px-2 py-1.5 font-medium normal-case sm:px-2.5 sm:py-2">
+                          薪資月份
+                        </th>
+                        <th className="px-1.5 py-1.5 text-right font-medium normal-case sm:px-2 sm:py-2">
+                          實發總額
+                        </th>
+                        <th className="px-1.5 py-1.5 font-medium normal-case sm:px-2 sm:py-2">狀態</th>
+                        <th className="w-10 shrink-0 px-1 py-1.5 sm:w-[4.25rem] sm:py-2" aria-hidden />
                       </tr>
                     </thead>
                     <tbody>
@@ -1283,7 +1361,7 @@ export default function EmployeePortalPage() {
                                 expanded ? "bg-muted/25" : "hover:bg-muted/15"
                               )}
                             >
-                              <td className="px-2.5 py-2 font-medium text-foreground sm:px-3">
+                              <td className="px-2 py-1.5 font-medium text-foreground sm:px-2.5 sm:py-2">
                                 <span className="block">{row.month_label}</span>
                                 {row.notes?.trim() ? (
                                   <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
@@ -1291,13 +1369,13 @@ export default function EmployeePortalPage() {
                                   </span>
                                 ) : null}
                               </td>
-                              <td className="px-2 py-2 text-right text-xs tabular-nums font-medium text-foreground sm:px-3 sm:text-sm">
+                              <td className="px-1.5 py-1.5 text-right text-xs tabular-nums font-medium text-foreground sm:px-2 sm:py-2 sm:text-sm">
                                 {formatNtd(row.net_pay)}
                               </td>
-                              <td className="px-2 py-2 sm:px-3 [&_.inline-flex]:scale-90 [&_.inline-flex]:origin-left">
+                              <td className="px-1.5 py-1.5 sm:px-2 sm:py-2 [&_.inline-flex]:scale-90 [&_.inline-flex]:origin-left">
                                 {payslipStatusBadge(row.status)}
                               </td>
-                              <td className="px-1 py-2 text-right sm:px-2">
+                              <td className="px-1 py-1.5 text-right sm:px-1.5 sm:py-2">
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -1318,8 +1396,9 @@ export default function EmployeePortalPage() {
                             </tr>
                             {expanded && (
                               <tr className="border-b border-border/60 bg-muted/10">
-                                <td colSpan={4} className="w-full px-1 py-1 sm:px-2 sm:py-1.5">
+                                <td colSpan={4} className="w-full px-0.5 py-0.5 sm:px-1 sm:py-1">
                                   <PayslipBreakdownPanel
+                                    compact
                                     monthLabel={row.month_label}
                                     periodKey={row.period_key}
                                     b={row.breakdown}
