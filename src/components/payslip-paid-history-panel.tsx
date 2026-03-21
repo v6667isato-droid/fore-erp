@@ -16,7 +16,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { Receipt, RefreshCw } from "lucide-react";
+import { Eye, Receipt, RefreshCw } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
 
 function ymNow(): string {
   const d = new Date();
@@ -44,6 +45,7 @@ interface PaidSlipRow {
   net_pay: number;
   status: string;
   created_at: string | null;
+  notes: string | null;
 }
 
 function embedName(rel: unknown): string | null {
@@ -56,11 +58,28 @@ function embedName(rel: unknown): string | null {
   return null;
 }
 
+function periodLabelForRow(periodKey: string, rowMonthLabel: string): string {
+  const ml = rowMonthLabel.trim();
+  if (ml) return ml;
+  const pk = periodKey.trim();
+  if (!pk || pk.length < 7) return pk || "—";
+  const [y, m] = pk.slice(0, 7).split("-").map((x) => Number(x));
+  if (!y || !m) return pk;
+  return `${y} 年 ${m} 月`;
+}
+
 export function PayslipPaidHistoryPanel() {
+  /** true：列出全部已發放；false：僅指定 period_key */
+  const [showAllMonths, setShowAllMonths] = useState(true);
   const [filterMonth, setFilterMonth] = useState(ymNow);
   const [rows, setRows] = useState<PaidSlipRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [remarkDialog, setRemarkDialog] = useState<{
+    open: boolean;
+    name: string;
+    text: string;
+  }>({ open: false, name: "", text: "" });
 
   const monthLabel = useMemo(() => {
     const [y, m] = filterMonth.split("-").map((x) => Number(x));
@@ -88,33 +107,40 @@ export function PayslipPaidHistoryPanel() {
         net_salary,
         status,
         created_at,
+        notes,
         employees ( name )
       `;
 
       let data: Record<string, unknown>[] | null = null;
       let err: { message: string } | null = null;
 
-      const q1 = await supabase
+      let q1 = supabase
         .from("payslips")
         .select(withJoin)
-        .eq("period_key", filterMonth)
         .order("created_at", { ascending: false });
+      if (!showAllMonths) {
+        q1 = q1.eq("period_key", filterMonth);
+      }
+      const r1 = await q1;
 
-      if (!q1.error) {
-        data = q1.data as Record<string, unknown>[];
+      if (!r1.error) {
+        data = r1.data as Record<string, unknown>[];
       } else {
-        const q2 = await supabase
+        let q2 = supabase
           .from("payslips")
           .select(
-            "id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, status, created_at",
+            "id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, status, created_at, notes",
           )
-          .eq("period_key", filterMonth)
           .order("created_at", { ascending: false });
+        if (!showAllMonths) {
+          q2 = q2.eq("period_key", filterMonth);
+        }
+        const r2 = await q2;
 
-        if (q2.error) {
-          err = q2.error;
+        if (r2.error) {
+          err = r2.error;
         } else {
-          data = q2.data as Record<string, unknown>[];
+          data = r2.data as Record<string, unknown>[];
           const ids = [
             ...new Set(
               (data ?? [])
@@ -139,13 +165,20 @@ export function PayslipPaidHistoryPanel() {
               id: String(r.id ?? ""),
               employee_id: String(r.employee_id ?? ""),
               employee_name: nameById.get(String(r.employee_id ?? "")) ?? "—",
-              period_key: String(r.period_key ?? filterMonth),
-              month_label: String(r.month_label ?? "").trim() || monthLabel,
+              period_key: String(r.period_key ?? ""),
+              month_label: periodLabelForRow(
+                String(r.period_key ?? ""),
+                String(r.month_label ?? ""),
+              ),
               base_salary: num(r.base_salary, 0),
               net_pay: num(r.net_pay ?? r.net_salary, 0),
               status: String(r.status ?? ""),
               created_at:
                 r.created_at != null ? String(r.created_at) : null,
+              notes:
+                typeof r.notes === "string" && r.notes.trim()
+                  ? r.notes.trim()
+                  : null,
             }));
           setRows(mapped);
           return;
@@ -166,19 +199,26 @@ export function PayslipPaidHistoryPanel() {
           employee_name:
             embedName(r.employees) ??
             (String(r.employee_id ?? "").trim() || "—"),
-          period_key: String(r.period_key ?? filterMonth),
-          month_label: String(r.month_label ?? "").trim() || monthLabel,
+          period_key: String(r.period_key ?? ""),
+          month_label: periodLabelForRow(
+            String(r.period_key ?? ""),
+            String(r.month_label ?? ""),
+          ),
           base_salary: num(r.base_salary, 0),
           net_pay: num(r.net_pay ?? r.net_salary, 0),
           status: String(r.status ?? ""),
           created_at: r.created_at != null ? String(r.created_at) : null,
+          notes:
+            typeof r.notes === "string" && r.notes.trim()
+              ? r.notes.trim()
+              : null,
         }));
 
       setRows(mapped);
     } finally {
       setLoading(false);
     }
-  }, [filterMonth, monthLabel]);
+  }, [filterMonth, monthLabel, showAllMonths]);
 
   useEffect(() => {
     void load();
@@ -215,28 +255,40 @@ export function PayslipPaidHistoryPanel() {
           >
             <Receipt className="h-5 w-5" strokeWidth={1.75} />
           </div>
-          <div className="min-w-0 space-y-1">
-            <h2 className="font-serif text-lg font-semibold tracking-wide text-foreground">
-              已發放薪資查詢
-            </h2>
-            <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
-              依薪資月份（period_key）篩選，僅列出狀態為已發放之薪資單。
-            </p>
-          </div>
+          <h2 className="sr-only">已發放薪資查詢</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <label className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 shadow-xs">
             <span className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">
-              薪資月份
+              範圍
             </span>
-            <input
-              type="month"
-              value={filterMonth}
-              onChange={(e) => setFilterMonth(e.target.value)}
-              className="min-w-[9.5rem] bg-transparent text-sm font-medium text-foreground focus:outline-none"
-              aria-label="依月份篩選已發放薪資"
-            />
+            <select
+              value={showAllMonths ? "all" : "month"}
+              onChange={(e) => {
+                const v = e.target.value;
+                setShowAllMonths(v === "all");
+              }}
+              className="min-w-[6.5rem] bg-transparent text-sm font-medium text-foreground focus:outline-none"
+              aria-label="已發放薪資範圍"
+            >
+              <option value="all">全部月份</option>
+              <option value="month">指定月份</option>
+            </select>
           </label>
+          {!showAllMonths && (
+            <label className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 shadow-xs">
+              <span className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">
+                薪資月份
+              </span>
+              <input
+                type="month"
+                value={filterMonth}
+                onChange={(e) => setFilterMonth(e.target.value)}
+                className="min-w-[9.5rem] bg-transparent text-sm font-medium text-foreground focus:outline-none"
+                aria-label="依月份篩選已發放薪資"
+              />
+            </label>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -263,9 +315,15 @@ export function PayslipPaidHistoryPanel() {
           </p>
         ) : rows.length === 0 ? (
           <div className="py-12 text-center text-sm text-muted-foreground">
-            <p>{monthLabel} 尚無已發放薪資紀錄。</p>
+            <p>
+              {showAllMonths
+                ? "尚無已發放薪資紀錄。"
+                : `${monthLabel} 尚無已發放薪資紀錄。`}
+            </p>
             <p className="mt-1 text-xs opacity-80">
-              可換其他月份，或至「薪資結算」完成發放。
+              {showAllMonths
+                ? "可改選「指定月份」篩選，或至「薪資結算」完成發放。"
+                : "可換其他月份、改選「全部月份」，或至「薪資結算」完成發放。"}
             </p>
           </div>
         ) : (
@@ -285,6 +343,9 @@ export function PayslipPaidHistoryPanel() {
                 <TableHead className="text-xs font-semibold">狀態</TableHead>
                 <TableHead className="text-xs font-semibold whitespace-nowrap">
                   入帳時間
+                </TableHead>
+                <TableHead className="text-xs font-semibold whitespace-nowrap">
+                  出勤備註
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -314,12 +375,61 @@ export function PayslipPaidHistoryPanel() {
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                     {formatDateTime(row.created_at)}
                   </TableCell>
+                  <TableCell className="max-w-[10rem]">
+                    {row.notes ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-8 gap-1 px-2 text-xs text-muted-foreground"
+                        onClick={() =>
+                          setRemarkDialog({
+                            open: true,
+                            name: row.employee_name,
+                            text: row.notes ?? "",
+                          })
+                        }
+                      >
+                        <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        查看明細
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
       </div>
+
+      <Dialog.Root
+        open={remarkDialog.open}
+        onOpenChange={(open) => setRemarkDialog((d) => ({ ...d, open }))}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[min(80vh,32rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none">
+            <Dialog.Title className="text-base font-semibold text-foreground">
+              出勤備註 · {remarkDialog.name}
+            </Dialog.Title>
+            <Dialog.Description asChild>
+              <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                {remarkDialog.text}
+              </p>
+            </Dialog.Description>
+            <div className="mt-5 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRemarkDialog((d) => ({ ...d, open: false }))}
+              >
+                關閉
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </section>
   );
 }

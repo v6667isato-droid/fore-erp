@@ -30,7 +30,6 @@ import { ProcurementPage } from "@/components/procurement-page";
 import { VendorsPage } from "@/components/vendors-page";
 import { ProductsPage } from "@/components/products-page";
 import { CustomersPage } from "@/components/customers-page";
-import { EmployeesPage } from "@/components/employees-page";
 import { LeaveApprovalsPage } from "@/components/leave-approvals-page";
 import { FeedbackPage } from "@/components/feedback-page";
 import { ChannelsPage } from "@/components/channels-page";
@@ -58,12 +57,11 @@ type Page =
   | "products"
   | "customers"
   | "channels"
-  | "employees"
   | "leave_approvals"
   | "feedback";
 type AppRole = "admin" | "manager" | "staff" | null;
 
-/** 報價／訂單／產品等：admin 與 manager 可編輯；批准作業／員工資料僅 admin */
+/** 報價／訂單／產品等：admin 與 manager 可編輯；出勤管理（含員工資料分頁）僅 admin */
 function isErpEditorRole(role: AppRole): boolean {
   return role === "admin" || role === "manager";
 }
@@ -79,8 +77,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "kanban", label: "生產看板", icon: Package },
   { id: "procurement", label: "採購成本", icon: ShoppingCart },
   { id: "vendors", label: "廠商資料", icon: Building2 },
-  { id: "employees", label: "員工資料", icon: Users },
-  { id: "leave_approvals", label: "假單審核", icon: ClipboardCheck },
+  { id: "leave_approvals", label: "出勤管理", icon: ClipboardCheck },
   { id: "feedback", label: "使用回饋 / 待辦事項", icon: MessageSquare },
 ];
 
@@ -116,10 +113,7 @@ function SidebarNav({
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
-        if (
-          (item.id === "employees" || item.id === "leave_approvals") &&
-          userRole !== "admin"
-        ) {
+        if (item.id === "leave_approvals" && userRole !== "admin") {
           return null;
         }
         const Icon = item.icon;
@@ -253,10 +247,7 @@ function MobileHeader({
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
-                  if (
-                    (item.id === "employees" || item.id === "leave_approvals") &&
-                    userRole !== "admin"
-                  ) {
+                  if (item.id === "leave_approvals" && userRole !== "admin") {
                     return null;
                   }
                   const Icon = item.icon;
@@ -352,9 +343,12 @@ export default function DashboardShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pageParam = searchParams.get("page");
-  const [activePage, setActivePage] = useState<Page>(() =>
-    pageParam && PAGE_IDS.has(pageParam as Page) ? (pageParam as Page) : "dashboard"
-  );
+  const [activePage, setActivePage] = useState<Page>(() => {
+    if (pageParam === "employees") return "leave_approvals";
+    return pageParam && PAGE_IDS.has(pageParam as Page)
+      ? (pageParam as Page)
+      : "dashboard";
+  });
   const pageTitle =
     navItems.find((i) => i.id === activePage)?.label ?? "總覽";
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -366,8 +360,13 @@ export default function DashboardShell() {
   // 從 URL 同步頁面（例如瀏覽器上一頁 / 開新視窗後重繪時維持在當前頁）
   useEffect(() => {
     const p = searchParams.get("page");
+    if (p === "employees") {
+      router.replace("/?page=leave_approvals&attendanceTab=employees");
+      setActivePage("leave_approvals");
+      return;
+    }
     if (p && PAGE_IDS.has(p as Page)) setActivePage(p as Page);
-  }, [searchParams]);
+  }, [searchParams, router]);
 
   // 監聽網址 hash，如為 orders:<id>，則切換到訂單頁並記住要自動打開的訂單
   useEffect(() => {
@@ -459,10 +458,10 @@ export default function DashboardShell() {
     };
   }, [router]);
 
-  // 非 admin 不可開員工資料／批准作業（含書籤或手動改 ?page=）
+  // 非 admin 不可開出勤管理（含書籤或手動改 ?page=）
   useEffect(() => {
     if (!authChecked || userRole === null) return;
-    if (userRole !== "admin" && (activePage === "employees" || activePage === "leave_approvals")) {
+    if (userRole !== "admin" && activePage === "leave_approvals") {
       setActivePage("dashboard");
       router.replace("/?page=dashboard");
     }
@@ -552,7 +551,6 @@ export default function DashboardShell() {
           {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "channels" && <ChannelsPage />}
-          {activePage === "employees" && userRole === "admin" && <EmployeesPage />}
           {activePage === "leave_approvals" && userRole === "admin" && (
             <LeaveApprovalsPage />
           )}

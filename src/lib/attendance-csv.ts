@@ -1,9 +1,40 @@
 /**
- * 打卡鐘 CSV：無標題陣列模式。
- * UID=2，上下班代碼在 Status（row[4]：1 上班、2 下班），DateTime=row[8]（8 欄列則為 row[7]）。
+ * 打卡鐘匯出：Tab（或逗號）分隔。
+ * - 有表頭列且含 UID 欄：Papa header + transformHeader(trim)，以 row.UID / Status / DateTime 取值。
+ * - 無表頭：固定欄位 UID=row[2]、Status=row[4]、DateTime=row[8]（8 欄則 row[7]）。
+ * UID、Status 以 parseInt 去除前綴零；Status 僅接受數值 1（上班）、2（下班）。
+ * DateTime 可含秒（HH:mm:ss），內部仍正規化為 HH:mm 供遲到早退（分鐘級）比對。
  */
 
 import Papa from "papaparse";
+
+function firstNonEmptyLine(text: string): string {
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    const t = line.replace(/\uFEFF/g, "").trim();
+    if (t) return line.replace(/\uFEFF/g, "");
+  }
+  return "";
+}
+
+/** 首列是否為表頭（含 UID 欄位名） */
+function looksLikeHeaderRow(line: string): boolean {
+  const norm = line.replace(/\uFEFF/g, "").trim();
+  if (!norm) return false;
+  const byTab = norm.split("\t");
+  const parts = byTab.length >= 3 ? byTab : norm.split(",");
+  return parts.some((p) => String(p).trim().toUpperCase() === "UID");
+}
+
+function getField(row: Record<string, unknown>, names: string[]): unknown {
+  const keys = Object.keys(row);
+  for (const name of names) {
+    const want = name.trim().toLowerCase();
+    const k = keys.find((h) => String(h).trim().toLowerCase() === want);
+    if (k != null) return row[k];
+  }
+  return undefined;
+}
 
 export type AttendanceRawRow = {
   uid: string;
@@ -54,8 +85,10 @@ export function splitDateTime(raw: string): { date: string; time: string } | nul
 
   const hh = Number(tm[1]);
   const mm = Number(tm[2]);
+  const ss = tm[3] != null && tm[3] !== "" ? Number(tm[3]) : 0;
   if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
   if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  if (tm[3] != null && tm[3] !== "" && (!Number.isFinite(ss) || ss < 0 || ss > 59)) return null;
 
   const time = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
   return { date, time };
@@ -108,7 +141,12 @@ function parseClockDateTimeCell(
 
   let h = Number(tm[1]);
   const mi = Number(tm[2]);
+  const ss = tm[3] != null && tm[3] !== "" ? Number(tm[3]) : 0;
   if (!Number.isFinite(h) || !Number.isFinite(mi)) return null;
+  if (tm[3] != null && tm[3] !== "" && (!Number.isFinite(ss) || ss < 0 || ss > 59)) {
+    parseErrors.push(`${rowLabel}：DateTime 秒數無效。`);
+    return null;
+  }
 
   if (isPM && h < 12) h += 12;
   if (isAM && h === 12) h = 0;
@@ -129,7 +167,9 @@ function parseClockDateTimeCell(
 }
 
 function rowSortMinutes(row: AttendanceRawRow): number {
-  const [h, mi] = row.time.split(":").map((x) => Number(x));
+  const parts = row.time.split(":");
+  const h = Number(parts[0]);
+  const mi = Number(parts[1]);
   if (!Number.isFinite(h) || !Number.isFinite(mi)) return 0;
   return h * 60 + mi;
 }
@@ -212,63 +252,97 @@ export function parseAttendanceCsvText(text: string): {
 } {
   const parseErrors: string[] = [];
   const bomStripped = text.replace(/^\uFEFF/, "");
+  const useHeader = looksLikeHeaderRow(firstNonEmptyLine(bomStripped));
 
   let aggregatedRows: AttendanceDayRow[] = [];
 
-  const parsed = Papa.parse<unknown[]>(bomStripped, {
-    header: false,
+  const parsed = Papa.parse<unknown[] | Record<string, unknown>>(bomStripped, {
+    header: useHeader,
+    transformHeader: useHeader
+      ? (header: string) => String(header ?? "").replace(/\uFEFF/g, "").trim()
+      : undefined,
     skipEmptyLines: true,
     dynamicTyping: false,
     complete: (results) => {
-      console.log("無標題模式 · 列數:", results.data.length);
-      console.log("首列原始陣列:", results.data[0]);
-
       const rawRows: AttendanceRawRow[] = [];
       const data = results.data;
-      let loggedFirstRealRow = false;
 
-      for (let i = 0; i < data.length; i++) {
-        const row = data[i];
-        if (!Array.isArray(row)) continue;
+      if (useHeader) {
+        for (let i = 0; i < data.length; i++) {
+          const row = data[i];
+          if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+          const rec = row as Record<string, unknown>;
 
-        if (
-          row.length < 8 ||
-          String(row[0] ?? "").includes("No") ||
-          !String(row[2] ?? "").trim()
-        ) {
-          continue;
+          const uidNum = parseInt(String(getField(rec, ["UID"]) ?? "").trim(), 10);
+          if (!Number.isFinite(uidNum)) continue;
+
+          const statusNum = parseInt(String(getField(rec, ["Status", "STATUS"]) ?? "").trim(), 10);
+          if (statusNum !== 1 && statusNum !== 2) continue;
+
+          const displayNameRaw = String(
+            getField(rec, ["Name", "姓名", "USERNAME", "UserName"]) ?? "",
+          ).trim();
+          const dateTimeRaw = String(
+            getField(rec, ["DateTime", "DATETIME", "Date Time", "日期時間"]) ?? "",
+          ).trim();
+
+          const split = parseClockDateTimeCell(
+            dateTimeRaw,
+            `第 ${i + 2} 列`,
+            parseErrors,
+          );
+          if (!split) continue;
+
+          rawRows.push({
+            uid: String(uidNum),
+            name: displayNameRaw || "—",
+            action: String(statusNum),
+            date: split.date,
+            time: split.time,
+            dateTimeRaw,
+          });
         }
+      } else {
+        for (let i = 0; i < data.length; i++) {
+          const row = data[i];
+          if (!Array.isArray(row)) continue;
 
-        const dateTimeIdx = row.length >= 9 ? 8 : 7;
-        if (row.length <= dateTimeIdx) continue;
+          if (
+            row.length < 8 ||
+            String(row[0] ?? "").includes("No") ||
+            !String(row[2] ?? "").trim()
+          ) {
+            continue;
+          }
 
-        if (!loggedFirstRealRow) {
-          console.log("第一筆真實資料陣列:", row);
-          loggedFirstRealRow = true;
+          const dateTimeIdx = row.length >= 9 ? 8 : 7;
+          if (row.length <= dateTimeIdx) continue;
+
+          const uidNum = parseInt(String(row[2]).trim(), 10);
+          if (!Number.isFinite(uidNum)) continue;
+
+          const displayNameRaw = String(row[3] ?? "").trim();
+          const statusNum = parseInt(String(row[4]).trim(), 10);
+          if (statusNum !== 1 && statusNum !== 2) continue;
+
+          const dateTimeRaw = String(row[dateTimeIdx]).trim();
+
+          const split = parseClockDateTimeCell(
+            dateTimeRaw,
+            `第 ${i + 1} 列`,
+            parseErrors,
+          );
+          if (!split) continue;
+
+          rawRows.push({
+            uid: String(uidNum),
+            name: displayNameRaw || "—",
+            action: String(statusNum),
+            date: split.date,
+            time: split.time,
+            dateTimeRaw,
+          });
         }
-
-        const uid = String(row[2]).trim();
-        const displayNameRaw = String(row[3] ?? "").trim();
-        const status = String(row[4]).trim();
-        const dateTimeRaw = String(row[dateTimeIdx]).trim();
-
-        if (status !== "1" && status !== "2") continue;
-
-        const split = parseClockDateTimeCell(
-          dateTimeRaw,
-          `第 ${i + 1} 列`,
-          parseErrors,
-        );
-        if (!split) continue;
-
-        rawRows.push({
-          uid: uid || "—",
-          name: displayNameRaw || "—",
-          action: status,
-          date: split.date,
-          time: split.time,
-          dateTimeRaw,
-        });
       }
 
       aggregatedRows = aggregateRawRows(rawRows);

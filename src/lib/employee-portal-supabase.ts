@@ -431,6 +431,10 @@ async function fetchPayslipRows(employeeId: string): Promise<PayslipRow[]> {
       other_adjust: num(row.other_adjust, 0),
       net_pay: net,
     };
+    const notesRaw = row.notes;
+    const notes =
+      typeof notesRaw === "string" && notesRaw.trim() ? notesRaw.trim() : null;
+
     return {
       id: String(row.id),
       period_key: pk,
@@ -438,6 +442,7 @@ async function fetchPayslipRows(employeeId: string): Promise<PayslipRow[]> {
       net_pay: net,
       status: payslipStatus(String(row.status ?? "")),
       breakdown,
+      notes,
     };
   });
 }

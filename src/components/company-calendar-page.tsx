@@ -16,6 +16,15 @@ import {
   type CompanyEventCategory,
   type CompanyEventRow,
 } from "@/lib/company-events";
+import {
+  fetchCalendarApprovedLeavesOverlapping,
+  fetchCalendarPublicHolidaysBetween,
+  formatTotalDaysLabel,
+  groupApprovedLeavesByDateKey,
+  groupPublicHolidaysByDateKey,
+  type CalendarApprovedLeaveRow,
+} from "@/lib/company-calendar-extra";
+import type { PublicHolidayEntry } from "@/lib/attendance-war-room";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { CompanyAnnouncementsBlock } from "@/components/company-announcements-block";
 import { CompanyCalendarAddEventDialog } from "@/components/company-calendar-add-event-dialog";
@@ -26,6 +35,17 @@ interface CalendarEventItem {
   category: CompanyEventCategory;
   title: string;
 }
+
+type CalendarCellItem =
+  | { kind: "company"; id: string; category: CompanyEventCategory; title: string }
+  | {
+      kind: "holiday";
+      id: string;
+      title: string;
+      isWorkday: boolean;
+      tooltip: string;
+    }
+  | { kind: "leave"; id: string; title: string; tooltip: string };
 
 const WEEKDAY_LABELS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
 
@@ -49,6 +69,24 @@ const EVENT_STYLES: Record<
     badge: "bg-stone-100 text-stone-700 dark:bg-stone-900/50 dark:text-stone-200",
     hover: "hover:bg-stone-200/80 dark:hover:bg-stone-800/50",
   },
+};
+
+const HOLIDAY_REST_STYLES = {
+  badge:
+    "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-sm dark:from-orange-700 dark:to-red-700",
+  hover: "hover:opacity-95",
+};
+
+const HOLIDAY_WORK_STYLES = {
+  badge:
+    "border border-amber-600/45 bg-amber-100 text-amber-950 dark:border-amber-700/50 dark:bg-amber-950/45 dark:text-amber-50",
+  hover: "hover:bg-amber-200/90 dark:hover:bg-amber-900/40",
+};
+
+const APPROVED_LEAVE_STYLES = {
+  badge:
+    "border border-violet-500/35 bg-violet-100 text-violet-950 dark:border-violet-600/40 dark:bg-violet-950/45 dark:text-violet-100",
+  hover: "hover:bg-violet-200/85 dark:hover:bg-violet-900/35",
 };
 
 function groupEventsByDay(rows: CompanyEventRow[]): Map<string, CalendarEventItem[]> {
@@ -86,6 +124,8 @@ export function CompanyCalendarPage() {
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [rows, setRows] = useState<CompanyEventRow[]>([]);
+  const [publicHolidays, setPublicHolidays] = useState<PublicHolidayEntry[]>([]);
+  const [approvedLeaves, setApprovedLeaves] = useState<CalendarApprovedLeaveRow[]>([]);
   const [announcements, setAnnouncements] = useState<
     { id: string; title: string; body: string; published_at: string }[]
   >([]);
@@ -117,23 +157,38 @@ export function CompanyCalendarPage() {
     let cancelled = false;
     if (!isSupabaseConfigured) {
       setRows([]);
+      setPublicHolidays([]);
+      setApprovedLeaves([]);
       setLoadState("idle");
       return;
     }
     setLoadState("loading");
     (async () => {
+      let evErr = false;
+      let nextRows: CompanyEventRow[] = [];
       try {
-        const data = await fetchCompanyEventsBetween(range.start, range.end);
-        if (!cancelled) {
-          setRows(data);
-          setLoadState("idle");
-        }
+        nextRows = await fetchCompanyEventsBetween(range.start, range.end);
       } catch (e) {
-        console.error(e);
-        if (!cancelled) {
-          setRows([]);
-          setLoadState("error");
-        }
+        console.error("[company-calendar] company_event", e);
+        evErr = true;
+      }
+      let nextHol: PublicHolidayEntry[] = [];
+      try {
+        nextHol = await fetchCalendarPublicHolidaysBetween(range.start, range.end);
+      } catch (e) {
+        console.error("[company-calendar] public_holidays", e);
+      }
+      let nextLeave: CalendarApprovedLeaveRow[] = [];
+      try {
+        nextLeave = await fetchCalendarApprovedLeavesOverlapping(range.start, range.end);
+      } catch (e) {
+        console.error("[company-calendar] leave_requests", e);
+      }
+      if (!cancelled) {
+        setRows(nextRows);
+        setPublicHolidays(nextHol);
+        setApprovedLeaves(nextLeave);
+        setLoadState(evErr ? "error" : "idle");
       }
     })();
     return () => {
@@ -161,7 +216,57 @@ export function CompanyCalendarPage() {
     };
   }, [version]);
 
-  const eventsByDay = useMemo(() => groupEventsByDay(rows), [rows]);
+  const companyEventsByDay = useMemo(() => groupEventsByDay(rows), [rows]);
+  const holidaysByDay = useMemo(
+    () => groupPublicHolidaysByDateKey(publicHolidays),
+    [publicHolidays],
+  );
+  const leavesByDay = useMemo(
+    () => groupApprovedLeavesByDateKey(approvedLeaves, range.start, range.end),
+    [approvedLeaves, range.start, range.end],
+  );
+
+  const cellItemsByDay = useMemo(() => {
+    const map = new Map<string, CalendarCellItem[]>();
+    const add = (dateKey: string, item: CalendarCellItem) => {
+      const list = map.get(dateKey) ?? [];
+      list.push(item);
+      map.set(dateKey, list);
+    };
+    for (const [dateKey, hols] of holidaysByDay) {
+      for (const h of hols) {
+        add(dateKey, {
+          kind: "holiday",
+          id: `ph-${dateKey}-${h.name}-${h.is_workday ? "w" : "r"}`,
+          title: h.is_workday ? `📌 ${h.name}` : `🧨 ${h.name}`,
+          isWorkday: h.is_workday,
+          tooltip: h.is_workday ? `補班日：${h.name}` : `國定／特殊假日：${h.name}`,
+        });
+      }
+    }
+    for (const [dateKey, list] of leavesByDay) {
+      for (const L of list) {
+        const td = formatTotalDaysLabel(L.totalDays);
+        add(dateKey, {
+          kind: "leave",
+          id: `lr-${L.id}-${dateKey}`,
+          title: `${L.employeeName} · ${L.leaveType} · 共 ${td} 天`,
+          tooltip: `已核准：${L.employeeName}／${L.leaveType}／單筆申請 total_days ${td}・${L.startDate}～${L.endDate}`,
+        });
+      }
+    }
+    for (const [dateKey, evs] of companyEventsByDay) {
+      for (const ev of evs) {
+        add(dateKey, {
+          kind: "company",
+          id: ev.id,
+          category: ev.category,
+          title: ev.title,
+        });
+      }
+    }
+    return map;
+  }, [holidaysByDay, leavesByDay, companyEventsByDay]);
 
   const eventById = useMemo(() => {
     const m = new Map<string, CompanyEventRow>();
@@ -219,7 +324,7 @@ export function CompanyCalendarPage() {
           </div>
           <div className="flex flex-col gap-0.5">
             <p className="text-xs text-muted-foreground sm:text-sm">
-              公司綜合行事曆 · 資料來源 company_event
+              公司綜合行事曆 · company_event、public_holidays、已核准假單（leave_requests）
             </p>
             {loadState === "loading" && (
               <span className="text-[11px] text-muted-foreground">同步行程中…</span>
@@ -259,7 +364,7 @@ export function CompanyCalendarPage() {
         <div className="grid grid-cols-7 divide-x divide-y divide-border/80 border-border/80 bg-card/50 dark:bg-card/30">
           {grid.map((cell) => {
             const key = formatDateKey(cell.year, cell.month, cell.day);
-            const dayEvents = eventsByDay.get(key) ?? [];
+            const dayItems = cellItemsByDay.get(key) ?? [];
             const today = isTodayCell(cell);
 
             return (
@@ -308,23 +413,54 @@ export function CompanyCalendarPage() {
                   </span>
                 </div>
                 <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-                  {dayEvents.map((ev) => {
-                    const styles = EVENT_STYLES[ev.category];
+                  {dayItems.map((item) => {
+                    if (item.kind === "holiday") {
+                      const styles = item.isWorkday ? HOLIDAY_WORK_STYLES : HOLIDAY_REST_STYLES;
+                      return (
+                        <div
+                          key={item.id}
+                          title={item.tooltip}
+                          className={cn(
+                            "w-full text-left text-[11px] font-semibold leading-snug",
+                            "rounded px-1 py-0.5 truncate",
+                            styles.badge,
+                          )}
+                        >
+                          {item.title}
+                        </div>
+                      );
+                    }
+                    if (item.kind === "leave") {
+                      return (
+                        <div
+                          key={item.id}
+                          title={item.tooltip}
+                          className={cn(
+                            "w-full text-left text-[11px] font-medium leading-snug",
+                            "rounded px-1 py-0.5 truncate",
+                            APPROVED_LEAVE_STYLES.badge,
+                          )}
+                        >
+                          {item.title}
+                        </div>
+                      );
+                    }
+                    const styles = EVENT_STYLES[item.category];
                     return (
                       <button
-                        key={ev.id}
+                        key={item.id}
                         type="button"
-                        title={`${ev.title}（點擊查閱）`}
+                        title={`${item.title}（點擊查閱）`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          const full = eventById.get(ev.id);
+                          const full = eventById.get(item.id);
                           if (full) setViewingEvent(full);
                         }}
                         onKeyDown={(e) => {
                           e.stopPropagation();
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            const full = eventById.get(ev.id);
+                            const full = eventById.get(item.id);
                             if (full) setViewingEvent(full);
                           }
                         }}
@@ -333,10 +469,10 @@ export function CompanyCalendarPage() {
                           "rounded px-1 py-0.5 truncate",
                           styles.badge,
                           styles.hover,
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
                         )}
                       >
-                        {ev.title}
+                        {item.title}
                       </button>
                     );
                   })}
@@ -364,6 +500,18 @@ export function CompanyCalendarPage() {
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-stone-400" />
           備忘
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-gradient-to-r from-orange-500 to-red-500" />
+          國定／放假
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-amber-400" />
+          補班
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-violet-400" />
+          已核准休假
         </span>
       </div>
 

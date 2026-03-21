@@ -1,0 +1,297 @@
+/**
+ * 薪資結算「出勤故事」備註：彙整 daily_attendance、leave_requests、overtime_records。
+ */
+
+import {
+  hoursToDayHourParts,
+  splitRemainingDaysToDayHour,
+} from "@/lib/employee-leave-time";
+
+export type PayslipRemarkBounds = {
+  start: string;
+  end: string;
+};
+
+function num(v: unknown, fallback = 0): number {
+  if (v == null || v === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function parseLocalYmd(s: string): Date {
+  const [yy, mm, dd] = s.slice(0, 10).split("-").map((x) => Number(x));
+  return new Date(yy, mm - 1, dd);
+}
+
+function formatMdFromIso(dateIso: string): string {
+  const d = dateIso.slice(0, 10);
+  const [, mo, day] = d.split("-").map((x) => Number(x));
+  if (!Number.isFinite(mo) || !Number.isFinite(day)) return d;
+  return `${mo}/${day}`;
+}
+
+function ymdFromDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isLeaveApproved(raw: string | null | undefined): boolean {
+  const s = (raw ?? "").trim().toLowerCase();
+  return s === "approved" || s === "已核准" || s === "核准";
+}
+
+function leaveTypeRaw(row: Record<string, unknown>): string {
+  return String(row.leave_type ?? row.type_label ?? row.type ?? "").trim();
+}
+
+function isSpecialAnnualLeaveType(leaveType: string): boolean {
+  return leaveType.trim() === "特休";
+}
+
+/** 特休備註：X日Y小時；小時為 0 不顯示「Y小時」；僅小時時不顯示 0日 */
+function formatSpecialLeaveDurationForNote(days: number, hours: number): string {
+  const d = Math.max(0, Math.trunc(days));
+  const hRaw = Math.max(0, Number(hours) || 0);
+  const hRounded = Math.round(hRaw * 100) / 100;
+  const parts: string[] = [];
+  if (d > 0) parts.push(`${d}日`);
+  if (hRounded > 0) {
+    const hDisp = Number.isInteger(hRounded)
+      ? String(hRounded)
+      : String(hRounded);
+    parts.push(`${hDisp}小時`);
+  }
+  return parts.join("");
+}
+
+/** 與結算中心一致：09:00 基準，逾 09:15 視為遲到並回傳「超過 9:00 的分鐘數」 */
+function lateMinutesFromClockIn(clockIn: unknown): number | null {
+  if (clockIn == null || clockIn === "") return null;
+  const raw = String(clockIn).trim();
+  const m = /^(\d{1,2}):(\d{2})/.exec(raw);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(mi)) return null;
+  const actual = h * 60 + mi;
+  const graceEnd = 9 * 60 + 15;
+  if (actual <= graceEnd) return null;
+  return actual - 9 * 60;
+}
+
+function attendanceLineForRow(row: Record<string, unknown>): string | null {
+  const dateIso = String(row.attendance_date ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) return null;
+
+  const tags = Array.isArray(row.status_tags)
+    ? (row.status_tags as string[]).filter(Boolean)
+    : [];
+  const clockIn = row.clock_in;
+  const clockOut = row.clock_out;
+  const hasIn = clockIn != null && String(clockIn).trim() !== "";
+  const hasOut = clockOut != null && String(clockOut).trim() !== "";
+
+  const parts: string[] = [];
+
+  const tagText = tags.join(" ");
+  if (tagText.includes("缺卡") || (hasIn && !hasOut) || (!hasIn && hasOut)) {
+    parts.push("缺卡");
+  }
+
+  if (tagText.includes("遲到")) {
+    const lm = lateMinutesFromClockIn(clockIn);
+    parts.push(lm != null && lm > 0 ? `遲到 ${lm}分` : "遲到");
+  }
+  if (tagText.includes("早退")) parts.push("早退");
+  if (tagText.includes("未出勤")) parts.push("未出勤");
+  if (tagText.includes("工時不足")) parts.push("工時不足");
+  if (tagText.includes("時數不足")) parts.push("時數不足");
+  /** 「時間超時」「時數異常」不列入薪資備註（老闆要求略過） */
+
+  const onlyLeaveTags =
+    tags.length > 0 &&
+    tags.every(
+      (t) =>
+        t.includes("請假") ||
+        t.includes("🌴") ||
+        t.includes("已請假"),
+    );
+  if (onlyLeaveTags && parts.length === 0) return null;
+
+  const mentionsTrackedIssue =
+    tagText.includes("缺卡") ||
+    (hasIn && !hasOut) ||
+    (!hasIn && hasOut) ||
+    tagText.includes("遲到") ||
+    tagText.includes("早退") ||
+    tagText.includes("未出勤") ||
+    tagText.includes("工時不足") ||
+    tagText.includes("時數不足");
+
+  if (
+    parts.length === 0 &&
+    row.is_abnormal === true &&
+    !mentionsTrackedIssue &&
+    (tagText.includes("時數異常") || tagText.includes("超時"))
+  ) {
+    return null;
+  }
+
+  if (parts.length === 0 && row.is_abnormal === true) {
+    parts.push("出勤異常");
+  }
+  if (parts.length === 0) return null;
+
+  return `${formatMdFromIso(dateIso)} ${parts.join("、")}`;
+}
+
+function leaveLineForRow(
+  row: Record<string, unknown>,
+  bounds: PayslipRemarkBounds,
+): string | null {
+  if (!isLeaveApproved(String(row.status ?? ""))) return null;
+
+  const start = String(row.start_date ?? "").slice(0, 10);
+  const end = String(row.end_date ?? start).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    return null;
+  }
+
+  const a = parseLocalYmd(start);
+  const b = parseLocalYmd(end);
+  const x = parseLocalYmd(bounds.start);
+  const y = parseLocalYmd(bounds.end);
+  const s = a.getTime() > x.getTime() ? a : x;
+  const e = b.getTime() < y.getTime() ? b : y;
+  if (s.getTime() > e.getTime()) return null;
+
+  const d0 = formatMdFromIso(ymdFromDate(s));
+  const d1 = formatMdFromIso(ymdFromDate(e));
+  const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
+  const leaveType = leaveTypeRaw(row) || "請假";
+
+  if (isSpecialAnnualLeaveType(leaveType)) {
+    const hc = num(row.hours_count, 0);
+    let d = 0;
+    let h = 0;
+    if (hc > 0) {
+      const p = hoursToDayHourParts(hc);
+      d = p.days;
+      h = p.hours;
+    } else {
+      const td = num(row.total_days, 0);
+      if (td > 0) {
+        const p = splitRemainingDaysToDayHour(td);
+        d = p.days;
+        h = p.hours;
+      }
+    }
+    const dur = formatSpecialLeaveDurationForNote(d, h);
+    return dur ? `${datePart} 特休 ${dur}` : `${datePart} 特休`;
+  }
+
+  const hours = num(row.hours_count, 0);
+  if (hours > 0) {
+    const hDisp = Number.isInteger(hours) ? String(hours) : String(hours);
+    return `${datePart} ${leaveType} ${hDisp}hr`;
+  }
+  const td = num(row.total_days, 0);
+  if (td > 0 && td !== 1) {
+    const tdDisp = Number.isInteger(td) ? String(td) : String(td);
+    return `${datePart} ${leaveType} ${tdDisp}天`;
+  }
+  return `${datePart} ${leaveType}`;
+}
+
+function overtimeLineForRow(
+  row: Record<string, unknown>,
+  settleOvertimeAsCompOff: boolean,
+): string | null {
+  const d = String(row.overtime_date ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const h = num(row.hours, 0);
+  if (h <= 0) return null;
+  const hDisp = Number.isInteger(h) ? String(h) : String(h);
+  const md = formatMdFromIso(d);
+  if (settleOvertimeAsCompOff) {
+    return `${md} 假日加班轉補休 ${hDisp}hr`;
+  }
+  return `${md} 假日加班 ${hDisp}hr（計薪）`;
+}
+
+export function sumApprovedOvertimeHoursForEmployee(
+  employeeId: string,
+  overtimeRows: Record<string, unknown>[],
+): number {
+  let sum = 0;
+  for (const r of overtimeRows) {
+    if (String(r.employee_id ?? "") !== employeeId) continue;
+    sum += num(r.hours, 0);
+  }
+  return sum;
+}
+
+/** 將加班時數換算為「天數」（8 小時 = 1 天），並四捨五入至 0.5 步階 */
+export function overtimeHoursToHalfDaySteps(hours: number): number {
+  if (hours <= 0) return 0;
+  const days = hours / 8;
+  return Math.round(days * 2) / 2;
+}
+
+type SortableRemark = { sortKey: string; text: string };
+
+/**
+ * 產生單一員工本月備註字串（逗號分隔）。
+ */
+export function buildPayslipAttendanceRemarks(
+  employeeId: string,
+  opts: {
+    bounds: PayslipRemarkBounds;
+    attendanceRows: Record<string, unknown>[];
+    leaveRows: Record<string, unknown>[];
+    overtimeRows: Record<string, unknown>[];
+    settleOvertimeAsCompOff: boolean;
+  },
+): string {
+  const { bounds, attendanceRows, leaveRows, overtimeRows, settleOvertimeAsCompOff } =
+    opts;
+  const items: SortableRemark[] = [];
+
+  for (const row of attendanceRows) {
+    if (String(row.employee_id ?? "") !== employeeId) continue;
+    const line = attendanceLineForRow(row);
+    if (!line) continue;
+    const sortKey = String(row.attendance_date ?? "").slice(0, 10);
+    items.push({ sortKey, text: line });
+  }
+
+  for (const row of leaveRows) {
+    if (String(row.employee_id ?? "") !== employeeId) continue;
+    const line = leaveLineForRow(row, bounds);
+    if (!line) continue;
+    const start = String(row.start_date ?? "").slice(0, 10);
+    items.push({ sortKey: start, text: line });
+  }
+
+  for (const row of overtimeRows) {
+    if (String(row.employee_id ?? "") !== employeeId) continue;
+    const line = overtimeLineForRow(row, settleOvertimeAsCompOff);
+    if (!line) continue;
+    const sortKey = String(row.overtime_date ?? "").slice(0, 10);
+    items.push({ sortKey, text: line });
+  }
+
+  items.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const { text } of items) {
+    if (seen.has(text)) continue;
+    seen.add(text);
+    deduped.push(text);
+  }
+
+  return deduped.join(", ");
+}

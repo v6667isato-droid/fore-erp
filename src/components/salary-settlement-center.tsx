@@ -9,7 +9,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Banknote, CalendarRange } from "lucide-react";
+import { Banknote, CalendarRange, Eye } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import {
+  buildPayslipAttendanceRemarks,
+  overtimeHoursToHalfDaySteps,
+  sumApprovedOvertimeHoursForEmployee,
+} from "@/lib/payslip-attendance-remarks";
 
 interface SettlementEmployee {
   id: string;
@@ -26,6 +32,24 @@ interface SettlementEmployee {
 interface RowInputs {
   overtimeDays: number;
   otherAdjust: number;
+  /** true：不計加班費（與轉補休一致）；false：以費率 × 天數計入加班費 */
+  settleOvertimeAsCompOff: boolean;
+  /** 出勤備註（預設系統產生，老闆可改；發放寫入 payslips.notes） */
+  attendanceNotes: string;
+}
+
+function defaultRowInputs(): RowInputs {
+  return {
+    overtimeDays: 0,
+    otherAdjust: 0,
+    settleOvertimeAsCompOff: false,
+    attendanceNotes: "",
+  };
+}
+
+function isPaidStatus(raw: string | null | undefined): boolean {
+  const s = (raw ?? "").trim().toLowerCase();
+  return s === "paid" || s === "已發放" || s === "發放";
 }
 
 function ymNow(): string {
@@ -114,6 +138,21 @@ function isPayslipMissingColumnError(message: string): boolean {
   return /could not find|column .* does not exist|schema cache/i.test(message);
 }
 
+/** 資料列真的撞唯一鍵（duplicate key）。勿用 /unique/ 寬鬆比對，否則會把「ON CONFLICT 找不到唯一限制」誤當成重複發放。 */
+function isPayslipDuplicateRowError(message: string): boolean {
+  const m = message.toLowerCase();
+  if (/no unique or exclusion constraint matching/i.test(m)) return false;
+  return (
+    /duplicate key value violates unique constraint/i.test(m) ||
+    /\b23505\b/.test(m) ||
+    /unique constraint.*violat/i.test(m)
+  );
+}
+
+function isPayslipOnConflictTargetError(message: string): boolean {
+  return /no unique or exclusion constraint matching/i.test(message);
+}
+
 /** 若遠端 payslips 尚未建明細欄位，改寫入核心欄位以免發薪失敗 */
 const PAYSLIP_DETAIL_SNAPSHOT_KEYS = [
   "labor_insurance_employee",
@@ -136,7 +175,7 @@ function mapRowToSettlementEmployee(r: Record<string, unknown>): SettlementEmplo
   return {
     id: String(r.id),
     name: String(r.name ?? ""),
-    monthly_wage: num(r.monthly_wage, 0),
+    monthly_wage: num(r.basic_salary ?? r.monthly_wage, 0),
     labor_insurance: labor,
     health_insurance: health,
     health_insured_persons: healthInsuredPersons,
@@ -152,6 +191,8 @@ function mapRowToSettlementEmployee(r: Record<string, unknown>): SettlementEmplo
 }
 
 const EMP_SELECT_ATTEMPTS = [
+  "id, name, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
+  "id, name, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status",
   "id, name, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
   "id, name, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status",
   "id, name, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, employment_status, deleted_at",
@@ -173,9 +214,18 @@ export function SalarySettlementCenter() {
   const [loading, setLoading] = useState(false);
   const [employees, setEmployees] = useState<SettlementEmployee[]>([]);
   const [leaveRows, setLeaveRows] = useState<Record<string, unknown>[]>([]);
+  const [attendanceRows, setAttendanceRows] = useState<Record<string, unknown>[]>(
+    [],
+  );
+  const [overtimeRows, setOvertimeRows] = useState<Record<string, unknown>[]>([]);
   const [inputs, setInputs] = useState<Record<string, RowInputs>>({});
   const [paidIds, setPaidIds] = useState<Set<string>>(new Set());
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [remarkDialog, setRemarkDialog] = useState<{
+    open: boolean;
+    name: string;
+    empId: string | null;
+  }>({ open: false, name: "", empId: null });
 
   const bounds = useMemo(() => monthBounds(payPeriod), [payPeriod]);
 
@@ -211,14 +261,14 @@ export function SalarySettlementCenter() {
     return map;
   }, [leaveRows, bounds]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     if (!isSupabaseConfigured) {
       setFetchError(SUPABASE_CONFIG_HELP);
-      return;
+      return false;
     }
     if (!bounds) {
       setFetchError("結算月份格式不正確");
-      return;
+      return false;
     }
     setLoading(true);
     setFetchError(null);
@@ -244,8 +294,10 @@ export function SalarySettlementCenter() {
         setFetchError(empRes.error.message);
         setEmployees([]);
         setLeaveRows([]);
+        setAttendanceRows([]);
+        setOvertimeRows([]);
         setPaidIds(new Set());
-        return;
+        return false;
       }
 
       const emps: SettlementEmployee[] = (empRes.data ?? [])
@@ -260,54 +312,143 @@ export function SalarySettlementCenter() {
       const ids = emps.map((e) => e.id);
       if (ids.length === 0) {
         setLeaveRows([]);
+        setAttendanceRows([]);
+        setOvertimeRows([]);
         setPaidIds(new Set());
-        return;
+        setInputs({});
+        return true;
       }
 
-      const { data: leaves, error: leaveErr } = await supabase
-        .from("leave_requests")
-        .select("*")
-        .in("employee_id", ids)
-        .lte("start_date", bounds.end)
-        .gte("end_date", bounds.start);
+      const [leaveRes, attRes, otRes, slipRes] = await Promise.all([
+        supabase
+          .from("leave_requests")
+          .select("*")
+          .in("employee_id", ids)
+          .lte("start_date", bounds.end)
+          .gte("end_date", bounds.start),
+        supabase
+          .from("daily_attendance")
+          .select(
+            "employee_id, attendance_date, clock_in, clock_out, total_hours, is_abnormal, status_tags",
+          )
+          .gte("attendance_date", bounds.start)
+          .lte("attendance_date", bounds.end)
+          .in("employee_id", ids),
+        supabase
+          .from("overtime_records")
+          .select("employee_id, overtime_date, hours, reason")
+          .gte("overtime_date", bounds.start)
+          .lte("overtime_date", bounds.end)
+          .in("employee_id", ids),
+        supabase
+          .from("payslips")
+          .select("employee_id, period_key, status, notes")
+          .eq("period_key", payPeriod)
+          .in("employee_id", ids),
+      ]);
 
-      if (leaveErr) {
-        if (/does not exist|relation|column/i.test(leaveErr.message)) {
+      if (leaveRes.error) {
+        if (/does not exist|relation|column/i.test(leaveRes.error.message)) {
           setLeaveRows([]);
         } else {
-          console.warn("[salary-settlement] leave_requests:", leaveErr.message);
-          toast.error(leaveErr.message || "請假資料讀取失敗");
+          console.warn(
+            "[salary-settlement] leave_requests:",
+            leaveRes.error.message,
+          );
+          toast.error(leaveRes.error.message || "請假資料讀取失敗");
           setLeaveRows([]);
         }
       } else {
-        setLeaveRows((leaves ?? []) as Record<string, unknown>[]);
+        setLeaveRows((leaveRes.data ?? []) as Record<string, unknown>[]);
       }
 
-      const { data: slips, error: slipErr } = await supabase
-        .from("payslips")
-        .select("employee_id, period_key, status")
-        .eq("period_key", payPeriod)
-        .in("employee_id", ids);
+      if (attRes.error) {
+        if (!/does not exist|relation|column/i.test(attRes.error.message)) {
+          console.warn(
+            "[salary-settlement] daily_attendance:",
+            attRes.error.message,
+          );
+        }
+        setAttendanceRows([]);
+      } else {
+        setAttendanceRows((attRes.data ?? []) as Record<string, unknown>[]);
+      }
 
-      if (slipErr) {
-        if (!/does not exist|relation/i.test(slipErr.message)) {
-          console.warn("[salary-settlement] payslips:", slipErr.message);
+      if (otRes.error) {
+        if (!/does not exist|relation|column/i.test(otRes.error.message)) {
+          console.warn(
+            "[salary-settlement] overtime_records:",
+            otRes.error.message,
+          );
+        }
+        setOvertimeRows([]);
+      } else {
+        setOvertimeRows((otRes.data ?? []) as Record<string, unknown>[]);
+      }
+
+      const otList = (otRes.data ?? []) as Record<string, unknown>[];
+      const leaveList = (
+        leaveRes.error ? [] : (leaveRes.data ?? [])
+      ) as Record<string, unknown>[];
+      const attList = (
+        attRes.error ? [] : (attRes.data ?? [])
+      ) as Record<string, unknown>[];
+
+      if (slipRes.error) {
+        if (!/does not exist|relation/i.test(slipRes.error.message)) {
+          console.warn("[salary-settlement] payslips:", slipRes.error.message);
         }
         setPaidIds(new Set());
       } else {
         const paid = new Set<string>();
-        for (const s of slips ?? []) {
-          const row = s as { employee_id?: string };
-          if (row.employee_id) paid.add(String(row.employee_id));
+        for (const s of slipRes.data ?? []) {
+          const row = s as { employee_id?: string; status?: string };
+          if (row.employee_id && isPaidStatus(row.status)) {
+            paid.add(String(row.employee_id));
+          }
         }
         setPaidIds(paid);
       }
 
+      const slipNoteByEmp = new Map<string, string>();
+      if (!slipRes.error) {
+        for (const s of slipRes.data ?? []) {
+          const row = s as {
+            employee_id?: string;
+            status?: string;
+            notes?: string | null;
+          };
+          if (!row.employee_id || !isPaidStatus(row.status)) continue;
+          slipNoteByEmp.set(
+            String(row.employee_id),
+            row.notes != null ? String(row.notes) : "",
+          );
+        }
+      }
+
       const initInputs: Record<string, RowInputs> = {};
       for (const e of emps) {
-        initInputs[e.id] = { overtimeDays: 0, otherAdjust: 0 };
+        const sumH = sumApprovedOvertimeHoursForEmployee(e.id, otList);
+        const days = overtimeHoursToHalfDaySteps(sumH);
+        const settleAsComp = sumH > 0;
+        const attendanceNotes = slipNoteByEmp.has(e.id)
+          ? slipNoteByEmp.get(e.id)!
+          : buildPayslipAttendanceRemarks(e.id, {
+              bounds: { start: bounds.start, end: bounds.end },
+              attendanceRows: attList,
+              leaveRows: leaveList,
+              overtimeRows: otList,
+              settleOvertimeAsCompOff: settleAsComp,
+            });
+        initInputs[e.id] = {
+          overtimeDays: days,
+          otherAdjust: 0,
+          settleOvertimeAsCompOff: settleAsComp,
+          attendanceNotes,
+        };
       }
       setInputs(initInputs);
+      return true;
     } finally {
       setLoading(false);
     }
@@ -321,17 +462,37 @@ export function SalarySettlementCenter() {
     if (!bounds) return;
     if (paidIds.has(emp.id)) return;
 
+    const { data: existingSlip } = await supabase
+      .from("payslips")
+      .select("id, status")
+      .eq("employee_id", emp.id)
+      .eq("period_key", payPeriod)
+      .maybeSingle();
+
+    if (
+      existingSlip &&
+      isPaidStatus(String((existingSlip as { status?: string }).status))
+    ) {
+      toast.error("此員工該月份薪資已發放，無法重複結算。");
+      return;
+    }
+
+    const existingSlipId =
+      existingSlip != null && (existingSlip as { id?: string }).id != null
+        ? String((existingSlip as { id: string }).id)
+        : null;
+
     const st = leaveStatsByEmployee.get(emp.id) ?? {
       personal: 0,
       sick: 0,
       specialThisMonth: 0,
     };
-    const inp = inputs[emp.id] ?? { overtimeDays: 0, otherAdjust: 0 };
+    const inp = inputs[emp.id] ?? defaultRowInputs();
     const personalDed = Math.round((emp.monthly_wage / 30) * st.personal);
     const sickDed = Math.round((emp.monthly_wage / 30) * 0.5 * st.sick);
     const leaveDedTotal = personalDed + sickDed;
     const otRate = emp.overtime_rate != null && emp.overtime_rate > 0 ? emp.overtime_rate : 0;
-    const overtimeAmt = otRate * inp.overtimeDays;
+    const overtimeAmt = inp.settleOvertimeAsCompOff ? 0 : otRate * inp.overtimeDays;
     const net = Math.round(
       emp.monthly_wage -
         emp.labor_insurance -
@@ -354,6 +515,8 @@ export function SalarySettlementCenter() {
     );
     if (!ok) return;
 
+    const notes = inp.attendanceNotes.trim();
+
     const insertPayload: Record<string, unknown> = {
       employee_id: emp.id,
       period_key: payPeriod,
@@ -371,24 +534,56 @@ export function SalarySettlementCenter() {
       overtime_days: inp.overtimeDays,
       special_leave_days_settled: st.specialThisMonth,
       other_adjust: inp.otherAdjust,
+      notes,
     };
 
-    let ins = await supabase.from("payslips").insert(insertPayload).select("id");
+    const writePayslip = (payload: Record<string, unknown>) =>
+      existingSlipId != null
+        ? supabase.from("payslips").update(payload).eq("id", existingSlipId).select("id")
+        : supabase.from("payslips").insert(payload).select("id");
+
+    let ins = await writePayslip(insertPayload);
     let payslipDetailFallback = false;
+    let notesFallback = false;
+
+    if (ins.error && isPayslipMissingColumnError(ins.error.message)) {
+      const noNotes: Record<string, unknown> = { ...insertPayload };
+      delete noNotes.notes;
+      ins = await writePayslip(noNotes);
+      notesFallback = !ins.error;
+    }
+
     if (ins.error && isPayslipMissingColumnError(ins.error.message)) {
       const trimmed: Record<string, unknown> = { ...insertPayload };
       for (const k of PAYSLIP_DETAIL_SNAPSHOT_KEYS) delete trimmed[k];
-      ins = await supabase.from("payslips").insert(trimmed).select("id");
+      delete trimmed.notes;
+      ins = await writePayslip(trimmed);
       payslipDetailFallback = !ins.error;
+      notesFallback = payslipDetailFallback;
     }
 
     if (ins.error) {
-      if (/duplicate|unique/i.test(ins.error.message)) {
-        toast.error("此員工該月份已有薪資紀錄，請勿重複發放。");
+      if (isPayslipOnConflictTargetError(ins.error.message)) {
+        toast.error(
+          "資料庫缺少 (employee_id, period_key) 唯一索引，無法安全寫入薪資單。請在 Supabase 執行 migration：20250325000001_payslips_employee_period_unique.sql。",
+          { duration: 12000 },
+        );
+      } else if (isPayslipDuplicateRowError(ins.error.message)) {
+        toast.error(
+          "此員工該月份已有薪資紀錄，請勿重複發放。若您剛刪除資料庫列，請按「產生本月薪資單」重新載入後再試。",
+          { duration: 10000 },
+        );
       } else {
         toast.error(ins.error.message || "寫入 payslips 失敗");
       }
       return;
+    }
+
+    if (notesFallback) {
+      toast.info(
+        "薪資已入帳；payslips 尚無 notes 欄位，出勤備註未寫入。請套用 migration payslips_notes。",
+        { duration: 8000 },
+      );
     }
 
     const firstRow = ins.data?.[0] as { id?: string } | undefined;
@@ -444,38 +639,50 @@ export function SalarySettlementCenter() {
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
       <div className="flex flex-col gap-4 border-b border-border bg-card px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <div
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted text-primary"
             aria-hidden
           >
             <Banknote className="h-5 w-5" strokeWidth={1.75} />
           </div>
-          <div className="min-w-0 space-y-1">
-            <h2 className="font-serif text-lg font-semibold tracking-wide text-foreground">
-              薪資結算中心
-            </h2>
-            <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
-              橫向捲動檢視；核准假單區分事假、病假與特休（leave_type＝特休）；發放時同步寫入 payslips 與特休餘額。
-            </p>
-          </div>
+          <h2 className="sr-only">薪資結算中心</h2>
         </div>
-        <div className="flex shrink-0 flex-col gap-1.5 sm:items-end">
+        <div className="flex shrink-0 flex-col gap-2 sm:items-end">
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             結算月份
           </span>
-          <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 shadow-xs">
-            <CalendarRange
-              className="h-4 w-4 shrink-0 text-muted-foreground"
-              aria-hidden
-            />
-            <input
-              type="month"
-              value={payPeriod}
-              onChange={(e) => setPayPeriod(e.target.value)}
-              className="min-w-[9.5rem] bg-transparent text-sm font-medium text-foreground focus:outline-none"
-              aria-label="選擇結算月份"
-            />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 shadow-xs">
+              <CalendarRange
+                className="h-4 w-4 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                type="month"
+                value={payPeriod}
+                onChange={(e) => setPayPeriod(e.target.value)}
+                className="min-w-[9.5rem] bg-transparent text-sm font-medium text-foreground focus:outline-none"
+                aria-label="選擇結算月份"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 px-3 text-xs"
+              disabled={loading || !bounds}
+              onClick={() => {
+                void load().then((ok) => {
+                  if (ok) {
+                    toast.success(
+                      "已並行載入在職員工、本月出勤、核准假單與核准加班紀錄",
+                    );
+                  }
+                });
+              }}
+            >
+              產生本月薪資單
+            </Button>
           </div>
         </div>
       </div>
@@ -496,7 +703,7 @@ export function SalarySettlementCenter() {
             尚無在職員工可結算。
           </p>
         ) : (
-          <table className="w-full min-w-[1280px] border-collapse text-sm">
+          <table className="w-full min-w-[1480px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/20 text-left">
                 <th
@@ -539,7 +746,7 @@ export function SalarySettlementCenter() {
                   特休假結算
                 </th>
                 <th
-                  colSpan={2}
+                  colSpan={3}
                   className="border-l border-border py-2 text-center text-xs font-semibold text-muted-foreground"
                 >
                   加班
@@ -555,6 +762,12 @@ export function SalarySettlementCenter() {
                   className="whitespace-nowrap py-3 pr-3 text-right text-xs font-semibold text-foreground"
                 >
                   實發總額
+                </th>
+                <th
+                  rowSpan={2}
+                  className="whitespace-nowrap border-l border-border py-3 pr-3 text-xs font-semibold text-muted-foreground"
+                >
+                  出勤備註
                 </th>
                 <th
                   rowSpan={2}
@@ -576,8 +789,11 @@ export function SalarySettlementCenter() {
                 <th className="border-l border-border py-2 pr-2 text-right text-[11px] font-semibold text-muted-foreground">
                   天數
                 </th>
-                <th className="py-2 pr-3 text-right text-[11px] font-semibold text-muted-foreground">
+                <th className="py-2 pr-2 text-right text-[11px] font-semibold text-muted-foreground">
                   費率／日
+                </th>
+                <th className="py-2 pr-3 text-center text-[11px] font-semibold text-muted-foreground">
+                  轉補休
                 </th>
               </tr>
             </thead>
@@ -589,10 +805,7 @@ export function SalarySettlementCenter() {
                   sick: 0,
                   specialThisMonth: 0,
                 };
-                const inp = inputs[emp.id] ?? {
-                  overtimeDays: 0,
-                  otherAdjust: 0,
-                };
+                const inp = inputs[emp.id] ?? defaultRowInputs();
                 const personalDed = Math.round(
                   (emp.monthly_wage / 30) * st.personal,
                 );
@@ -604,7 +817,9 @@ export function SalarySettlementCenter() {
                   emp.overtime_rate != null && emp.overtime_rate > 0
                     ? emp.overtime_rate
                     : 0;
-                const overtimeAmt = otRate * inp.overtimeDays;
+                const overtimeAmt = inp.settleOvertimeAsCompOff
+                  ? 0
+                  : otRate * inp.overtimeDays;
                 const net = Math.round(
                   emp.monthly_wage -
                     emp.labor_insurance -
@@ -699,6 +914,7 @@ export function SalarySettlementCenter() {
                             [emp.id]: {
                               ...inp,
                               overtimeDays: Number.isFinite(v) ? v : 0,
+                              settleOvertimeAsCompOff: inp.settleOvertimeAsCompOff,
                             },
                           }));
                         }}
@@ -706,7 +922,7 @@ export function SalarySettlementCenter() {
                       />
                     </td>
                     <td
-                      className="py-3 pr-3 text-right tabular-nums text-xs text-muted-foreground"
+                      className="py-3 pr-2 text-right tabular-nums text-xs text-muted-foreground"
                       title="employees.overtime_rate"
                     >
                       {emp.overtime_rate != null && emp.overtime_rate > 0 ? (
@@ -714,6 +930,27 @@ export function SalarySettlementCenter() {
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
+                    </td>
+                    <td className="py-3 pr-3 text-center align-middle">
+                      <label className="inline-flex cursor-pointer flex-col items-center gap-0.5 text-[10px] text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-input"
+                          checked={inp.settleOvertimeAsCompOff}
+                          disabled={paid}
+                          aria-label="加班以轉補休結算不計薪"
+                          onChange={(e) => {
+                            setInputs((p) => ({
+                              ...p,
+                              [emp.id]: {
+                                ...inp,
+                                settleOvertimeAsCompOff: e.target.checked,
+                              },
+                            }));
+                          }}
+                        />
+                        <span className="whitespace-nowrap">不計加班費</span>
+                      </label>
                     </td>
                     <td className="border-l border-border py-3 pr-3 text-right">
                       <input
@@ -728,6 +965,7 @@ export function SalarySettlementCenter() {
                             [emp.id]: {
                               ...inp,
                               otherAdjust: Number.isFinite(v) ? v : 0,
+                              settleOvertimeAsCompOff: inp.settleOvertimeAsCompOff,
                             },
                           }));
                         }}
@@ -738,6 +976,43 @@ export function SalarySettlementCenter() {
                       <span className="text-base font-bold tabular-nums text-primary sm:text-lg">
                         NT$ {net.toLocaleString("zh-TW")}
                       </span>
+                    </td>
+                    <td className="border-l border-border py-3 pr-2 align-middle">
+                      <div className="flex w-[min(100%,14rem)] min-w-[10.5rem] flex-col items-stretch gap-1.5">
+                        <label className="sr-only" htmlFor={`attendance-notes-${emp.id}`}>
+                          {emp.name || "員工"} 出勤備註
+                        </label>
+                        <textarea
+                          id={`attendance-notes-${emp.id}`}
+                          rows={3}
+                          disabled={paid}
+                          value={inp.attendanceNotes}
+                          onChange={(e) => {
+                            const t = e.target.value;
+                            setInputs((p) => ({
+                              ...p,
+                              [emp.id]: { ...inp, attendanceNotes: t },
+                            }));
+                          }}
+                          placeholder="系統會預填建議文，可直接修改或補充"
+                          className="resize-y rounded-md border border-input bg-background px-2 py-1.5 text-[11px] leading-snug text-foreground shadow-xs placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-7 gap-1 px-2 text-[10px] text-muted-foreground"
+                          onClick={() =>
+                            setRemarkDialog({
+                              open: true,
+                              name: emp.name || "員工",
+                              empId: emp.id,
+                            })
+                          }
+                        >
+                          <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          {paid ? "查看明細" : "放大編輯"}
+                        </Button>
+                      </div>
                     </td>
                     <td className="py-3 pr-3 align-middle">
                       {paid ? (
@@ -762,6 +1037,66 @@ export function SalarySettlementCenter() {
           </table>
         )}
       </div>
+
+      <Dialog.Root
+        open={remarkDialog.open}
+        onOpenChange={(open) => {
+          if (!open) setRemarkDialog({ open: false, name: "", empId: null });
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[min(85vh,36rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none">
+            <Dialog.Title className="text-base font-semibold text-foreground">
+              出勤備註 · {remarkDialog.name}
+            </Dialog.Title>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {remarkDialog.empId && paidIds.has(remarkDialog.empId)
+                ? "此筆已發放，僅供檢視。"
+                : "可直接編輯；與表格欄位同步，發放薪資時寫入薪資單。"}
+            </p>
+            <label htmlFor="remark-dialog-textarea" className="sr-only">
+              出勤備註內容
+            </label>
+            <textarea
+              id="remark-dialog-textarea"
+              rows={10}
+              readOnly={
+                remarkDialog.empId != null && paidIds.has(remarkDialog.empId)
+              }
+              value={
+                remarkDialog.empId
+                  ? (inputs[remarkDialog.empId]?.attendanceNotes ?? "")
+                  : ""
+              }
+              onChange={(e) => {
+                const id = remarkDialog.empId;
+                if (!id || paidIds.has(id)) return;
+                const t = e.target.value;
+                setInputs((p) => ({
+                  ...p,
+                  [id]: {
+                    ...(p[id] ?? defaultRowInputs()),
+                    attendanceNotes: t,
+                  },
+                }));
+              }}
+              className="mt-3 w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed text-foreground shadow-xs read-only:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <div className="mt-5 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setRemarkDialog({ open: false, name: "", empId: null })
+                }
+              >
+                關閉
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </section>
   );
 }

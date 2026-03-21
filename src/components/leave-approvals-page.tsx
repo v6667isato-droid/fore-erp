@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   isSupabaseConfigured,
   supabase,
@@ -19,16 +26,22 @@ import { cn, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   Banknote,
-  ClipboardCheck,
+  CalendarDays,
   ClipboardList,
+  Clock,
   Inbox,
   Receipt,
   RefreshCw,
   Upload,
+  Users,
 } from "lucide-react";
 import { SalarySettlementCenter } from "@/components/salary-settlement-center";
 import { PayslipPaidHistoryPanel } from "@/components/payslip-paid-history-panel";
-import { AttendanceImporterPanel } from "@/components/attendance-importer-panel";
+import {
+  AttendanceManagementTabs,
+  type AttendanceManagementTabKey,
+} from "@/components/attendance-management-tabs";
+import { EmployeesPage } from "@/components/employees-page";
 
 interface LeaveRequestAdminRow {
   id: string;
@@ -42,9 +55,17 @@ interface LeaveRequestAdminRow {
   status_raw: string;
 }
 
-function ymNow(): string {
+/** 產生最近 N 個月的 YYYY-MM（含當月），供歷史假單月份下拉使用 */
+function recentYearMonths(count: number): string[] {
+  const out: string[] = [];
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  for (let i = 0; i < count; i++) {
+    out.push(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+    );
+    d.setMonth(d.getMonth() - 1);
+  }
+  return out;
 }
 
 function parseYm(ym: string): { y: number; m: number } | null {
@@ -140,12 +161,30 @@ function leaveBadgeStyles(typeLabel: string): string {
 }
 
 type TabKey = "pending" | "history";
-type MainSection = "attendance" | "leave" | "payroll" | "paid_history";
+type MainSection =
+  | "attendance"
+  | "leave"
+  | "payroll"
+  | "paid_history"
+  | "employees";
+
+type HeaderIcon =
+  | typeof Clock
+  | typeof CalendarDays
+  | typeof ClipboardList
+  | typeof Banknote
+  | typeof Receipt
+  | typeof Users;
 
 export function LeaveApprovalsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [mainSection, setMainSection] = useState<MainSection>("leave");
   const [tab, setTab] = useState<TabKey>("pending");
-  const [historyMonth, setHistoryMonth] = useState(ymNow);
+  const [attendanceSubTab, setAttendanceSubTab] =
+    useState<AttendanceManagementTabKey>("import");
+  /** 空字串＝全部月份；YYYY-MM＝與該月請假區間重疊者 */
+  const [historyMonth, setHistoryMonth] = useState("");
   const [rows, setRows] = useState<LeaveRequestAdminRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -237,6 +276,15 @@ export function LeaveApprovalsPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (searchParams.get("attendanceTab") !== "employees") return;
+    setMainSection("employees");
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("attendanceTab");
+    const qs = next.toString();
+    router.replace(qs ? `/?${qs}` : "/", { scroll: false });
+  }, [searchParams, router]);
+
   const pendingList = useMemo(
     () => rows.filter((r) => normalizeStatus(r.status_raw) === "pending"),
     [rows],
@@ -247,6 +295,7 @@ export function LeaveApprovalsPage() {
       const st = normalizeStatus(r.status_raw);
       return st === "approved" || st === "rejected";
     });
+    if (!historyMonth) return list;
     return list.filter((r) =>
       monthOverlap(r.start_date, r.end_date, historyMonth),
     );
@@ -303,22 +352,115 @@ export function LeaveApprovalsPage() {
     });
   }
 
+  const pageHeader = useMemo((): {
+    title: string;
+    description: ReactNode;
+    Icon: HeaderIcon;
+    showLeaveRefresh: boolean;
+  } => {
+    switch (mainSection) {
+      case "attendance":
+        if (attendanceSubTab === "import") {
+          return {
+            title: "出勤戰情分析室",
+            description: (
+              <>
+                上傳打卡鐘 CSV 後，自動以
+                <strong className="font-medium text-foreground/90">資料筆數最多的年月</strong>
+                作為分析目標並過濾其他月份。結合 Supabase 員工（timeclock_uid）、核准假單與 public_holidays（國定假日／補班）產出異常標籤與月曆熱點。
+              </>
+            ),
+            Icon: Clock,
+            showLeaveRefresh: false,
+          };
+        }
+        return {
+          title: "歷史出勤查詢",
+          description: (
+            <>
+              依月份與員工篩選已存檔的{" "}
+              <code className="rounded bg-muted px-1 text-[11px]">daily_attendance</code> 紀錄。
+            </>
+          ),
+          Icon: CalendarDays,
+          showLeaveRefresh: false,
+        };
+      case "leave":
+        if (tab === "pending") {
+          return {
+            title: "假單審核 · 待審核",
+            description: (
+              <>
+                審核員工請假申請；核准／退回寫入 leave_requests。
+                <br />
+                特休假核准後，會在該月底發薪時更新特休假天數。
+              </>
+            ),
+            Icon: ClipboardList,
+            showLeaveRefresh: true,
+          };
+        }
+        return {
+          title: "假單審核 · 歷史紀錄",
+          description: "依月份檢視與請假區間重疊之已核准或已退回紀錄。",
+          Icon: ClipboardList,
+          showLeaveRefresh: true,
+        };
+      case "payroll":
+        return {
+          title: "薪資結算中心",
+          description:
+            "橫向捲動檢視；核准假單區分事假、病假與特休（leave_type＝特休）；發放時同步寫入 payslips 與特休餘額。",
+          Icon: Banknote,
+          showLeaveRefresh: false,
+        };
+      case "paid_history":
+        return {
+          title: "已發放薪資查詢",
+          description:
+            "預設列出全部已發放薪資；可改選指定月份（period_key）篩選。",
+          Icon: Receipt,
+          showLeaveRefresh: false,
+        };
+      case "employees":
+        return {
+          title: "員工資料",
+          description:
+            "維護員工基本資料、在職狀態與打卡識別（timeclock_uid），供出勤分析與假單審核使用。",
+          Icon: Users,
+          showLeaveRefresh: false,
+        };
+    }
+  }, [mainSection, attendanceSubTab, tab]);
+
+  const HeaderIcon = pageHeader.Icon;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-primary">
-            <ClipboardCheck className="h-5 w-5" strokeWidth={1.75} />
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-primary">
+            <HeaderIcon className="h-5 w-5" strokeWidth={1.75} />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="font-serif text-lg font-semibold text-foreground">
-              批准作業
+              {pageHeader.title}
             </p>
-            <p className="text-xs text-muted-foreground">
-              出勤 CSV 匯入預覽、假單核准、薪資結算與已發放紀錄查詢（依月份篩選）。
-            </p>
+            <p className="text-xs text-muted-foreground leading-relaxed">{pageHeader.description}</p>
           </div>
         </div>
+        {pageHeader.showLeaveRefresh && isSupabaseConfigured && (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shrink-0 gap-2 text-xs sm:self-center"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            重新整理
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -374,13 +516,33 @@ export function LeaveApprovalsPage() {
           <Receipt className="h-4 w-4 shrink-0 opacity-90" />
           已發放查詢
         </button>
+        <button
+          type="button"
+          onClick={() => setMainSection("employees")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "employees"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <Users className="h-4 w-4 shrink-0 opacity-90" />
+          員工資料
+        </button>
       </div>
 
-      {mainSection === "attendance" && <AttendanceImporterPanel />}
+      {mainSection === "attendance" && (
+        <AttendanceManagementTabs
+          activeTab={attendanceSubTab}
+          onActiveTabChange={setAttendanceSubTab}
+        />
+      )}
 
       {mainSection === "payroll" && <SalarySettlementCenter />}
 
       {mainSection === "paid_history" && <PayslipPaidHistoryPanel />}
+
+      {mainSection === "employees" && <EmployeesPage />}
 
       {mainSection === "leave" && !isSupabaseConfigured && (
         <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
@@ -390,32 +552,6 @@ export function LeaveApprovalsPage() {
 
       {mainSection === "leave" && isSupabaseConfigured && (
         <>
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/80 text-primary">
-                <ClipboardList className="h-4 w-4" strokeWidth={1.75} />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">請假單</p>
-                <p className="text-xs text-muted-foreground">
-                  待審核與歷史；核准／退回寫入 leave_requests。
-                </p>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 gap-2 text-xs"
-              onClick={() => void load()}
-              disabled={loading}
-            >
-              <RefreshCw
-                className={cn("h-3.5 w-3.5", loading && "animate-spin")}
-              />
-              重新整理
-            </Button>
-          </div>
-
           {error && isSupabaseConfigured && (
             <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {error}
@@ -552,15 +688,31 @@ export function LeaveApprovalsPage() {
       {mainSection === "leave" && isSupabaseConfigured && tab === "history" && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs font-medium text-muted-foreground">
-              檢視月份（與請假區間重疊者）
+            <label
+              htmlFor="leave-history-month"
+              className="text-xs font-medium text-muted-foreground"
+            >
+              篩選月份
             </label>
-            <input
-              type="month"
+            <select
+              id="leave-history-month"
               value={historyMonth}
               onChange={(e) => setHistoryMonth(e.target.value)}
-              className="h-9 rounded-lg border border-input bg-background px-2 text-sm"
-            />
+              className="h-9 min-w-[11rem] rounded-lg border border-input bg-background px-2 text-sm"
+            >
+              <option value="">全部</option>
+              {recentYearMonths(60).map((ym) => {
+                const [y, mo] = ym.split("-");
+                return (
+                  <option key={ym} value={ym}>
+                    {y} 年 {Number(mo)} 月
+                  </option>
+                );
+              })}
+            </select>
+            <span className="text-[11px] text-muted-foreground">
+              選「全部」列出所有已核准／已退回假單；選月份則僅顯示與該月區間重疊者
+            </span>
           </div>
           <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
             {loading ? (
@@ -569,7 +721,9 @@ export function LeaveApprovalsPage() {
               </p>
             ) : historyList.length === 0 ? (
               <p className="py-12 text-center text-sm text-muted-foreground">
-                此月份尚無已核准或已退回的紀錄。
+                {historyMonth
+                  ? "此月份尚無已核准或已退回的紀錄。"
+                  : "尚無已核准或已退回的假單紀錄。"}
               </p>
             ) : (
               <Table>

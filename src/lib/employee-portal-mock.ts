@@ -111,6 +111,8 @@ export interface PayslipRow {
   net_pay: number;
   status: PayslipStatus;
   breakdown: PayslipDetailBreakdown;
+  /** payslips.notes：出勤／假單／加班彙整備註 */
+  notes: string | null;
 }
 
 export interface EmployeePortalPayload {
@@ -284,6 +286,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       month_label: "2026 年 3 月",
       net_pay: 43800,
       status: "calculating",
+      notes: null,
       breakdown: {
         base_salary: 42000,
         labor_insurance_employee: 1260,
@@ -303,6 +306,8 @@ export const employeePortalMock: EmployeePortalPayload = {
       month_label: "2026 年 2 月",
       net_pay: 45120,
       status: "paid",
+      notes:
+        "3/2 遲到 12分, 3/8 特休 1日, 3/15 假日加班轉補休 6hr, 3/20 事假 4hr",
       breakdown: {
         base_salary: 42000,
         labor_insurance_employee: 1260,
@@ -322,6 +327,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       month_label: "2026 年 1 月",
       net_pay: 42850,
       status: "paid",
+      notes: "1/10 特休 2日, 1/22 缺卡",
       breakdown: {
         base_salary: 42000,
         labor_insurance_employee: 1260,
@@ -341,6 +347,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       month_label: "2025 年 12 月",
       net_pay: 46500,
       status: "paid",
+      notes: null,
       breakdown: {
         base_salary: 42000,
         labor_insurance_employee: 1260,

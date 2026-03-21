@@ -9,7 +9,7 @@ import {
   supabase,
   SUPABASE_CONFIG_HELP,
 } from "@/lib/supabase";
-import { AttendanceImporterPanel } from "@/components/attendance-importer-panel";
+import { AttendanceManagementTabs } from "@/components/attendance-management-tabs";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -123,7 +123,7 @@ export default function AdminAttendancePage() {
         </div>
       </header>
       <div className="mx-auto max-w-7xl px-4 py-6 lg:px-8 lg:py-8">
-        <AttendanceImporterPanel />
+        <AttendanceManagementTabs />
       </div>
     </div>
   );

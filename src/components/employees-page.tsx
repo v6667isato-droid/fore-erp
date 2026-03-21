@@ -18,7 +18,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   annualLeavePartsToDecimal,
+  compLeavePartsToTotalHours,
   formatDayDecimalAsDayHour,
+  formatHoursAsDayHour,
+  hoursToDayHourParts,
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
 
@@ -49,11 +52,13 @@ interface EmployeeRow {
   overtime_rate: number | null;
   /** 特休剩餘天數（annual_leave_remaining） */
   annual_leave_remaining: number | null;
+  /** 補休剩餘總時數（comp_leave_remaining，8 小時 = 1 日） */
+  comp_leave_remaining: number | null;
 }
 
 // 對應資料庫 employees 表實際欄位
 const EMP_SELECT_ADMIN =
-  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate";
+  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate";
 
 const EMP_SELECT_STAFF =
   "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status";
@@ -118,6 +123,10 @@ function mapEmployee(r: Record<string, unknown>): EmployeeRow {
     annual_leave_remaining:
       (r as Record<string, unknown>).annual_leave_remaining != null
         ? Number((r as Record<string, unknown>).annual_leave_remaining as number)
+        : null,
+    comp_leave_remaining:
+      (r as Record<string, unknown>).comp_leave_remaining != null
+        ? Number((r as Record<string, unknown>).comp_leave_remaining as number)
         : null,
   };
 }
@@ -220,6 +229,8 @@ function EmployeeForm({
   const [values, setValues] = useState<Partial<EmployeeRow>>(initial);
   const [annualLeaveDaysInput, setAnnualLeaveDaysInput] = useState("");
   const [annualLeaveHoursInput, setAnnualLeaveHoursInput] = useState("");
+  const [compLeaveDaysInput, setCompLeaveDaysInput] = useState("");
+  const [compLeaveHoursInput, setCompLeaveHoursInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement | null>(null);
@@ -236,6 +247,15 @@ function EmployeeForm({
       const { days, hours } = splitRemainingDaysToDayHour(Number(r));
       setAnnualLeaveDaysInput(String(days));
       setAnnualLeaveHoursInput(String(hours));
+    }
+    const cr = initial.comp_leave_remaining;
+    if (cr == null || !Number.isFinite(Number(cr))) {
+      setCompLeaveDaysInput("");
+      setCompLeaveHoursInput("");
+    } else {
+      const { days, hours } = hoursToDayHourParts(Number(cr));
+      setCompLeaveDaysInput(String(days));
+      setCompLeaveHoursInput(String(hours));
     }
   }, [initial, mode]);
 
@@ -305,6 +325,11 @@ function EmployeeForm({
           annualLeaveDaysInput,
           annualLeaveHoursInput,
         );
+        payload.comp_leave_remaining =
+          compLeavePartsToTotalHours(
+            compLeaveDaysInput,
+            compLeaveHoursInput,
+          ) ?? 0;
       }
       await onSubmit(payload);
     } finally {
@@ -504,11 +529,11 @@ function EmployeeForm({
             </div>
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">特休剩餘</span>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
+              <div className="flex h-9 gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                   <label
                     htmlFor="emp-special-leave-days"
-                    className="text-[10px] text-muted-foreground"
+                    className="shrink-0 text-xs text-muted-foreground"
                   >
                     日
                   </label>
@@ -519,13 +544,13 @@ function EmployeeForm({
                     step={1}
                     value={annualLeaveDaysInput}
                     onChange={(e) => setAnnualLeaveDaysInput(e.target.value)}
-                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                   <label
                     htmlFor="emp-special-leave-hours"
-                    className="text-[10px] text-muted-foreground"
+                    className="shrink-0 text-xs text-muted-foreground"
                   >
                     小時
                   </label>
@@ -536,7 +561,48 @@ function EmployeeForm({
                     step={1}
                     value={annualLeaveHoursInput}
                     onChange={(e) => setAnnualLeaveHoursInput(e.target.value)}
-                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">
+                補休剩餘（comp_leave_remaining，8 小時 = 1 日）
+              </span>
+              <div className="flex h-9 gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <label
+                    htmlFor="emp-comp-leave-days"
+                    className="shrink-0 text-xs text-muted-foreground"
+                  >
+                    日
+                  </label>
+                  <input
+                    id="emp-comp-leave-days"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={compLeaveDaysInput}
+                    onChange={(e) => setCompLeaveDaysInput(e.target.value)}
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <label
+                    htmlFor="emp-comp-leave-hours"
+                    className="shrink-0 text-xs text-muted-foreground"
+                  >
+                    小時
+                  </label>
+                  <input
+                    id="emp-comp-leave-hours"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={compLeaveHoursInput}
+                    onChange={(e) => setCompLeaveHoursInput(e.target.value)}
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
               </div>
@@ -985,6 +1051,12 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                           {row.annual_leave_remaining != null
                             ? formatDayDecimalAsDayHour(row.annual_leave_remaining)
                             : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">補休剩餘</span>
+                        <span className="text-foreground tabular-nums">
+                          {formatHoursAsDayHour(row.comp_leave_remaining)}
                         </span>
                       </div>
                       <div className="flex justify-between gap-4">

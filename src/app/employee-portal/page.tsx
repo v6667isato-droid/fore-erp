@@ -25,7 +25,8 @@ import {
   LEAVE_WORK_DAY_HOURS,
   LEAVE_WORKDAY_END_HOUR,
   LEAVE_WORKDAY_START_HOUR,
-  calendarDaysInclusive,
+  buildLeaveHolidayLookup,
+  countLeaveWorkdaysInclusive,
   computeSpecialLeaveNetHoursFromRange,
   deriveLegacyHourFieldsForDb,
   formatDayDecimalAsDayHour,
@@ -33,6 +34,7 @@ import {
   parseLocalDateTime,
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
+import { normalizePublicHolidayRows } from "@/lib/attendance-war-room";
 import { fetchEmployeePortalFromSupabase } from "@/lib/employee-portal-supabase";
 import { fetchCompanyAnnouncementsFromEvents } from "@/lib/company-events";
 import {
@@ -148,82 +150,132 @@ function formatSlipDays(n: number): string {
 
 function PayslipBreakdownPanel({
   monthLabel,
+  periodKey,
   b,
+  notes,
 }: {
   monthLabel: string;
+  periodKey: string;
   b: PayslipDetailBreakdown;
+  notes: string | null;
 }) {
   const hp =
     b.health_insured_persons != null && Number.isFinite(b.health_insured_persons)
       ? String(b.health_insured_persons)
       : "—";
-  const slipLabel = "w-[58%] max-w-[13rem] py-1.5 pr-3 align-top text-[11px] leading-snug text-muted-foreground sm:w-[52%] sm:text-xs";
+  const slipLabel =
+    "w-[56%] min-w-0 py-2.5 pl-4 pr-2 align-top text-xs leading-snug text-muted-foreground sm:w-[52%] sm:py-3 sm:pl-5 sm:pr-3 sm:text-[13px]";
   const slipVal =
-    "py-1.5 text-right text-[11px] font-medium tabular-nums text-primary sm:text-xs";
+    "py-2.5 pl-2 pr-4 text-right align-top text-xs font-semibold tabular-nums text-foreground sm:py-3 sm:pr-5 sm:text-[13px]";
+  const slipValMoney = cn(slipVal, "text-primary");
+
   return (
-    <div className="w-full border-t border-border/70 bg-muted/15 px-3 py-3 sm:px-4">
-      <h3 className="mb-2.5 text-center text-xs font-semibold tracking-wide text-primary sm:text-sm">
-        {monthLabel}薪資單
-      </h3>
-      <table className="w-full table-fixed border-collapse">
-        <tbody>
-          <tr className="border-b border-border/50">
-            <td className={slipLabel}>底薪</td>
-            <td className={slipVal}>{formatNtd(b.base_salary)}</td>
-          </tr>
-          <tr className="border-b border-border/50">
-            <td className={slipLabel}>勞保自付額</td>
-            <td className={slipVal}>− {formatNtd(b.labor_insurance_employee)}</td>
-          </tr>
-          <tr className="border-b border-border/50">
-            <td className={slipLabel}>
-              健保自付額
-              <span className="mt-0.5 block text-[10px] font-normal opacity-90 sm:text-[11px]">
-                （健保人數：{hp}）
-              </span>
-            </td>
-            <td className={slipVal}>− {formatNtd(b.health_insurance_employee)}</td>
-          </tr>
-          {b.leave_deduction > 0 ? (
-            <tr className="border-b border-border/50">
-              <td className={slipLabel}>請假扣款（事／病假）</td>
-              <td className={slipVal}>− {formatNtd(b.leave_deduction)}</td>
-            </tr>
-          ) : null}
-          <tr className="border-b border-border/50">
-            <td className={slipLabel}>加班天數</td>
-            <td className={slipVal}>{formatSlipDays(b.overtime_days)}</td>
-          </tr>
-          <tr className="border-b border-border/50">
-            <td className={slipLabel}>加班費</td>
-            <td className={slipVal}>+ {formatNtd(b.overtime_pay)}</td>
-          </tr>
-          <tr className="border-b border-border/50">
-            <td className={slipLabel}>特休假結算</td>
-            <td className={cn(slipVal, "leading-snug")}>
-              <span className="block sm:inline">本月結算 </span>
-              {formatSlipDays(b.special_leave_days_settled)}
-            </td>
-          </tr>
-          {b.other_adjust !== 0 ? (
-            <tr className="border-b border-border/50">
-              <td className={slipLabel}>其他加減項</td>
-              <td className={slipVal}>
-                {b.other_adjust > 0 ? "+ " : "− "}
-                {formatNtd(Math.abs(b.other_adjust))}
-              </td>
-            </tr>
-          ) : null}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-primary/25 bg-primary/[0.06]">
-            <td className="py-2 pr-3 text-[11px] font-semibold text-muted-foreground sm:text-xs">實發總額</td>
-            <td className="py-2 text-right text-sm font-semibold tabular-nums text-primary">
-              {formatNtd(b.net_pay)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
+    <div className="w-full border-t border-border/70 bg-gradient-to-b from-muted/25 via-muted/15 to-muted/10 px-4 py-4 sm:px-6 sm:py-5">
+      <div className="mx-auto w-full max-w-md sm:max-w-lg">
+        <h3 className="px-1 text-center text-sm font-semibold tracking-tight text-foreground sm:px-0">
+          {monthLabel}薪資明細
+        </h3>
+        {periodKey ? (
+          <p className="mt-1 px-1 text-center text-[11px] tabular-nums text-muted-foreground sm:mt-0.5 sm:px-0">
+            結算期間 {periodKey}
+          </p>
+        ) : null}
+
+        <div className="mt-4 overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm ring-1 ring-border/20 sm:mt-5">
+          <table className="w-full table-fixed border-collapse">
+            <tbody>
+              <tr className="border-b border-border/55 bg-muted/5">
+                <td className={slipLabel}>底薪</td>
+                <td className={slipValMoney}>{formatNtd(b.base_salary)}</td>
+              </tr>
+              <tr className="border-b border-border/55">
+                <td className={slipLabel}>勞保自付額</td>
+                <td className={slipVal}>− {formatNtd(b.labor_insurance_employee)}</td>
+              </tr>
+              <tr className="border-b border-border/55">
+                <td className={slipLabel}>
+                  健保自付額
+                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground/90 sm:text-[11px]">
+                    加保人數 {hp} 人
+                  </span>
+                </td>
+                <td className={slipVal}>− {formatNtd(b.health_insurance_employee)}</td>
+              </tr>
+              <tr className="border-b border-border/55">
+                <td className={slipLabel}>請假扣款（事／病假）</td>
+                <td className={slipVal}>
+                  {b.leave_deduction > 0 ? (
+                    <>− {formatNtd(b.leave_deduction)}</>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">無（NT$ 0）</span>
+                  )}
+                </td>
+              </tr>
+              <tr className="border-b border-border/55">
+                <td className={slipLabel}>加班天數</td>
+                <td className={slipVal}>{formatSlipDays(b.overtime_days)}</td>
+              </tr>
+              <tr className="border-b border-border/55">
+                <td className={slipLabel}>加班費（獎金／加班）</td>
+                <td className={slipVal}>
+                  {b.overtime_pay > 0 ? (
+                    <>+ {formatNtd(b.overtime_pay)}</>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">+ {formatNtd(0)}</span>
+                  )}
+                </td>
+              </tr>
+              <tr className="border-b border-border/55">
+                <td className={slipLabel}>特休假結算</td>
+                <td className={cn(slipVal, "leading-snug")}>
+                  <span className="block text-[10px] font-normal text-muted-foreground sm:inline sm:text-inherit">
+                    本月自餘額扣除{" "}
+                  </span>
+                  {formatSlipDays(b.special_leave_days_settled)}
+                </td>
+              </tr>
+              <tr className="border-b border-border/55">
+                <td className={slipLabel}>其他加減項</td>
+                <td className={slipVal}>
+                  {b.other_adjust === 0 ? (
+                    <span className="font-normal text-muted-foreground">無</span>
+                  ) : (
+                    <>
+                      {b.other_adjust > 0 ? "+ " : "− "}
+                      {formatNtd(Math.abs(b.other_adjust))}
+                    </>
+                  )}
+                </td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr className="bg-primary/[0.09]">
+                <td className="px-4 py-3 text-xs font-semibold text-foreground sm:px-5 sm:py-3.5 sm:text-sm">
+                  實發總額
+                </td>
+                <td className="px-4 py-3 text-right text-base font-bold tabular-nums text-primary sm:px-5 sm:py-3.5 sm:text-lg">
+                  {formatNtd(b.net_pay)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-border/65 bg-muted/35 px-4 py-3 sm:mt-5 sm:px-5 sm:py-3.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+            出勤備註
+          </p>
+          {notes && notes.trim() ? (
+            <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/95 sm:text-[13px] sm:leading-relaxed">
+              {notes.trim()}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              此筆薪資單尚無出勤備註說明。
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -310,6 +362,21 @@ const LEAVE_FORM_INITIAL: LeaveFormState = {
   reason: "",
 };
 
+/** 開始日變更時：結束日為空、仍等於「原本的」開始日、或早於新開始日 → 結束日跟進為新開始日（方便單日假）。 */
+function applyLeaveStartDateChange(
+  prev: LeaveFormState,
+  newStart: string,
+): LeaveFormState {
+  const { start: prevStart, end: prevEnd } = prev;
+  const shouldSyncEnd =
+    !prevEnd || prevEnd < newStart || prevEnd === prevStart;
+  return {
+    ...prev,
+    start: newStart,
+    end: shouldSyncEnd ? newStart : prevEnd,
+  };
+}
+
 export default function EmployeePortalPage() {
   const router = useRouter();
   const [data, setData] = useState<EmployeePortalPayload | null>(null);
@@ -323,6 +390,10 @@ export default function EmployeePortalPage() {
   const [expandedPayslipId, setExpandedPayslipId] = useState<string | null>(null);
   const [leaveForm, setLeaveForm] = useState<LeaveFormState>({ ...LEAVE_FORM_INITIAL });
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  /** 請假計算：國定／特殊假日（is_workday=false 不計；補班 is_workday=true 計入）；未連線時僅排除週末 */
+  const [leaveHolidayLookup, setLeaveHolidayLookup] = useState<
+    Map<string, { is_workday: boolean }> | undefined
+  >(undefined);
   /** Mock 無法辨識角色時保留捷徑；Supabase 僅 admin / manager 可看返回 ERP 連結 */
   const [showErpHomeLink, setShowErpHomeLink] = useState(() => !isSupabaseConfigured);
 
@@ -413,6 +484,35 @@ export default function EmployeePortalPage() {
   }, [load]);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setLeaveHolidayLookup(undefined);
+      return;
+    }
+    let cancelled = false;
+    const y = new Date().getFullYear();
+    const from = `${y - 1}-01-01`;
+    const to = `${y + 2}-12-31`;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("public_holidays")
+        .select("*")
+        .gte("holiday_date", from)
+        .lte("holiday_date", to);
+      if (cancelled) return;
+      if (error) {
+        console.warn("[employee-portal] public_holidays:", error.message);
+        setLeaveHolidayLookup(new Map());
+        return;
+      }
+      const norm = normalizePublicHolidayRows((data ?? []) as Record<string, unknown>[]);
+      setLeaveHolidayLookup(buildLeaveHolidayLookup(norm));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!data?.work_progress_seed?.length) return;
     setProgressById(buildProgressMap(data.work_progress_seed));
   }, [data]);
@@ -448,11 +548,30 @@ export default function EmployeePortalPage() {
       leaveForm.start,
       leaveForm.startTime,
       leaveForm.end,
-      leaveForm.endTime
+      leaveForm.endTime,
+      leaveHolidayLookup,
     );
     if (hrs <= 0) return null;
     return { totalHours: hrs, parts: hoursToDayHourParts(hrs) };
-  }, [leaveForm.type, leaveForm.start, leaveForm.end, leaveForm.startTime, leaveForm.endTime]);
+  }, [
+    leaveForm.type,
+    leaveForm.start,
+    leaveForm.end,
+    leaveForm.startTime,
+    leaveForm.endTime,
+    leaveHolidayLookup,
+  ]);
+
+  const otherLeaveWorkdaysPreview = useMemo(() => {
+    if (leaveForm.type === "特休") return null;
+    if (!leaveForm.start || !leaveForm.end || leaveForm.end < leaveForm.start) return null;
+    const n = countLeaveWorkdaysInclusive(
+      leaveForm.start,
+      leaveForm.end,
+      leaveHolidayLookup,
+    );
+    return n;
+  }, [leaveForm.type, leaveForm.start, leaveForm.end, leaveHolidayLookup]);
 
   const annualLeaveRemainingParts = useMemo(() => {
     const r = data?.employee.annual_leave_remaining;
@@ -498,11 +617,12 @@ export default function EmployeePortalPage() {
         leaveForm.start,
         leaveForm.startTime,
         leaveForm.end,
-        leaveForm.endTime
+        leaveForm.endTime,
+        leaveHolidayLookup,
       );
       if (hrs <= 0) {
         toast.error(
-          "與上班時段無重疊或有效時數為 0。上班時間為 9:00–18:00，午休 12:00–13:00 不計入。"
+          "有效特休時數為 0。可能原因：與 9:00–18:00 無重疊、區間內皆為週六日或國定放假，或午休扣除後無剩餘時數。",
         );
         return;
       }
@@ -590,7 +710,17 @@ export default function EmployeePortalPage() {
       toast.error("結束日不可早於開始日");
       return;
     }
-    const calDays = calendarDaysInclusive(leaveForm.start, leaveForm.end);
+    const calDays = countLeaveWorkdaysInclusive(
+      leaveForm.start,
+      leaveForm.end,
+      leaveHolidayLookup,
+    );
+    if (calDays <= 0) {
+      toast.error(
+        "所選區間沒有可計入的工作日（已排除週六、週日及資料庫中的國定／特殊放假日；補班日會計入）。請調整起迄日期。",
+      );
+      return;
+    }
 
     const newRow: LeaveRequestRow = {
       id: `local-${Date.now()}`,
@@ -1105,15 +1235,16 @@ export default function EmployeePortalPage() {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(88vh,34rem)] w-[calc(100%-1.25rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl focus:outline-none sm:max-w-lg sm:w-[calc(100%-2rem)]">
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(92vh,44rem)] w-[calc(100%-1.25rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl focus:outline-none sm:max-w-xl sm:w-[calc(100%-2rem)]">
             <div className="shrink-0 border-b border-border/70 bg-secondary/20 px-4 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <Dialog.Title className="text-base font-semibold tracking-tight text-foreground">
                     歷史薪資單
                   </Dialog.Title>
-                  <Dialog.Description className="mt-0.5 text-[11px] text-muted-foreground">
-                    {dataSource === "supabase" ? "payslips 表 · Supabase" : "Mock 資料"}
+                  <Dialog.Description className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    點「明細」展開完整項目與出勤備註。
+                    {dataSource === "supabase" ? " 資料來源：payslips。" : " （Mock）"}
                   </Dialog.Description>
                 </div>
                 <Dialog.Close asChild>
@@ -1127,7 +1258,7 @@ export default function EmployeePortalPage() {
                 </Dialog.Close>
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 sm:px-3">
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5 sm:py-4">
               {payslipsSorted.length === 0 ? (
                 <p className="px-2 py-6 text-center text-xs text-muted-foreground sm:text-sm">尚無薪資單紀錄</p>
               ) : (
@@ -1152,7 +1283,14 @@ export default function EmployeePortalPage() {
                                 expanded ? "bg-muted/25" : "hover:bg-muted/15"
                               )}
                             >
-                              <td className="px-2.5 py-2 font-medium text-foreground sm:px-3">{row.month_label}</td>
+                              <td className="px-2.5 py-2 font-medium text-foreground sm:px-3">
+                                <span className="block">{row.month_label}</span>
+                                {row.notes?.trim() ? (
+                                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                                    含出勤備註
+                                  </span>
+                                ) : null}
+                              </td>
                               <td className="px-2 py-2 text-right text-xs tabular-nums font-medium text-foreground sm:px-3 sm:text-sm">
                                 {formatNtd(row.net_pay)}
                               </td>
@@ -1180,8 +1318,13 @@ export default function EmployeePortalPage() {
                             </tr>
                             {expanded && (
                               <tr className="border-b border-border/60 bg-muted/10">
-                                <td colSpan={4} className="w-full p-0">
-                                  <PayslipBreakdownPanel monthLabel={row.month_label} b={row.breakdown} />
+                                <td colSpan={4} className="w-full px-1 py-1 sm:px-2 sm:py-1.5">
+                                  <PayslipBreakdownPanel
+                                    monthLabel={row.month_label}
+                                    periodKey={row.period_key}
+                                    b={row.breakdown}
+                                    notes={row.notes}
+                                  />
                                 </td>
                               </tr>
                             )}
@@ -1280,7 +1423,9 @@ export default function EmployeePortalPage() {
                         id="leave-start-date"
                         type="date"
                         value={leaveForm.start}
-                        onChange={(e) => setLeaveForm((f) => ({ ...f, start: e.target.value }))}
+                        onChange={(e) =>
+                          setLeaveForm((f) => applyLeaveStartDateChange(f, e.target.value))
+                        }
                         className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                       <div>
@@ -1334,7 +1479,7 @@ export default function EmployeePortalPage() {
                   <p className="text-[11px] leading-relaxed text-muted-foreground">
                     上班時段 {LEAVE_WORKDAY_START_HOUR}:00–{LEAVE_WORKDAY_END_HOUR}:00；午休{" "}
                     {LEAVE_LUNCH_START_HOUR}:00–{LEAVE_LUNCH_END_HOUR}:00 不計入。僅計算與上班時段重疊的時間；跨日時中間完整工作
-                    日各計 {LEAVE_WORK_DAY_HOURS} 小時（已扣午休）。
+                    日各計 {LEAVE_WORK_DAY_HOURS} 小時（已扣午休）。週六、週日及 public_holidays 之放假日（is_workday=false）不計入；補班日（is_workday=true）計入。
                   </p>
                   {specialLeaveHourPreview ? (
                     <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm">
@@ -1354,11 +1499,12 @@ export default function EmployeePortalPage() {
                     leaveForm.startTime &&
                     leaveForm.endTime ? (
                     <p className="text-xs text-amber-700 dark:text-amber-200/90">
-                      請確認結束晚於起始，且與 9:00–18:00 有重疊；若仍無預覽，請檢查時間格式。
+                      請確認結束晚於起始，且與 9:00–18:00 有重疊；若仍無預覽，請檢查時間格式或是否區間皆落在週末／國定放假日。
                     </p>
                   ) : null}
                 </>
               ) : (
+                <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label htmlFor="leave-start" className="mb-1.5 block text-sm font-medium text-foreground">
@@ -1368,7 +1514,9 @@ export default function EmployeePortalPage() {
                       id="leave-start"
                       type="date"
                       value={leaveForm.start}
-                      onChange={(e) => setLeaveForm((f) => ({ ...f, start: e.target.value }))}
+                      onChange={(e) =>
+                        setLeaveForm((f) => applyLeaveStartDateChange(f, e.target.value))
+                      }
                       className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
@@ -1385,6 +1533,19 @@ export default function EmployeePortalPage() {
                     />
                   </div>
                 </div>
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  請假天數以「工作日」計：排除週六、週日，並依 public_holidays 排除放假日（補班日會計入）。
+                  {isSupabaseConfigured ? " 已自資料庫載入假日設定。" : " 未連線資料庫時僅排除週末。"}
+                </p>
+                {otherLeaveWorkdaysPreview != null ? (
+                  <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">本次申請工作天數：</span>
+                    <span className="tabular-nums font-medium text-foreground">
+                      {otherLeaveWorkdaysPreview} 天
+                    </span>
+                  </div>
+                ) : null}
+                </>
               )}
 
               <div>

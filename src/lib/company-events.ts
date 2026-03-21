@@ -1,5 +1,8 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 
+/** Supabase / Postgres 資料表名稱（單數）。舊表 `company_events` 已廢止，請勿使用。 */
+export const COMPANY_EVENT_TABLE = "company_event" as const;
+
 /** 公司公告列表（與員工儀表板 / 行事曆上方區塊共用） */
 export interface CompanyAnnouncementDto {
   id: string;
@@ -87,7 +90,7 @@ export async function fetchCompanyEventsBetween(
 export async function fetchCompanyAnnouncementsFromEvents(): Promise<CompanyAnnouncementDto[]> {
   if (!isSupabaseConfigured) return [];
   const { data, error } = await supabase
-    .from("company_event")
+    .from(COMPANY_EVENT_TABLE)
     .select("id,title,description,event_date")
     .eq("category", "company")
     .order("event_date", { ascending: false })
@@ -115,7 +118,7 @@ export async function insertCompanyEvent(input: InsertCompanyEventInput): Promis
   if (!isSupabaseConfigured) {
     throw new Error("Supabase 未設定");
   }
-  const { error } = await supabase.from("company_event").insert({
+  const { error } = await supabase.from(COMPANY_EVENT_TABLE).insert({
     title: input.title.trim(),
     event_date: input.event_date,
     category: input.category,
@@ -137,7 +140,7 @@ export async function updateCompanyEvent(input: UpdateCompanyEventInput): Promis
     throw new Error("Supabase 未設定");
   }
   const { error } = await supabase
-    .from("company_event")
+    .from(COMPANY_EVENT_TABLE)
     .update({
       title: input.title.trim(),
       event_date: input.event_date,
@@ -153,6 +156,6 @@ export async function deleteCompanyEvent(id: string): Promise<void> {
     throw new Error("Supabase 未設定");
   }
   // 勿使用 .select()：在 RLS 下 RETURNING 常拿不到列，data 會是 [] 被誤判為失敗
-  const { error } = await supabase.from("company_event").delete().eq("id", id);
+  const { error } = await supabase.from(COMPANY_EVENT_TABLE).delete().eq("id", id);
   if (error) throw error;
 }

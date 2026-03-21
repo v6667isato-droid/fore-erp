@@ -45,7 +45,90 @@ export function hoursToDayHourParts(totalHours: number): { days: number; hours: 
   return { days, hours };
 }
 
+/** 顯示用：employees.comp_leave_remaining 為「總小時」→「X 天 Y 小時」（8 小時 = 1 日） */
+export function formatHoursAsDayHour(totalHours: number | null | undefined): string {
+  if (totalHours == null || !Number.isFinite(totalHours) || totalHours < 0) return "—";
+  const { days, hours } = hoursToDayHourParts(totalHours);
+  return `${days} 天 ${hours} 小時`;
+}
+
+/**
+ * 表單「整數日 + 整數小時」→ 寫入 DB 的 comp_leave_remaining（總小時）；
+ * 小時滿 8 自動進位成日。兩欄皆空回傳 null。
+ */
+export function compLeavePartsToTotalHours(
+  daysStr: string,
+  hoursStr: string,
+): number | null {
+  const dTrim = daysStr.trim();
+  const hTrim = hoursStr.trim();
+  if (dTrim === "" && hTrim === "") return null;
+  const d = dTrim === "" ? 0 : Math.max(0, Math.trunc(Number(dTrim)) || 0);
+  let h = hTrim === "" ? 0 : Math.max(0, Math.trunc(Number(hTrim)) || 0);
+  const carry = Math.floor(h / LEAVE_WORK_DAY_HOURS);
+  h %= LEAVE_WORK_DAY_HOURS;
+  return (d + carry) * LEAVE_WORK_DAY_HOURS + h;
+}
+
 const MS_MIN = 60_000;
+
+/** 與 public_holidays 對齊：放假列 is_workday=false；補班日 is_workday=true（週末亦計入請假工作日） */
+export type LeaveHolidayRow = { holiday_date: string; is_workday: boolean };
+
+export function ymdFromLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+export function buildLeaveHolidayLookup(
+  holidays: readonly LeaveHolidayRow[],
+): Map<string, { is_workday: boolean }> {
+  const m = new Map<string, { is_workday: boolean }>();
+  for (const h of holidays) {
+    const d = String(h.holiday_date ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    m.set(d, { is_workday: Boolean(h.is_workday) });
+  }
+  return m;
+}
+
+/**
+ * 請假「工作日」：排除週六、週日；若該日在 public_holidays 有列，則以 is_workday 為準（放假不計、補班計）。
+ * `holidayLookup` 省略或該日無列時，僅依週末判斷。
+ */
+export function isCountedDayForLeave(
+  localDate: Date,
+  holidayLookup?: Map<string, { is_workday: boolean }>,
+): boolean {
+  const ymd = ymdFromLocalDate(localDate);
+  const h = holidayLookup?.get(ymd);
+  if (h !== undefined) return h.is_workday === true;
+  const dow = localDate.getDay();
+  if (dow === 0 || dow === 6) return false;
+  return true;
+}
+
+/** 起迄日（含）之間，符合 {@link isCountedDayForLeave} 的曆日數 */
+export function countLeaveWorkdaysInclusive(
+  startYmd: string,
+  endYmd: string,
+  holidayLookup?: Map<string, { is_workday: boolean }>,
+): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startYmd) || !/^\d{4}-\d{2}-\d{2}$/.test(endYmd)) return 0;
+  if (endYmd < startYmd) return 0;
+  const [y0, m0, d0] = startYmd.split("-").map((x) => Number(x));
+  const [y1, m1, d1] = endYmd.split("-").map((x) => Number(x));
+  const cur = new Date(y0, m0 - 1, d0);
+  const last = new Date(y1, m1 - 1, d1);
+  let count = 0;
+  while (cur.getTime() <= last.getTime()) {
+    if (isCountedDayForLeave(cur, holidayLookup)) count++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
 
 function overlapMs(a0: number, a1: number, b0: number, b1: number): number {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
@@ -96,8 +179,13 @@ function ymdLocal(d: Date): string {
 /**
  * 請假區間與每日工時 [WORKDAY_START, WORKDAY_END) 取交集後，再扣除午休 [LUNCH_START, LUNCH_END)。
  * 中間完整曆日若整段落在工時內，每日淨值為 LEAVE_WORK_DAY_HOURS。
+ * 週六、週日及 public_holidays 放假列不計入；補班日（is_workday=true）計入。
  */
-export function computeNetWorkMinutesExcludingLunch(leaveStart: Date, leaveEnd: Date): number {
+export function computeNetWorkMinutesExcludingLunch(
+  leaveStart: Date,
+  leaveEnd: Date,
+  holidayLookup?: Map<string, { is_workday: boolean }>,
+): number {
   if (leaveEnd.getTime() <= leaveStart.getTime()) return 0;
   let totalMin = 0;
   const cursor = new Date(
@@ -108,6 +196,10 @@ export function computeNetWorkMinutesExcludingLunch(leaveStart: Date, leaveEnd: 
   const lastDay = new Date(leaveEnd.getFullYear(), leaveEnd.getMonth(), leaveEnd.getDate());
 
   while (cursor.getTime() <= lastDay.getTime()) {
+    if (!isCountedDayForLeave(cursor, holidayLookup)) {
+      cursor.setDate(cursor.getDate() + 1);
+      continue;
+    }
     const y = cursor.getFullYear();
     const mo = cursor.getMonth();
     const d = cursor.getDate();
@@ -129,17 +221,18 @@ export function computeNetWorkMinutesExcludingLunch(leaveStart: Date, leaveEnd: 
   return Math.round(totalMin);
 }
 
-/** 特休：起始日時～結束日時，已排除午休；回傳「小時」可含小數（由分鐘換算） */
+/** 特休：起始日時～結束日時，已排除午休、週末與國定放假；回傳「小時」可含小數（由分鐘換算） */
 export function computeSpecialLeaveNetHoursFromRange(
   startYmd: string,
   startTimeHm: string,
   endYmd: string,
-  endTimeHm: string
+  endTimeHm: string,
+  holidayLookup?: Map<string, { is_workday: boolean }>,
 ): number {
   const a = parseLocalDateTime(startYmd, startTimeHm);
   const b = parseLocalDateTime(endYmd, endTimeHm);
   if (!a || !b || b.getTime() <= a.getTime()) return 0;
-  const minutes = computeNetWorkMinutesExcludingLunch(a, b);
+  const minutes = computeNetWorkMinutesExcludingLunch(a, b, holidayLookup);
   return minutes / 60;
 }
 
@@ -203,6 +296,7 @@ export function computeSpecialLeaveTotalHours(
   return first + middle + last;
 }
 
+/** @deprecated 請假天數請改用 {@link countLeaveWorkdaysInclusive}（排除週末／國定放假） */
 export function calendarDaysInclusive(startYmd: string, endYmd: string): number {
   const a = new Date(`${startYmd}T12:00:00`);
   const b = new Date(`${endYmd}T12:00:00`);
