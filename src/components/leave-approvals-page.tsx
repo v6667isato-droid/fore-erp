@@ -24,9 +24,11 @@ import {
   Inbox,
   Receipt,
   RefreshCw,
+  Upload,
 } from "lucide-react";
 import { SalarySettlementCenter } from "@/components/salary-settlement-center";
 import { PayslipPaidHistoryPanel } from "@/components/payslip-paid-history-panel";
+import { AttendanceImporterPanel } from "@/components/attendance-importer-panel";
 
 interface LeaveRequestAdminRow {
   id: string;
@@ -138,7 +140,7 @@ function leaveBadgeStyles(typeLabel: string): string {
 }
 
 type TabKey = "pending" | "history";
-type MainSection = "leave" | "payroll" | "paid_history";
+type MainSection = "attendance" | "leave" | "payroll" | "paid_history";
 
 export function LeaveApprovalsPage() {
   const [mainSection, setMainSection] = useState<MainSection>("leave");
@@ -313,13 +315,26 @@ export function LeaveApprovalsPage() {
               批准作業
             </p>
             <p className="text-xs text-muted-foreground">
-              假單核准、薪資結算與已發放紀錄查詢（依月份篩選）。
+              出勤 CSV 匯入預覽、假單核准、薪資結算與已發放紀錄查詢（依月份篩選）。
             </p>
           </div>
         </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setMainSection("attendance")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "attendance"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <Upload className="h-4 w-4 shrink-0 opacity-90" />
+          出勤戰情
+        </button>
         <button
           type="button"
           onClick={() => setMainSection("leave")}
@@ -360,6 +375,8 @@ export function LeaveApprovalsPage() {
           已發放查詢
         </button>
       </div>
+
+      {mainSection === "attendance" && <AttendanceImporterPanel />}
 
       {mainSection === "payroll" && <SalarySettlementCenter />}
 

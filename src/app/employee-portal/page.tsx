@@ -28,6 +28,7 @@ import {
   calendarDaysInclusive,
   computeSpecialLeaveNetHoursFromRange,
   deriveLegacyHourFieldsForDb,
+  formatDayDecimalAsDayHour,
   hoursToDayHourParts,
   parseLocalDateTime,
   splitRemainingDaysToDayHour,
@@ -237,12 +238,12 @@ function StatMini({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-[5.5rem] min-w-[7.25rem] flex-1 flex-col rounded-xl border border-border/80 bg-background/85 px-4 py-3.5 shadow-sm backdrop-blur-sm">
+    <div className="flex min-h-[5.5rem] min-w-0 w-full flex-col rounded-xl border border-border/80 bg-background/85 px-3 py-3.5 shadow-sm backdrop-blur-sm sm:px-4">
       <div className="flex min-h-0 flex-1 flex-col justify-center">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
-        <span className="mt-1.5 text-lg font-semibold tabular-nums tracking-tight text-primary sm:text-xl">
+        <span className="mt-1.5 break-words text-base font-semibold tabular-nums tracking-tight text-primary sm:text-lg md:text-xl">
           {children}
         </span>
       </div>
@@ -805,7 +806,7 @@ export default function EmployeePortalPage() {
                 </h2>
                 <p className="text-sm tabular-nums text-muted-foreground">{todayLabel}</p>
               </div>
-              <div className="flex w-full shrink-0 flex-col gap-3 sm:flex-row lg:max-w-xl lg:flex-1">
+              <div className="grid w-full shrink-0 grid-cols-2 gap-3 md:grid-cols-4 lg:min-w-0 lg:flex-1">
                 <StatMini
                   label="本月薪資"
                   footer={
@@ -828,6 +829,11 @@ export default function EmployeePortalPage() {
                 </StatMini>
                 <StatMini label="本月加班天數">{stats.monthly_overtime_days} 天</StatMini>
                 <StatMini label="本月請假天數">{stats.monthly_leave_days} 天</StatMini>
+                <StatMini label="特休假剩餘">
+                  <span className="block leading-snug">
+                    {formatDayDecimalAsDayHour(employee.annual_leave_remaining)}
+                  </span>
+                </StatMini>
               </div>
             </div>
           </section>
