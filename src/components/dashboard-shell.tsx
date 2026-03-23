@@ -38,6 +38,7 @@ import { CompanyCalendarPage } from "@/components/company-calendar-page";
 import { dashboardStats } from "@/lib/mock-data";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
+  getSupabaseSession,
   isAuthSessionMissingError,
   isLikelySupabaseNetworkError,
   isSupabaseConfigured,
@@ -409,7 +410,7 @@ export default function DashboardShell() {
         const {
           data: { session },
           error: sessionErr,
-        } = await supabase.auth.getSession();
+        } = await getSupabaseSession();
         if (cancelled) return;
         if (sessionErr && !isAuthSessionMissingError(sessionErr)) throw sessionErr;
 

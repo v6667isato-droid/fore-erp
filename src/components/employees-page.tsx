@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isAuthSessionMissingError, supabase } from "@/lib/supabase";
+import { getSupabaseSession, isAuthSessionMissingError, supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -143,7 +143,7 @@ function useCurrentUserRole() {
         const {
           data: { session },
           error,
-        } = await supabase.auth.getSession();
+        } = await getSupabaseSession();
         if (!cancelled && error && !isAuthSessionMissingError(error)) {
           console.error("[employees-page] getSession:", error);
         }

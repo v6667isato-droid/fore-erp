@@ -23,6 +23,7 @@ type OrderStatus =
   | "報價中"
   | "繪圖中"
   | "排程中"
+  | "繪製製作圖"
   | "生產中"
   | "已完工"
   | "已出貨"
@@ -129,6 +130,7 @@ const ORDER_STATUS_OPTIONS: OrderStatus[] = [
   "報價中",
   "繪圖中",
   "排程中",
+  "繪製製作圖",
   "生產中",
   "已完工",
   "已出貨",
@@ -146,6 +148,7 @@ const statusStyles: Record<OrderStatus, string> = {
   報價中: "bg-amber-100 text-amber-800 border-amber-200",
   繪圖中: "bg-violet-100 text-violet-800 border-violet-200",
   排程中: "bg-amber-100 text-amber-800 border-amber-200",
+  繪製製作圖: "bg-violet-100 text-violet-800 border-violet-200",
   生產中: "bg-blue-100 text-blue-800 border-blue-200",
   已完工: "bg-teal-100 text-teal-900 border-teal-200",
   已出貨: "bg-emerald-100 text-emerald-800 border-emerald-200",

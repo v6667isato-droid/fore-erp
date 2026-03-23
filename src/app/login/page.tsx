@@ -4,6 +4,7 @@ import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { getPathAfterLogin } from "@/lib/post-login-redirect";
 import {
+  getSupabaseSession,
   isAuthSessionMissingError,
   isLikelySupabaseNetworkError,
   isSupabaseConfigured,
@@ -40,7 +41,7 @@ export default function LoginPage() {
         const {
           data: { session },
           error,
-        } = await supabase.auth.getSession();
+        } = await getSupabaseSession();
         if (cancelled) return;
         if (error && !isAuthSessionMissingError(error)) throw error;
         if (session?.user) {

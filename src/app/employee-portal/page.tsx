@@ -41,7 +41,12 @@ import {
   fetchNormalizedUserProfileRole,
   isAdminOrManagerRole,
 } from "@/lib/post-login-redirect";
-import { isAuthSessionMissingError, isSupabaseConfigured, supabase } from "@/lib/supabase";
+import {
+  getSupabaseSession,
+  isAuthSessionMissingError,
+  isSupabaseConfigured,
+  supabase,
+} from "@/lib/supabase";
 import { CompanyAnnouncementsBlock } from "@/components/company-announcements-block";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -478,7 +483,7 @@ export default function EmployeePortalPage() {
     void (async () => {
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await getSupabaseSession();
       const userId = session?.user?.id;
       if (!userId) {
         if (!cancelled) setShowErpHomeLink(false);
@@ -505,7 +510,7 @@ export default function EmployeePortalPage() {
         const {
           data: { session },
           error: sessionErr,
-        } = await supabase.auth.getSession();
+        } = await getSupabaseSession();
         if (sessionErr && !isAuthSessionMissingError(sessionErr)) {
           setLoadError(sessionErr.message);
           setData(null);
@@ -738,7 +743,7 @@ export default function EmployeePortalPage() {
 
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await getSupabaseSession();
       const uid = session?.user?.id;
       if (!uid) {
         toast.error("請先登入");
@@ -820,7 +825,7 @@ export default function EmployeePortalPage() {
 
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+    } = await getSupabaseSession();
     const uid = session?.user?.id;
     if (!uid) {
       toast.error("請先登入");

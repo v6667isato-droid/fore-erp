@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  getSupabaseSession,
   isAuthSessionMissingError,
   isSupabaseConfigured,
   supabase,
@@ -35,7 +36,7 @@ export default function AdminAttendancePage() {
         const {
           data: { session },
           error: sessionErr,
-        } = await supabase.auth.getSession();
+        } = await getSupabaseSession();
         if (cancelled) return;
         if (sessionErr && !isAuthSessionMissingError(sessionErr)) throw sessionErr;
 

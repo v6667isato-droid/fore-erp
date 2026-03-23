@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type AuthError, type Session } from "@supabase/supabase-js";
 
 const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
 const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
@@ -32,7 +32,7 @@ export function isLikelySupabaseNetworkError(err: unknown): boolean {
 
 /**
  * 未登入或本地尚無 session 時，auth.getUser() 等可能回傳此錯誤。
- * 初始檢查請優先使用 auth.getSession()，僅讀本地 storage、不會觸發此類錯誤。
+ * 請使用 {@link getSupabaseSession} 做初始檢查（會一併處理失效的 refresh token）。
  */
 export function isAuthSessionMissingError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -40,4 +40,30 @@ export function isAuthSessionMissingError(err: unknown): boolean {
   if (e.name === "AuthSessionMissingError") return true;
   const m = typeof e.message === "string" ? e.message : "";
   return /auth session missing|session missing/i.test(m);
+}
+
+/** Refresh token 已撤銷、輪替或與目前專案不符時，GoTrue 會回此錯；應清除本地 session。 */
+export function isInvalidRefreshTokenError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { message?: string; code?: string };
+  const m = typeof e.message === "string" ? e.message.toLowerCase() : "";
+  if (/invalid refresh token|refresh token not found/.test(m)) return true;
+  const c = typeof e.code === "string" ? e.code.toLowerCase() : "";
+  return c === "refresh_token_not_found";
+}
+
+/**
+ * 等同 auth.getSession()，但若偵測到無效的 refresh token，會先 signOut({ scope: 'local' })
+ * 再回傳無 session，避免主控台反覆出現 AuthApiError 並讓使用者卡在錯誤狀態。
+ */
+export async function getSupabaseSession(): Promise<{
+  data: { session: Session | null };
+  error: AuthError | null;
+}> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error && isInvalidRefreshTokenError(error)) {
+    await supabase.auth.signOut({ scope: "local" });
+    return { data: { session: null }, error: null };
+  }
+  return { data, error };
 }
