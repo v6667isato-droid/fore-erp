@@ -30,7 +30,9 @@ interface VendorPurchaseItem {
   spec: string;
   quantity: string | number;
   unit: string;
-  unit_price: number;
+  unit_price_ex_tax: number;
+  unit_price_inc_tax: number;
+  amount_ex_tax: number;
   tax_included_amount: number;
 }
 
@@ -63,7 +65,9 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
       // 先依廠商名稱篩選（purchases 表有 vendor_name 時）
       let { data, error } = await supabase
         .from("purchases")
-        .select("id, purchase_date, item_name, item_category, spec, quantity, unit, unit_price, tax_included_amount, vendor_name")
+        .select(
+          "id, purchase_date, item_name, item_category, spec, quantity, unit, unit_price_ex_tax, unit_price_inc_tax, amount_ex_tax, tax_included_amount, vendor_name",
+        )
         .eq("vendor_name", row.name)
         .order("purchase_date", { ascending: false });
 
@@ -75,7 +79,9 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
         spec: String(r.spec ?? ""),
         quantity: (r.quantity ?? "") as string | number,
         unit: String(r.unit ?? ""),
-        unit_price: Number(r.unit_price) || 0,
+        unit_price_ex_tax: Number(r.unit_price_ex_tax) || 0,
+        unit_price_inc_tax: Number(r.unit_price_inc_tax) || 0,
+        amount_ex_tax: Number(r.amount_ex_tax) || 0,
         tax_included_amount: Number(r.tax_included_amount) || 0,
       });
 
@@ -85,7 +91,9 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
         // 再試 vendor_id（purchases 表有 vendor_id 時）
         const res = await supabase
           .from("purchases")
-          .select("id, purchase_date, item_name, item_category, spec, quantity, unit, unit_price, tax_included_amount")
+          .select(
+            "id, purchase_date, item_name, item_category, spec, quantity, unit, unit_price_ex_tax, unit_price_inc_tax, amount_ex_tax, tax_included_amount",
+          )
           .eq("vendor_id", row.id)
           .order("purchase_date", { ascending: false });
         if (!cancelled) {
@@ -184,7 +192,7 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
                 <p className="text-sm text-muted-foreground">尚無採購紀錄</p>
               ) : (
                 <div className="rounded-lg border border-border overflow-x-auto overflow-y-hidden">
-                  <Table className="min-w-[640px]">
+                  <Table className="min-w-[880px]">
                     <TableHeader>
                       <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
                         <TableHead className="text-xs font-semibold p-2">日期</TableHead>
@@ -193,7 +201,9 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
                         <TableHead className="text-xs font-semibold p-2">規格</TableHead>
                         <TableHead className="text-xs font-semibold p-2 text-right">數量</TableHead>
                         <TableHead className="text-xs font-semibold p-2">單位</TableHead>
-                        <TableHead className="text-xs font-semibold p-2 text-right">單價</TableHead>
+                        <TableHead className="text-xs font-semibold p-2 text-right">未稅單價</TableHead>
+                        <TableHead className="text-xs font-semibold p-2 text-right">已稅單價</TableHead>
+                        <TableHead className="text-xs font-semibold p-2 text-right">未稅總價</TableHead>
                         <TableHead className="text-xs font-semibold p-2 text-right">含稅總價</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -206,8 +216,10 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
                           <TableCell className="text-xs p-2 text-muted-foreground">{p.spec || "—"}</TableCell>
                           <TableCell className="text-xs p-2 text-right">{p.quantity}</TableCell>
                           <TableCell className="text-xs p-2">{p.unit || "—"}</TableCell>
-                          <TableCell className="text-xs p-2 text-right tabular-nums">{typeof p.unit_price === "number" ? p.unit_price.toLocaleString() : "—"}</TableCell>
-                          <TableCell className="text-xs p-2 text-right tabular-nums font-medium">{p.tax_included_amount?.toLocaleString() ?? "—"}</TableCell>
+                          <TableCell className="text-xs p-2 text-right tabular-nums">{p.unit_price_ex_tax.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs p-2 text-right tabular-nums">{p.unit_price_inc_tax.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs p-2 text-right tabular-nums">{p.amount_ex_tax.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs p-2 text-right tabular-nums font-medium">{p.tax_included_amount.toLocaleString()}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

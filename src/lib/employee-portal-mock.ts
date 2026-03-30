@@ -12,6 +12,8 @@ export interface EmployeePortalEmployee {
   base_salary: number;
   /** 特休剩餘天數（可小數）；對應 employees.annual_leave_remaining */
   annual_leave_remaining?: number | null;
+  /** 補休剩餘總時數；對應 employees.comp_leave_remaining（8 小時 = 1 日） */
+  comp_leave_remaining?: number | null;
 }
 
 /** 頂部三格統計（本月薪資為固定顯示用數字，可與薪資試算分開） */
@@ -93,6 +95,8 @@ export interface PayslipDetailBreakdown {
   overtime_pay: number;
   /** 本月核准特休天數（結算自餘額扣除） */
   special_leave_days_settled: number;
+  /** 事假／病假等計薪天數（扣款依據；結算月內） */
+  leave_days: number;
   /** 請假扣款：事假／病假等（正數金額，顯示為減項） */
   leave_deduction: number;
   /** 其他加減項（正數加、負數減；0 可省略列） */
@@ -137,6 +141,7 @@ export const employeePortalMock: EmployeePortalPayload = {
     full_name: "林雅婷",
     base_salary: 42000,
     annual_leave_remaining: 12.5,
+    comp_leave_remaining: 24,
   },
   stats: {
     monthly_salary_ntd: 43800,
@@ -295,6 +300,7 @@ export const employeePortalMock: EmployeePortalPayload = {
         overtime_days: 4,
         overtime_pay: 4800,
         special_leave_days_settled: 1,
+        leave_days: 1,
         leave_deduction: 914,
         other_adjust: 0,
         net_pay: 43800,
@@ -316,6 +322,7 @@ export const employeePortalMock: EmployeePortalPayload = {
         overtime_days: 5,
         overtime_pay: 6120,
         special_leave_days_settled: 0,
+        leave_days: 1,
         leave_deduction: 914,
         other_adjust: 0,
         net_pay: 45120,
@@ -336,6 +343,7 @@ export const employeePortalMock: EmployeePortalPayload = {
         overtime_days: 3,
         overtime_pay: 3850,
         special_leave_days_settled: 2,
+        leave_days: 1,
         leave_deduction: 914,
         other_adjust: 0,
         net_pay: 42850,
@@ -356,6 +364,7 @@ export const employeePortalMock: EmployeePortalPayload = {
         overtime_days: 7,
         overtime_pay: 10500,
         special_leave_days_settled: 0,
+        leave_days: 3,
         leave_deduction: 3914,
         other_adjust: 0,
         net_pay: 46500,

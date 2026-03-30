@@ -54,11 +54,15 @@ interface EmployeeRow {
   annual_leave_remaining: number | null;
   /** 補休剩餘總時數（comp_leave_remaining，8 小時 = 1 日） */
   comp_leave_remaining: number | null;
+  /** 事假請假天數（personal_leave_days） */
+  personal_leave_days: number | null;
+  /** 病假請假天數（sick_leave_days） */
+  sick_leave_days: number | null;
 }
 
 // 對應資料庫 employees 表實際欄位
 const EMP_SELECT_ADMIN =
-  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate";
+  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, personal_leave_days, sick_leave_days, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate";
 
 const EMP_SELECT_STAFF =
   "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status";
@@ -127,6 +131,14 @@ function mapEmployee(r: Record<string, unknown>): EmployeeRow {
     comp_leave_remaining:
       (r as Record<string, unknown>).comp_leave_remaining != null
         ? Number((r as Record<string, unknown>).comp_leave_remaining as number)
+        : null,
+    personal_leave_days:
+      (r as Record<string, unknown>).personal_leave_days != null
+        ? Number((r as Record<string, unknown>).personal_leave_days as number)
+        : null,
+    sick_leave_days:
+      (r as Record<string, unknown>).sick_leave_days != null
+        ? Number((r as Record<string, unknown>).sick_leave_days as number)
         : null,
   };
 }
@@ -330,6 +342,12 @@ function EmployeeForm({
             compLeaveDaysInput,
             compLeaveHoursInput,
           ) ?? 0;
+        payload.personal_leave_days =
+          values.personal_leave_days != null
+            ? Number(values.personal_leave_days)
+            : 0;
+        payload.sick_leave_days =
+          values.sick_leave_days != null ? Number(values.sick_leave_days) : 0;
       }
       await onSubmit(payload);
     } finally {
@@ -606,6 +624,68 @@ function EmployeeForm({
                   />
                 </div>
               </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="emp-personal-leave-days"
+                className="text-xs text-muted-foreground"
+              >
+                事假請假天數（personal_leave_days）
+              </label>
+              <input
+                id="emp-personal-leave-days"
+                type="number"
+                min={0}
+                step={0.5}
+                value={
+                  values.personal_leave_days != null
+                    ? values.personal_leave_days
+                    : ""
+                }
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    setField("personal_leave_days", null);
+                    return;
+                  }
+                  const n = Number(raw);
+                  setField(
+                    "personal_leave_days",
+                    Number.isFinite(n) ? Math.max(0, n) : null,
+                  );
+                }}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="emp-sick-leave-days"
+                className="text-xs text-muted-foreground"
+              >
+                病假請假天數（sick_leave_days）
+              </label>
+              <input
+                id="emp-sick-leave-days"
+                type="number"
+                min={0}
+                step={0.5}
+                value={
+                  values.sick_leave_days != null ? values.sick_leave_days : ""
+                }
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    setField("sick_leave_days", null);
+                    return;
+                  }
+                  const n = Number(raw);
+                  setField(
+                    "sick_leave_days",
+                    Number.isFinite(n) ? Math.max(0, n) : null,
+                  );
+                }}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+              />
             </div>
             <div className="col-span-2 flex flex-col gap-1.5 rounded-lg border border-dashed border-border bg-muted/25 px-3 py-2.5">
               <span className="text-xs text-muted-foreground">
@@ -1061,6 +1141,26 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                       </div>
                       <div className="flex justify-between gap-4">
                         <span className="text-muted-foreground">
+                          事假請假天數
+                        </span>
+                        <span className="text-foreground tabular-nums">
+                          {row.personal_leave_days != null
+                            ? `${row.personal_leave_days.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">
+                          病假請假天數
+                        </span>
+                        <span className="text-foreground tabular-nums">
+                          {row.sick_leave_days != null
+                            ? `${row.sick_leave_days.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">
                           休息日加班基準／日 (overtime_rate)
                         </span>
                         <span className="text-foreground tabular-nums">
@@ -1322,9 +1422,17 @@ export function EmployeesPage() {
                 在職狀態
               </TableHead>
               {isAdmin && (
-                <TableHead className="text-xs font-semibold p-2 align-middle text-right">
-                  月薪
-                </TableHead>
+                <>
+                  <TableHead className="text-xs font-semibold p-2 align-middle text-right">
+                    月薪
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
+                    事假天數
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
+                    病假天數
+                  </TableHead>
+                </>
               )}
               <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">
                 操作
@@ -1335,7 +1443,7 @@ export function EmployeesPage() {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 9 : 8}
+                  colSpan={isAdmin ? 11 : 8}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -1377,11 +1485,27 @@ export function EmployeesPage() {
                     {row.employment_status ?? "—"}
                   </TableCell>
                   {isAdmin && (
-                    <TableCell className="text-sm text-right p-2 tabular-nums">
-                      {row.monthly_wage != null
-                        ? row.monthly_wage.toLocaleString()
-                        : "—"}
-                    </TableCell>
+                    <>
+                      <TableCell className="text-sm text-right p-2 tabular-nums">
+                        {row.monthly_wage != null
+                          ? row.monthly_wage.toLocaleString()
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-right p-2 tabular-nums text-muted-foreground">
+                        {row.personal_leave_days != null
+                          ? row.personal_leave_days.toLocaleString("zh-TW", {
+                              maximumFractionDigits: 1,
+                            })
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-right p-2 tabular-nums text-muted-foreground">
+                        {row.sick_leave_days != null
+                          ? row.sick_leave_days.toLocaleString("zh-TW", {
+                              maximumFractionDigits: 1,
+                            })
+                          : "—"}
+                      </TableCell>
+                    </>
                   )}
                   <TableCell className="p-2">
                     <div className="flex items-center gap-2">

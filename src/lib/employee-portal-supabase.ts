@@ -22,6 +22,7 @@ interface EmployeeRow {
   name: string;
   monthly_wage: number | null;
   annual_leave_remaining?: number | null;
+  comp_leave_remaining?: number | null;
 }
 
 function num(v: unknown, fallback = 0): number {
@@ -65,12 +66,15 @@ function payslipStatus(raw: string | null | undefined): PayslipStatus {
 
 function pickEmployeeRow(emp: Record<string, unknown>): EmployeeRow {
   const alrRaw = emp.annual_leave_remaining ?? emp.special_leave_days;
+  const clrRaw = emp.comp_leave_remaining;
   return {
     id: String(emp.id ?? ""),
     name: String(emp.name ?? ""),
     monthly_wage: (emp.monthly_wage as number | null) ?? null,
     annual_leave_remaining:
       alrRaw != null && alrRaw !== "" && Number.isFinite(Number(alrRaw)) ? Number(alrRaw) : null,
+    comp_leave_remaining:
+      clrRaw != null && clrRaw !== "" && Number.isFinite(Number(clrRaw)) ? Number(clrRaw) : null,
   };
 }
 
@@ -90,7 +94,14 @@ async function fetchEmployeeRowFlexible(
     return q.maybeSingle();
   };
 
-  let { data, error } = await run("id,name,monthly_wage,annual_leave_remaining");
+  let { data, error } = await run(
+    "id,name,monthly_wage,annual_leave_remaining,comp_leave_remaining",
+  );
+  if (error && isMissingColumnError(error.message)) {
+    const r = await run("id,name,monthly_wage,annual_leave_remaining");
+    data = r.data;
+    error = r.error;
+  }
   if (error && isMissingColumnError(error.message)) {
     const r = await run("id,name,monthly_wage,special_leave_days");
     data = r.data;
@@ -427,6 +438,7 @@ async function fetchPayslipRows(employeeId: string): Promise<PayslipRow[]> {
       overtime_days: num(row.overtime_days, 0),
       overtime_pay: overtimePay,
       special_leave_days_settled: num(row.special_leave_days_settled ?? row.special_leave_settled, 0),
+      leave_days: num(row.leave_days ?? row.deductible_leave_days, 0),
       leave_deduction: deduct,
       other_adjust: num(row.other_adjust, 0),
       net_pay: net,
@@ -479,6 +491,9 @@ export async function fetchEmployeePortalFromSupabase(
     const alrRaw = emp.annual_leave_remaining;
     const annualLeaveRemaining =
       alrRaw != null && Number.isFinite(Number(alrRaw)) ? Number(alrRaw) : null;
+    const clrRaw = emp.comp_leave_remaining;
+    const compLeaveRemaining =
+      clrRaw != null && Number.isFinite(Number(clrRaw)) ? Number(clrRaw) : null;
 
     const payload: EmployeePortalPayload = {
       employee: {
@@ -486,6 +501,7 @@ export async function fetchEmployeePortalFromSupabase(
         full_name: emp.name,
         base_salary: baseSalary,
         annual_leave_remaining: annualLeaveRemaining,
+        comp_leave_remaining: compLeaveRemaining,
       },
       stats: {
         monthly_salary_ntd: baseSalary,

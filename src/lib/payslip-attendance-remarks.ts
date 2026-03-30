@@ -50,6 +50,30 @@ function isSpecialAnnualLeaveType(leaveType: string): boolean {
   return leaveType.trim() === "特休";
 }
 
+function parseYm(ym: string): { y: number; m: number } | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(ym.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  if (mo < 1 || mo > 12) return null;
+  return { y, m: mo };
+}
+
+/** 與薪資結算「特休以假單建立月」一致：created_at 落在結算曆月內 */
+function createdAtInPayPeriodMonth(row: Record<string, unknown>, payPeriodYm: string): boolean {
+  const p = parseYm(payPeriodYm);
+  if (!p) return false;
+  const start = new Date(p.y, p.m - 1, 1, 0, 0, 0, 0);
+  const nextMonthStart = new Date(p.y, p.m, 1, 0, 0, 0, 0);
+  const gte = start.toISOString();
+  const lt = nextMonthStart.toISOString();
+  const raw = row.created_at ?? row.createdAt;
+  if (raw == null) return false;
+  const t = new Date(String(raw)).getTime();
+  if (Number.isNaN(t)) return false;
+  return t >= new Date(gte).getTime() && t < new Date(lt).getTime();
+}
+
 /** 特休備註：X日Y小時；小時為 0 不顯示「Y小時」；僅小時時不顯示 0日 */
 function formatSpecialLeaveDurationForNote(days: number, hours: number): string {
   const d = Math.max(0, Math.trunc(days));
@@ -147,9 +171,33 @@ function attendanceLineForRow(row: Record<string, unknown>): string | null {
   return `${formatMdFromIso(dateIso)} ${parts.join("、")}`;
 }
 
+function formatSpecialLeaveNoteLine(
+  row: Record<string, unknown>,
+  datePart: string,
+): string {
+  const hc = num(row.hours_count, 0);
+  let d = 0;
+  let h = 0;
+  if (hc > 0) {
+    const p = hoursToDayHourParts(hc);
+    d = p.days;
+    h = p.hours;
+  } else {
+    const td = num(row.total_days, 0);
+    if (td > 0) {
+      const p = splitRemainingDaysToDayHour(td);
+      d = p.days;
+      h = p.hours;
+    }
+  }
+  const dur = formatSpecialLeaveDurationForNote(d, h);
+  return dur ? `${datePart} 特休 ${dur}` : `${datePart} 特休`;
+}
+
 function leaveLineForRow(
   row: Record<string, unknown>,
   bounds: PayslipRemarkBounds,
+  payPeriodYm?: string,
 ): string | null {
   if (!isLeaveApproved(String(row.status ?? ""))) return null;
 
@@ -159,38 +207,45 @@ function leaveLineForRow(
     return null;
   }
 
+  const leaveType = leaveTypeRaw(row) || "請假";
+
   const a = parseLocalYmd(start);
   const b = parseLocalYmd(end);
   const x = parseLocalYmd(bounds.start);
   const y = parseLocalYmd(bounds.end);
   const s = a.getTime() > x.getTime() ? a : x;
   const e = b.getTime() < y.getTime() ? b : y;
-  if (s.getTime() > e.getTime()) return null;
+  const hasOverlap = s.getTime() <= e.getTime();
+
+  if (isSpecialAnnualLeaveType(leaveType)) {
+    if (payPeriodYm) {
+      // 本月申請（created_at 落於結算月）或本月執行（請假區間與結算月重疊）
+      const inMonthCreated = createdAtInPayPeriodMonth(row, payPeriodYm);
+      if (!inMonthCreated && !hasOverlap) return null;
+      let datePart: string;
+      if (inMonthCreated) {
+        const d0 = formatMdFromIso(ymdFromDate(a));
+        const d1 = formatMdFromIso(ymdFromDate(b));
+        datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
+      } else {
+        const d0 = formatMdFromIso(ymdFromDate(s));
+        const d1 = formatMdFromIso(ymdFromDate(e));
+        datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
+      }
+      return formatSpecialLeaveNoteLine(row, datePart);
+    }
+    if (!hasOverlap) return null;
+    const d0 = formatMdFromIso(ymdFromDate(s));
+    const d1 = formatMdFromIso(ymdFromDate(e));
+    const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
+    return formatSpecialLeaveNoteLine(row, datePart);
+  }
+
+  if (!hasOverlap) return null;
 
   const d0 = formatMdFromIso(ymdFromDate(s));
   const d1 = formatMdFromIso(ymdFromDate(e));
   const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
-  const leaveType = leaveTypeRaw(row) || "請假";
-
-  if (isSpecialAnnualLeaveType(leaveType)) {
-    const hc = num(row.hours_count, 0);
-    let d = 0;
-    let h = 0;
-    if (hc > 0) {
-      const p = hoursToDayHourParts(hc);
-      d = p.days;
-      h = p.hours;
-    } else {
-      const td = num(row.total_days, 0);
-      if (td > 0) {
-        const p = splitRemainingDaysToDayHour(td);
-        d = p.days;
-        h = p.hours;
-      }
-    }
-    const dur = formatSpecialLeaveDurationForNote(d, h);
-    return dur ? `${datePart} 特休 ${dur}` : `${datePart} 特休`;
-  }
 
   const hours = num(row.hours_count, 0);
   if (hours > 0) {
@@ -249,14 +304,22 @@ export function buildPayslipAttendanceRemarks(
   employeeId: string,
   opts: {
     bounds: PayslipRemarkBounds;
+    /** 結算月 YYYY-MM：傳入時，特休列於備註若「本月申請」或「本月執行」（起迄與結算月重疊） */
+    payPeriodYm?: string;
     attendanceRows: Record<string, unknown>[];
     leaveRows: Record<string, unknown>[];
     overtimeRows: Record<string, unknown>[];
     settleOvertimeAsCompOff: boolean;
   },
 ): string {
-  const { bounds, attendanceRows, leaveRows, overtimeRows, settleOvertimeAsCompOff } =
-    opts;
+  const {
+    bounds,
+    payPeriodYm,
+    attendanceRows,
+    leaveRows,
+    overtimeRows,
+    settleOvertimeAsCompOff,
+  } = opts;
   const items: SortableRemark[] = [];
 
   for (const row of attendanceRows) {
@@ -269,7 +332,7 @@ export function buildPayslipAttendanceRemarks(
 
   for (const row of leaveRows) {
     if (String(row.employee_id ?? "") !== employeeId) continue;
-    const line = leaveLineForRow(row, bounds);
+    const line = leaveLineForRow(row, bounds, payPeriodYm);
     if (!line) continue;
     const start = String(row.start_date ?? "").slice(0, 10);
     items.push({ sortKey: start, text: line });

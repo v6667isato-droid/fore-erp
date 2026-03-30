@@ -208,7 +208,7 @@ export function KanbanPage() {
           const orderRel = firstItem?.orders;
           const orderObj = Array.isArray(orderRel) ? orderRel[0] : orderRel;
 
-          // 報價中／結案不排入生產看板
+          // 報價中／結案不排入生產管理
           if (!orderObj || orderObj.status === "報價中" || orderObj.status === "結案") {
             continue;
           }
@@ -242,7 +242,7 @@ export function KanbanPage() {
     return (
       <div className="flex flex-col gap-4">
         <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
-          載入生產看板中…
+          載入生產管理中…
         </div>
       </div>
     );

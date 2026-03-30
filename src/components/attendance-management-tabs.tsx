@@ -9,8 +9,8 @@ import { cn } from "@/lib/utils";
 export type AttendanceManagementTabKey = "import" | "history" | "employees";
 
 /**
- * 出勤管理：匯入分析、歷史查詢（daily_attendance）、員工資料。
- * 用於 /admin/attendance 與儀表板「出勤管理」區塊。
+ * 員工出勤管理：匯入分析、歷史查詢（daily_attendance）、員工資料。
+ * 用於 /admin/attendance 與儀表板「員工出勤管理」區塊。
  * 傳入 `activeTab` 時為受控模式（與頂欄說明連動）。
  */
 export function AttendanceManagementTabs({
@@ -37,7 +37,7 @@ export function AttendanceManagementTabs({
       <div
         className="inline-flex rounded-xl border border-border bg-muted/30 p-1 shadow-inner"
         role="tablist"
-        aria-label="出勤管理區塊"
+        aria-label="員工出勤管理區塊"
       >
         <button
           type="button"

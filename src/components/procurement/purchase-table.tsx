@@ -11,9 +11,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { PurchaseRow } from "@/types/procurement";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 20;
+
+const COL_SPAN_BASE = 11;
 
 export interface PurchaseTableProps {
   records: PurchaseRow[];
@@ -24,10 +27,14 @@ export interface PurchaseTableProps {
 
 export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete }: PurchaseTableProps) {
   const [page, setPage] = useState(0);
-  const [sortKey, setSortKey] = useState<keyof PurchaseRow>("purchase_date");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  /** 單一物件避免在 setSortKey updater 內呼叫 setSortDir（Strict Mode 會重複執行 updater，導致方向被切兩次） */
+  const [sort, setSort] = useState<{ key: keyof PurchaseRow; dir: "asc" | "desc" }>({
+    key: "purchase_date",
+    dir: "desc",
+  });
 
   const sortedRecords = useMemo(() => {
+    const { key: sortKey, dir: sortDir } = sort;
     const list = [...records];
     list.sort((a, b) => {
       const av = a[sortKey];
@@ -41,13 +48,19 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
         return sortDir === "asc" ? av - bv : bv - av;
       }
 
+      if (typeof av === "boolean" && typeof bv === "boolean") {
+        const an = av ? 1 : 0;
+        const bn = bv ? 1 : 0;
+        return sortDir === "asc" ? an - bn : bn - an;
+      }
+
       const as = String(av);
       const bs = String(bv);
       const cmp = as.localeCompare(bs, "zh-Hant");
       return sortDir === "asc" ? cmp : -cmp;
     });
     return list;
-  }, [records, sortKey, sortDir]);
+  }, [records, sort]);
 
   const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
   const start = page * PAGE_SIZE;
@@ -55,80 +68,87 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
 
   function toggleSort(key: keyof PurchaseRow) {
     setPage(0);
-    setSortKey((prevKey) => {
-      if (prevKey !== key) {
-        setSortDir("asc");
-        return key;
+    setSort((prev) => {
+      if (prev.key !== key) {
+        return { key, dir: "asc" };
       }
-      setSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"));
-      return key;
+      return { key, dir: prev.dir === "asc" ? "desc" : "asc" };
     });
   }
 
-  function headerLabel(label: string, key: keyof PurchaseRow) {
-    const isActive = sortKey === key;
-    const arrow = !isActive ? "" : sortDir === "asc" ? " ▲" : " ▼";
-    return `${label}${arrow}`;
+  function SortHeader({
+    label,
+    sortKey: colKey,
+    align = "left",
+  }: {
+    label: string;
+    sortKey: keyof PurchaseRow;
+    align?: "left" | "right";
+  }) {
+    const active = sort.key === colKey;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSort(colKey)}
+        className={cn(
+          "inline-flex items-center gap-1 text-xs font-semibold p-2 align-middle hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded",
+          align === "right" && "w-full justify-end",
+        )}
+        aria-label={`依${label}排序${active ? (sort.dir === "asc" ? "升冪" : "降冪") : ""}`}
+      >
+        {label}
+        {active ? (
+          sort.dir === "asc" ? (
+            <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          )
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        )}
+      </button>
+    );
   }
+
+  const emptyColSpan = onEdit || onDelete ? COL_SPAN_BASE + 1 : COL_SPAN_BASE;
 
   return (
     <>
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent border-b border-border">
-            <TableHead
-              className="text-xs font-semibold p-2 cursor-pointer select-none"
-              onClick={() => toggleSort("purchase_date")}
-            >
-              {headerLabel("日期", "purchase_date")}
+            <TableHead className="p-2 align-middle">
+              <SortHeader label="日期" sortKey="purchase_date" />
             </TableHead>
-            <TableHead
-              className="text-xs font-semibold p-2 cursor-pointer select-none"
-              onClick={() => toggleSort("vendor_name")}
-            >
-              {headerLabel("廠商", "vendor_name")}
+            <TableHead className="p-2 align-middle">
+              <SortHeader label="廠商" sortKey="vendor_name" />
             </TableHead>
-            <TableHead
-              className="text-xs font-semibold p-2 cursor-pointer select-none"
-              onClick={() => toggleSort("item_name")}
-            >
-              {headerLabel("品名", "item_name")}
+            <TableHead className="p-2 align-middle">
+              <SortHeader label="品名" sortKey="item_name" />
             </TableHead>
-            <TableHead
-              className="text-xs font-semibold p-2 cursor-pointer select-none"
-              onClick={() => toggleSort("item_category")}
-            >
-              {headerLabel("類別", "item_category")}
+            <TableHead className="p-2 align-middle">
+              <SortHeader label="類別" sortKey="item_category" />
             </TableHead>
-            <TableHead
-              className="text-xs font-semibold p-2 cursor-pointer select-none"
-              onClick={() => toggleSort("spec")}
-            >
-              {headerLabel("規格", "spec")}
+            <TableHead className="p-2 align-middle">
+              <SortHeader label="規格" sortKey="spec" />
             </TableHead>
-            <TableHead
-              className="text-xs font-semibold p-2 cursor-pointer select-none"
-              onClick={() => toggleSort("quantity")}
-            >
-              {headerLabel("數量", "quantity")}
+            <TableHead className="p-2 align-middle">
+              <SortHeader label="數量" sortKey="quantity" />
             </TableHead>
-            <TableHead
-              className="text-xs font-semibold p-2 cursor-pointer select-none"
-              onClick={() => toggleSort("unit")}
-            >
-              {headerLabel("單位", "unit")}
+            <TableHead className="p-2 align-middle">
+              <SortHeader label="單位" sortKey="unit" />
             </TableHead>
-            <TableHead
-              className="text-xs font-semibold p-2 text-right cursor-pointer select-none"
-              onClick={() => toggleSort("unit_price")}
-            >
-              {headerLabel("單價", "unit_price")}
+            <TableHead className="p-2 text-right align-middle">
+              <SortHeader label="未稅單價" sortKey="unit_price_ex_tax" align="right" />
             </TableHead>
-            <TableHead
-              className="text-xs font-semibold p-2 text-right cursor-pointer select-none"
-              onClick={() => toggleSort("tax_included_amount")}
-            >
-              {headerLabel("含稅總價", "tax_included_amount")}
+            <TableHead className="p-2 text-right align-middle">
+              <SortHeader label="已稅單價" sortKey="unit_price_inc_tax" align="right" />
+            </TableHead>
+            <TableHead className="p-2 text-right align-middle">
+              <SortHeader label="未稅總價" sortKey="amount_ex_tax" align="right" />
+            </TableHead>
+            <TableHead className="p-2 text-right align-middle">
+              <SortHeader label="含稅總價" sortKey="tax_included_amount" align="right" />
             </TableHead>
             {(onEdit || onDelete) && (
               <TableHead className="text-xs font-semibold p-2" aria-label="操作">操作</TableHead>
@@ -138,7 +158,7 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
         <TableBody>
           {pageRecords.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={onEdit || onDelete ? 10 : 9} className="h-24 text-center text-muted-foreground text-sm">
+              <TableCell colSpan={emptyColSpan} className="h-24 text-center text-muted-foreground text-sm">
                 尚無採購紀錄
               </TableCell>
             </TableRow>
@@ -147,13 +167,24 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
               <TableRow key={record.id} className="border-b border-border hover:bg-muted/30">
                 <TableCell className="text-sm p-2 whitespace-nowrap">{record.purchase_date}</TableCell>
                 <TableCell className="text-sm p-2">{record.vendor_name}</TableCell>
-                <TableCell className="text-sm p-2">{record.item_name}</TableCell>
+                <TableCell className="text-sm p-2">
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    <span>{record.item_name}</span>
+                    {record.material_id ? (
+                      <span className="rounded border border-border px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title="已對應採購物料主檔">
+                        主檔
+                      </span>
+                    ) : null}
+                  </span>
+                </TableCell>
                 <TableCell className="text-sm text-muted-foreground p-2">{record.item_category || "—"}</TableCell>
                 <TableCell className="text-sm text-muted-foreground p-2">{record.spec || "—"}</TableCell>
                 <TableCell className="text-sm p-2">{record.quantity}</TableCell>
                 <TableCell className="text-sm p-2">{record.unit || "—"}</TableCell>
-                <TableCell className="text-sm text-right p-2">{Number(record.unit_price ?? 0).toLocaleString()}</TableCell>
-                <TableCell className="text-sm text-right p-2 font-medium">{record.tax_included_amount.toLocaleString()}</TableCell>
+                <TableCell className="text-sm text-right p-2 tabular-nums">{record.unit_price_ex_tax.toLocaleString()}</TableCell>
+                <TableCell className="text-sm text-right p-2 tabular-nums">{record.unit_price_inc_tax.toLocaleString()}</TableCell>
+                <TableCell className="text-sm text-right p-2 tabular-nums">{record.amount_ex_tax.toLocaleString()}</TableCell>
+                <TableCell className="text-sm text-right p-2 font-medium tabular-nums">{record.tax_included_amount.toLocaleString()}</TableCell>
                 {(onEdit || onDelete) && (
                   <TableCell className="p-2">
                     <div className="flex items-center gap-1">

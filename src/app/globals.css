@@ -68,6 +68,22 @@ html.dark {
 }
 
 @theme inline {
+  /*
+   * Tailwind v4 預設 palette 常輸出 lab()/oklch()，html2canvas 等會拋錯。
+   * 覆寫 gray 為 sRGB hex（與 Tailwind 預設視覺對齊）。
+   */
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+  --color-gray-950: #030712;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -97,4 +113,25 @@ html.dark {
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+/* 列印頁「報價內容」表格：避免 table-fixed + nowrap 在列印寬度下尺寸／規格欄重疊 */
+@media print {
+  .print-quote-table-wrap table {
+    table-layout: auto !important;
+    width: 100% !important;
+  }
+  .print-quote-table-wrap .print-col-dimension,
+  .print-quote-table-wrap .print-col-spec {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .print-quote-table-wrap .print-col-dimension {
+    min-width: 7rem !important;
+    max-width: 28% !important;
+  }
+  .print-quote-table-wrap .print-col-spec {
+    min-width: 5.5rem !important;
+  }
 }

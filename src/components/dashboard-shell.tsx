@@ -11,7 +11,6 @@ import {
   TrendingUp,
   Clock,
   Users,
-  Building2,
   LogOut,
   LogIn,
   ExternalLink,
@@ -27,7 +26,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { OrdersPage } from "@/components/orders-page";
 import { WorkOrdersPage } from "@/components/work-orders-page";
 import { ProcurementPage } from "@/components/procurement-page";
-import { VendorsPage } from "@/components/vendors-page";
 import { ProductsPage } from "@/components/products-page";
 import { CustomersPage } from "@/components/customers-page";
 import { LeaveApprovalsPage } from "@/components/leave-approvals-page";
@@ -54,7 +52,6 @@ type Page =
   | "orders"
   | "kanban"
   | "procurement"
-  | "vendors"
   | "products"
   | "customers"
   | "channels"
@@ -62,7 +59,7 @@ type Page =
   | "feedback";
 type AppRole = "admin" | "manager" | "staff" | null;
 
-/** 報價／訂單／產品等：admin 與 manager 可編輯；出勤管理（含員工資料分頁）僅 admin */
+/** 報價／訂單／產品等：admin 與 manager 可編輯；員工出勤管理（含員工資料分頁）僅 admin */
 function isErpEditorRole(role: AppRole): boolean {
   return role === "admin" || role === "manager";
 }
@@ -75,10 +72,9 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "orders", label: "訂單管理", icon: ShoppingCart },
   { id: "customers", label: "客戶資料", icon: Users },
   { id: "channels", label: "通路管理", icon: Store },
-  { id: "kanban", label: "生產看板", icon: Package },
-  { id: "procurement", label: "採購成本", icon: ShoppingCart },
-  { id: "vendors", label: "廠商資料", icon: Building2 },
-  { id: "leave_approvals", label: "出勤管理", icon: ClipboardCheck },
+  { id: "kanban", label: "生產管理", icon: Package },
+  { id: "procurement", label: "採購管理", icon: ShoppingCart },
+  { id: "leave_approvals", label: "員工出勤管理", icon: ClipboardCheck },
   { id: "feedback", label: "使用回饋 / 待辦事項", icon: MessageSquare },
 ];
 
@@ -346,6 +342,7 @@ export default function DashboardShell() {
   const pageParam = searchParams.get("page");
   const [activePage, setActivePage] = useState<Page>(() => {
     if (pageParam === "employees") return "leave_approvals";
+    if (pageParam === "vendors") return "procurement";
     return pageParam && PAGE_IDS.has(pageParam as Page)
       ? (pageParam as Page)
       : "dashboard";
@@ -364,6 +361,11 @@ export default function DashboardShell() {
     if (p === "employees") {
       router.replace("/?page=leave_approvals&attendanceTab=employees");
       setActivePage("leave_approvals");
+      return;
+    }
+    if (p === "vendors") {
+      router.replace("/?page=procurement&procurementTab=vendors");
+      setActivePage("procurement");
       return;
     }
     if (p && PAGE_IDS.has(p as Page)) setActivePage(p as Page);
@@ -459,7 +461,7 @@ export default function DashboardShell() {
     };
   }, [router]);
 
-  // 非 admin 不可開出勤管理（含書籤或手動改 ?page=）
+  // 非 admin 不可開員工出勤管理（含書籤或手動改 ?page=）
   useEffect(() => {
     if (!authChecked || userRole === null) return;
     if (userRole !== "admin" && activePage === "leave_approvals") {
@@ -546,9 +548,8 @@ export default function DashboardShell() {
           )}
           {activePage === "kanban" && <WorkOrdersPage />}
           {activePage === "procurement" && (
-            <ProcurementPage onNavigateToVendors={() => setActivePage("vendors")} />
+            <ProcurementPage isAdmin={isErpEditorRole(userRole)} />
           )}
-          {activePage === "vendors" && <VendorsPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "channels" && <ChannelsPage />}

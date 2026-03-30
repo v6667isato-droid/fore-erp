@@ -494,18 +494,22 @@ export default function PrintOrderPage() {
           <p className="text-sm font-semibold text-gray-900">報價內容</p>
         </section>
 
-        <section className="mb-8">
-          <table className="w-full table-fixed border-collapse text-sm leading-snug">
+        <section className="mb-8 print-quote-table-wrap">
+          <table className="w-full table-fixed print:table-auto border-collapse text-sm leading-snug">
             <thead>
               <tr className="border-b-2 border-gray-300 bg-gray-50">
-                <th className="w-16 px-2 py-3 text-left font-semibold text-gray-700">圖片</th>
-                <th className="w-[4.75rem] px-2 py-3 text-left font-semibold text-gray-700">報價品項</th>
-                <th className="w-[7.5rem] px-2 py-3 text-left font-semibold text-gray-700">木種</th>
-                <th className="w-[32%] px-2 py-3 text-left font-semibold text-gray-700">尺寸(cm)</th>
-                <th className="w-[4.5rem] px-2 py-3 text-left font-semibold text-gray-700">規格</th>
-                <th className="w-12 px-2 py-3 text-right font-semibold text-gray-700">數量</th>
-                <th className="w-[4.25rem] px-2 py-3 text-right font-semibold text-gray-700">單價</th>
-                <th className="w-[4.75rem] px-2 py-3 text-right font-semibold text-gray-700">小計</th>
+                <th className="w-[4rem] px-1.5 py-3 text-left font-semibold text-gray-700">圖片</th>
+                <th className="w-[7.75rem] px-2 py-3 text-left font-semibold text-gray-700">報價品項</th>
+                <th className="w-[5rem] px-1.5 py-3 text-left font-semibold text-gray-700 whitespace-nowrap">木種</th>
+                <th className="print-col-dimension w-[28%] min-w-[11rem] px-2 py-3 text-left font-semibold text-gray-700 whitespace-nowrap print:whitespace-normal">
+                  尺寸(cm)
+                </th>
+                <th className="print-col-spec w-[7rem] min-w-[6.5rem] px-2 py-3 text-left font-semibold text-gray-700 whitespace-nowrap print:whitespace-normal">
+                  規格
+                </th>
+                <th className="w-12 px-1.5 py-3 text-right font-semibold text-gray-700">數量</th>
+                <th className="w-[4.75rem] px-1.5 py-3 text-right font-semibold text-gray-700">單價</th>
+                <th className="w-[5rem] px-1.5 py-3 text-right font-semibold text-gray-700">小計</th>
               </tr>
             </thead>
             <tbody>
@@ -531,10 +535,11 @@ export default function PrintOrderPage() {
                     .filter(Boolean)
                     .join("\n");
 
+                  const mainCellY = hasNotes ? "pt-3 pb-2.5" : "py-3";
                   return (
                     <Fragment key={item.id}>
                       <tr className="border-b border-gray-200 align-top">
-                        <td className="px-2 py-3">
+                        <td className={`px-2 ${mainCellY}`}>
                           {item.image_url ? (
                             <div className="h-14 w-14 overflow-hidden rounded border border-gray-200 bg-gray-100">
                               <img
@@ -547,38 +552,42 @@ export default function PrintOrderPage() {
                             <div className="h-14 w-14 rounded border border-dashed border-gray-200 bg-gray-50" />
                           )}
                         </td>
-                        <td className="px-2 py-3 min-w-0">
+                        <td className={`px-2 min-w-0 ${mainCellY}`}>
                           <div className="font-medium text-gray-900 break-words">
                             {item.name}
                           </div>
                         </td>
-                        <td className="px-2 py-3 text-gray-700 break-words min-w-0">
+                        <td className={`px-2 text-gray-700 break-words min-w-0 ${mainCellY}`}>
                           {item.wood_type ?? "—"}
                         </td>
-                        <td className="px-2 py-3 text-gray-700 text-xs leading-relaxed break-words min-w-0">
+                        <td
+                          className={`print-col-dimension px-2 text-gray-700 text-xs leading-relaxed whitespace-nowrap print:whitespace-normal print:break-words ${mainCellY}`}
+                        >
                           {item.dimension_text ?? "—"}
                         </td>
-                        <td className="px-2 py-3 text-gray-700 font-mono text-xs break-all min-w-0">
+                        <td
+                          className={`print-col-spec px-2 text-gray-700 font-mono text-xs break-words min-w-0 print:min-w-[5.5rem] ${mainCellY}`}
+                        >
                           {item.spec_text ?? "—"}
                         </td>
-                        <td className="px-2 py-3 text-right text-gray-900 tabular-nums">
+                        <td className={`px-2 text-right text-gray-900 tabular-nums ${mainCellY}`}>
                           {item.quantity}
                         </td>
-                        <td className="px-2 py-3 text-right text-gray-900 tabular-nums text-xs">
+                        <td className={`px-2 text-right text-gray-900 tabular-nums text-xs ${mainCellY}`}>
                           {item.unit_price.toLocaleString()}
                         </td>
-                        <td className="px-2 py-3 text-right text-gray-900 font-medium tabular-nums text-xs">
+                        <td className={`px-2 text-right text-gray-900 font-medium tabular-nums text-xs ${mainCellY}`}>
                           {lineTotal.toLocaleString()}
                         </td>
                       </tr>
                       {hasNotes && (
                         <tr className="border-b border-gray-200">
-                          <td className="px-3 py-2 text-sm font-medium text-gray-600 align-top">
+                          <td className="px-3 pt-1 pb-8 text-sm font-medium text-gray-600 align-top">
                             備註
                           </td>
                           <td
                             colSpan={7}
-                            className="px-3 py-2 align-top text-sm text-gray-800 whitespace-pre-line"
+                            className="px-3 pt-1 pb-8 align-top text-sm text-gray-800 whitespace-pre-line"
                           >
                             {notesContent}
                           </td>

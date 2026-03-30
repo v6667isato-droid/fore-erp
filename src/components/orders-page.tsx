@@ -815,7 +815,7 @@ function OrderFormDialog({
         if (woError) {
           // 不阻擋訂單建立，只提示
           console.error("建立工單失敗:", woError);
-          toast.error("訂單已建立，但工單建立失敗，請稍後到生產看板檢查。");
+          toast.error("訂單已建立，但工單建立失敗，請稍後到生產管理檢查。");
         }
       }
 
@@ -2149,6 +2149,7 @@ export function OrdersPage({
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>(
     mode === "quotation" ? "報價中" : "非報價中"
   );
@@ -2312,7 +2313,7 @@ export function OrdersPage({
     bootstrap();
   }, []);
 
-  // 若外部有指定要打開的訂單（例如從生產看板點過來），在首次載入完訂單列表後自動開啟編輯窗格
+  // 若外部有指定要打開的訂單（例如從生產管理點過來），在首次載入完訂單列表後自動開啟編輯窗格
   useEffect(() => {
     if (!initialOpenOrderId) return;
     if (hasAppliedInitialOpenRef.current) return;
@@ -2384,6 +2385,20 @@ export function OrdersPage({
     return Array.from(set).sort().reverse();
   }, [orders]);
 
+  /** 下拉選單：主檔客戶 + 訂單曾出現但主檔可能缺漏的 customer_id */
+  const customerFilterOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    customers.forEach((c) => byId.set(c.id, c.name));
+    orders.forEach((o) => {
+      if (o.customer_id && !byId.has(o.customer_id)) {
+        byId.set(o.customer_id, o.customer_name?.trim() || "—");
+      }
+    });
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+  }, [customers, orders]);
+
   const filtered = useMemo(() => {
     return orders.filter((o) => {
       const q = search.trim().toLowerCase();
@@ -2391,6 +2406,8 @@ export function OrdersPage({
         !q ||
         o.order_number.toLowerCase().includes(q) ||
         o.customer_name.toLowerCase().includes(q);
+      const matchCustomer =
+        !customerFilter || o.customer_id === customerFilter;
       const matchStatus =
         statusFilter === "全部"
           ? true
@@ -2401,9 +2418,9 @@ export function OrdersPage({
         !monthFilter || !o.order_date
           ? !monthFilter
           : o.order_date.slice(0, 7) === monthFilter;
-      return matchSearch && matchStatus && matchMonth;
+      return matchSearch && matchCustomer && matchStatus && matchMonth;
     });
-  }, [orders, search, statusFilter, monthFilter]);
+  }, [orders, search, customerFilter, statusFilter, monthFilter]);
 
   const filteredTotalAmount = useMemo(
     () => filtered.reduce((sum, o) => sum + (o.total_amount || 0), 0),
@@ -2695,6 +2712,22 @@ export function OrdersPage({
               className="h-9 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-72"
             />
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">客戶</span>
+            <select
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              className="h-9 min-w-[10rem] max-w-[min(100vw-2rem,18rem)] rounded-lg border border-input bg-card px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label="依客戶篩選"
+            >
+              <option value="">全部客戶</option>
+              {customerFilterOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
           {isAdmin && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">月份</span>
@@ -2748,6 +2781,10 @@ export function OrdersPage({
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-2 text-xs">
           <div className="text-muted-foreground">
             {monthFilter ? `目前篩選月份：${monthFilter}` : "目前顯示：全部月份"}
+            {" · "}
+            {customerFilter
+              ? `客戶：${customerFilterOptions.find((c) => c.id === customerFilter)?.name ?? "—"}`
+              : "客戶：全部"}
             {" · "}
             {statusFilter === "全部"
               ? "狀態：全部"

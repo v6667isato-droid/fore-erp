@@ -8,7 +8,7 @@
 --   month_label, base_salary, net_pay, net_salary（與 net_pay 同值，舊表可能僅 NOT NULL 此欄）,
 --   status, bonus_and_overtime, leave_deduction,
 --   labor_insurance_employee, health_insurance_employee, health_insured_persons,
---   overtime_days, special_leave_days_settled, other_adjust
+--   overtime_days, special_leave_days_settled, leave_days, other_adjust
 -- 讀取另用：id（主鍵，建表時應已有）, created_at（建議）
 -- =============================================================================
 
@@ -30,6 +30,7 @@ ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS health_insurance_employee n
 ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS health_insured_persons integer;
 ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS overtime_days numeric NOT NULL DEFAULT 0;
 ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS special_leave_days_settled numeric NOT NULL DEFAULT 0;
+ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS leave_days numeric NOT NULL DEFAULT 0;
 ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS other_adjust numeric NOT NULL DEFAULT 0;
 
 ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
@@ -49,5 +50,6 @@ COMMENT ON COLUMN public.payslips.health_insurance_employee IS '健保自付額�
 COMMENT ON COLUMN public.payslips.health_insured_persons IS '健保加保人數（發薪快照）';
 COMMENT ON COLUMN public.payslips.overtime_days IS '加班天數';
 COMMENT ON COLUMN public.payslips.special_leave_days_settled IS '本月核准特休天數（自餘額扣）';
+COMMENT ON COLUMN public.payslips.leave_days IS '結算月內事假／病假等計薪天數（扣款依據）';
 COMMENT ON COLUMN public.payslips.other_adjust IS '其他加減項（可正可負）';
 COMMENT ON COLUMN public.payslips.created_at IS '建立時間';

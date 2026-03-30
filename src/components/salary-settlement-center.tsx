@@ -75,6 +75,41 @@ function monthBounds(ym: string): { start: string; end: string; label: string } 
   return { start, end, label: `${p.y} 年 ${p.m} 月` };
 }
 
+/** 結算月份之 created_at 篩選（本地日曆月：月初 00:00 至次月月初前） */
+function monthCreatedAtFilterBounds(ym: string): { gte: string; lt: string } | null {
+  const p = parseYm(ym);
+  if (!p) return null;
+  const start = new Date(p.y, p.m - 1, 1, 0, 0, 0, 0);
+  const nextMonthStart = new Date(p.y, p.m, 1, 0, 0, 0, 0);
+  return { gte: start.toISOString(), lt: nextMonthStart.toISOString() };
+}
+
+/** 假單建立時間是否落在結算月份（與查詢 `monthCreatedAtFilterBounds` 之 gte/lt 一致） */
+function createdAtInPayPeriodMonth(row: Record<string, unknown>, payPeriodYm: string): boolean {
+  const b = monthCreatedAtFilterBounds(payPeriodYm);
+  if (!b) return false;
+  const raw = row.created_at ?? row.createdAt;
+  if (raw == null) return false;
+  const t = new Date(String(raw)).getTime();
+  if (Number.isNaN(t)) return false;
+  const g = new Date(b.gte).getTime();
+  const l = new Date(b.lt).getTime();
+  return t >= g && t < l;
+}
+
+/** 該筆假單請假總天數（特休結算用；與「休假是否落在本月」無關） */
+function leaveRequestTotalDays(row: Record<string, unknown>): number {
+  const td = row.total_days;
+  if (td != null && td !== "") {
+    const n = Number(td);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  const start = String(row.start_date ?? row.start ?? "").slice(0, 10);
+  const end = String(row.end_date ?? row.end ?? start).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return 0;
+  return overlapInclusiveDays(start, end, start, end);
+}
+
 function parseLocalYmd(s: string): Date {
   const [yy, mm, dd] = s.slice(0, 10).split("-").map((x) => Number(x));
   return new Date(yy, mm - 1, dd);
@@ -115,7 +150,7 @@ function classifySickOrPersonal(
   return null;
 }
 
-/** 本月特休：僅 leave_type（資料欄）為「特休」 */
+/** leave_type 為「特休」 */
 function isSpecialAnnualLeave(row: Record<string, unknown>): boolean {
   const v = row.leave_type;
   if (v == null) return false;
@@ -126,6 +161,22 @@ function leaveEmployeeId(row: Record<string, unknown>): string | null {
   const v = row.employee_id ?? row.employeeId;
   if (v == null || v === "") return null;
   return String(v);
+}
+
+/** 兩次查詢結果以 id 去重（日期重疊 + created_at 落於本月） */
+function mergeLeaveRequestRowsById(rowsA: unknown[], rowsB: unknown[]): Record<string, unknown>[] {
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const r of rowsA) {
+    const row = r as Record<string, unknown>;
+    const id = row.id != null ? String(row.id) : "";
+    if (id) merged.set(id, row);
+  }
+  for (const r of rowsB) {
+    const row = r as Record<string, unknown>;
+    const id = row.id != null ? String(row.id) : "";
+    if (id) merged.set(id, row);
+  }
+  return Array.from(merged.values());
 }
 
 function num(v: unknown, fallback = 0): number {
@@ -160,6 +211,7 @@ const PAYSLIP_DETAIL_SNAPSHOT_KEYS = [
   "health_insured_persons",
   "overtime_days",
   "special_leave_days_settled",
+  "leave_days",
   "other_adjust",
 ] as const;
 
@@ -242,16 +294,22 @@ export function SalarySettlementCenter() {
       const start = String(raw.start_date ?? raw.start ?? "").slice(0, 10);
       const end = String(raw.end_date ?? raw.end ?? start).slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
-      const days = overlapInclusiveDays(start, end, bounds.start, bounds.end);
-      if (days <= 0) continue;
+
       const cur = map.get(eid) ?? {
         personal: 0,
         sick: 0,
         specialThisMonth: 0,
       };
+
       if (isSpecialAnnualLeave(raw)) {
-        cur.specialThisMonth += days;
+        // 特休：以「假單建立日」落在結算月份為準（已核准），天數為該筆申請總天數——
+        // 避免請在後月才休時，要等到後月結算才扣餘額。
+        if (createdAtInPayPeriodMonth(raw, payPeriod)) {
+          cur.specialThisMonth += leaveRequestTotalDays(raw);
+        }
       } else {
+        const days = overlapInclusiveDays(start, end, bounds.start, bounds.end);
+        if (days <= 0) continue;
         const kind = classifySickOrPersonal(raw);
         if (kind === "personal") cur.personal += days;
         else if (kind === "sick") cur.sick += days;
@@ -259,7 +317,7 @@ export function SalarySettlementCenter() {
       map.set(eid, cur);
     }
     return map;
-  }, [leaveRows, bounds]);
+  }, [leaveRows, bounds, payPeriod]);
 
   const load = useCallback(async (): Promise<boolean> => {
     if (!isSupabaseConfigured) {
@@ -319,13 +377,22 @@ export function SalarySettlementCenter() {
         return true;
       }
 
-      const [leaveRes, attRes, otRes, slipRes] = await Promise.all([
+      const createdBounds = monthCreatedAtFilterBounds(payPeriod);
+      const [leaveOverlapRes, leaveCreatedRes, attRes, otRes, slipRes] = await Promise.all([
         supabase
           .from("leave_requests")
           .select("*")
           .in("employee_id", ids)
           .lte("start_date", bounds.end)
           .gte("end_date", bounds.start),
+        createdBounds
+          ? supabase
+              .from("leave_requests")
+              .select("*")
+              .in("employee_id", ids)
+              .gte("created_at", createdBounds.gte)
+              .lt("created_at", createdBounds.lt)
+          : Promise.resolve({ data: [] as unknown[] | null, error: null }),
         supabase
           .from("daily_attendance")
           .select(
@@ -347,19 +414,32 @@ export function SalarySettlementCenter() {
           .in("employee_id", ids),
       ]);
 
-      if (leaveRes.error) {
-        if (/does not exist|relation|column/i.test(leaveRes.error.message)) {
+      let mergedLeaveForInputs: Record<string, unknown>[] = [];
+      if (leaveOverlapRes.error) {
+        if (/does not exist|relation|column/i.test(leaveOverlapRes.error.message)) {
           setLeaveRows([]);
         } else {
           console.warn(
-            "[salary-settlement] leave_requests:",
-            leaveRes.error.message,
+            "[salary-settlement] leave_requests (overlap):",
+            leaveOverlapRes.error.message,
           );
-          toast.error(leaveRes.error.message || "請假資料讀取失敗");
+          toast.error(leaveOverlapRes.error.message || "請假資料讀取失敗");
           setLeaveRows([]);
         }
       } else {
-        setLeaveRows((leaveRes.data ?? []) as Record<string, unknown>[]);
+        if (leaveCreatedRes.error) {
+          if (!/does not exist|relation|column/i.test(leaveCreatedRes.error.message)) {
+            console.warn(
+              "[salary-settlement] leave_requests (created_at):",
+              leaveCreatedRes.error.message,
+            );
+          }
+        }
+        mergedLeaveForInputs = mergeLeaveRequestRowsById(
+          leaveOverlapRes.data ?? [],
+          leaveCreatedRes.error ? [] : (leaveCreatedRes.data ?? []),
+        );
+        setLeaveRows(mergedLeaveForInputs);
       }
 
       if (attRes.error) {
@@ -387,9 +467,7 @@ export function SalarySettlementCenter() {
       }
 
       const otList = (otRes.data ?? []) as Record<string, unknown>[];
-      const leaveList = (
-        leaveRes.error ? [] : (leaveRes.data ?? [])
-      ) as Record<string, unknown>[];
+      const leaveList = mergedLeaveForInputs;
       const attList = (
         attRes.error ? [] : (attRes.data ?? [])
       ) as Record<string, unknown>[];
@@ -435,6 +513,7 @@ export function SalarySettlementCenter() {
           ? slipNoteByEmp.get(e.id)!
           : buildPayslipAttendanceRemarks(e.id, {
               bounds: { start: bounds.start, end: bounds.end },
+              payPeriodYm: payPeriod,
               attendanceRows: attList,
               leaveRows: leaveList,
               overtimeRows: otList,
@@ -510,7 +589,7 @@ export function SalarySettlementCenter() {
         `確定發放「${emp.name}」${bounds.label} 薪資？`,
         ``,
         `實發總額：NT$ ${net.toLocaleString("zh-TW")}`,
-        `特休結算後餘額將更新為：${settledRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天（原本 ${baseRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} − 本月特休 ${st.specialThisMonth.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}）`,
+        `特休結算後餘額將更新為：${settledRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天（原本 ${baseRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} − 本月建立之特休 ${st.specialThisMonth.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}）`,
       ].join("\n"),
     );
     if (!ok) return;
@@ -533,6 +612,7 @@ export function SalarySettlementCenter() {
       health_insured_persons: emp.health_insured_persons,
       overtime_days: inp.overtimeDays,
       special_leave_days_settled: st.specialThisMonth,
+      leave_days: st.personal + st.sick,
       other_adjust: inp.otherAdjust,
       notes,
     };
@@ -743,7 +823,10 @@ export function SalarySettlementCenter() {
                   colSpan={3}
                   className="border-l border-border bg-[var(--secondary)]/40 py-2 text-center text-xs font-semibold tracking-wide text-foreground dark:bg-muted/50"
                 >
-                  特休假結算
+                  <span className="block">特休假結算</span>
+                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                    特休以「已核准且假單建立於本月」計
+                  </span>
                 </th>
                 <th
                   colSpan={3}
@@ -781,7 +864,10 @@ export function SalarySettlementCenter() {
                   原本特休
                 </th>
                 <th className="py-2 pr-2 text-right text-[11px] font-semibold text-muted-foreground">
-                  本月特休
+                  <span className="block">本月特休</span>
+                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                    建立日於本月
+                  </span>
                 </th>
                 <th className="bg-[var(--secondary)]/25 py-2 pr-3 text-right text-[11px] font-semibold text-foreground dark:bg-muted/40">
                   結算後餘額
@@ -896,7 +982,7 @@ export function SalarySettlementCenter() {
                         : "—"}
                       {hasSpecialUse && (
                         <span className="mt-0.5 block text-[10px] font-medium text-amber-700/90 dark:text-amber-500/90">
-                          已扣本月特休
+                          已扣本月建立之特休
                         </span>
                       )}
                     </td>

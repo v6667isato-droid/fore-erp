@@ -58,12 +58,12 @@ interface LeaveRequestAdminRow {
 /** 產生最近 N 個月的 YYYY-MM（含當月），供歷史假單月份下拉使用 */
 function recentYearMonths(count: number): string[] {
   const out: string[] = [];
-  const d = new Date();
+  const now = new Date();
+  const y0 = now.getFullYear();
+  const m0 = now.getMonth();
   for (let i = 0; i < count; i++) {
-    out.push(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
-    );
-    d.setMonth(d.getMonth() - 1);
+    const d = new Date(y0, m0 - i, 1);
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
   return out;
 }

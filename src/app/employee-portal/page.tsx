@@ -26,10 +26,10 @@ import {
   LEAVE_WORKDAY_END_HOUR,
   LEAVE_WORKDAY_START_HOUR,
   buildLeaveHolidayLookup,
-  countLeaveWorkdaysInclusive,
   computeSpecialLeaveNetHoursFromRange,
   deriveLegacyHourFieldsForDb,
   formatDayDecimalAsDayHour,
+  formatHoursAsDayHour,
   hoursToDayHourParts,
   parseLocalDateTime,
   splitRemainingDaysToDayHour,
@@ -48,6 +48,8 @@ import {
   supabase,
 } from "@/lib/supabase";
 import { CompanyAnnouncementsBlock } from "@/components/company-announcements-block";
+import { MeetingAssignmentsBlock } from "@/components/meeting-assignments-block";
+import { MeetingMinutesSection } from "@/components/meeting-minutes-section";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -234,23 +236,13 @@ function PayslipBreakdownPanel({
                 <td className={slipVal}>− {formatNtd(b.labor_insurance_employee)}</td>
               </tr>
               <tr className="border-b border-border/55">
-                <td className={slipLabel}>
-                  健保自付額
-                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground/90 sm:text-[11px]">
-                    加保人數 {hp} 人
+                <td className={cn(slipLabel, "whitespace-normal")}>
+                  <span className="inline sm:whitespace-nowrap">
+                    健保自付額
+                    <span className="font-normal text-muted-foreground">（加保人數 {hp} 人）</span>
                   </span>
                 </td>
                 <td className={slipVal}>− {formatNtd(b.health_insurance_employee)}</td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={slipLabel}>請假扣款（事／病假）</td>
-                <td className={slipVal}>
-                  {b.leave_deduction > 0 ? (
-                    <>− {formatNtd(b.leave_deduction)}</>
-                  ) : (
-                    <span className="font-normal text-muted-foreground">無（NT$ 0）</span>
-                  )}
-                </td>
               </tr>
               <tr className="border-b border-border/55">
                 <td className={slipLabel}>加班天數</td>
@@ -267,13 +259,12 @@ function PayslipBreakdownPanel({
                 </td>
               </tr>
               <tr className="border-b border-border/55">
+                <td className={slipLabel}>請假天數</td>
+                <td className={slipVal}>{formatSlipDays(b.leave_days)}</td>
+              </tr>
+              <tr className="border-b border-border/55">
                 <td className={slipLabel}>特休假結算</td>
-                <td className={cn(slipVal, "leading-snug")}>
-                  <span className="block text-[10px] font-normal text-muted-foreground sm:inline sm:text-inherit">
-                    本月自餘額扣除{" "}
-                  </span>
-                  {formatSlipDays(b.special_leave_days_settled)}
-                </td>
+                <td className={slipVal}>{formatSlipDays(b.special_leave_days_settled)}</td>
               </tr>
               <tr className="border-b border-border/55">
                 <td className={slipLabel}>其他加減項</td>
@@ -285,6 +276,16 @@ function PayslipBreakdownPanel({
                       {b.other_adjust > 0 ? "+ " : "− "}
                       {formatNtd(Math.abs(b.other_adjust))}
                     </>
+                  )}
+                </td>
+              </tr>
+              <tr className="border-b border-border/55">
+                <td className={slipLabel}>請假扣款（事／病假）</td>
+                <td className={slipVal}>
+                  {b.leave_deduction > 0 ? (
+                    <>− {formatNtd(b.leave_deduction)}</>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">無（NT$ 0）</span>
                   )}
                 </td>
               </tr>
@@ -473,6 +474,8 @@ export default function EmployeePortalPage() {
   >(undefined);
   /** Mock 無法辨識角色時保留捷徑；Supabase 僅 admin / manager 可看返回 ERP 連結 */
   const [showErpHomeLink, setShowErpHomeLink] = useState(() => !isSupabaseConfigured);
+  /** 開會紀錄／交辦狀態變更時遞增，讓子區塊重新載入 */
+  const [meetingDataTick, setMeetingDataTick] = useState(0);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -615,8 +618,8 @@ export default function EmployeePortalPage() {
     []
   );
 
-  const specialLeaveHourPreview = useMemo(() => {
-    if (leaveForm.type !== "特休") return null;
+  /** 所有假別皆與特休相同：依起迄日＋時間與行事曆計算有效工時 */
+  const timedLeaveHourPreview = useMemo(() => {
     if (!leaveForm.start || !leaveForm.end || !leaveForm.startTime || !leaveForm.endTime) return null;
     const a = parseLocalDateTime(leaveForm.start, leaveForm.startTime);
     const b = parseLocalDateTime(leaveForm.end, leaveForm.endTime);
@@ -630,31 +633,22 @@ export default function EmployeePortalPage() {
     );
     if (hrs <= 0) return null;
     return { totalHours: hrs, parts: hoursToDayHourParts(hrs) };
-  }, [
-    leaveForm.type,
-    leaveForm.start,
-    leaveForm.end,
-    leaveForm.startTime,
-    leaveForm.endTime,
-    leaveHolidayLookup,
-  ]);
-
-  const otherLeaveWorkdaysPreview = useMemo(() => {
-    if (leaveForm.type === "特休") return null;
-    if (!leaveForm.start || !leaveForm.end || leaveForm.end < leaveForm.start) return null;
-    const n = countLeaveWorkdaysInclusive(
-      leaveForm.start,
-      leaveForm.end,
-      leaveHolidayLookup,
-    );
-    return n;
-  }, [leaveForm.type, leaveForm.start, leaveForm.end, leaveHolidayLookup]);
+  }, [leaveForm.start, leaveForm.end, leaveForm.startTime, leaveForm.endTime, leaveHolidayLookup]);
 
   const annualLeaveRemainingParts = useMemo(() => {
     const r = data?.employee.annual_leave_remaining;
     if (r == null || !Number.isFinite(r)) return null;
     return splitRemainingDaysToDayHour(r);
   }, [data?.employee.annual_leave_remaining]);
+
+  /** 補休：無餘額資料、或預覽時數超過剩餘時，不可送出 */
+  const compLeaveSubmitBlocked = useMemo(() => {
+    if (leaveForm.type !== "補休") return false;
+    const rem = data?.employee.comp_leave_remaining;
+    if (rem == null || !Number.isFinite(rem)) return true;
+    if (!timedLeaveHourPreview) return false;
+    return timedLeaveHourPreview.totalHours > rem;
+  }, [leaveForm.type, data?.employee.comp_leave_remaining, timedLeaveHourPreview]);
 
   function toggleTaskComplete(id: string, checked: boolean) {
     setCompletedTaskIds((prev) => {
@@ -671,42 +665,43 @@ export default function EmployeePortalPage() {
 
     const deducts = deductsSalaryForLeaveType(leaveForm.type);
 
-    if (leaveForm.type === "特休") {
-      if (!leaveForm.start || !leaveForm.end) {
-        toast.error("請選擇請假起始日與結束日");
-        return;
-      }
-      if (!leaveForm.startTime.trim() || !leaveForm.endTime.trim()) {
-        toast.error("請填寫起始與結束時間");
-        return;
-      }
-      const dtStart = parseLocalDateTime(leaveForm.start, leaveForm.startTime);
-      const dtEnd = parseLocalDateTime(leaveForm.end, leaveForm.endTime);
-      if (!dtStart || !dtEnd) {
-        toast.error("時間格式須為 HH:MM（24 小時制）");
-        return;
-      }
-      if (dtEnd.getTime() <= dtStart.getTime()) {
-        toast.error("結束須晚於起始（同日時結束時間須晚於起始時間）");
-        return;
-      }
-      const hrs = computeSpecialLeaveNetHoursFromRange(
-        leaveForm.start,
-        leaveForm.startTime,
-        leaveForm.end,
-        leaveForm.endTime,
-        leaveHolidayLookup,
+    if (!leaveForm.start || !leaveForm.end) {
+      toast.error("請選擇請假起始日與結束日");
+      return;
+    }
+    if (!leaveForm.startTime.trim() || !leaveForm.endTime.trim()) {
+      toast.error("請填寫起始與結束時間");
+      return;
+    }
+    const dtStart = parseLocalDateTime(leaveForm.start, leaveForm.startTime);
+    const dtEnd = parseLocalDateTime(leaveForm.end, leaveForm.endTime);
+    if (!dtStart || !dtEnd) {
+      toast.error("時間格式須為 HH:MM（24 小時制）");
+      return;
+    }
+    if (dtEnd.getTime() <= dtStart.getTime()) {
+      toast.error("結束須晚於起始（同日時結束時間須晚於起始時間）");
+      return;
+    }
+    const hrs = computeSpecialLeaveNetHoursFromRange(
+      leaveForm.start,
+      leaveForm.startTime,
+      leaveForm.end,
+      leaveForm.endTime,
+      leaveHolidayLookup,
+    );
+    if (hrs <= 0) {
+      toast.error(
+        "有效請假時數為 0。可能原因：與 9:00–18:00 無重疊、區間內皆為週六日或國定放假，或午休扣除後無剩餘時數。",
       );
-      if (hrs <= 0) {
-        toast.error(
-          "有效特休時數為 0。可能原因：與 9:00–18:00 無重疊、區間內皆為週六日或國定放假，或午休扣除後無剩餘時數。",
-        );
-        return;
-      }
-      const { firstStartHour: s1, firstEndHour: e1, lastStartHour: s2, lastEndHour: e2 } =
-        deriveLegacyHourFieldsForDb(dtStart, dtEnd);
-      const sameDay = s2 == null;
-      const daysEq = hrs / LEAVE_WORK_DAY_HOURS;
+      return;
+    }
+    const { firstStartHour: s1, firstEndHour: e1, lastStartHour: s2, lastEndHour: e2 } =
+      deriveLegacyHourFieldsForDb(dtStart, dtEnd);
+    const sameDay = s2 == null;
+    const daysEq = hrs / LEAVE_WORK_DAY_HOURS;
+
+    if (leaveForm.type === "特休") {
       const rem = data.employee.annual_leave_remaining;
       if (rem != null && Number.isFinite(rem)) {
         const remH = rem * LEAVE_WORK_DAY_HOURS;
@@ -714,89 +709,20 @@ export default function EmployeePortalPage() {
           toast.warning("申請時數超過目前剩餘特休換算時數，仍會送出供主管審核。");
         }
       }
+    }
 
-      const newRow: LeaveRequestRow = {
-        id: `local-${Date.now()}`,
-        type_label: "特休",
-        start_date: leaveForm.start,
-        end_date: leaveForm.end,
-        status: "pending",
-        deducts_salary: false,
-        days_count: daysEq,
-        start_hour: s1,
-        end_hour: e1,
-        end_day_start_hour: sameDay ? null : s2,
-        end_day_end_hour: sameDay ? null : e2,
-        hours_count: hrs,
-        reason: leaveForm.reason.trim() || null,
-      };
-
-      if (!isSupabaseConfigured) {
-        setData((prev) =>
-          prev ? { ...prev, leave_requests: [newRow, ...prev.leave_requests] } : prev
+    if (leaveForm.type === "補休") {
+      const remH = data.employee.comp_leave_remaining;
+      if (remH == null || !Number.isFinite(remH)) {
+        toast.error("無法確認補休剩餘（employees.comp_leave_remaining）。請洽人資維護。");
+        return;
+      }
+      if (hrs > remH) {
+        toast.error(
+          `申請時數不可超過剩餘補休。目前剩餘 ${formatHoursAsDayHour(remH)}（${remH.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 小時），本次有效時數為 ${hrs.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 小時。`,
         );
-        toast.success("假單已建立（Mock，未寫入資料庫）");
-        setLeaveOpen(false);
-        setLeaveForm({ ...LEAVE_FORM_INITIAL });
         return;
       }
-
-      const {
-        data: { session },
-      } = await getSupabaseSession();
-      const uid = session?.user?.id;
-      if (!uid) {
-        toast.error("請先登入");
-        router.replace("/login");
-        return;
-      }
-
-      setLeaveSubmitting(true);
-      const ins = await insertEmployeeLeaveRequest({
-        employeeId: data.employee.id,
-        leaveType: "特休",
-        startDate: leaveForm.start,
-        endDate: leaveForm.end,
-        startHour: s1,
-        endHour: e1,
-        startDayStartHour: s1,
-        startDayEndHour: e1,
-        endDayStartHour: s2,
-        endDayEndHour: e2,
-        hoursCount: hrs,
-        daysCount: daysEq,
-        reason: leaveForm.reason.trim() || null,
-      });
-      setLeaveSubmitting(false);
-      if (!ins.ok) {
-        toast.error(ins.message);
-        return;
-      }
-      toast.success("假單已送出，狀態為待審核");
-      setLeaveOpen(false);
-      setLeaveForm({ ...LEAVE_FORM_INITIAL });
-      await load();
-      return;
-    }
-
-    if (!leaveForm.start || !leaveForm.end) {
-      toast.error("請填寫起迄日期");
-      return;
-    }
-    if (leaveForm.end < leaveForm.start) {
-      toast.error("結束日不可早於開始日");
-      return;
-    }
-    const calDays = countLeaveWorkdaysInclusive(
-      leaveForm.start,
-      leaveForm.end,
-      leaveHolidayLookup,
-    );
-    if (calDays <= 0) {
-      toast.error(
-        "所選區間沒有可計入的工作日（已排除週六、週日及資料庫中的國定／特殊放假日；補班日會計入）。請調整起迄日期。",
-      );
-      return;
     }
 
     const newRow: LeaveRequestRow = {
@@ -806,10 +732,12 @@ export default function EmployeePortalPage() {
       end_date: leaveForm.end,
       status: "pending",
       deducts_salary: deducts,
-      days_count: calDays,
-      start_hour: null,
-      end_hour: null,
-      hours_count: null,
+      days_count: daysEq,
+      start_hour: s1,
+      end_hour: e1,
+      end_day_start_hour: sameDay ? null : s2,
+      end_day_end_hour: sameDay ? null : e2,
+      hours_count: hrs,
       reason: leaveForm.reason.trim() || null,
     };
 
@@ -839,14 +767,14 @@ export default function EmployeePortalPage() {
       leaveType: leaveForm.type,
       startDate: leaveForm.start,
       endDate: leaveForm.end,
-      startHour: null,
-      endHour: null,
-      startDayStartHour: null,
-      startDayEndHour: null,
-      endDayStartHour: null,
-      endDayEndHour: null,
-      hoursCount: null,
-      daysCount: calDays,
+      startHour: s1,
+      endHour: e1,
+      startDayStartHour: s1,
+      startDayEndHour: e1,
+      endDayStartHour: s2,
+      endDayEndHour: e2,
+      hoursCount: hrs,
+      daysCount: daysEq,
       reason: leaveForm.reason.trim() || null,
     });
     setLeaveSubmitting(false);
@@ -1002,8 +930,8 @@ export default function EmployeePortalPage() {
               className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent/15 blur-3xl"
               aria-hidden
             />
-            <div className="relative flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between lg:gap-12">
-              <div className="flex min-w-0 flex-1 flex-col justify-center gap-4">
+            <div className="relative flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-start lg:gap-10 xl:gap-12">
+              <div className="flex min-w-0 flex-1 flex-col justify-center gap-4 lg:basis-0 lg:flex-[1]">
                 <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border/80 bg-background/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur-sm">
                   <Sparkles className="h-3.5 w-3.5 text-accent" />
                   今日工作台
@@ -1013,7 +941,7 @@ export default function EmployeePortalPage() {
                 </h2>
                 <p className="text-sm tabular-nums text-muted-foreground">{todayLabel}</p>
               </div>
-              <div className="grid w-full shrink-0 grid-cols-2 gap-3 md:grid-cols-4 lg:min-w-0 lg:flex-1">
+              <div className="grid w-full shrink-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 lg:min-w-0 lg:basis-0 lg:flex-[3]">
                 <StatMini
                   label="本月薪資"
                   footer={
@@ -1027,7 +955,7 @@ export default function EmployeePortalPage() {
                       )}
                     >
                       <FileText className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
-                      查詢歷史薪資單
+                      查詢薪資單
                     </button>
                   }
                 >
@@ -1039,6 +967,11 @@ export default function EmployeePortalPage() {
                 <StatMini label="特休假剩餘">
                   <span className="block leading-snug">
                     {formatDayDecimalAsDayHour(employee.annual_leave_remaining)}
+                  </span>
+                </StatMini>
+                <StatMini label="補休剩餘">
+                  <span className="block leading-snug">
+                    {formatHoursAsDayHour(employee.comp_leave_remaining)}
                   </span>
                 </StatMini>
               </div>
@@ -1060,6 +993,15 @@ export default function EmployeePortalPage() {
             }
           />
 
+          <MeetingMinutesSection
+            currentEmployeeId={employee.id}
+            currentEmployeeName={employee.full_name}
+            onRefreshParent={load}
+            refreshTick={meetingDataTick}
+            onMeetingSaved={() => setMeetingDataTick((t) => t + 1)}
+            canManageMeetingMinutes={showErpHomeLink}
+          />
+
           {/* 我的交辦 */}
           <section className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-8">
             <div className="mb-5 flex items-center gap-2">
@@ -1070,64 +1012,83 @@ export default function EmployeePortalPage() {
                 <h3 className="text-base font-semibold">我的交辦事項</h3>
                 <p className="text-xs text-muted-foreground">
                   {dataSource === "supabase"
-                    ? "production_tasks · 指派給您（待辦／進行中）"
+                    ? "開會紀錄交辦（可勾選已完成）· 與 production_tasks 生產任務"
                     : "Mock · employee_tasks"}
                 </p>
               </div>
             </div>
-            <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
-              <ul className="space-y-2 pr-2">
-                {visibleTasks.length === 0 ? (
-                  <li className="text-sm text-muted-foreground">沒有待辦或進行中的任務。</li>
-                ) : (
-                  visibleTasks.map((t) => {
-                    const done = completedTaskIds.has(t.id);
-                    return (
-                      <li
-                        key={t.id}
-                        className={cn(
-                          "flex gap-3 rounded-xl border border-border/60 px-3 py-3 sm:px-4",
-                          "bg-muted/15 transition-colors hover:bg-muted/25"
-                        )}
-                      >
-                        <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                          <input
-                            type="checkbox"
-                            checked={done}
-                            onChange={(e) => toggleTaskComplete(t.id, e.target.checked)}
-                            className="mt-1 size-4 shrink-0 rounded border-input text-primary focus:ring-ring"
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span
-                              className={cn(
-                                "block font-medium",
-                                done && "text-muted-foreground line-through decoration-border"
-                              )}
-                            >
-                              {t.title}
-                            </span>
-                            <span className="mt-1 flex flex-wrap items-center gap-2">
-                              <span
-                                className={cn(
-                                  "inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium",
-                                  taskStatusStyle(t.status)
-                                )}
-                              >
-                                {taskStatusLabel(t.status)}
-                              </span>
-                              {t.due_date && (
-                                <span className="text-xs text-muted-foreground tabular-nums">
-                                  截止 {t.due_date}
+            <div className="space-y-6">
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  開會紀錄交辦
+                </p>
+                <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
+                  <MeetingAssignmentsBlock
+                    employeeId={employee.id}
+                    meetingDataTick={meetingDataTick}
+                    onStatusChanged={() => setMeetingDataTick((t) => t + 1)}
+                  />
+                </div>
+              </div>
+              <div className="border-t border-border/60 pt-5">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  生產任務
+                </p>
+                <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
+                  <ul className="space-y-2 pr-2">
+                    {visibleTasks.length === 0 ? (
+                      <li className="text-sm text-muted-foreground">沒有待辦或進行中的任務。</li>
+                    ) : (
+                      visibleTasks.map((t) => {
+                        const done = completedTaskIds.has(t.id);
+                        return (
+                          <li
+                            key={t.id}
+                            className={cn(
+                              "flex gap-3 rounded-xl border border-border/60 px-3 py-3 sm:px-4",
+                              "bg-muted/15 transition-colors hover:bg-muted/25"
+                            )}
+                          >
+                            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                              <input
+                                type="checkbox"
+                                checked={done}
+                                onChange={(e) => toggleTaskComplete(t.id, e.target.checked)}
+                                className="mt-1 size-4 shrink-0 rounded border-input text-primary focus:ring-ring"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span
+                                  className={cn(
+                                    "block font-medium",
+                                    done && "text-muted-foreground line-through decoration-border"
+                                  )}
+                                >
+                                  {t.title}
                                 </span>
-                              )}
-                            </span>
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })
-                )}
-              </ul>
+                                <span className="mt-1 flex flex-wrap items-center gap-2">
+                                  <span
+                                    className={cn(
+                                      "inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium",
+                                      taskStatusStyle(t.status)
+                                    )}
+                                  >
+                                    {taskStatusLabel(t.status)}
+                                  </span>
+                                  {t.due_date && (
+                                    <span className="text-xs text-muted-foreground tabular-nums">
+                                      截止 {t.due_date}
+                                    </span>
+                                  )}
+                                </span>
+                              </span>
+                            </label>
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -1454,18 +1415,38 @@ export default function EmployeePortalPage() {
               </Dialog.Close>
             </div>
             <form onSubmit={(e) => void submitLeaveRequest(e)} className="space-y-4">
-              <div className="rounded-lg border border-border/80 bg-muted/20 p-3 text-sm">
-                <p className="text-xs font-medium text-muted-foreground">目前特休剩餘</p>
-                {annualLeaveRemainingParts ? (
-                  <p className="mt-1 tabular-nums text-base font-medium text-foreground">
-                    {annualLeaveRemainingParts.days} 日 {annualLeaveRemainingParts.hours} 小時
-                  </p>
-                ) : (
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    尚未設定（employees.annual_leave_remaining）。請洽人資維護。
-                  </p>
-                )}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-border/80 bg-muted/20 p-3 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground">目前特休剩餘</p>
+                  {annualLeaveRemainingParts ? (
+                    <p className="mt-1 tabular-nums text-base font-medium text-foreground">
+                      {annualLeaveRemainingParts.days} 日 {annualLeaveRemainingParts.hours} 小時
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      尚未設定（employees.annual_leave_remaining）。請洽人資維護。
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-border/80 bg-muted/20 p-3 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground">目前補休剩餘</p>
+                  {data?.employee.comp_leave_remaining != null &&
+                  Number.isFinite(data.employee.comp_leave_remaining) ? (
+                    <p className="mt-1 tabular-nums text-base font-medium text-foreground">
+                      {formatHoursAsDayHour(data.employee.comp_leave_remaining)}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      尚未設定（employees.comp_leave_remaining）。請洽人資維護。
+                    </p>
+                  )}
+                </div>
               </div>
+              {leaveForm.type === "補休" ? (
+                <p className="text-xs text-muted-foreground">
+                  補休假單之有效請假時數不可超過上方「補休剩餘」總時數；超額無法送出。
+                </p>
+              ) : null}
               <div>
                 <label htmlFor="leave-type" className="mb-1.5 block text-sm font-medium text-foreground">
                   假別
@@ -1478,15 +1459,8 @@ export default function EmployeePortalPage() {
                     setLeaveForm((f) => ({
                       ...f,
                       type: t,
-                      ...(t === "特休"
-                        ? {
-                            startTime: f.startTime || "09:00",
-                            endTime: f.endTime || "18:00",
-                          }
-                        : {
-                            startTime: "",
-                            endTime: "",
-                          }),
+                      startTime: f.startTime || "09:00",
+                      endTime: f.endTime || "18:00",
                     }));
                   }}
                   className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1498,139 +1472,98 @@ export default function EmployeePortalPage() {
                 </select>
               </div>
 
-              {leaveForm.type === "特休" ? (
-                <>
-                  <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3">
-                    <p className="text-xs font-medium text-foreground">請假起始（日＋時間）</p>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <input
-                        id="leave-start-date"
-                        type="date"
-                        value={leaveForm.start}
-                        onChange={(e) =>
-                          setLeaveForm((f) => applyLeaveStartDateChange(f, e.target.value))
-                        }
-                        className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                      <div>
-                        <label
-                          htmlFor="leave-start-time"
-                          className="mb-1 block text-[10px] text-muted-foreground"
-                        >
-                          起始時間
-                        </label>
-                        <input
-                          id="leave-start-time"
-                          type="time"
-                          step={60}
-                          value={leaveForm.startTime}
-                          onChange={(e) =>
-                            setLeaveForm((f) => ({ ...f, startTime: e.target.value }))
-                          }
-                          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3">
-                    <p className="text-xs font-medium text-foreground">請假結束（日＋時間）</p>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <input
-                        id="leave-end-date"
-                        type="date"
-                        value={leaveForm.end}
-                        onChange={(e) => setLeaveForm((f) => ({ ...f, end: e.target.value }))}
-                        className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                      <div>
-                        <label
-                          htmlFor="leave-end-time"
-                          className="mb-1 block text-[10px] text-muted-foreground"
-                        >
-                          結束時間
-                        </label>
-                        <input
-                          id="leave-end-time"
-                          type="time"
-                          step={60}
-                          value={leaveForm.endTime}
-                          onChange={(e) => setLeaveForm((f) => ({ ...f, endTime: e.target.value }))}
-                          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    上班時段 {LEAVE_WORKDAY_START_HOUR}:00–{LEAVE_WORKDAY_END_HOUR}:00；午休{" "}
-                    {LEAVE_LUNCH_START_HOUR}:00–{LEAVE_LUNCH_END_HOUR}:00 不計入。僅計算與上班時段重疊的時間；跨日時中間完整工作
-                    日各計 {LEAVE_WORK_DAY_HOURS} 小時（已扣午休）。週六、週日及 public_holidays 之放假日（is_workday=false）不計入；補班日（is_workday=true）計入。
-                  </p>
-                  {specialLeaveHourPreview ? (
-                    <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm">
-                      <span className="text-muted-foreground">本次申請：</span>
-                      <span className="tabular-nums font-medium text-foreground">
-                        共{" "}
-                        {specialLeaveHourPreview.totalHours.toLocaleString("zh-TW", {
-                          maximumFractionDigits: 2,
-                        })}{" "}
-                        小時（{specialLeaveHourPreview.parts.days} 日 {specialLeaveHourPreview.parts.hours}{" "}
-                        小時）
-                      </span>
-                    </div>
-                  ) : leaveForm.type === "特休" &&
-                    leaveForm.start &&
-                    leaveForm.end &&
-                    leaveForm.startTime &&
-                    leaveForm.endTime ? (
-                    <p className="text-xs text-amber-700 dark:text-amber-200/90">
-                      請確認結束晚於起始，且與 9:00–18:00 有重疊；若仍無預覽，請檢查時間格式或是否區間皆落在週末／國定放假日。
-                    </p>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3">
+                <p className="text-xs font-medium text-foreground">請假起始（日＋時間）</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <input
+                    id="leave-start-date"
+                    type="date"
+                    value={leaveForm.start}
+                    onChange={(e) =>
+                      setLeaveForm((f) => applyLeaveStartDateChange(f, e.target.value))
+                    }
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
                   <div>
-                    <label htmlFor="leave-start" className="mb-1.5 block text-sm font-medium text-foreground">
-                      開始日
+                    <label
+                      htmlFor="leave-start-time"
+                      className="mb-1 block text-[10px] text-muted-foreground"
+                    >
+                      起始時間
                     </label>
                     <input
-                      id="leave-start"
-                      type="date"
-                      value={leaveForm.start}
+                      id="leave-start-time"
+                      type="time"
+                      step={60}
+                      value={leaveForm.startTime}
                       onChange={(e) =>
-                        setLeaveForm((f) => applyLeaveStartDateChange(f, e.target.value))
+                        setLeaveForm((f) => ({ ...f, startTime: e.target.value }))
                       }
                       className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
+                </div>
+              </div>
+              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3">
+                <p className="text-xs font-medium text-foreground">請假結束（日＋時間）</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <input
+                    id="leave-end-date"
+                    type="date"
+                    value={leaveForm.end}
+                    onChange={(e) => setLeaveForm((f) => ({ ...f, end: e.target.value }))}
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
                   <div>
-                    <label htmlFor="leave-end" className="mb-1.5 block text-sm font-medium text-foreground">
-                      結束日
+                    <label
+                      htmlFor="leave-end-time"
+                      className="mb-1 block text-[10px] text-muted-foreground"
+                    >
+                      結束時間
                     </label>
                     <input
-                      id="leave-end"
-                      type="date"
-                      value={leaveForm.end}
-                      onChange={(e) => setLeaveForm((f) => ({ ...f, end: e.target.value }))}
+                      id="leave-end-time"
+                      type="time"
+                      step={60}
+                      value={leaveForm.endTime}
+                      onChange={(e) => setLeaveForm((f) => ({ ...f, endTime: e.target.value }))}
                       className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
                 </div>
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  請假天數以「工作日」計：排除週六、週日，並依 public_holidays 排除放假日（補班日會計入）。
-                  {isSupabaseConfigured ? " 已自資料庫載入假日設定。" : " 未連線資料庫時僅排除週末。"}
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                上班時段 {LEAVE_WORKDAY_START_HOUR}:00–{LEAVE_WORKDAY_END_HOUR}:00；午休{" "}
+                {LEAVE_LUNCH_START_HOUR}:00–{LEAVE_LUNCH_END_HOUR}:00 不計入。僅計算與上班時段重疊的時間；跨日時中間完整工作
+                日各計 {LEAVE_WORK_DAY_HOURS} 小時（已扣午休）。週六、週日及 public_holidays 之放假日（is_workday=false）不計入；補班日（is_workday=true）計入。
+                {isSupabaseConfigured ? " 已自資料庫載入假日設定。" : " 未連線資料庫時僅排除週末。"}
+              </p>
+              {timedLeaveHourPreview ? (
+                <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm">
+                  <span className="text-muted-foreground">本次申請：</span>
+                  <span className="tabular-nums font-medium text-foreground">
+                    共{" "}
+                    {timedLeaveHourPreview.totalHours.toLocaleString("zh-TW", {
+                      maximumFractionDigits: 2,
+                    })}{" "}
+                    小時（{timedLeaveHourPreview.parts.days} 日 {timedLeaveHourPreview.parts.hours}{" "}
+                    小時）
+                  </span>
+                </div>
+              ) : leaveForm.start && leaveForm.end && leaveForm.startTime && leaveForm.endTime ? (
+                <p className="text-xs text-amber-700 dark:text-amber-200/90">
+                  請確認結束晚於起始，且與 9:00–18:00 有重疊；若仍無預覽，請檢查時間格式或是否區間皆落在週末／國定放假日。
                 </p>
-                {otherLeaveWorkdaysPreview != null ? (
-                  <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
-                    <span className="text-muted-foreground">本次申請工作天數：</span>
-                    <span className="tabular-nums font-medium text-foreground">
-                      {otherLeaveWorkdaysPreview} 天
-                    </span>
-                  </div>
-                ) : null}
-                </>
-              )}
+              ) : null}
+              {leaveForm.type === "補休" &&
+              (data?.employee.comp_leave_remaining == null ||
+                !Number.isFinite(data?.employee.comp_leave_remaining ?? NaN)) ? (
+                <p className="text-xs text-destructive">無法申請補休：尚無補休餘額資料。</p>
+              ) : leaveForm.type === "補休" && timedLeaveHourPreview && compLeaveSubmitBlocked ? (
+                <p className="text-xs text-destructive">
+                  本次有效時數超過剩餘補休，請縮短區間或調整時間後再送出。
+                </p>
+              ) : null}
 
               <div>
                 <label htmlFor="leave-reason" className="mb-1.5 block text-sm font-medium text-foreground">
@@ -1651,7 +1584,7 @@ export default function EmployeePortalPage() {
                     取消
                   </Button>
                 </Dialog.Close>
-                <Button type="submit" disabled={leaveSubmitting}>
+                <Button type="submit" disabled={leaveSubmitting || compLeaveSubmitBlocked}>
                   {leaveSubmitting ? "送出中…" : "送出申請"}
                 </Button>
               </div>
