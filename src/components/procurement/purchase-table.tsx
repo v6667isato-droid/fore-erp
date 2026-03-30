@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 20;
 
-const COL_SPAN_BASE = 11;
+const COL_SPAN_BASE = 9;
 
 export interface PurchaseTableProps {
   records: PurchaseRow[];
@@ -139,13 +139,7 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
               <SortHeader label="單位" sortKey="unit" />
             </TableHead>
             <TableHead className="p-2 text-right align-middle">
-              <SortHeader label="未稅單價" sortKey="unit_price_ex_tax" align="right" />
-            </TableHead>
-            <TableHead className="p-2 text-right align-middle">
               <SortHeader label="已稅單價" sortKey="unit_price_inc_tax" align="right" />
-            </TableHead>
-            <TableHead className="p-2 text-right align-middle">
-              <SortHeader label="未稅總價" sortKey="amount_ex_tax" align="right" />
             </TableHead>
             <TableHead className="p-2 text-right align-middle">
               <SortHeader label="含稅總價" sortKey="tax_included_amount" align="right" />
@@ -181,9 +175,7 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
                 <TableCell className="text-sm text-muted-foreground p-2">{record.spec || "—"}</TableCell>
                 <TableCell className="text-sm p-2">{record.quantity}</TableCell>
                 <TableCell className="text-sm p-2">{record.unit || "—"}</TableCell>
-                <TableCell className="text-sm text-right p-2 tabular-nums">{record.unit_price_ex_tax.toLocaleString()}</TableCell>
                 <TableCell className="text-sm text-right p-2 tabular-nums">{record.unit_price_inc_tax.toLocaleString()}</TableCell>
-                <TableCell className="text-sm text-right p-2 tabular-nums">{record.amount_ex_tax.toLocaleString()}</TableCell>
                 <TableCell className="text-sm text-right p-2 font-medium tabular-nums">{record.tax_included_amount.toLocaleString()}</TableCell>
                 {(onEdit || onDelete) && (
                   <TableCell className="p-2">

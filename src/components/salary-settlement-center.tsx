@@ -22,6 +22,9 @@ interface SettlementEmployee {
   name: string;
   monthly_wage: number;
   labor_insurance: number;
+  /** 健保自付「每人」金額（employees.health_employee_burden） */
+  health_insurance_per_person: number;
+  /** 健保自付扣款合計＝每人金額 × 加保人數（見 mapRowToSettlementEmployee） */
   health_insurance: number;
   /** employees.health_insured_persons，寫入薪資單快照 */
   health_insured_persons: number | null;
@@ -218,18 +221,23 @@ const PAYSLIP_DETAIL_SNAPSHOT_KEYS = [
 function mapRowToSettlementEmployee(r: Record<string, unknown>): SettlementEmployee {
   /** 與員工維護頁一致：labor_employee_burden / health_employee_burden / health_employee_burden_number */
   const labor = num(r.labor_employee_burden ?? r.labor_insurance, 0);
-  const health = num(r.health_employee_burden ?? r.health_insurance, 0);
+  const healthPerPerson = num(r.health_employee_burden ?? r.health_insurance, 0);
   const hipRaw = r.health_employee_burden_number ?? r.health_insured_persons;
   const healthInsuredPersons =
     hipRaw != null && hipRaw !== "" && Number.isFinite(Number(hipRaw))
       ? Math.max(0, Math.trunc(num(hipRaw)))
       : null;
+  /** 與員工維護「健保自付額 × 健保投保人數」一致；人數未填或 ≤0 時乘數視為 1 */
+  const healthMult =
+    healthInsuredPersons != null && healthInsuredPersons > 0 ? healthInsuredPersons : 1;
+  const healthTotal = Math.round(healthPerPerson * healthMult);
   return {
     id: String(r.id),
     name: String(r.name ?? ""),
     monthly_wage: num(r.basic_salary ?? r.monthly_wage, 0),
     labor_insurance: labor,
-    health_insurance: health,
+    health_insurance_per_person: healthPerPerson,
+    health_insurance: healthTotal,
     health_insured_persons: healthInsuredPersons,
     overtime_rate:
       r.overtime_rate != null && r.overtime_rate !== ""
@@ -950,6 +958,13 @@ export function SalarySettlementCenter() {
                     <td className="py-3 pr-3 text-right tabular-nums text-muted-foreground">
                       −NT${" "}
                       {emp.health_insurance.toLocaleString("zh-TW")}
+                      {emp.health_insured_persons != null && emp.health_insured_persons > 1 ? (
+                        <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                          每人 NT${" "}
+                          {emp.health_insurance_per_person.toLocaleString("zh-TW")} ×{" "}
+                          {emp.health_insured_persons} 人
+                        </span>
+                      ) : null}
                     </td>
                     <td className="py-3 pr-3 text-right tabular-nums text-red-600 dark:text-red-400">
                       −NT${" "}

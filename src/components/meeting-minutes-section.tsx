@@ -15,12 +15,26 @@ import {
   type MeetingMinuteListRow,
 } from "@/lib/meeting-minutes";
 import { getSupabaseSession, isSupabaseConfigured } from "@/lib/supabase";
-import { CalendarDays, ClipboardList, ImagePlus, Loader2, Pencil, Trash2, Users, X } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronDown,
+  ClipboardList,
+  ImagePlus,
+  Loader2,
+  Pencil,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
+
+/** 歷史列表預設顯示筆數，其餘以「展開」區塊呈現 */
+const MEETING_HISTORY_VISIBLE_FIRST = 4;
 
 const PREVIEW_COMPRESSION = {
   maxSizeMB: 0.35,
-  maxWidthOrHeight: 400,
+  /** 約比 400px 大 30%，預覽較清楚 */
+  maxWidthOrHeight: Math.round(400 * 1.3),
   useWebWorker: true,
 } as const;
 
@@ -371,6 +385,152 @@ export function MeetingMinutesSection({
     }
   }
 
+  const renderOneHistoryRow = (row: MeetingMinuteListRow) => {
+    const recorderName = staffNameById.get(row.recorder_id) ?? "（未知）";
+    const atts = [...(row.meeting_minute_attachments ?? [])].sort(
+      (a, b) => a.sort_order - b.sort_order,
+    );
+    return (
+      <li key={row.id}>
+        <details className="group rounded-xl border border-border/70 bg-muted/10 open:bg-muted/15">
+          <summary className="cursor-pointer list-none px-4 py-3 sm:px-5 sm:py-3.5 [&::-webkit-details-marker]:hidden">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <span className="min-w-0 font-medium text-foreground">
+                {formatMeetingDate(row.meeting_date)}
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  紀錄：{recorderName}
+                </span>
+              </span>
+              <div className="flex flex-wrap items-center justify-end gap-2 sm:shrink-0">
+                {canManageMeetingMinutes && isSupabaseConfigured ? (
+                  <>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openEdit(row);
+                      }}
+                    >
+                      <Pencil className="h-3 w-3" aria-hidden />
+                      編輯
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-md border border-destructive/35 bg-background/80 px-2 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/10"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        void handleDeleteMinute(row);
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" aria-hidden />
+                      刪除
+                    </button>
+                  </>
+                ) : null}
+                <span className="text-[11px] text-muted-foreground">
+                  建立 {new Date(row.created_at).toLocaleString("zh-TW")}
+                </span>
+              </div>
+            </div>
+          </summary>
+          <div className="space-y-3 border-t border-border/50 px-4 py-3 text-sm sm:px-5 sm:py-4">
+            <DetailBlock label="公告事項" text={row.announcements} />
+            <DetailBlock label="本週工作事項" text={row.weekly_work_notes} />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                交辦事項
+              </p>
+              <ul className="mt-2 list-none space-y-2 text-foreground/95">
+                {(row.meeting_minute_assignments ?? [])
+                  .slice()
+                  .sort((a, b) => a.sort_order - b.sort_order)
+                  .map((a) => (
+                    <li
+                      key={a.id}
+                      className="rounded-lg border border-border/50 bg-background/50 px-3 py-2"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                        <p className="min-w-0 flex-1 font-medium leading-snug">{a.content}</p>
+                        {a.assignee_ids?.length ? (
+                          <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-muted-foreground sm:max-w-[min(100%,22rem)] sm:text-right">
+                            {a.assignee_ids.map((eid) => {
+                              const name = staffNameById.get(eid) ?? "…";
+                              const st = (a.meeting_minute_assignee_status ?? []).find(
+                                (s) => s.employee_id === eid,
+                              );
+                              const done = st?.completed ?? false;
+                              return (
+                                <span key={eid} className="inline-flex items-center gap-1 whitespace-nowrap">
+                                  <span className="text-foreground/90">{name}</span>
+                                  <span
+                                    className={cn(
+                                      "rounded px-1.5 py-0.5 font-medium",
+                                      done
+                                        ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
+                                        : "bg-amber-500/12 text-amber-900 dark:text-amber-100",
+                                    )}
+                                  >
+                                    {done ? "已完成" : "待辦"}
+                                  </span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground sm:shrink-0">—</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+            <DetailBlock label="反應事項" text={row.feedback_notes} />
+            <DetailBlock label="討論事項" text={row.discussion_notes} />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                出席
+              </p>
+              <p className="mt-1 text-foreground/95">
+                {(row.meeting_minute_attendees ?? [])
+                  .map((x) => staffNameById.get(x.employee_id) ?? "…")
+                  .join("、") || "—"}
+              </p>
+            </div>
+            {atts.length > 0 ? (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  附件
+                </p>
+                <ul className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3">
+                  {atts.map((att) =>
+                    att.public_url ? (
+                      <li key={att.id}>
+                        <a
+                          href={att.public_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block overflow-hidden rounded-lg border border-border/60"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={att.public_url}
+                            alt="開會附件"
+                            className="aspect-square w-full object-cover"
+                          />
+                        </a>
+                      </li>
+                    ) : null,
+                  )}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      </li>
+    );
+  };
+
   return (
     <section
       className={cn(
@@ -386,7 +546,7 @@ export function MeetingMinutesSection({
           <div className="min-w-0">
             <h3 className="text-lg font-semibold tracking-tight sm:text-xl">開會紀錄</h3>
             <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
-              預設顯示近期紀錄；點「填寫」新增一筆。
+              預設顯示最近 {MEETING_HISTORY_VISIBLE_FIRST} 筆，其餘可展開；點「填寫」新增一筆。
             </p>
           </div>
         </div>
@@ -418,153 +578,25 @@ export function MeetingMinutesSection({
         ) : list.length === 0 ? (
           <p className="text-sm text-muted-foreground">尚無紀錄。請點「填寫」新增。</p>
         ) : (
-          <ul className="space-y-3">
-            {list.map((row) => {
-              const recorderName = staffNameById.get(row.recorder_id) ?? "（未知）";
-              const atts = [...(row.meeting_minute_attachments ?? [])].sort(
-                (a, b) => a.sort_order - b.sort_order,
-              );
-              return (
-                <li key={row.id}>
-                  <details className="group rounded-xl border border-border/70 bg-muted/10 open:bg-muted/15">
-                    <summary className="cursor-pointer list-none px-4 py-3 sm:px-5 sm:py-3.5 [&::-webkit-details-marker]:hidden">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                        <span className="min-w-0 font-medium text-foreground">
-                          {formatMeetingDate(row.meeting_date)}
-                          <span className="ml-2 text-sm font-normal text-muted-foreground">
-                            紀錄：{recorderName}
-                          </span>
-                        </span>
-                        <div className="flex flex-wrap items-center justify-end gap-2 sm:shrink-0">
-                          {canManageMeetingMinutes && isSupabaseConfigured ? (
-                            <>
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  openEdit(row);
-                                }}
-                              >
-                                <Pencil className="h-3 w-3" aria-hidden />
-                                編輯
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1 rounded-md border border-destructive/35 bg-background/80 px-2 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/10"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  void handleDeleteMinute(row);
-                                }}
-                              >
-                                <Trash2 className="h-3 w-3" aria-hidden />
-                                刪除
-                              </button>
-                            </>
-                          ) : null}
-                          <span className="text-[11px] text-muted-foreground">
-                            建立 {new Date(row.created_at).toLocaleString("zh-TW")}
-                          </span>
-                        </div>
-                      </div>
-                    </summary>
-                    <div className="space-y-3 border-t border-border/50 px-4 py-3 text-sm sm:px-5 sm:py-4">
-                      <DetailBlock label="公告事項" text={row.announcements} />
-                      <DetailBlock label="本週工作事項" text={row.weekly_work_notes} />
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          交辦事項
-                        </p>
-                        <ul className="mt-2 list-none space-y-2 text-foreground/95">
-                          {(row.meeting_minute_assignments ?? [])
-                            .slice()
-                            .sort((a, b) => a.sort_order - b.sort_order)
-                            .map((a) => (
-                              <li
-                                key={a.id}
-                                className="rounded-lg border border-border/50 bg-background/50 px-3 py-2"
-                              >
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                                  <p className="min-w-0 flex-1 font-medium leading-snug">{a.content}</p>
-                                  {a.assignee_ids?.length ? (
-                                    <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-muted-foreground sm:max-w-[min(100%,22rem)] sm:text-right">
-                                      {a.assignee_ids.map((eid) => {
-                                        const name = staffNameById.get(eid) ?? "…";
-                                        const st = (a.meeting_minute_assignee_status ?? []).find(
-                                          (s) => s.employee_id === eid,
-                                        );
-                                        const done = st?.completed ?? false;
-                                        return (
-                                          <span key={eid} className="inline-flex items-center gap-1 whitespace-nowrap">
-                                            <span className="text-foreground/90">{name}</span>
-                                            <span
-                                              className={cn(
-                                                "rounded px-1.5 py-0.5 font-medium",
-                                                done
-                                                  ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
-                                                  : "bg-amber-500/12 text-amber-900 dark:text-amber-100",
-                                              )}
-                                            >
-                                              {done ? "已完成" : "待辦"}
-                                            </span>
-                                          </span>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground sm:shrink-0">—</span>
-                                  )}
-                                </div>
-                              </li>
-                            ))}
-                        </ul>
-                      </div>
-                      <DetailBlock label="反應事項" text={row.feedback_notes} />
-                      <DetailBlock label="討論事項" text={row.discussion_notes} />
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          出席
-                        </p>
-                        <p className="mt-1 text-foreground/95">
-                          {(row.meeting_minute_attendees ?? [])
-                            .map((x) => staffNameById.get(x.employee_id) ?? "…")
-                            .join("、") || "—"}
-                        </p>
-                      </div>
-                      {atts.length > 0 ? (
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            附件
-                          </p>
-                          <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                            {atts.map((att) =>
-                              att.public_url ? (
-                                <li key={att.id}>
-                                  <a
-                                    href={att.public_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="block overflow-hidden rounded-lg border border-border/60"
-                                  >
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                      src={att.public_url}
-                                      alt="開會附件"
-                                      className="aspect-square w-full object-cover"
-                                    />
-                                  </a>
-                                </li>
-                              ) : null,
-                            )}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
-                  </details>
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            <ul className="space-y-3">
+              {list.slice(0, MEETING_HISTORY_VISIBLE_FIRST).map((row) => renderOneHistoryRow(row))}
+            </ul>
+            {list.length > MEETING_HISTORY_VISIBLE_FIRST ? (
+              <details className="group mt-3 rounded-xl border border-border/60 bg-muted/10 open:bg-muted/15">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-4 py-3 text-sm font-medium text-muted-foreground hover:bg-muted/20 [&::-webkit-details-marker]:hidden">
+                  <span>展開其餘 {list.length - MEETING_HISTORY_VISIBLE_FIRST} 筆紀錄</span>
+                  <ChevronDown
+                    className="h-4 w-4 shrink-0 transition-transform duration-200 group-open:rotate-180"
+                    aria-hidden
+                  />
+                </summary>
+                <ul className="space-y-3 border-t border-border/40 px-3 pb-3 pt-3">
+                  {list.slice(MEETING_HISTORY_VISIBLE_FIRST).map((row) => renderOneHistoryRow(row))}
+                </ul>
+              </details>
+            ) : null}
+          </>
         )}
       </div>
 
@@ -820,7 +852,7 @@ export function MeetingMinutesSection({
                 <div>
                   <p className="mb-2 text-sm font-medium text-foreground">開會文件（圖片，可多張）</p>
                   {keptExistingAttachments.length > 0 ? (
-                    <ul className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    <ul className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
                       {keptExistingAttachments.map((k) =>
                         k.public_url ? (
                           <li
@@ -857,7 +889,7 @@ export function MeetingMinutesSection({
                     />
                   </label>
                   {pendingImages.length > 0 ? (
-                    <ul className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
                       {pendingImages.map((img, idx) => (
                         <li
                           key={`${img.previewUrl}-${idx}`}

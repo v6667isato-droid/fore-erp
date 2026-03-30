@@ -10,9 +10,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { User, Wrench, CalendarDays, RefreshCw, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  User,
+  Wrench,
+  CalendarDays,
+  RefreshCw,
+  CalendarPlus,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Printer,
+} from "lucide-react";
+import { cn, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
 type WorkStage =
@@ -46,10 +56,60 @@ interface WorkOrderRow {
   note: string | null;
 }
 
+/** 品項無類別時之下拉顯示與篩選鍵 */
+const EMPTY_WORK_CATEGORY_LABEL = "（未填類別）";
+
+function workOrderCategoryLabel(w: WorkOrderRow): string {
+  const c = (w.category ?? "").trim();
+  return c || EMPTY_WORK_CATEGORY_LABEL;
+}
+
 interface EmployeeOption {
   id: string;
   name: string;
 }
+
+/** 與訂單管理相同之狀態順序；用於「生產中」前／後篩選 */
+const ORDER_STATUS_SEQUENCE = [
+  "報價中",
+  "繪圖中",
+  "排程中",
+  "繪製製作圖",
+  "生產中",
+  "已完工",
+  "已出貨",
+  "結案",
+] as const;
+
+function orderStatusIndex(status: string | null | undefined): number {
+  if (!status) return -1;
+  return ORDER_STATUS_SEQUENCE.indexOf(
+    status as (typeof ORDER_STATUS_SEQUENCE)[number]
+  );
+}
+
+/** 訂單狀態為「生產中」起（含）至「已出貨」 */
+function isOrderStatusAtOrAfterProduction(status: string | null | undefined): boolean {
+  const i = orderStatusIndex(status);
+  const prod = orderStatusIndex("生產中");
+  const ship = orderStatusIndex("已出貨");
+  return i >= prod && i <= ship && prod >= 0;
+}
+
+/** 訂單狀態在「生產中」之前（繪圖／排程／製作圖等） */
+function isOrderStatusBeforeProduction(status: string | null | undefined): boolean {
+  const i = orderStatusIndex(status);
+  const prod = orderStatusIndex("生產中");
+  return i >= 0 && prod >= 0 && i < prod;
+}
+
+type ProductionOrderStatusFilter = "全部" | "生產中" | "非生產中";
+
+const PRODUCTION_ORDER_STATUS_FILTERS: ProductionOrderStatusFilter[] = [
+  "全部",
+  "生產中",
+  "非生產中",
+];
 
 const STAGE_OPTIONS: WorkStage[] = [
   "待排程",
@@ -92,6 +152,9 @@ export function WorkOrdersPage() {
   const [rows, setRows] = useState<WorkOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [stageFilter, setStageFilter] = useState<WorkStage | "全部">("全部");
+  const [orderStatusFilter, setOrderStatusFilter] =
+    useState<ProductionOrderStatusFilter>("生產中");
+  const [categoryFilter, setCategoryFilter] = useState<"全部" | string>("全部");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   type WorkSortKey =
@@ -246,6 +309,24 @@ export function WorkOrdersPage() {
     setRows(filtered);
   }
 
+  const categoryOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const w of rows) {
+      seen.add(workOrderCategoryLabel(w));
+    }
+    return Array.from(seen).sort((a, b) =>
+      a.localeCompare(b, "zh-Hant", { numeric: true })
+    );
+  }, [rows]);
+
+  useEffect(() => {
+    if (categoryFilter === "全部") return;
+    const stillValid = rows.some(
+      (w) => workOrderCategoryLabel(w) === categoryFilter
+    );
+    if (!stillValid) setCategoryFilter("全部");
+  }, [rows, categoryFilter]);
+
   async function updateWorkOrderInline(
     id: string,
     patch: Partial<Pick<WorkOrderRow, "stage" | "assignee">>
@@ -272,13 +353,22 @@ export function WorkOrdersPage() {
     const list = rows.filter((w) => {
       const matchStage =
         stageFilter === "全部" || w.stage === stageFilter;
+      const matchOrderStatus =
+        orderStatusFilter === "全部"
+          ? true
+          : orderStatusFilter === "生產中"
+            ? isOrderStatusAtOrAfterProduction(w.order_status)
+            : isOrderStatusBeforeProduction(w.order_status);
+      const matchCategory =
+        categoryFilter === "全部" ||
+        workOrderCategoryLabel(w) === categoryFilter;
       const q = assigneeFilter.trim().toLowerCase();
       const matchAssignee =
         !q ||
         (w.assignee ?? "").toLowerCase().includes(q) ||
         w.customer_name.toLowerCase().includes(q) ||
         w.order_number.toLowerCase().includes(q);
-      return matchStage && matchAssignee;
+      return matchStage && matchOrderStatus && matchCategory && matchAssignee;
     });
 
     // 排序：先依選定欄位；若為工序站別，依固定順序：
@@ -341,7 +431,15 @@ export function WorkOrdersPage() {
     });
 
     return list;
-  }, [rows, stageFilter, assigneeFilter, sortBy, sortAsc]);
+  }, [
+    rows,
+    stageFilter,
+    orderStatusFilter,
+    categoryFilter,
+    assigneeFilter,
+    sortBy,
+    sortAsc,
+  ]);
 
   function openOrderDetail(w: WorkOrderRow) {
     if (!w.order_id) return;
@@ -440,6 +538,22 @@ export function WorkOrdersPage() {
           <span>工單列表 · 依品項追蹤生產進度</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-1.5">
+            {PRODUCTION_ORDER_STATUS_FILTERS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setOrderStatusFilter(f)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                  orderStatusFilter === f
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-accent/40"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
           <select
             value={stageFilter}
             onChange={(e) =>
@@ -458,6 +572,23 @@ export function WorkOrdersPage() {
               </option>
             ))}
           </select>
+          <select
+            value={categoryFilter}
+            onChange={(e) =>
+              setCategoryFilter(
+                e.target.value === "全部" ? "全部" : e.target.value
+              )
+            }
+            className="h-8 max-w-[12rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="依品項類別篩選"
+          >
+            <option value="全部">類別：全部</option>
+            {categoryOptions.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
           <input
             type="text"
             value={assigneeFilter}
@@ -465,6 +596,16 @@ export function WorkOrdersPage() {
             placeholder="搜尋客戶 / 訂單 / 負責人…"
             className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
+          <a
+            href="/print/chair-production"
+            className={cn(
+              buttonVariants({ variant: "outline", size: "default" }),
+              "h-8 gap-1.5 px-2.5 text-xs font-medium no-underline"
+            )}
+          >
+            <Printer className="h-3.5 w-3.5" />
+            椅子清單
+          </a>
           <Button
             type="button"
             variant="outline"
@@ -639,6 +780,11 @@ export function WorkOrdersPage() {
 
       <p className="text-xs text-muted-foreground">
         顯示 {filtered.length} / {rows.length} 筆工單
+        {orderStatusFilter === "全部"
+          ? "（訂單狀態：全部）"
+          : orderStatusFilter === "生產中"
+            ? "（訂單狀態：生產中～已出貨）"
+            : "（訂單狀態：非生產中）"}
       </p>
     </div>
   );

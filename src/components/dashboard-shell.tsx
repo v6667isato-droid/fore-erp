@@ -18,6 +18,7 @@ import {
   UserCircle2,
   Calendar,
   ClipboardCheck,
+  Printer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -171,6 +172,13 @@ function DesktopSidebar({
           <UserCircle2 className="h-4 w-4" />
           員工儀表板
         </a>
+        <a
+          href="/print/chair-production"
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+        >
+          <Printer className="h-4 w-4" />
+          椅子清單
+        </a>
       </div>
       <div className="border-t border-sidebar-border p-4">
         <div className="flex items-center justify-between gap-2">
@@ -283,6 +291,14 @@ function MobileHeader({
                 >
                   <UserCircle2 className="h-[18px] w-[18px] shrink-0" />
                   員工儀表板
+                </a>
+                <a
+                  href="/print/chair-production"
+                  onClick={() => setOpen(false)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                >
+                  <Printer className="h-[18px] w-[18px] shrink-0" />
+                  椅子清單
                 </a>
               </nav>
             </div>

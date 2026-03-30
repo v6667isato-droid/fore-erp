@@ -12,9 +12,7 @@ export function exportProcurementCsv(records: PurchaseRow[]) {
     "單位",
     "輸入單價",
     "輸入為已稅",
-    "未稅單價",
     "已稅單價",
-    "未稅總價",
     "含稅總價",
   ];
   const rows = records.map((r) => [
@@ -28,9 +26,7 @@ export function exportProcurementCsv(records: PurchaseRow[]) {
     r.unit,
     String(r.unit_price),
     r.unit_price_is_tax_inclusive ? "是" : "否",
-    String(r.unit_price_ex_tax),
     String(r.unit_price_inc_tax),
-    String(r.amount_ex_tax),
     String(r.tax_included_amount),
   ]);
   const csv = [headers.join(","), ...rows.map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))].join("\n");

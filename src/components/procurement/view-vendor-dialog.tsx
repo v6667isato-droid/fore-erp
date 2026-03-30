@@ -192,7 +192,7 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
                 <p className="text-sm text-muted-foreground">尚無採購紀錄</p>
               ) : (
                 <div className="rounded-lg border border-border overflow-x-auto overflow-y-hidden">
-                  <Table className="min-w-[880px]">
+                  <Table className="min-w-[640px]">
                     <TableHeader>
                       <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
                         <TableHead className="text-xs font-semibold p-2">日期</TableHead>
@@ -201,9 +201,7 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
                         <TableHead className="text-xs font-semibold p-2">規格</TableHead>
                         <TableHead className="text-xs font-semibold p-2 text-right">數量</TableHead>
                         <TableHead className="text-xs font-semibold p-2">單位</TableHead>
-                        <TableHead className="text-xs font-semibold p-2 text-right">未稅單價</TableHead>
                         <TableHead className="text-xs font-semibold p-2 text-right">已稅單價</TableHead>
-                        <TableHead className="text-xs font-semibold p-2 text-right">未稅總價</TableHead>
                         <TableHead className="text-xs font-semibold p-2 text-right">含稅總價</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -216,9 +214,7 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
                           <TableCell className="text-xs p-2 text-muted-foreground">{p.spec || "—"}</TableCell>
                           <TableCell className="text-xs p-2 text-right">{p.quantity}</TableCell>
                           <TableCell className="text-xs p-2">{p.unit || "—"}</TableCell>
-                          <TableCell className="text-xs p-2 text-right tabular-nums">{p.unit_price_ex_tax.toLocaleString()}</TableCell>
                           <TableCell className="text-xs p-2 text-right tabular-nums">{p.unit_price_inc_tax.toLocaleString()}</TableCell>
-                          <TableCell className="text-xs p-2 text-right tabular-nums">{p.amount_ex_tax.toLocaleString()}</TableCell>
                           <TableCell className="text-xs p-2 text-right tabular-nums font-medium">{p.tax_included_amount.toLocaleString()}</TableCell>
                         </TableRow>
                       ))}

@@ -452,7 +452,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
                   {record.quantity !== "—" && `數量 ${record.quantity} ${record.unit || ""}`.trim()}
                 </span>
                 <span>
-                  未稅 ${record.amount_ex_tax.toLocaleString()} · 含稅 ${record.tax_included_amount.toLocaleString()}
+                  含稅 ${record.tax_included_amount.toLocaleString()}
                 </span>
                 <span className="text-right">{record.purchase_date}</span>
               </div>
