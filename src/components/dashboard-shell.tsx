@@ -16,6 +16,8 @@ import {
   MessageSquare,
   UserCircle2,
   ClipboardCheck,
+  BarChart3,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,8 @@ import { LeaveApprovalsPage } from "@/components/leave-approvals-page";
 import { FeedbackPage } from "@/components/feedback-page";
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompanyCalendarPage } from "@/components/company-calendar-page";
+import { CostStatisticsPage } from "@/components/cost-statistics-page";
+import { LineMessagesPage } from "@/components/line-messages-page";
 import { dashboardStats } from "@/lib/mock-data";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -49,10 +53,12 @@ type Page =
   | "orders"
   | "kanban"
   | "procurement"
+  | "cost_statistics"
   | "products"
   | "customers"
   | "leave_approvals"
-  | "feedback";
+  | "feedback"
+  | "line_messages";
 type AppRole = "admin" | "manager" | "staff" | null;
 
 /** 報價／訂單／產品等：admin 與 manager 可編輯；員工出勤管理（含員工資料分頁）僅 admin */
@@ -64,10 +70,12 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "總覽", icon: LayoutGrid },
   { id: "products", label: "產品資料", icon: Package },
   { id: "customers", label: "客戶資料", icon: Users },
+  { id: "line_messages", label: "LINE 訊息", icon: MessageCircle },
   { id: "quotes", label: "報價管理", icon: ClipboardList },
   { id: "orders", label: "訂單管理", icon: ShoppingCart },
   { id: "kanban", label: "生產管理", icon: Package },
   { id: "procurement", label: "採購管理", icon: ShoppingCart },
+  { id: "cost_statistics", label: "成本統計", icon: BarChart3 },
   { id: "leave_approvals", label: "員工出勤管理", icon: ClipboardCheck },
   { id: "feedback", label: "使用回饋", icon: MessageSquare },
 ];
@@ -104,7 +112,7 @@ function SidebarNav({
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
-        if (item.id === "leave_approvals" && userRole !== "admin") {
+        if ((item.id === "leave_approvals" || item.id === "cost_statistics") && userRole !== "admin") {
           return null;
         }
         const Icon = item.icon;
@@ -238,7 +246,7 @@ function MobileHeader({
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
-                  if (item.id === "leave_approvals" && userRole !== "admin") {
+                  if ((item.id === "leave_approvals" || item.id === "cost_statistics") && userRole !== "admin") {
                     return null;
                   }
                   const Icon = item.icon;
@@ -480,7 +488,10 @@ export default function DashboardShell() {
   // 非 admin 不可開員工出勤管理（含書籤或手動改 ?page=）
   useEffect(() => {
     if (!authChecked || userRole === null) return;
-    if (userRole !== "admin" && activePage === "leave_approvals") {
+    if (
+      userRole !== "admin" &&
+      (activePage === "leave_approvals" || activePage === "cost_statistics")
+    ) {
       setActivePage("dashboard");
       router.replace("/?page=dashboard");
     }
@@ -575,6 +586,8 @@ export default function DashboardShell() {
           {activePage === "procurement" && (
             <ProcurementPage isAdmin={isErpEditorRole(userRole)} />
           )}
+          {activePage === "cost_statistics" && userRole === "admin" && <CostStatisticsPage />}
+          {activePage === "line_messages" && <LineMessagesPage />}
           {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "leave_approvals" && userRole === "admin" && (
