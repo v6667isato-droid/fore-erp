@@ -120,7 +120,9 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
       .select(
       "id, quantity, unit_price, kind, custom_name, custom_category, custom_description"
       )
-      .eq("order_id", orderId);
+      .eq("order_id", orderId)
+      .order("line_order", { ascending: true })
+      .order("id", { ascending: true });
     if (error) {
       const msg = (error.message ?? "").toLowerCase();
       const isColumnError =

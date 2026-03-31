@@ -8,6 +8,7 @@ import { Plus, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { SeriesRow } from "@/types/products";
+import { DEFAULT_SEAT_HEIGHT_CM } from "@/lib/product-seat-height";
 
 export interface AddVariantDialogProps {
   open: boolean;
@@ -25,6 +26,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const [h, setH] = useState("");
   const [price, setPrice] = useState("");
   const [spec1, setSpec1] = useState("");
+  const [seatHeightCm, setSeatHeightCm] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +39,11 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       setH("");
       setPrice("");
       setSpec1("");
+      setSeatHeightCm(
+        series.category === "椅" || series.category === "凳"
+          ? String(DEFAULT_SEAT_HEIGHT_CM)
+          : ""
+      );
       setError(null);
     }
   }, [open, series]);
@@ -64,6 +71,10 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       base_price: price.trim() ? Number(price) : null,
     };
     payload.spec1 = spec1.trim() || null;
+    const showSeatHeight = series.category === "椅" || series.category === "凳";
+    if (showSeatHeight) {
+      payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
+    }
     const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).insert(payload);
     setAdding(false);
     if (err) {
@@ -140,6 +151,19 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                 <input id="add-variant-h" type="number" value={h} onChange={(e) => setH(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
               </div>
             </div>
+            {(series.category === "椅" || series.category === "凳") && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="add-variant-seat-h" className="text-xs text-muted-foreground">座高（cm）</label>
+                <input
+                  id="add-variant-seat-h"
+                  type="number"
+                  value={seatHeightCm}
+                  onChange={(e) => setSeatHeightCm(e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}cm，座面離地高度`}
+                />
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-variant-price" className="text-xs text-muted-foreground">基礎定價</label>
               <input id="add-variant-price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="元" />

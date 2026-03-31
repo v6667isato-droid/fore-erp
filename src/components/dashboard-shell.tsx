@@ -7,7 +7,6 @@ import {
   ShoppingCart,
   Menu,
   Package,
-  Store,
   TrendingUp,
   Clock,
   Users,
@@ -16,9 +15,7 @@ import {
   ExternalLink,
   MessageSquare,
   UserCircle2,
-  Calendar,
   ClipboardCheck,
-  Printer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,7 +28,6 @@ import { ProductsPage } from "@/components/products-page";
 import { CustomersPage } from "@/components/customers-page";
 import { LeaveApprovalsPage } from "@/components/leave-approvals-page";
 import { FeedbackPage } from "@/components/feedback-page";
-import { ChannelsPage } from "@/components/channels-page";
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompanyCalendarPage } from "@/components/company-calendar-page";
 import { dashboardStats } from "@/lib/mock-data";
@@ -48,14 +44,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 type Page =
   | "dashboard"
-  | "calendar"
   | "quotes"
   | "orders"
   | "kanban"
   | "procurement"
   | "products"
   | "customers"
-  | "channels"
   | "leave_approvals"
   | "feedback";
 type AppRole = "admin" | "manager" | "staff" | null;
@@ -67,16 +61,14 @@ function isErpEditorRole(role: AppRole): boolean {
 
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "總覽", icon: LayoutGrid },
-  { id: "calendar", label: "公司行事曆", icon: Calendar },
   { id: "products", label: "產品資料", icon: Package },
+  { id: "customers", label: "客戶資料", icon: Users },
   { id: "quotes", label: "報價管理", icon: ClipboardList },
   { id: "orders", label: "訂單管理", icon: ShoppingCart },
-  { id: "customers", label: "客戶資料", icon: Users },
-  { id: "channels", label: "通路管理", icon: Store },
   { id: "kanban", label: "生產管理", icon: Package },
   { id: "procurement", label: "採購管理", icon: ShoppingCart },
   { id: "leave_approvals", label: "員工出勤管理", icon: ClipboardCheck },
-  { id: "feedback", label: "使用回饋 / 待辦事項", icon: MessageSquare },
+  { id: "feedback", label: "使用回饋", icon: MessageSquare },
 ];
 
 function Logo() {
@@ -157,15 +149,6 @@ function DesktopSidebar({
       </ScrollArea>
       <div className="flex flex-col gap-1 px-3 py-2">
         <a
-          href="/portal"
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-        >
-          <ExternalLink className="h-4 w-4" />
-          通路下單
-        </a>
-        <a
           href="/employee/dashboard"
           className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
         >
@@ -173,11 +156,13 @@ function DesktopSidebar({
           員工儀表板
         </a>
         <a
-          href="/print/chair-production"
+          href="/portal"
+          target="_blank"
+          rel="noreferrer"
           className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
         >
-          <Printer className="h-4 w-4" />
-          椅子清單
+          <ExternalLink className="h-4 w-4" />
+          通路下單
         </a>
       </div>
       <div className="border-t border-sidebar-border p-4">
@@ -275,16 +260,6 @@ function MobileHeader({
                   );
                 })}
                 <a
-                  href="/portal"
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => setOpen(false)}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                >
-                  <ExternalLink className="h-[18px] w-[18px] shrink-0" />
-                  通路下單
-                </a>
-                <a
                   href="/employee/dashboard"
                   onClick={() => setOpen(false)}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
@@ -293,12 +268,14 @@ function MobileHeader({
                   員工儀表板
                 </a>
                 <a
-                  href="/print/chair-production"
+                  href="/portal"
+                  target="_blank"
+                  rel="noreferrer"
                   onClick={() => setOpen(false)}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                 >
-                  <Printer className="h-[18px] w-[18px] shrink-0" />
-                  椅子清單
+                  <ExternalLink className="h-[18px] w-[18px] shrink-0" />
+                  通路下單
                 </a>
               </nav>
             </div>
@@ -359,6 +336,8 @@ export default function DashboardShell() {
   const [activePage, setActivePage] = useState<Page>(() => {
     if (pageParam === "employees") return "leave_approvals";
     if (pageParam === "vendors") return "procurement";
+    if (pageParam === "channels") return "customers";
+    if (pageParam === "calendar") return "dashboard";
     return pageParam && PAGE_IDS.has(pageParam as Page)
       ? (pageParam as Page)
       : "dashboard";
@@ -382,6 +361,16 @@ export default function DashboardShell() {
     if (p === "vendors") {
       router.replace("/?page=procurement&procurementTab=vendors");
       setActivePage("procurement");
+      return;
+    }
+    if (p === "channels") {
+      router.replace("/?page=customers&customersTab=channels");
+      setActivePage("customers");
+      return;
+    }
+    if (p === "calendar") {
+      router.replace("/?page=dashboard");
+      setActivePage("dashboard");
       return;
     }
     if (p && PAGE_IDS.has(p as Page)) setActivePage(p as Page);
@@ -542,13 +531,22 @@ export default function DashboardShell() {
           </div>
 
           {activePage === "dashboard" && (
-            <div className="mb-6">
-              <StatsRow />
-            </div>
+            <>
+              <div className="mb-6">
+                <StatsRow />
+              </div>
+              <DashboardOverview />
+              <section className="mt-10 lg:mt-12 pt-8 border-t border-border scroll-mt-6" aria-labelledby="dashboard-calendar-heading">
+                <h2
+                  id="dashboard-calendar-heading"
+                  className="font-serif text-xl font-semibold tracking-tight text-foreground mb-6"
+                >
+                  行事曆
+                </h2>
+                <CompanyCalendarPage />
+              </section>
+            </>
           )}
-
-          {activePage === "dashboard" && <DashboardOverview />}
-          {activePage === "calendar" && <CompanyCalendarPage />}
           {activePage === "quotes" && (
             <OrdersPage
               mode="quotation"
@@ -568,7 +566,6 @@ export default function DashboardShell() {
           )}
           {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
-          {activePage === "channels" && <ChannelsPage />}
           {activePage === "leave_approvals" && userRole === "admin" && (
             <LeaveApprovalsPage />
           )}

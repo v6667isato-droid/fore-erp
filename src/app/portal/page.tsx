@@ -2,13 +2,45 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  DEFAULT_WORK_ORDER_STAGE,
+  syncWorkOrdersToOrderStatus,
+} from "@/lib/work-order-stages";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { ShoppingCart, Plus, Trash2, LogOut, ClipboardList, Pencil, X } from "lucide-react";
+import { ShoppingCart, Plus, Trash2, LogOut, ClipboardList, Pencil, X, ArrowUp, ArrowDown } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  DEFAULT_SEAT_HEIGHT_CM,
+  SEAT_HEIGHT_UPCHARGE_NTD,
+} from "@/lib/product-seat-height";
+
+function resolvePortalSeatHeight(v: {
+  seat_height_cm?: number | null;
+  series_category?: string | null;
+}): number | null {
+  if (v.seat_height_cm != null && Number.isFinite(Number(v.seat_height_cm))) {
+    return Number(v.seat_height_cm);
+  }
+  const cat = v.series_category ?? "";
+  if (cat === "椅" || cat === "凳") return DEFAULT_SEAT_HEIGHT_CM;
+  return null;
+}
 
 const PORTAL_SESSION_KEY = "fore_portal_session";
+
+function PortalSeatHeightNotice() {
+  return (
+    <div className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-sm dark:border-amber-800/80 dark:bg-amber-950/30">
+      <p className="font-medium text-amber-950 dark:text-amber-100">座高說明</p>
+      <p className="mt-1 leading-relaxed text-muted-foreground">
+        椅、凳類標準座高為 {DEFAULT_SEAT_HEIGHT_CM} 公分；若需加高座高，增高費用為{" "}
+        {SEAT_HEIGHT_UPCHARGE_NTD.toLocaleString()} 元，請於品項備註或訂單備註說明需求。
+      </p>
+    </div>
+  );
+}
 
 interface PortalSession {
   customer_id: string;
@@ -22,6 +54,8 @@ interface VariantOption {
   label: string;
   base_price: number | null;
   spec1?: string | null;
+  series_category?: string | null;
+  seat_height_cm?: number | null;
 }
 
 interface PortalItem {
@@ -30,6 +64,8 @@ interface PortalItem {
   quantity: number;
   unit_price: number;
   notes: string;
+  /** 訂單明細約定座高（cm），存入 order_items.seat_height_cm */
+  seat_height_cm?: number | null;
 }
 
 interface MyOrderRow {
@@ -92,7 +128,7 @@ export default function PortalPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [contactAddress, setContactAddress] = useState("");
   const [items, setItems] = useState<PortalItem[]>([
-    { id: "item-0", variant_id: "", quantity: 1, unit_price: 0, notes: "" },
+    { id: "item-0", variant_id: "", quantity: 1, unit_price: 0, notes: "", seat_height_cm: null },
   ]);
 
   const [myOrders, setMyOrders] = useState<MyOrderRow[]>([]);
@@ -137,22 +173,44 @@ export default function PortalPage() {
       return;
     }
 
-    const { data } = await supabase
+    const { data: variantRows } = await supabase
       .from("product_variants")
       .select(
-        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price, spec1"
+        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1"
       )
       .in("series_id", seriesIds)
       .order("product_code", { ascending: true });
 
+    const sidList = Array.from(
+      new Set((variantRows ?? []).map((r: { series_id?: string }) => String(r.series_id ?? "")).filter(Boolean))
+    );
+    let categoryBySeriesId = new Map<string, string>();
+    if (sidList.length > 0) {
+      const { data: seriesRows } = await supabase
+        .from("product_series")
+        .select("id, category")
+        .in("id", sidList);
+      categoryBySeriesId = new Map(
+        ((seriesRows ?? []) as { id: string; category?: string }[]).map((s) => [
+          String(s.id),
+          s.category != null ? String(s.category) : "",
+        ])
+      );
+    }
+
     setVariants(
-      ((data ?? []) as any[]).map((v) => {
+      ((variantRows ?? []) as any[]).map((v) => {
+        const series_category = categoryBySeriesId.get(String(v.series_id ?? "")) || null;
         const w = v.dimension_w ?? "";
         const d = v.dimension_d ?? "";
         const h = v.dimension_h ?? "";
         const parts = [w, d, h].filter((x: unknown) => x !== "");
-        const dim =
+        let dim =
           parts.length === 0 ? "" : `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
+        const seatH = v.seat_height_cm != null ? Number(v.seat_height_cm) : NaN;
+        if (Number.isFinite(seatH)) {
+          dim = dim === "" ? `座高 ${seatH} cm` : `${dim} · 座高 ${seatH} cm`;
+        }
         const labelParts = [v.product_code ?? "", v.wood_type ?? "", v.spec1 ?? "", dim].filter(
           (s: string) => s && s.trim()
         );
@@ -161,6 +219,9 @@ export default function PortalPage() {
           label: labelParts.join(" / "),
           base_price: v.base_price != null ? Number(v.base_price) : null,
           spec1: v.spec1 ?? null,
+          series_category,
+          seat_height_cm:
+            v.seat_height_cm != null ? Number(v.seat_height_cm) : null,
         };
       })
     );
@@ -287,7 +348,12 @@ export default function PortalPage() {
     setEditFormLoading(true);
     Promise.all([
       supabase.from("orders").select("id, order_date, expected_delivery_date, shipping_address, internal_notes, status").eq("id", editingOrderId).eq("customer_id", session.customer_id).single(),
-      supabase.from("order_items").select("id, variant_id, quantity, unit_price, custom_notes").eq("order_id", editingOrderId),
+      supabase
+        .from("order_items")
+        .select("id, variant_id, quantity, unit_price, custom_notes, seat_height_cm")
+        .eq("order_id", editingOrderId)
+        .order("line_order", { ascending: true })
+        .order("id", { ascending: true }),
     ]).then(([orderRes, itemsRes]) => {
       if (orderRes.error || !orderRes.data) {
         toast.error(orderRes.error?.message || "讀取訂單失敗");
@@ -308,13 +374,28 @@ export default function PortalPage() {
         quantity: Number(d.quantity ?? 1),
         unit_price: Number(d.unit_price ?? 0),
         notes: d.custom_notes ?? "",
+        seat_height_cm:
+          d.seat_height_cm != null && Number.isFinite(Number(d.seat_height_cm))
+            ? Number(d.seat_height_cm)
+            : null,
       }));
       setEditForm({
         order_date: o.order_date ? String(o.order_date).slice(0, 10) : "",
         expected_delivery_date: o.expected_delivery_date ? String(o.expected_delivery_date).slice(0, 10) : "",
         shipping_address: o.shipping_address ?? "",
         order_notes: o.internal_notes ?? "",
-        items: itemRows.length ? itemRows : [{ id: "edit-item-0", variant_id: "", quantity: 1, unit_price: 0, notes: "" }],
+        items: itemRows.length
+          ? itemRows
+          : [
+              {
+                id: "edit-item-0",
+                variant_id: "",
+                quantity: 1,
+                unit_price: 0,
+                notes: "",
+                seat_height_cm: null,
+              },
+            ],
       });
     }).finally(() => setEditFormLoading(false));
   }, [editingOrderId, session?.customer_id]);
@@ -330,7 +411,17 @@ export default function PortalPage() {
     if (!editForm) return;
     setEditForm({
       ...editForm,
-      items: [...editForm.items, { id: `edit-item-${Date.now()}`, variant_id: "", quantity: 1, unit_price: 0, notes: "" }],
+      items: [
+        ...editForm.items,
+        {
+          id: `edit-item-${Date.now()}`,
+          variant_id: "",
+          quantity: 1,
+          unit_price: 0,
+          notes: "",
+          seat_height_cm: null,
+        },
+      ],
     });
   }
   function removeEditItem(id: string) {
@@ -339,9 +430,23 @@ export default function PortalPage() {
     if (!confirmed) return;
     setEditForm({ ...editForm, items: editForm.items.filter((it) => it.id !== id) });
   }
+  function moveEditItem(id: string, direction: -1 | 1) {
+    if (!editForm) return;
+    const idx = editForm.items.findIndex((x) => x.id === id);
+    if (idx < 0) return;
+    const next = idx + direction;
+    if (next < 0 || next >= editForm.items.length) return;
+    const copy = [...editForm.items];
+    [copy[idx], copy[next]] = [copy[next], copy[idx]];
+    setEditForm({ ...editForm, items: copy });
+  }
   function onEditVariantChange(itemId: string, variantId: string) {
     const v = variants.find((x) => x.id === variantId);
-    updateEditItem(itemId, { variant_id: variantId, unit_price: v?.base_price ?? 0 });
+    updateEditItem(itemId, {
+      variant_id: variantId,
+      unit_price: v?.base_price ?? 0,
+      seat_height_cm: v ? resolvePortalSeatHeight(v) : null,
+    });
   }
 
   async function handleSaveEdit() {
@@ -379,8 +484,9 @@ export default function PortalPage() {
         await supabase.from("work_orders").delete().in("order_item_id", ids);
       }
       await supabase.from("order_items").delete().eq("order_id", editingOrderId);
-      const itemsPayload = validItems.map((it) => ({
+      const itemsPayload = validItems.map((it, lineIndex) => ({
         order_id: editingOrderId,
+        line_order: lineIndex,
         variant_id: it.variant_id,
         quantity: it.quantity,
         unit_price: it.unit_price,
@@ -391,6 +497,10 @@ export default function PortalPage() {
         custom_dimension_w: null,
         custom_dimension_d: null,
         custom_dimension_h: null,
+        seat_height_cm:
+          it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
+            ? Number(it.seat_height_cm)
+            : null,
       }));
       const { data: insertedItems, error: itemsErr } = await supabase.from("order_items").insert(itemsPayload).select("id");
       if (itemsErr) {
@@ -399,11 +509,24 @@ export default function PortalPage() {
       }
       const workOrderPayload = (insertedItems ?? []).map((row: { id: string }) => ({
         order_item_id: row.id,
-        stage: "待排程",
+        stage: DEFAULT_WORK_ORDER_STAGE,
         status: "未開始",
       }));
       if (workOrderPayload.length > 0) {
-        await supabase.from("work_orders").insert(workOrderPayload);
+        const { error: woInsErr } = await supabase.from("work_orders").insert(workOrderPayload);
+        if (woInsErr) {
+          console.error(woInsErr);
+        } else {
+          const { data: ordRow } = await supabase
+            .from("orders")
+            .select("status")
+            .eq("id", editingOrderId)
+            .single();
+          const st = (ordRow as { status?: string } | null)?.status;
+          if (st) {
+            await syncWorkOrdersToOrderStatus(supabase, editingOrderId, st);
+          }
+        }
       }
       toast.success("訂單已更新");
       setEditingOrderId(null);
@@ -429,6 +552,7 @@ export default function PortalPage() {
         quantity: 1,
         unit_price: 0,
         notes: "",
+        seat_height_cm: null,
       },
     ]);
   }
@@ -445,6 +569,7 @@ export default function PortalPage() {
     updateItem(itemId, {
       variant_id: variantId,
       unit_price: v?.base_price ?? 0,
+      seat_height_cm: v ? resolvePortalSeatHeight(v) : null,
     });
   }
 
@@ -520,8 +645,9 @@ export default function PortalPage() {
         return;
       }
 
-      const itemsPayload = validItems.map((it) => ({
+      const itemsPayload = validItems.map((it, lineIndex) => ({
         order_id: orderId,
+        line_order: lineIndex,
         variant_id: it.variant_id,
         quantity: it.quantity,
         unit_price: it.unit_price,
@@ -532,6 +658,10 @@ export default function PortalPage() {
         custom_dimension_w: null,
         custom_dimension_d: null,
         custom_dimension_h: null,
+        seat_height_cm:
+          it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
+            ? Number(it.seat_height_cm)
+            : null,
       }));
 
       const { data: insertedItems, error: itemsError } = await supabase
@@ -546,7 +676,7 @@ export default function PortalPage() {
 
       const workOrderPayload = (insertedItems ?? []).map((row: { id: string }) => ({
         order_item_id: row.id,
-        stage: "待排程",
+        stage: DEFAULT_WORK_ORDER_STAGE,
         status: "未開始",
       }));
       if (workOrderPayload.length > 0) {
@@ -556,6 +686,8 @@ export default function PortalPage() {
         if (woError) {
           console.error("建立工單失敗:", woError);
           toast.error("訂單已建立，但工單建立失敗，請聯絡客服。");
+        } else {
+          await syncWorkOrdersToOrderStatus(supabase, orderId, "排程中");
         }
       }
 
@@ -734,7 +866,7 @@ export default function PortalPage() {
                 </div>
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
                   <label htmlFor="portal-notes" className="text-sm font-medium text-foreground">
-                    備註（輸入坐墊高度、布墊尺寸）
+                    備註（坐墊／布墊；加高座高請一併註明）
                   </label>
                   <input
                     id="portal-notes"
@@ -749,6 +881,7 @@ export default function PortalPage() {
             </section>
 
             <section className="space-y-3">
+              <PortalSeatHeightNotice />
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   明細品項
@@ -779,8 +912,8 @@ export default function PortalPage() {
                         </button>
                       )}
                     </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="flex flex-col gap-1.5">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="flex flex-col gap-1.5 sm:col-span-1">
                         <label className="text-xs text-muted-foreground">品項 *</label>
                         <select
                           value={it.variant_id}
@@ -809,13 +942,32 @@ export default function PortalPage() {
                           className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                       </div>
-                      <div className="flex flex-col gap-1.5 sm:col-span-2">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs text-muted-foreground">座高（cm）</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.1"
+                          value={it.seat_height_cm ?? ""}
+                          onChange={(e) =>
+                            updateItem(it.id, {
+                              seat_height_cm:
+                                e.target.value === ""
+                                  ? null
+                                  : Number(e.target.value),
+                            })
+                          }
+                          placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}`}
+                          className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5 sm:col-span-3">
                         <label className="text-xs text-muted-foreground">備註</label>
                         <input
                           type="text"
                           value={it.notes}
                           onChange={(e) => updateItem(it.id, { notes: e.target.value })}
-                          placeholder="請註明座高、布墊顏色、或其他事項"
+                          placeholder={`標準座高 ${DEFAULT_SEAT_HEIGHT_CM}cm；加高請註明（另計增高費）、布墊等`}
                           className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                       </div>
@@ -981,7 +1133,8 @@ export default function PortalPage() {
                     />
                   </div>
                   <div>
-                    <div className="flex items-center justify-between mb-2">
+                    <PortalSeatHeightNotice />
+                    <div className="flex items-center justify-between mb-2 mt-1">
                       <span className="text-xs font-medium text-muted-foreground">明細品項</span>
                       <Button type="button" variant="outline" className="h-8 px-3 text-sm" onClick={addEditItem}>
                         <Plus className="h-3.5 w-3.5 mr-1" /> 新增品項
@@ -990,13 +1143,35 @@ export default function PortalPage() {
                     <div className="space-y-3">
                       {editForm.items.map((it, idx) => (
                         <div key={it.id} className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
-                          <div className="flex justify-between items-center">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-xs text-muted-foreground">品項 {idx + 1}</span>
                             {editForm.items.length > 1 && (
-                              <button type="button" onClick={() => removeEditItem(it.id)} className="text-xs text-muted-foreground hover:text-destructive">移除</button>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  title="上移"
+                                  disabled={idx === 0}
+                                  onClick={() => moveEditItem(it.id, -1)}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+                                  aria-label="上移"
+                                >
+                                  <ArrowUp className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="下移"
+                                  disabled={idx === editForm.items.length - 1}
+                                  onClick={() => moveEditItem(it.id, 1)}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+                                  aria-label="下移"
+                                >
+                                  <ArrowDown className="h-3.5 w-3.5" />
+                                </button>
+                                <button type="button" onClick={() => removeEditItem(it.id)} className="text-xs text-muted-foreground hover:text-destructive px-1">移除</button>
+                              </div>
                             )}
                           </div>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                             <div>
                               <label className="text-[11px] text-muted-foreground">品項 *</label>
                               <select
@@ -1020,14 +1195,33 @@ export default function PortalPage() {
                                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                               />
                             </div>
-                            <div className="sm:col-span-2">
+                            <div>
+                              <label className="text-[11px] text-muted-foreground">座高（cm）</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.1"
+                                value={it.seat_height_cm ?? ""}
+                                onChange={(e) =>
+                                  updateEditItem(it.id, {
+                                    seat_height_cm:
+                                      e.target.value === ""
+                                        ? null
+                                        : Number(e.target.value),
+                                  })
+                                }
+                                placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}`}
+                                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                              />
+                            </div>
+                            <div className="sm:col-span-3">
                               <label className="text-[11px] text-muted-foreground">備註</label>
                               <input
                                 type="text"
                                 value={it.notes}
                                 onChange={(e) => updateEditItem(it.id, { notes: e.target.value })}
                                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                placeholder="選填"
+                                placeholder={`標準座高 ${DEFAULT_SEAT_HEIGHT_CM}cm；加高請註明`}
                               />
                             </div>
                           </div>

@@ -22,9 +22,9 @@ export function CompanyAnnouncementsBlock({
         </div>
         <div>
           <h3 className="text-base font-semibold">公司公告</h3>
-          <p className="text-xs text-muted-foreground">
-            {subtitle ?? "company_event · 類別為「公司」"}
-          </p>
+          {subtitle ? (
+            <p className="text-xs text-muted-foreground">{subtitle}</p>
+          ) : null}
         </div>
       </div>
       <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">

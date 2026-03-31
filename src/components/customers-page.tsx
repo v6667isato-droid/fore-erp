@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -19,6 +21,13 @@ import { EditCustomerDialog } from "@/components/crm/edit-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { exportCustomersCsv } from "@/components/crm/export-customers-csv";
+import { ChannelsPage } from "@/components/channels-page";
+
+type CustomersTabId = "customers" | "channels";
+
+function parseCustomersTab(raw: string | null): CustomersTabId {
+  return raw === "channels" ? "channels" : "customers";
+}
 
 const CUSTOMER_SELECT =
   "id, name, alias, contact_person, phone, line_id, ig_account, delivery_address, has_elevator, notes, source, customer_type, channel_id, contact_method";
@@ -85,6 +94,21 @@ export interface ChannelOption {
 }
 
 export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const customersTab = parseCustomersTab(searchParams.get("customersTab"));
+
+  const setCustomersTab = useCallback(
+    (next: CustomersTabId) => {
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.set("page", "customers");
+      if (next === "channels") nextParams.set("customersTab", "channels");
+      else nextParams.delete("customersTab");
+      router.replace(`/?${nextParams.toString()}`);
+    },
+    [router, searchParams]
+  );
+
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [channels, setChannels] = useState<ChannelOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -181,9 +205,12 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   }
 
   useEffect(() => {
-    fetchCustomers();
-    fetchChannels();
+    void fetchCustomers();
   }, []);
+
+  useEffect(() => {
+    if (customersTab === "customers") void fetchChannels();
+  }, [customersTab]);
 
   function requestDelete(row: CustomerRow) {
     setDeleteConfirmRow(row);
@@ -214,9 +241,56 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     toast.success("已匯出客戶 CSV");
   }
 
+  const tabList = (
+    <div
+      className="flex gap-1 border-b border-border"
+      role="tablist"
+      aria-label="客戶資料分頁"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={customersTab === "customers"}
+        onClick={() => setCustomersTab("customers")}
+        className={cn(
+          "px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-t-md",
+          customersTab === "customers"
+            ? "border-primary text-foreground"
+            : "border-transparent text-muted-foreground hover:text-foreground"
+        )}
+      >
+        客戶清單
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={customersTab === "channels"}
+        onClick={() => setCustomersTab("channels")}
+        className={cn(
+          "px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-t-md",
+          customersTab === "channels"
+            ? "border-primary text-foreground"
+            : "border-transparent text-muted-foreground hover:text-foreground"
+        )}
+      >
+        通路管理
+      </button>
+    </div>
+  );
+
+  if (customersTab === "channels") {
+    return (
+      <div className="flex flex-col gap-4">
+        {tabList}
+        <ChannelsPage embedded />
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col gap-4">
+        {tabList}
         <div className="rounded-xl border border-border bg-card px-5 py-4">
           <div className="flex items-center gap-4">
             <div className="h-10 w-10 animate-pulse rounded-lg bg-muted" />
@@ -235,6 +309,7 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
 
   return (
     <div className="flex flex-col gap-4">
+      {tabList}
       <div className="flex flex-col gap-4 rounded-xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary" aria-hidden>

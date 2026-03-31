@@ -10,6 +10,12 @@ export default function PrintIndexPage() {
         請從「報價管理」或「訂單管理」的列表中，點選該筆訂單的「報價列印」或「訂單列印」按鈕，即可開啟對應的列印頁面。
       </p>
       <Link
+        href="/print/shipping-marks"
+        className="mb-3 inline-flex text-sm font-medium text-primary hover:underline"
+      >
+        物流警示標（小心輕放／易碎品／此處朝上・約半張 A4）
+      </Link>
+      <Link
         href="/print/chair-production"
         className="mb-4 inline-flex text-sm font-medium text-primary hover:underline"
       >

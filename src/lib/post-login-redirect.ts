@@ -28,6 +28,10 @@ export function isAdminOrManagerRole(normalizedRole: string): boolean {
   return r === "admin" || r === "manager";
 }
 
+export function isAdminRole(normalizedRole: string): boolean {
+  return normalizedRole.trim().toLowerCase() === "admin";
+}
+
 /**
  * 登入後導向：admin / manager → ERP 首頁，其餘（含 staff、空值）→ 員工儀表板。
  */

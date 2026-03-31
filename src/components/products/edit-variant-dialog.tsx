@@ -9,6 +9,7 @@ import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { VariantRow } from "@/types/products";
+import { DEFAULT_SEAT_HEIGHT_CM } from "@/lib/product-seat-height";
 
 export interface EditVariantDialogProps {
   open: boolean;
@@ -30,6 +31,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
   const [seriesCodeRule, setSeriesCodeRule] = useState<string | null>(null);
   const [seriesCategory, setSeriesCategory] = useState<string | null>(null);
   const [spec1, setSpec1] = useState("");
+  const [seatHeightCm, setSeatHeightCm] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +48,9 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       setSeriesCodeRule(null);
       setSeriesCategory(null);
       setSpec1(row.spec1 ?? "");
+      setSeatHeightCm(
+        row.seat_height_cm != null ? String(row.seat_height_cm) : ""
+      );
       setImageUrl(typeof row.image_url === "string" && row.image_url ? row.image_url : null);
     }
   }, [open, row]);
@@ -104,6 +109,12 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
         }
         if (typeof data.category === "string") {
           setSeriesCategory(data.category);
+          if (
+            (data.category === "椅" || data.category === "凳") &&
+            row.seat_height_cm == null
+          ) {
+            setSeatHeightCm(String(DEFAULT_SEAT_HEIGHT_CM));
+          }
         } else {
           setSeriesCategory(null);
         }
@@ -137,6 +148,9 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       spec1: spec1.trim() || null,
       image_url: imageUrl?.trim() || null,
     };
+    if (seriesCategory === "椅" || seriesCategory === "凳") {
+      payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
+    }
     const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).update(payload).eq("id", row.id);
     if (err) {
       setSaving(false);
@@ -231,6 +245,19 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
                 <input id="edit-variant-h" type="number" value={h} onChange={(e) => setH(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
               </div>
             </div>
+            {(seriesCategory === "椅" || seriesCategory === "凳") && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="edit-variant-seat-h" className="text-xs text-muted-foreground">座高（cm）</label>
+                <input
+                  id="edit-variant-seat-h"
+                  type="number"
+                  value={seatHeightCm}
+                  onChange={(e) => setSeatHeightCm(e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}cm，座面離地高度`}
+                />
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-variant-price" className="text-xs text-muted-foreground">基礎定價</label>
               <input id="edit-variant-price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />

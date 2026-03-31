@@ -41,6 +41,11 @@ export interface MeetingMinuteListRow {
   weekly_work_notes: string | null;
   feedback_notes: string | null;
   discussion_notes: string | null;
+  /** 週五工坊輪替（uuid[]，欄位可能尚未 migration） */
+  workshop_rotation_vertical?: string[] | null;
+  workshop_rotation_hand?: string[] | null;
+  workshop_rotation_supervisor?: string[] | null;
+  workshop_rotation_duty?: string[] | null;
   created_at: string;
   meeting_minute_attendees: { employee_id: string }[];
   meeting_minute_assignments: {
@@ -51,6 +56,36 @@ export interface MeetingMinuteListRow {
     meeting_minute_assignee_status?: MeetingMinuteAssigneeStatusRow[] | null;
   }[];
   meeting_minute_attachments: MeetingMinuteAttachmentRow[];
+}
+
+/** 儀表板：最近一次開會紀錄上的工坊輪替（依 meeting_date 最新一筆） */
+export interface WorkshopRotationDisplay {
+  meetingDate: string;
+  vertical: { id: string; name: string }[];
+  hand: { id: string; name: string }[];
+  supervisor: { id: string; name: string }[];
+  duty: { id: string; name: string }[];
+}
+
+export interface WorkshopRotationPayload {
+  vertical: string[];
+  hand: string[];
+  supervisor: string[];
+  duty: string[];
+}
+
+function normalizeUuidArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => String(x)).filter(Boolean);
+}
+
+function trimWorkshopRotationPayload(p: WorkshopRotationPayload): WorkshopRotationPayload {
+  return {
+    vertical: normalizeUuidArray(p.vertical).slice(0, 2),
+    hand: normalizeUuidArray(p.hand).slice(0, 1),
+    supervisor: normalizeUuidArray(p.supervisor).slice(0, 1),
+    duty: normalizeUuidArray(p.duty).slice(0, 1),
+  };
 }
 
 export interface MeetingAssignmentForEmployeeRow {
@@ -99,6 +134,10 @@ export async function fetchMeetingMinutesList(limit = 40): Promise<
       weekly_work_notes,
       feedback_notes,
       discussion_notes,
+      workshop_rotation_vertical,
+      workshop_rotation_hand,
+      workshop_rotation_supervisor,
+      workshop_rotation_duty,
       created_at,
       meeting_minute_attendees(employee_id),
       meeting_minute_assignments(
@@ -141,6 +180,99 @@ export async function fetchMeetingMinutesListSafe(limit = 40): Promise<
   return r;
 }
 
+export async function fetchLatestWorkshopRotation(): Promise<
+  { ok: true; data: WorkshopRotationDisplay | null } | { ok: false; message: string }
+> {
+  const { data, error } = await supabase
+    .schema("employees")
+    .from("meeting_minutes")
+    .select(
+      "meeting_date, workshop_rotation_vertical, workshop_rotation_hand, workshop_rotation_supervisor, workshop_rotation_duty",
+    )
+    .order("meeting_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+  if (!data) {
+    return { ok: true, data: null };
+  }
+
+  const row = data as Record<string, unknown>;
+  const md =
+    typeof row.meeting_date === "string"
+      ? row.meeting_date.slice(0, 10)
+      : String(row.meeting_date ?? "").slice(0, 10);
+
+  const vertical = normalizeUuidArray(row.workshop_rotation_vertical);
+  const hand = normalizeUuidArray(row.workshop_rotation_hand);
+  const supervisor = normalizeUuidArray(row.workshop_rotation_supervisor);
+  const duty = normalizeUuidArray(row.workshop_rotation_duty);
+
+  const unique = [...new Set([...vertical, ...hand, ...supervisor, ...duty])];
+
+  if (unique.length === 0) {
+    return {
+      ok: true,
+      data: {
+        meetingDate: md,
+        vertical: [],
+        hand: [],
+        supervisor: [],
+        duty: [],
+      },
+    };
+  }
+
+  const { data: emps, error: empErr } = await supabase
+    .from("employees")
+    .select("id, name")
+    .in("id", unique);
+
+  if (empErr) {
+    return { ok: false, message: empErr.message };
+  }
+
+  const nameById = new Map(
+    (emps ?? []).map((e) => {
+      const r = e as { id: string; name?: string };
+      return [r.id, String(r.name ?? "")] as const;
+    }),
+  );
+
+  const mapNamed = (ids: string[]) =>
+    ids.map((id) => ({ id, name: nameById.get(id)?.trim() || "（未知）" }));
+
+  return {
+    ok: true,
+    data: {
+      meetingDate: md,
+      vertical: mapNamed(vertical),
+      hand: mapNamed(hand),
+      supervisor: mapNamed(supervisor),
+      duty: mapNamed(duty),
+    },
+  };
+}
+
+export async function fetchLatestWorkshopRotationSafe(): Promise<
+  | { ok: true; data: WorkshopRotationDisplay | null }
+  | { ok: false; message: string; hint?: string }
+> {
+  const r = await fetchLatestWorkshopRotation();
+  if (!r.ok && isSchemaOrRelationError(r.message)) {
+    return {
+      ok: false,
+      message: r.message,
+      hint:
+        "若已執行 migration，請至 Supabase Dashboard → Settings → API → Exposed schemas 加入「employees」。",
+    };
+  }
+  return r;
+}
+
 export interface InsertMeetingMinuteParams {
   recorderId: string;
   meetingDate: string;
@@ -149,6 +281,8 @@ export interface InsertMeetingMinuteParams {
   weeklyWorkNotes: string;
   feedbackNotes: string;
   discussionNotes: string;
+  /** 週五工坊維護輪替（由紀錄人員於開會表單維護） */
+  workshopRotation: WorkshopRotationPayload;
   assignments: MeetingMinuteAssignmentInput[];
   createdByUserId: string | null;
   imageFiles: File[];
@@ -165,10 +299,13 @@ export async function insertMeetingMinute(
     weeklyWorkNotes,
     feedbackNotes,
     discussionNotes,
+    workshopRotation,
     assignments,
     createdByUserId,
     imageFiles,
   } = params;
+
+  const wr = trimWorkshopRotationPayload(workshopRotation);
 
   const { data: ins, error: insErr } = await supabase
     .schema("employees")
@@ -180,6 +317,10 @@ export async function insertMeetingMinute(
       weekly_work_notes: weeklyWorkNotes.trim() || null,
       feedback_notes: feedbackNotes.trim() || null,
       discussion_notes: discussionNotes.trim() || null,
+      workshop_rotation_vertical: wr.vertical,
+      workshop_rotation_hand: wr.hand,
+      workshop_rotation_supervisor: wr.supervisor,
+      workshop_rotation_duty: wr.duty,
       created_by_user_id: createdByUserId,
     })
     .select("id")
@@ -371,11 +512,14 @@ export async function updateMeetingMinute(
     weeklyWorkNotes,
     feedbackNotes,
     discussionNotes,
+    workshopRotation,
     assignments,
     createdByUserId,
     imageFiles,
     keptAttachments,
   } = params;
+
+  const wr = trimWorkshopRotationPayload(workshopRotation);
 
   const { error: upErr } = await supabase
     .schema("employees")
@@ -387,6 +531,10 @@ export async function updateMeetingMinute(
       weekly_work_notes: weeklyWorkNotes.trim() || null,
       feedback_notes: feedbackNotes.trim() || null,
       discussion_notes: discussionNotes.trim() || null,
+      workshop_rotation_vertical: wr.vertical,
+      workshop_rotation_hand: wr.hand,
+      workshop_rotation_supervisor: wr.supervisor,
+      workshop_rotation_duty: wr.duty,
       created_by_user_id: createdByUserId,
     })
     .eq("id", meetingMinuteId);

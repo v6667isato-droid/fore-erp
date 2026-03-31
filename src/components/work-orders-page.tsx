@@ -23,18 +23,17 @@ import {
   Printer,
 } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
+import {
+  DEFAULT_WORK_ORDER_STAGE,
+  isWorkOrderStage,
+  normalizeWorkOrderStage,
+  type WorkOrderStage,
+  syncOrderStatusFromWorkOrders,
+  WORK_ORDER_STAGES,
+  stageStyleClassName,
+  workOrderStageSortIndex,
+} from "@/lib/work-order-stages";
 import { toast } from "sonner";
-
-type WorkStage =
-  | "待排程"
-  | "備料中"
-  | "製作中"
-  | "砂磨中"
-  | "塗裝中"
-  | "組裝中"
-  | "成品"
-  | "暫停"
-  | "已出貨";
 
 interface WorkOrderRow {
   id: string;
@@ -47,7 +46,7 @@ interface WorkOrderRow {
   item_name: string;
   quantity: number;
   category: string;
-  stage: WorkStage;
+  stage: WorkOrderStage;
   order_status: string | null;
   assignee: string | null;
   expected_delivery_date: string | null;
@@ -76,6 +75,7 @@ const ORDER_STATUS_SEQUENCE = [
   "排程中",
   "繪製製作圖",
   "生產中",
+  "暫停",
   "已完工",
   "已出貨",
   "結案",
@@ -111,47 +111,12 @@ const PRODUCTION_ORDER_STATUS_FILTERS: ProductionOrderStatusFilter[] = [
   "非生產中",
 ];
 
-const STAGE_OPTIONS: WorkStage[] = [
-  "待排程",
-  "備料中",
-  "製作中",
-  "砂磨中",
-  "塗裝中",
-  "組裝中",
-  "成品",
-  "暫停",
-  "已出貨",
-];
-
-function stageStyle(stage: WorkStage): string {
-  switch (stage) {
-    case "待排程":
-      return "bg-muted text-foreground border-border";
-    case "備料中":
-      return "bg-amber-100 text-amber-900 border-amber-200";
-    case "製作中":
-      return "bg-sky-100 text-sky-900 border-sky-200";
-    case "砂磨中":
-      return "bg-violet-100 text-violet-900 border-violet-200";
-    case "塗裝中":
-      return "bg-rose-100 text-rose-900 border-rose-200";
-    case "組裝中":
-      return "bg-indigo-100 text-indigo-900 border-indigo-200";
-    case "成品":
-      return "bg-emerald-100 text-emerald-900 border-emerald-200";
-    case "暫停":
-      return "bg-amber-100 text-amber-900 border-amber-200";
-    case "已出貨":
-      return "bg-emerald-100 text-emerald-900 border-emerald-200";
-    default:
-      return "bg-muted text-foreground border-border";
-  }
-}
+const STAGE_OPTIONS = WORK_ORDER_STAGES;
 
 export function WorkOrdersPage() {
   const [rows, setRows] = useState<WorkOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stageFilter, setStageFilter] = useState<WorkStage | "全部">("全部");
+  const [stageFilter, setStageFilter] = useState<WorkOrderStage | "全部">("全部");
   const [orderStatusFilter, setOrderStatusFilter] =
     useState<ProductionOrderStatusFilter>("生產中");
   const [categoryFilter, setCategoryFilter] = useState<"全部" | string>("全部");
@@ -292,7 +257,7 @@ export function WorkOrdersPage() {
         item_name: fullNameParts.join(" / "),
         quantity: Number(oi?.quantity ?? 0),
         category: cat,
-        stage: (r.stage as WorkStage) ?? "待排程",
+        stage: normalizeWorkOrderStage(r.stage),
         order_status: (order?.status as string | null) ?? null,
         assignee: r.assignee ?? null,
         expected_delivery_date: order?.expected_delivery_date ?? null,
@@ -329,8 +294,9 @@ export function WorkOrdersPage() {
 
   async function updateWorkOrderInline(
     id: string,
-    patch: Partial<Pick<WorkOrderRow, "stage" | "assignee">>
+    patch: Partial<Pick<WorkOrderRow, "assignee">> & { stage?: WorkOrderStage }
   ) {
+    const orderIdForSync = rows.find((w) => w.id === id)?.order_id ?? null;
     const payload: any = {};
     if (patch.stage) payload.stage = patch.stage;
     if (patch.assignee !== undefined) payload.assignee = patch.assignee;
@@ -347,6 +313,16 @@ export function WorkOrdersPage() {
     setRows((prev) =>
       prev.map((w) => (w.id === id ? { ...w, ...patch } : w))
     );
+
+    if (orderIdForSync) {
+      const sync = await syncOrderStatusFromWorkOrders(supabase, orderIdForSync);
+      if (!sync.ok) {
+        toast.error(sync.error || "回寫訂單狀態失敗");
+      } else if (sync.nextOrderStatus) {
+        toast.success(`訂單狀態已同步為「${sync.nextOrderStatus}」`);
+      }
+      await fetchWorkOrders();
+    }
   }
 
   const filtered = useMemo(() => {
@@ -371,40 +347,14 @@ export function WorkOrdersPage() {
       return matchStage && matchOrderStatus && matchCategory && matchAssignee;
     });
 
-    // 排序：先依選定欄位；若為工序站別，依固定順序：
-    // 待排程 → 備料中 → 製作中 → 砂磨中 → 塗裝中 → 組裝中 → 成品 → 暫停 → 已出貨
+    // 排序：工序站別依 `WORK_ORDER_STAGES` 順序（見 work-order-stages.ts）
     list.sort((a, b) => {
-      function stageWeight(stage: WorkStage): number {
-        switch (stage) {
-          case "待排程":
-            return 0;
-          case "備料中":
-            return 1;
-          case "製作中":
-            return 2;
-          case "砂磨中":
-            return 3;
-          case "塗裝中":
-            return 4;
-          case "組裝中":
-            return 5;
-          case "成品":
-            return 6;
-          case "暫停":
-            return 7;
-          case "已出貨":
-            return 8;
-          default:
-            return 9;
-        }
-      }
-
       const key = sortBy;
       let cmp = 0;
 
       if (key === "stage") {
-        // 1) 以工序站別權重排序
-        cmp = stageWeight(a.stage) - stageWeight(b.stage);
+        cmp =
+          workOrderStageSortIndex(a.stage) - workOrderStageSortIndex(b.stage);
       } else {
         // 1) 依照選擇的欄位排序
         const av = (a as any)[key];
@@ -427,7 +377,7 @@ export function WorkOrdersPage() {
       if (cmp !== 0) return cmp;
 
       // 2) 若同值，再依工序階段權重決定順序
-      return stageWeight(a.stage) - stageWeight(b.stage);
+      return workOrderStageSortIndex(a.stage) - workOrderStageSortIndex(b.stage);
     });
 
     return list;
@@ -560,7 +510,7 @@ export function WorkOrdersPage() {
               setStageFilter(
                 e.target.value === "全部"
                   ? "全部"
-                  : (e.target.value as WorkStage)
+                  : (e.target.value as WorkOrderStage)
               )
             }
             className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -707,11 +657,11 @@ export function WorkOrdersPage() {
                       value={w.stage}
                       onChange={(e) =>
                         updateWorkOrderInline(w.id, {
-                          stage: e.target.value as WorkStage,
+                          stage: e.target.value as WorkOrderStage,
                         })
                       }
-                      className={`h-8 rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${stageStyle(
-                        w.stage
+                      className={`h-8 rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${stageStyleClassName(
+                        isWorkOrderStage(w.stage) ? w.stage : DEFAULT_WORK_ORDER_STAGE
                       )}`}
                     >
                       {STAGE_OPTIONS.map((s) => (

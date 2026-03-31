@@ -38,7 +38,7 @@ function mapChannelRow(r: Record<string, unknown>): ChannelRow {
   };
 }
 
-export function ChannelsPage() {
+export function ChannelsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [records, setRecords] = useState<ChannelRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editRow, setEditRow] = useState<ChannelRow | null>(null);
@@ -96,8 +96,16 @@ export function ChannelsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-lg font-semibold text-foreground">通路管理</h1>
+      <div
+        className={
+          embedded
+            ? "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end"
+            : "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        }
+      >
+        {!embedded && (
+          <h1 className="text-lg font-semibold text-foreground">通路管理</h1>
+        )}
         <div className="flex flex-nowrap items-center gap-2">
           <Button onClick={() => setAddOpen(true)}>新增通路</Button>
         </div>

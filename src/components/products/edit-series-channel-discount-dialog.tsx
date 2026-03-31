@@ -145,7 +145,7 @@ export function EditSeriesChannelDiscountDialog({
             {loading ? (
               <p className="text-sm text-muted-foreground">載入通路折扣中…</p>
             ) : channels.length === 0 ? (
-              <p className="text-sm text-muted-foreground">目前尚未建立任何通路，請先至「通路管理」新增。</p>
+              <p className="text-sm text-muted-foreground">目前尚未建立任何通路，請至「客戶資料」→「通路管理」新增。</p>
             ) : (
               <div className="space-y-2">
                 {channels.map((ch) => (

@@ -38,11 +38,12 @@ function mapProductionStatus(status: string | null | undefined): TaskStatus {
   return "todo";
 }
 
-function workOrderStageToUi(stage: string | null | undefined): WorkProgressUiStatus {
-  const s = (stage ?? "").trim();
-  if (s === "待排程" || s === "暫停") return "pending";
-  if (s === "成品" || s === "已出貨") return "done";
-  return "in_progress";
+/** production_tasks.status → 進度追蹤下拉初始值 */
+function productionTaskStatusToWorkProgressUi(status: string | null | undefined): WorkProgressUiStatus {
+  const s = mapProductionStatus(status);
+  if (s === "done") return "done";
+  if (s === "in_progress") return "in_progress";
+  return "pending";
 }
 
 function mapLeaveStatus(raw: string | null | undefined): LeaveRequestStatus {
@@ -203,48 +204,63 @@ async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRo
   });
 }
 
-async function fetchWorkProgressForAssignee(employeeName: string): Promise<WorkProgressSeedRow[]> {
+/**
+ * 進度追蹤：與「生產任務」相同資料來源——僅顯示 production_tasks.employee_id 連結至您的生產物件（訂單／品項）。
+ */
+async function fetchWorkProgressFromProductionTasks(employeeId: string): Promise<WorkProgressSeedRow[]> {
   const { data, error } = await supabase
-    .from("work_orders")
+    .from("production_tasks")
     .select(
       `
       id,
-      stage,
-      assignee,
-      planned_end_date,
-      order_items(
-        orders(order_number, expected_delivery_date)
+      status,
+      step_name,
+      work_orders(
+        planned_end_date,
+        order_items(
+          orders(order_number, expected_delivery_date),
+          product_variants(product_code),
+          custom_name
+        )
       )
-    `
+    `,
     )
-    .eq("assignee", employeeName)
-    .order("planned_end_date", { ascending: true })
-    .limit(30);
+    .eq("employee_id", employeeId)
+    .order("id", { ascending: false })
+    .limit(40);
 
   if (error) {
-    console.warn("[employee-portal] work_orders (my progress):", error.message);
+    if (/column .*employee_id|does not exist/i.test(error.message)) {
+      return [];
+    }
+    console.warn("[employee-portal] production_tasks (work progress):", error.message);
     return [];
   }
 
   const rows = (data ?? []) as any[];
   return rows.map((r) => {
-    const oi = r.order_items;
+    const wo = Array.isArray(r.work_orders) ? r.work_orders[0] : r.work_orders;
+    const oi = wo?.order_items?.[0] ?? wo?.order_items;
     const oiOne = Array.isArray(oi) ? oi[0] : oi;
     const ord = oiOne?.orders;
     const orderNum = ord?.order_number ? String(ord.order_number) : "";
-    const orderRef = orderNum ? `WO · ${orderNum}` : `工單 ${String(r.id).slice(0, 8)}…`;
+    const piece =
+      oiOne?.custom_name ||
+      oiOne?.product_variants?.product_code ||
+      (orderNum ? `訂單 ${orderNum}` : "生產物件");
+    const orderRef = orderNum ? `WO · ${orderNum}` : String(piece);
     const exp =
-      r.planned_end_date != null
-        ? String(r.planned_end_date).slice(0, 10)
+      wo?.planned_end_date != null
+        ? String(wo.planned_end_date).slice(0, 10)
         : ord?.expected_delivery_date != null
           ? String(ord.expected_delivery_date).slice(0, 10)
           : "—";
     return {
       id: String(r.id),
       order_ref: orderRef,
-      stage_label: String(r.stage ?? "—"),
+      stage_label: String(r.step_name ?? "—").trim() || "—",
       expected_complete_date: exp,
-      initial_ui_status: workOrderStageToUi(r.stage),
+      initial_ui_status: productionTaskStatusToWorkProgressUi(r.status),
     };
   });
 }
@@ -481,7 +497,7 @@ export async function fetchEmployeePortalFromSupabase(
     const baseSalary = num(emp.monthly_wage, 0);
     const [tasks, workProgress, leaveRows, payslips] = await Promise.all([
       fetchTasksForEmployee(emp.id),
-      fetchWorkProgressForAssignee(emp.name),
+      fetchWorkProgressFromProductionTasks(emp.id),
       fetchLeaveRows(emp.id),
       fetchPayslipRows(emp.id),
     ]);

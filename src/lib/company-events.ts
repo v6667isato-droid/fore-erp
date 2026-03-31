@@ -155,7 +155,15 @@ export async function deleteCompanyEvent(id: string): Promise<void> {
   if (!isSupabaseConfigured) {
     throw new Error("Supabase 未設定");
   }
-  // 勿使用 .select()：在 RLS 下 RETURNING 常拿不到列，data 會是 [] 被誤判為失敗
-  const { error } = await supabase.from(COMPANY_EVENT_TABLE).delete().eq("id", id);
+  // RLS 擋刪時 PostgREST 仍回 204、error 為 null，但實際刪除 0 筆；用 Prefer: count=exact 辨識
+  const { error, count } = await supabase
+    .from(COMPANY_EVENT_TABLE)
+    .delete({ count: "exact" })
+    .eq("id", id);
   if (error) throw error;
+  if (count === 0) {
+    throw new Error(
+      "未刪除任何資料（可能沒有 DELETE 權限，或該筆已不存在）。請在 Supabase 執行 migration：company_event_delete_authenticated，並確認已登入。"
+    );
+  }
 }

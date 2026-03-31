@@ -40,6 +40,7 @@ import { fetchCompanyAnnouncementsFromEvents } from "@/lib/company-events";
 import {
   fetchNormalizedUserProfileRole,
   isAdminOrManagerRole,
+  isAdminRole,
 } from "@/lib/post-login-redirect";
 import {
   getSupabaseSession,
@@ -48,6 +49,7 @@ import {
   supabase,
 } from "@/lib/supabase";
 import { CompanyAnnouncementsBlock } from "@/components/company-announcements-block";
+import { WorkshopWeeklyRotationBlock } from "@/components/workshop-weekly-rotation-block";
 import { MeetingAssignmentsBlock } from "@/components/meeting-assignments-block";
 import { MeetingMinutesSection } from "@/components/meeting-minutes-section";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -362,20 +364,35 @@ function StatMini({
   label,
   children,
   footer,
+  className,
 }: {
-  label: string;
+  /** 省略時不顯示頂部小標（例如特休／補休合併卡僅保留內文「特休」「補休」） */
+  label?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="flex min-h-[5.5rem] min-w-0 w-full flex-col rounded-xl border border-border/80 bg-background/85 px-3 py-3.5 shadow-sm backdrop-blur-sm sm:px-4">
+    <div
+      className={cn(
+        "flex min-h-[5.5rem] min-w-0 w-full flex-col rounded-xl border border-border/80 bg-background/85 px-3 py-3.5 shadow-sm backdrop-blur-sm sm:px-4",
+        className,
+      )}
+    >
       <div className="flex min-h-0 flex-1 flex-col justify-center">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
-        <span className="mt-1.5 break-words text-base font-semibold tabular-nums tracking-tight text-primary sm:text-lg md:text-xl">
+        {label ? (
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {label}
+          </span>
+        ) : null}
+        <div
+          className={cn(
+            "break-words text-base font-semibold tabular-nums tracking-tight text-primary sm:text-lg md:text-xl",
+            label ? "mt-1.5" : null,
+          )}
+        >
           {children}
-        </span>
+        </div>
       </div>
       {footer ? (
         <div className="mt-3 shrink-0 border-t border-border/60 pt-2.5">{footer}</div>
@@ -474,12 +491,15 @@ export default function EmployeePortalPage() {
   >(undefined);
   /** Mock 無法辨識角色時保留捷徑；Supabase 僅 admin / manager 可看返回 ERP 連結 */
   const [showErpHomeLink, setShowErpHomeLink] = useState(() => !isSupabaseConfigured);
+  /** Supabase 連線時由 user_profiles 填入；Mock 時為空字串 */
+  const [portalUserRole, setPortalUserRole] = useState("");
   /** 開會紀錄／交辦狀態變更時遞增，讓子區塊重新載入 */
   const [meetingDataTick, setMeetingDataTick] = useState(0);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setShowErpHomeLink(true);
+      setPortalUserRole("");
       return;
     }
     let cancelled = false;
@@ -489,16 +509,28 @@ export default function EmployeePortalPage() {
       } = await getSupabaseSession();
       const userId = session?.user?.id;
       if (!userId) {
-        if (!cancelled) setShowErpHomeLink(false);
+        if (!cancelled) {
+          setShowErpHomeLink(false);
+          setPortalUserRole("");
+        }
         return;
       }
       const role = await fetchNormalizedUserProfileRole(userId);
-      if (!cancelled) setShowErpHomeLink(isAdminOrManagerRole(role));
+      if (!cancelled) {
+        setShowErpHomeLink(isAdminOrManagerRole(role));
+        setPortalUserRole(role);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  /** Mock 模式顯示技術說明便於開發；連線時僅 admin */
+  const showAdminFieldHints = useMemo(
+    () => !isSupabaseConfigured || isAdminRole(portalUserRole),
+    [portalUserRole]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -941,7 +973,7 @@ export default function EmployeePortalPage() {
                 </h2>
                 <p className="text-sm tabular-nums text-muted-foreground">{todayLabel}</p>
               </div>
-              <div className="grid w-full shrink-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 lg:min-w-0 lg:basis-0 lg:flex-[3]">
+              <div className="grid w-full shrink-0 grid-cols-2 gap-3 lg:min-w-0 lg:grid-cols-4 lg:basis-0 lg:flex-[3]">
                 <StatMini
                   label="本月薪資"
                   footer={
@@ -962,36 +994,60 @@ export default function EmployeePortalPage() {
                   NT${" "}
                   {stats.monthly_salary_ntd.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}
                 </StatMini>
+                <StatMini className="min-h-[7rem] sm:min-h-[7.5rem]">
+                  <div className="flex flex-col gap-2.5 text-left font-normal">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        特休
+                      </p>
+                      <p className="mt-0.5 text-base font-semibold tabular-nums tracking-tight text-primary sm:text-lg md:text-xl">
+                        {formatDayDecimalAsDayHour(employee.annual_leave_remaining)}
+                      </p>
+                    </div>
+                    <div className="min-w-0 border-t border-border/50 pt-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        補休
+                      </p>
+                      <p className="mt-0.5 text-base font-semibold tabular-nums tracking-tight text-primary sm:text-lg md:text-xl">
+                        {formatHoursAsDayHour(employee.comp_leave_remaining)}
+                      </p>
+                    </div>
+                  </div>
+                </StatMini>
                 <StatMini label="本月加班天數">{stats.monthly_overtime_days} 天</StatMini>
                 <StatMini label="本月請假天數">{stats.monthly_leave_days} 天</StatMini>
-                <StatMini label="特休假剩餘">
-                  <span className="block leading-snug">
-                    {formatDayDecimalAsDayHour(employee.annual_leave_remaining)}
-                  </span>
-                </StatMini>
-                <StatMini label="補休剩餘">
-                  <span className="block leading-snug">
-                    {formatHoursAsDayHour(employee.comp_leave_remaining)}
-                  </span>
-                </StatMini>
               </div>
             </div>
           </section>
 
-          {/* 公司公告（Supabase 啟用時：company_event · category = 公司） */}
-          <CompanyAnnouncementsBlock
-            items={activeAnnouncements(data.announcements).map((a) => ({
-              id: a.id,
-              title: a.title,
-              body: a.body,
-              published_at: a.published_at,
-            }))}
-            subtitle={
-              isSupabaseConfigured
-                ? "company_event · 類別為「公司」"
-                : "Mock 資料 · 設定 Supabase 後改讀資料庫"
-            }
-          />
+          {/* 公司公告（左）＋ 週五工坊輪替（右，lg 並排） */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+            <CompanyAnnouncementsBlock
+              items={activeAnnouncements(data.announcements).map((a) => ({
+                id: a.id,
+                title: a.title,
+                body: a.body,
+                published_at: a.published_at,
+              }))}
+              subtitle={
+                showAdminFieldHints
+                  ? isSupabaseConfigured
+                    ? "company_event · 類別為「公司」"
+                    : "Mock 資料 · 設定 Supabase 後改讀資料庫"
+                  : undefined
+              }
+            />
+            <WorkshopWeeklyRotationBlock
+              refreshTick={meetingDataTick}
+              subtitle={
+                showAdminFieldHints
+                  ? isSupabaseConfigured
+                    ? "employees.meeting_minutes · 依開會日期最新一筆"
+                    : undefined
+                  : undefined
+              }
+            />
+          </div>
 
           <MeetingMinutesSection
             currentEmployeeId={employee.id}
@@ -1000,6 +1056,8 @@ export default function EmployeePortalPage() {
             refreshTick={meetingDataTick}
             onMeetingSaved={() => setMeetingDataTick((t) => t + 1)}
             canManageMeetingMinutes={showErpHomeLink}
+            canDeleteMeetingMinutes={!isSupabaseConfigured ? showErpHomeLink : isAdminRole(portalUserRole)}
+            showAdminHints={showAdminFieldHints}
           />
 
           {/* 我的交辦 */}
@@ -1010,11 +1068,13 @@ export default function EmployeePortalPage() {
               </div>
               <div>
                 <h3 className="text-base font-semibold">我的交辦事項</h3>
-                <p className="text-xs text-muted-foreground">
-                  {dataSource === "supabase"
-                    ? "開會紀錄交辦（可勾選已完成）· 與 production_tasks 生產任務"
-                    : "Mock · employee_tasks"}
-                </p>
+                {showAdminFieldHints ? (
+                  <p className="text-xs text-muted-foreground">
+                    {dataSource === "supabase"
+                      ? "開會紀錄交辦（可勾選已完成）· 與 production_tasks 生產任務"
+                      : "Mock · employee_tasks"}
+                  </p>
+                ) : null}
               </div>
             </div>
             <div className="space-y-6">
@@ -1106,11 +1166,13 @@ export default function EmployeePortalPage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold tracking-tight sm:text-xl">我的進度追蹤</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {dataSource === "supabase"
-                      ? "work_orders · 負責人為您（下拉僅前端預覽，尚未寫回 DB）"
-                      : "Mock · 下拉為本地 State"}
-                  </p>
+                  {showAdminFieldHints ? (
+                    <p className="text-xs text-muted-foreground">
+                      {dataSource === "supabase"
+                        ? "production_tasks · employee_id 為您之生產物件（下拉僅前端預覽，尚未寫回 DB）"
+                        : "Mock · 下拉為本地 State"}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1197,7 +1259,9 @@ export default function EmployeePortalPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-semibold">我的請假狀態</h3>
-                  <p className="text-xs text-muted-foreground">leave_requests · 近期紀錄</p>
+                  {showAdminFieldHints ? (
+                    <p className="text-xs text-muted-foreground">leave_requests · 近期紀錄</p>
+                  ) : null}
                 </div>
               </div>
               <Button
@@ -1282,7 +1346,11 @@ export default function EmployeePortalPage() {
                   </Dialog.Title>
                   <Dialog.Description className="mt-0.5 text-[10px] leading-snug text-muted-foreground sm:text-[11px]">
                     點「明細」展開完整項目與出勤備註。
-                    {dataSource === "supabase" ? " 資料來源：payslips。" : " （Mock）"}
+                    {showAdminFieldHints
+                      ? dataSource === "supabase"
+                        ? " 資料來源：payslips。"
+                        : " （Mock）"
+                      : null}
                   </Dialog.Description>
                 </div>
                 <Dialog.Close asChild>
@@ -1399,9 +1467,13 @@ export default function EmployeePortalPage() {
               <div>
                 <Dialog.Title className="text-lg font-semibold text-foreground">申請休假</Dialog.Title>
                 <Dialog.Description className="mt-1 text-sm text-muted-foreground">
-                  {isSupabaseConfigured
-                    ? "送出後將寫入請假紀錄（leave_requests），狀態為待審核。"
-                    : "Mock：送出後僅更新此頁列表，不寫入資料庫。"}
+                  {showAdminFieldHints
+                    ? isSupabaseConfigured
+                      ? "送出後將寫入請假紀錄（leave_requests），狀態為待審核。"
+                      : "Mock：送出後僅更新此頁列表，不寫入資料庫。"
+                    : isSupabaseConfigured
+                      ? "送出後將寫入請假紀錄，狀態為待審核。"
+                      : "送出後僅更新此頁列表，不寫入資料庫。"}
                 </Dialog.Description>
               </div>
               <Dialog.Close asChild>
@@ -1424,7 +1496,9 @@ export default function EmployeePortalPage() {
                     </p>
                   ) : (
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      尚未設定（employees.annual_leave_remaining）。請洽人資維護。
+                      {showAdminFieldHints
+                        ? "尚未設定（employees.annual_leave_remaining）。請洽人資維護。"
+                        : "尚未設定。請洽人資維護。"}
                     </p>
                   )}
                 </div>
@@ -1437,7 +1511,9 @@ export default function EmployeePortalPage() {
                     </p>
                   ) : (
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      尚未設定（employees.comp_leave_remaining）。請洽人資維護。
+                      {showAdminFieldHints
+                        ? "尚未設定（employees.comp_leave_remaining）。請洽人資維護。"
+                        : "尚未設定。請洽人資維護。"}
                     </p>
                   )}
                 </div>
@@ -1535,8 +1611,14 @@ export default function EmployeePortalPage() {
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 上班時段 {LEAVE_WORKDAY_START_HOUR}:00–{LEAVE_WORKDAY_END_HOUR}:00；午休{" "}
                 {LEAVE_LUNCH_START_HOUR}:00–{LEAVE_LUNCH_END_HOUR}:00 不計入。僅計算與上班時段重疊的時間；跨日時中間完整工作
-                日各計 {LEAVE_WORK_DAY_HOURS} 小時（已扣午休）。週六、週日及 public_holidays 之放假日（is_workday=false）不計入；補班日（is_workday=true）計入。
-                {isSupabaseConfigured ? " 已自資料庫載入假日設定。" : " 未連線資料庫時僅排除週末。"}
+                日各計 {LEAVE_WORK_DAY_HOURS} 小時（已扣午休）。
+                {showAdminFieldHints
+                  ? ` 週六、週日及 public_holidays 之放假日（is_workday=false）不計入；補班日（is_workday=true）計入。${
+                      isSupabaseConfigured ? " 已自資料庫載入假日設定。" : " 未連線資料庫時僅排除週末。"
+                    }`
+                  : ` 週六、週日及國定放假日不計入；補班日計入。${
+                      isSupabaseConfigured ? " 已載入國定／假日設定。" : " 未連線時僅排除週末。"
+                    }`}
               </p>
               {timedLeaveHourPreview ? (
                 <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm">

@@ -14,6 +14,7 @@ export function exportProductsCsv(series: SeriesRow[], variants: VariantRow[]) {
     "代碼",
     "木種",
     "尺寸",
+    "座高（cm）",
     "桌面面積",
     "基礎定價",
     "網站",
@@ -36,6 +37,9 @@ export function exportProductsCsv(series: SeriesRow[], variants: VariantRow[]) {
       v.product_code ?? "",
       v.wood_type ?? "",
       dim,
+      v.seat_height_cm != null && Number.isFinite(Number(v.seat_height_cm))
+        ? String(v.seat_height_cm)
+        : "",
       v.desktop_area != null ? String(v.desktop_area) : "",
       v.base_price != null ? String(v.base_price) : "",
       s?.website ?? "",

@@ -34,6 +34,8 @@ export interface VariantRow {
   dimension_w?: number | null;
   dimension_d?: number | null;
   dimension_h?: number | null;
+  /** 座高（cm），椅／凳等產品 */
+  seat_height_cm?: number | null;
   base_price?: number | null;
   desktop_area?: number | null;
   /** 通用規格1（例如椅子的「坐墊規格」） */

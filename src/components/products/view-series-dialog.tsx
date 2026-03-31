@@ -30,8 +30,13 @@ function formatDim(v: VariantRow): string {
   const d = v.dimension_d != null ? v.dimension_d : "";
   const h = v.dimension_h != null ? v.dimension_h : "";
   const parts = [w, d, h].filter((x) => x !== "");
-  if (parts.length === 0) return "—";
-  return `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
+  let base =
+    parts.length === 0 ? "—" : `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
+  const sh = v.seat_height_cm != null ? Number(v.seat_height_cm) : NaN;
+  if (Number.isFinite(sh)) {
+    base = base === "—" ? `座高 ${sh} cm` : `${base} · 座高 ${sh} cm`;
+  }
+  return base;
 }
 
 function TextBlock({ title, content }: { title: string; content: string | null | undefined }) {

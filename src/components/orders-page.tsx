@@ -1,8 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { supabase } from "@/lib/supabase";
+import {
+  DEFAULT_WORK_ORDER_STAGE,
+  isOrderStatusLockedForManualEdit,
+  syncWorkOrdersToOrderStatus,
+} from "@/lib/work-order-stages";
+import { DEFAULT_SEAT_HEIGHT_CM } from "@/lib/product-seat-height";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +32,7 @@ type OrderStatus =
   | "排程中"
   | "繪製製作圖"
   | "生產中"
+  | "暫停"
   | "已完工"
   | "已出貨"
   | "結案";
@@ -88,6 +96,7 @@ interface VariantOption {
   dimension_w?: number | null;
   dimension_d?: number | null;
   dimension_h?: number | null;
+  seat_height_cm?: number | null;
 }
 
 interface OrderItemInput {
@@ -104,6 +113,8 @@ interface OrderItemInput {
   custom_dimension_w?: number | null;
   custom_dimension_d?: number | null;
   custom_dimension_h?: number | null;
+  /** 訂單約定座高（cm），存入 order_items.seat_height_cm */
+  seat_height_cm?: number | null;
   image_url?: string | null;
   wood_type?: string | null;
 }
@@ -126,6 +137,7 @@ const ORDER_EXPLANATION_COMPRESSION_OPTIONS = {
   useWebWorker: true,
 } as const;
 
+/** 手動可選（不含「暫停」— 僅由生產工序帶入） */
 const ORDER_STATUS_OPTIONS: OrderStatus[] = [
   "報價中",
   "繪圖中",
@@ -136,6 +148,32 @@ const ORDER_STATUS_OPTIONS: OrderStatus[] = [
   "已出貨",
   "結案",
 ];
+
+/** 列表依「訂單狀態」欄排序時使用（與 ORDER_STATUS_OPTIONS 流程一致；「暫停」介於生產與完工之間） */
+const ORDER_STATUS_SORT_ORDER: OrderStatus[] = [
+  "報價中",
+  "繪圖中",
+  "排程中",
+  "繪製製作圖",
+  "生產中",
+  "暫停",
+  "已完工",
+  "已出貨",
+  "結案",
+];
+
+function orderStatusSortIndex(status: OrderStatus): number {
+  const i = ORDER_STATUS_SORT_ORDER.indexOf(status);
+  return i >= 0 ? i : ORDER_STATUS_SORT_ORDER.length;
+}
+
+function manualOrderStatusOptions(current: OrderStatus): OrderStatus[] {
+  if (current === "暫停") return [];
+  if (current === "已完工") return ["已完工", "已出貨", "結案"];
+  if (current === "已出貨") return ["已出貨", "結案"];
+  if (current === "結案") return [];
+  return [...ORDER_STATUS_OPTIONS];
+}
 
 const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = [
   "未付款",
@@ -150,6 +188,7 @@ const statusStyles: Record<OrderStatus, string> = {
   排程中: "bg-amber-100 text-amber-800 border-amber-200",
   繪製製作圖: "bg-violet-100 text-violet-800 border-violet-200",
   生產中: "bg-blue-100 text-blue-800 border-blue-200",
+  暫停: "bg-orange-100 text-orange-900 border-orange-200",
   已完工: "bg-teal-100 text-teal-900 border-teal-200",
   已出貨: "bg-emerald-100 text-emerald-800 border-emerald-200",
   結案: "bg-slate-200 text-slate-800 border-slate-300",
@@ -278,6 +317,11 @@ function OrderFormDialog({
   onRefreshCustomers,
 }: OrderFormProps) {
   const isEdit = Boolean(initialOrder);
+  /** 依「已儲存」訂單狀態鎖定；未儲存前可從繪圖改回，避免誤選生產中後無法復原 */
+  const savedOrderStatusLocked =
+    isEdit &&
+    initialOrder != null &&
+    isOrderStatusLockedForManualEdit(initialOrder.status);
   /** 結案檢視：勿用 fieldset disabled（會讓 select 無法展開閱讀），改以唯讀欄位呈現 */
   const viewFieldClass =
     "flex min-h-9 w-full items-center rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]";
@@ -354,6 +398,7 @@ function OrderFormDialog({
             custom_notes: "",
             kind: "variant",
             wood_type: null,
+            seat_height_cm: null,
           },
         ]
   );
@@ -446,6 +491,7 @@ function OrderFormDialog({
         custom_notes: "",
         kind: "variant",
         wood_type: null,
+        seat_height_cm: null,
       },
     ]);
     prevTotalAmountRef.current = null;
@@ -674,6 +720,7 @@ function OrderFormDialog({
         custom_notes: "",
         kind: "variant",
         wood_type: null,
+        seat_height_cm: null,
       },
       ...prev,
     ]);
@@ -684,6 +731,18 @@ function OrderFormDialog({
     const confirmed = window.confirm("是否確定移除此筆訂單明細？");
     if (!confirmed) return;
     setItems((prev) => prev.filter((it) => it.id !== id));
+  }
+
+  function moveItem(id: string, direction: -1 | 1) {
+    setItems((prev) => {
+      const idx = prev.findIndex((x) => x.id === id);
+      if (idx < 0) return prev;
+      const next = idx + direction;
+      if (next < 0 || next >= prev.length) return prev;
+      const copy = [...prev];
+      [copy[idx], copy[next]] = [copy[next], copy[idx]];
+      return copy;
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -760,7 +819,7 @@ function OrderFormDialog({
         await supabase.from("order_items").delete().eq("order_id", orderId);
       }
 
-      const itemsPayload = validItems.map((it) => {
+      const itemsPayload = validItems.map((it, lineIndex) => {
         // 若為規格品且尚未指定 custom_category，依 series 對應的 product_series.category 自動帶入
         let resolvedCategory = it.custom_category ?? null;
         if (it.kind === "variant" && !resolvedCategory && it.series_id) {
@@ -772,6 +831,7 @@ function OrderFormDialog({
 
         return {
           order_id: orderId,
+          line_order: lineIndex,
           variant_id: it.kind === "variant" ? it.variant_id || null : null,
           quantity: it.quantity,
           unit_price: it.unit_price,
@@ -787,6 +847,10 @@ function OrderFormDialog({
             it.custom_dimension_d != null ? it.custom_dimension_d : null,
           custom_dimension_h:
             it.custom_dimension_h != null ? it.custom_dimension_h : null,
+          seat_height_cm:
+            it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
+              ? Number(it.seat_height_cm)
+              : null,
           image_url: it.image_url ?? null,
           wood_type: it.wood_type ?? null,
         };
@@ -805,7 +869,7 @@ function OrderFormDialog({
       const workOrderPayload =
         (insertedItems ?? []).map((row: any) => ({
           order_item_id: row.id,
-          stage: "待排程",
+          stage: DEFAULT_WORK_ORDER_STAGE,
           status: "未開始",
         })) ?? [];
       if (workOrderPayload.length > 0) {
@@ -816,6 +880,15 @@ function OrderFormDialog({
           // 不阻擋訂單建立，只提示
           console.error("建立工單失敗:", woError);
           toast.error("訂單已建立，但工單建立失敗，請稍後到生產管理檢查。");
+        } else {
+          const sync = await syncWorkOrdersToOrderStatus(
+            supabase,
+            orderId!,
+            status,
+          );
+          if (!sync.ok) {
+            console.warn("[orders] 工單與訂單狀態同步失敗:", sync.error);
+          }
         }
       }
 
@@ -1010,9 +1083,16 @@ function OrderFormDialog({
                     >
                       訂單狀態
                     </label>
-                    {readOnly ? (
-                      <div id="order-status" className={viewFieldClass}>
-                        {status}
+                    {readOnly || savedOrderStatusLocked ? (
+                      <div className="space-y-1">
+                        <div id="order-status" className={viewFieldClass}>
+                          {status}
+                        </div>
+                        {savedOrderStatusLocked && !readOnly ? (
+                          <p className="text-[11px] text-muted-foreground leading-snug">
+                            生產中／暫停時請至「生產管理」調整工單工序；全部進入「包裝檢查」後將自動改為已完工。
+                          </p>
+                        ) : null}
                       </div>
                     ) : (
                       <select
@@ -1023,7 +1103,7 @@ function OrderFormDialog({
                         }
                         className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       >
-                        {ORDER_STATUS_OPTIONS.map((s) => (
+                        {manualOrderStatusOptions(status).map((s) => (
                           <option key={s} value={s}>
                             {s}
                           </option>
@@ -1312,14 +1392,36 @@ function OrderFormDialog({
                         <p className="text-xs font-medium text-muted-foreground">
                           品項 {idx + 1}
                         </p>
-                        {itemRows.length > 1 && !readOnly && (
-                          <button
-                            type="button"
-                            onClick={() => removeItem(it.id)}
-                            className="text-[11px] text-muted-foreground hover:text-destructive focus:outline-none focus:ring-2 focus:ring-ring rounded px-2 py-0.5"
-                          >
-                            移除
-                          </button>
+                        {!readOnly && itemRows.length > 1 && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              title="上移"
+                              disabled={idx === 0}
+                              onClick={() => moveItem(it.id, -1)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+                              aria-label="上移"
+                            >
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="下移"
+                              disabled={idx === itemRows.length - 1}
+                              onClick={() => moveItem(it.id, 1)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+                              aria-label="下移"
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeItem(it.id)}
+                              className="text-[11px] text-muted-foreground hover:text-destructive focus:outline-none focus:ring-2 focus:ring-ring rounded px-2 py-0.5"
+                            >
+                              移除
+                            </button>
+                          </div>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1432,6 +1534,13 @@ function OrderFormDialog({
                                     const dimW = selected?.dimension_w ?? null;
                                     const dimD = selected?.dimension_d ?? null;
                                     const dimH = selected?.dimension_h ?? null;
+                                    const seatResolved =
+                                      selected?.seat_height_cm != null
+                                        ? Number(selected.seat_height_cm)
+                                        : selected?.series_category === "椅" ||
+                                            selected?.series_category === "凳"
+                                          ? DEFAULT_SEAT_HEIGHT_CM
+                                          : null;
                                     updateItem(it.id, {
                                       variant_id: value,
                                       series_id: selected?.series_id ?? it.series_id ?? null,
@@ -1443,6 +1552,7 @@ function OrderFormDialog({
                                       custom_dimension_w: dimW,
                                       custom_dimension_d: dimD,
                                       custom_dimension_h: dimH,
+                                      seat_height_cm: seatResolved,
                                     });
                                   }}
                                   className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1546,7 +1656,7 @@ function OrderFormDialog({
                               })()}
                             </div>
                           </div>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
                             <div className="flex flex-col gap-1.5">
                               <label
                                 className="text-xs text-muted-foreground"
@@ -1616,6 +1726,30 @@ function OrderFormDialog({
                                 onChange={(e) =>
                                   updateItem(it.id, {
                                     custom_dimension_h:
+                                      e.target.value === ""
+                                        ? null
+                                        : Number(e.target.value),
+                                  })
+                                }
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <label
+                                className="text-xs text-muted-foreground"
+                                htmlFor={`item-seat-${it.id}`}
+                              >
+                                座高（cm）
+                              </label>
+                              <input
+                                id={`item-seat-${it.id}`}
+                                type="number"
+                                placeholder="cm"
+                                value={it.seat_height_cm ?? ""}
+                                onChange={(e) =>
+                                  updateItem(it.id, {
+                                    seat_height_cm:
                                       e.target.value === ""
                                         ? null
                                         : Number(e.target.value),
@@ -1819,6 +1953,26 @@ function OrderFormDialog({
                                 />
                               </div>
                             </div>
+                          </div>
+                          <div className="flex flex-col gap-1.5 sm:max-w-[12rem]">
+                            <label className="text-xs text-muted-foreground">
+                              座高（cm）
+                            </label>
+                            <input
+                              type="number"
+                              placeholder="cm"
+                              value={it.seat_height_cm ?? ""}
+                              onChange={(e) =>
+                                updateItem(it.id, {
+                                  seat_height_cm:
+                                    e.target.value === ""
+                                      ? null
+                                      : Number(e.target.value),
+                                })
+                              }
+                              readOnly={readOnly}
+                              className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                            />
                           </div>
                           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 mt-1.5">
                             <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
@@ -2217,7 +2371,7 @@ export function OrdersPage({
       const { data: variantData } = await supabase
         .from("product_variants")
         .select(
-          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, base_price, spec1"
+          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1"
         )
         .order("product_code", { ascending: true });
       setVariants(
@@ -2226,10 +2380,18 @@ export function OrdersPage({
           const d = v.dimension_d ?? "";
           const h = v.dimension_h ?? "";
           const parts = [w, d, h].filter((x: unknown) => x !== "");
-          const dim =
+          let dim =
             parts.length === 0
               ? ""
               : `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
+          const seatH =
+            v.seat_height_cm != null ? Number(v.seat_height_cm) : NaN;
+          if (Number.isFinite(seatH)) {
+            dim =
+              dim === ""
+                ? `座高 ${seatH} cm`
+                : `${dim} · 座高 ${seatH} cm`;
+          }
           const seriesId = String(v.series_id ?? "");
           const seriesName = seriesNameMap.get(seriesId) ?? "";
           const labelParts = [
@@ -2253,6 +2415,8 @@ export function OrdersPage({
             dimension_w: v.dimension_w != null ? Number(v.dimension_w) : null,
             dimension_d: v.dimension_d != null ? Number(v.dimension_d) : null,
             dimension_h: v.dimension_h != null ? Number(v.dimension_h) : null,
+            seat_height_cm:
+              v.seat_height_cm != null ? Number(v.seat_height_cm) : null,
           };
         })
       );
@@ -2453,6 +2617,14 @@ export function OrdersPage({
         const bSettled = b.payment_status === "已結清";
         if (aSettled !== bSettled) return aSettled ? 1 : -1;
       }
+      if (sortKey === "status") {
+        const ar = orderStatusSortIndex(a.status);
+        const br = orderStatusSortIndex(b.status);
+        if (ar !== br) return sortDir === "asc" ? ar - br : br - ar;
+        const ad = a.order_date ?? "";
+        const bd = b.order_date ?? "";
+        return bd.localeCompare(ad);
+      }
       const av = a[sortKey];
       const bv = b[sortKey];
       if (av == null && bv == null) return 0;
@@ -2568,15 +2740,19 @@ export function OrdersPage({
         custom_dimension_h,
         image_url,
         wood_type,
+        seat_height_cm,
         product_variants (
           series_id,
           dimension_w,
           dimension_d,
-          dimension_h
+          dimension_h,
+          seat_height_cm
         )
       `
       )
-      .eq("order_id", order.id);
+      .eq("order_id", order.id)
+      .order("line_order", { ascending: true })
+      .order("id", { ascending: true });
     if (error) {
       toast.error(error.message || "讀取訂單明細失敗");
       return;
@@ -2584,7 +2760,13 @@ export function OrdersPage({
     const items: OrderItemInput[] = ((data ?? []) as any[]).map((d, idx) => {
       const isCustom = !d.variant_id;
       const pv = d.product_variants as
-        | { series_id?: string | null; dimension_w?: number | null; dimension_d?: number | null; dimension_h?: number | null }
+        | {
+            series_id?: string | null;
+            dimension_w?: number | null;
+            dimension_d?: number | null;
+            dimension_h?: number | null;
+            seat_height_cm?: number | null;
+          }
         | null
         | undefined;
 
@@ -2608,6 +2790,13 @@ export function OrdersPage({
           ? Number(pv.dimension_h)
           : null;
 
+      const seatH =
+        d.seat_height_cm !== undefined && d.seat_height_cm !== null
+          ? Number(d.seat_height_cm)
+          : pv?.seat_height_cm !== undefined && pv.seat_height_cm !== null
+          ? Number(pv.seat_height_cm)
+          : null;
+
       return {
         id: d.id ? String(d.id) : `item-${idx}`,
         variant_id: d.variant_id ? String(d.variant_id) : "",
@@ -2626,6 +2815,7 @@ export function OrdersPage({
         custom_dimension_w: dimW,
         custom_dimension_d: dimD,
         custom_dimension_h: dimH,
+        seat_height_cm: seatH,
         image_url: d.image_url ?? null,
         wood_type: d.wood_type != null && String(d.wood_type).trim() !== "" ? String(d.wood_type) : null,
       };
@@ -2669,6 +2859,14 @@ export function OrdersPage({
       toast.error("已結案之訂單無法變更");
       return;
     }
+    if (
+      patch.status != null &&
+      row &&
+      isOrderStatusLockedForManualEdit(row.status)
+    ) {
+      toast.error("請至生產管理調整工單工序；訂單為生產中／暫停時無法手動改訂單狀態");
+      return;
+    }
     const payload: any = {};
     if (patch.status) payload.status = patch.status;
     if (patch.payment_status) payload.payment_status = patch.payment_status;
@@ -2680,6 +2878,12 @@ export function OrdersPage({
     if (error) {
       toast.error(error.message || "更新訂單狀態失敗");
       return;
+    }
+    if (patch.status) {
+      const sync = await syncWorkOrdersToOrderStatus(supabase, id, patch.status);
+      if (!sync.ok) {
+        toast.error(sync.error || "訂單已更新，但工單工序同步失敗");
+      }
     }
     setOrders((prev) =>
       prev.map((o) =>
@@ -2792,13 +2996,23 @@ export function OrdersPage({
               ? "狀態：非報價中"
               : `狀態：${statusFilter}`}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="text-foreground">
               篩選結果總金額：
               <span className="font-semibold ml-1">
                 {filteredTotalAmount.toLocaleString()}
               </span>
             </span>
+            <Link
+              href="/print/shipping-marks"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-1 h-8 px-3 text-xs font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
+              aria-label="開啟物流警示標列印（新分頁）"
+            >
+              <Printer className="h-3.5 w-3.5 shrink-0" />
+              物流警示標
+            </Link>
             <Button
               type="button"
               variant="outline"
@@ -2947,7 +3161,8 @@ export function OrdersPage({
                       : "—"}
                   </TableCell>
                   <TableCell className="text-sm hidden sm:table-cell">
-                    {rowReadOnly ? (
+                    {rowReadOnly ||
+                    isOrderStatusLockedForManualEdit(order.status) ? (
                       <StatusBadge status={order.status} />
                     ) : (
                       <div
@@ -2967,7 +3182,7 @@ export function OrdersPage({
                           onMouseDown={(e) => e.stopPropagation()}
                           className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
                         >
-                          {ORDER_STATUS_OPTIONS.map((s) => (
+                          {manualOrderStatusOptions(order.status).map((s) => (
                             <option key={s} value={s}>
                               {s}
                             </option>

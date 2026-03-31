@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
 
 interface PrintOrder {
   id: string;
@@ -147,9 +148,11 @@ export default function PrintOrderPage() {
         const lineRes = await supabase
           .from("order_items")
           .select(
-            "id, order_id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, image_url, wood_type"
+            "id, order_id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, seat_height_cm, image_url, wood_type"
           )
-          .eq("order_id", orderId);
+          .eq("order_id", orderId)
+          .order("line_order", { ascending: true })
+          .order("id", { ascending: true });
 
         if (lineRes.error) {
           throw new Error(lineRes.error.message || "讀取訂單明細失敗");
@@ -176,6 +179,7 @@ export default function PrintOrderPage() {
             dimension_w: number | null;
             dimension_d: number | null;
             dimension_h: number | null;
+            seat_height_cm: number | null;
             spec1: string | null;
           }
         > = {};
@@ -184,7 +188,7 @@ export default function PrintOrderPage() {
         if (variantIds.length > 0) {
           const { data: variants, error: variantErr } = await supabase
             .from("product_variants")
-            .select("id, series_id, product_code, image_url, wood_type, dimension_w, dimension_d, dimension_h, spec1")
+            .select("id, series_id, product_code, image_url, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, spec1")
             .in("id", variantIds);
 
           if (variantErr) {
@@ -203,6 +207,8 @@ export default function PrintOrderPage() {
                 dimension_w: v.dimension_w != null ? Number(v.dimension_w) : null,
                 dimension_d: v.dimension_d != null ? Number(v.dimension_d) : null,
                 dimension_h: v.dimension_h != null ? Number(v.dimension_h) : null,
+                seat_height_cm:
+                  v.seat_height_cm != null ? Number(v.seat_height_cm) : null,
                 spec1: v.spec1 != null ? String(v.spec1) : null,
               },
             ])
@@ -247,13 +253,15 @@ export default function PrintOrderPage() {
 
         const mappedItems: PrintOrderItem[] = itemRows.map((r: any, idx: number) => {
           const isCustom = !r.variant_id;
+          const lineSeat =
+            r.seat_height_cm != null ? Number(r.seat_height_cm) : NaN;
 
           // 不論客製或規格，一律優先使用 order_items.custom_dimension_*
           const hasDims =
             r.custom_dimension_w != null ||
             r.custom_dimension_d != null ||
             r.custom_dimension_h != null;
-          const dimText = hasDims
+          let dimText: string | null = hasDims
             ? `${r.custom_dimension_w ?? "—"} × ${r.custom_dimension_d ?? "—"} × ${r.custom_dimension_h ?? "—"}`
             : null;
 
@@ -269,6 +277,13 @@ export default function PrintOrderPage() {
             const descParts: string[] = [];
             if (r.custom_description) descParts.push(String(r.custom_description));
 
+            let dimOut = dimText;
+            if (Number.isFinite(lineSeat)) {
+              dimOut = dimOut
+                ? `${dimOut} · 座高 ${lineSeat} cm`
+                : `座高 ${lineSeat} cm`;
+            }
+
             return {
               id: String(r.id ?? `item-${idx}`),
               quantity: Number(r.quantity ?? 1),
@@ -279,7 +294,7 @@ export default function PrintOrderPage() {
               description: descParts.length > 0 ? descParts.join("；") : null,
               image_url: r.image_url ?? null,
               wood_type: itemWoodType(r),
-              dimension_text: dimText,
+              dimension_text: dimOut,
               spec_text: null,
             };
           }
@@ -292,6 +307,39 @@ export default function PrintOrderPage() {
 
           const imageUrl = r.image_url ?? variant?.image_url ?? series?.image_url ?? null;
 
+          if (!dimText && variant) {
+            const hasVariantDims =
+              variant.dimension_w != null ||
+              variant.dimension_d != null ||
+              variant.dimension_h != null;
+            const base = hasVariantDims
+              ? `${variant.dimension_w ?? "—"} × ${variant.dimension_d ?? "—"} × ${variant.dimension_h ?? "—"}`
+              : null;
+            const shSeat = Number.isFinite(lineSeat)
+              ? lineSeat
+              : variant.seat_height_cm != null
+                ? Number(variant.seat_height_cm)
+                : NaN;
+            if (base && Number.isFinite(shSeat)) {
+              dimText = `${base} · 座高 ${shSeat} cm`;
+            } else if (base) {
+              dimText = base;
+            } else if (Number.isFinite(shSeat)) {
+              dimText = `座高 ${shSeat} cm`;
+            }
+          } else if (dimText && Number.isFinite(lineSeat)) {
+            dimText = `${dimText} · 座高 ${lineSeat} cm`;
+          } else if (
+            dimText &&
+            !Number.isFinite(lineSeat) &&
+            variant &&
+            variant.seat_height_cm != null &&
+            Number.isFinite(Number(variant.seat_height_cm))
+          ) {
+            // 明細未填座高時，尺寸欄仍於後方標註規格庫座高
+            dimText = `${dimText} · 座高 ${Number(variant.seat_height_cm)} cm`;
+          }
+
           return {
             id: String(r.id ?? `item-${idx}`),
             quantity: Number(r.quantity ?? 1),
@@ -303,8 +351,8 @@ export default function PrintOrderPage() {
             image_url: imageUrl,
             wood_type: itemWoodType(r),
             dimension_text: dimText,
-            // 規格欄位顯示 product_variants.spec1，若無資料則留空
-            spec_text: variant?.spec1 ?? null,
+            // 規格欄位顯示 product_variants.spec1（列印時略去 -P/-R/-W/-F 等後綴）
+            spec_text: stripSpecSuffixCodes(String(variant?.spec1 ?? "")) || null,
           };
         });
 

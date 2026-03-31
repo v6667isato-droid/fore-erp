@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
 import { Loader2 } from "lucide-react";
 
 /** 單一訂單明細列 */
@@ -28,8 +29,8 @@ type ChairRow = {
 /** 未出貨：與生產工單相同，排除尚未確認與已結／已出貨 */
 const EXCLUDED_ORDER_STATUSES = new Set(["已出貨", "結案", "報價中"]);
 
-/** 工單工序已達「成品」或之後者，不列入椅子生產表 */
-const EXCLUDED_WORK_STAGES_FOR_CHAIR_PRINT = new Set(["成品", "已出貨"]);
+/** 工單工序已達「待出貨」或之後者（含舊欄位「成品」），不列入椅子生產表 */
+const EXCLUDED_WORK_STAGES_FOR_CHAIR_PRINT = new Set(["待出貨", "已出貨", "成品"]);
 
 function workStageFromOrderItem(raw: { work_orders?: unknown }): string | null {
   const wo = raw.work_orders as { stage?: string } | { stage?: string }[] | null | undefined;
@@ -117,19 +118,6 @@ function isChannelOrderFromCustomers(order: { customers?: unknown }): boolean {
   const row = Array.isArray(rel) ? rel[0] : rel;
   const id = row?.channel_id;
   return id != null && String(id).trim() !== "";
-}
-
-/** 去掉規格中的 -P、-R、-W、-F 等英文後綴（含 * 前） */
-function stripSpecSuffixCodes(text: string): string {
-  let s = text.trim();
-  if (!s) return "";
-  let prev = "";
-  while (prev !== s) {
-    prev = s;
-    s = s.replace(/(?:[-－](?:P|R|W|F))+$/gi, "").trim();
-  }
-  s = s.replace(/(?:[-－](?:P|R|W|F))+(?=\s*\*)/gi, "");
-  return s.trim();
 }
 
 /** 去掉「木(姓名)」等前綴，名字後方不顯示木種標記 */
@@ -220,6 +208,43 @@ function woodSpecColumns(
   return { walnut, oak };
 }
 
+/** 訂單明細座高優先，否則產品變體預設 */
+function resolveSeatHeightCm(raw: {
+  seat_height_cm?: unknown;
+  product_variants?: { seat_height_cm?: unknown } | null;
+}): number | null {
+  const item = raw.seat_height_cm;
+  if (item != null && item !== "" && Number.isFinite(Number(item))) {
+    const n = Number(item);
+    return n;
+  }
+  const v = raw.product_variants?.seat_height_cm;
+  if (v != null && v !== "" && Number.isFinite(Number(v))) {
+    return Number(v);
+  }
+  return null;
+}
+
+/** 座高第二行文字（無括號），整數不顯示小數 */
+function formatSeatHeightLine(cm: number): string {
+  const n = Number(cm);
+  if (!Number.isFinite(n)) return "";
+  const rounded = Math.round(n * 100) / 100;
+  const text = Number.isInteger(rounded) ? String(Math.round(rounded)) : String(rounded);
+  return `座高${text}`;
+}
+
+/** 在有內容的規格儲存格下方加一行座高 */
+function appendSeatHeightToTriple(triple: Triple, seatCm: number | null): Triple {
+  if (seatCm == null || !Number.isFinite(seatCm)) return triple;
+  const line = formatSeatHeightLine(seatCm);
+  return triple.map((cell) => {
+    const t = cell.trim();
+    if (!t) return cell;
+    return `${t}\n${line}`;
+  }) as Triple;
+}
+
 function todayYmd(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -248,13 +273,16 @@ export default function ChairProductionPrintPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const { data, error } = await supabase.from("order_items").select(
-        `
+      const { data, error } = await supabase
+        .from("order_items")
+        .select(
+          `
           id,
           quantity,
           wood_type,
           custom_notes,
           variant_id,
+          seat_height_cm,
           orders!inner (
             id,
             status,
@@ -266,6 +294,7 @@ export default function ChairProductionPrintPage() {
             product_code,
             wood_type,
             spec1,
+            seat_height_cm,
             product_series (
               series_name
             )
@@ -274,7 +303,9 @@ export default function ChairProductionPrintPage() {
             stage
           )
         `
-      );
+        )
+        .order("line_order", { ascending: true })
+        .order("id", { ascending: true });
 
       if (error) throw new Error(error.message || "讀取訂單明細失敗");
 
@@ -309,12 +340,15 @@ export default function ChairProductionPrintPage() {
         const notesStripped = stripSpecSuffixCodes(notesTrim);
         const spec1Stripped = stripSpecSuffixCodes(String(spec1 ?? "").trim());
 
-        const { walnut, oak } = woodSpecColumns(
+        let { walnut, oak } = woodSpecColumns(
           woodMerged || varWood,
           spec1Stripped,
           notesStripped,
           qty
         );
+        const seatCm = resolveSeatHeightCm(raw);
+        walnut = appendSeatHeightToTriple(walnut, seatCm);
+        oak = appendSeatHeightToTriple(oak, seatCm);
 
         const baseLabel = pickSpecBaseLabel(spec1, woodMerged || varWood, notes);
         const displayName = sanitizeCustomerDisplayName(customer);
@@ -387,13 +421,13 @@ export default function ChairProductionPrintPage() {
           overflow-wrap: anywhere;
         }
         .chair-print-table tbody tr.chair-data-row {
-          min-height: 60px;
-          height: 60px;
+          min-height: 48px;
+          height: 48px;
         }
         .chair-print-table tbody tr.chair-data-row > td.chair-body-td {
           box-sizing: border-box;
-          height: 60px;
-          max-height: 60px;
+          height: 48px;
+          max-height: 48px;
           overflow: hidden;
           vertical-align: middle;
         }
@@ -412,10 +446,11 @@ export default function ChairProductionPrintPage() {
           vertical-align: top;
         }
         @media screen {
+          /* scale 後視覺高度大於版面佔位，需加留白避免蓋住下方說明 */
           .chair-print-preview {
             transform: scale(1.06);
             transform-origin: top center;
-            margin-bottom: 2rem;
+            margin-bottom: clamp(3.5rem, 8vmin, 6rem);
           }
         }
         @media print {
@@ -438,15 +473,15 @@ export default function ChairProductionPrintPage() {
           }
           .chair-spec-cell {
             font-size: 13.5px !important;
-            line-height: 1.4 !important;
+            line-height: 1.35 !important;
           }
           .chair-print-table tbody tr.chair-data-row {
-            min-height: 16.5mm !important;
-            height: 16.5mm !important;
+            min-height: 13.2mm !important;
+            height: 13.2mm !important;
           }
           .chair-print-table tbody tr.chair-data-row > td.chair-body-td {
-            height: 16.5mm !important;
-            max-height: 16.5mm !important;
+            height: 13.2mm !important;
+            max-height: 13.2mm !important;
             overflow: hidden !important;
           }
           .chair-print-table tbody tr.chair-data-row > td.chair-body-td.chair-series-merge-cell {
@@ -474,6 +509,7 @@ export default function ChairProductionPrintPage() {
                 onChange={(e) => setSheetDate(e.target.value)}
                 className="rounded border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 w-36"
                 placeholder="YYYY/MM/DD"
+                suppressHydrationWarning
               />
             </label>
             <button
@@ -481,6 +517,7 @@ export default function ChairProductionPrintPage() {
               onClick={() => void load()}
               disabled={loading}
               className="rounded border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+              suppressHydrationWarning
             >
               重新載入
             </button>
@@ -490,6 +527,7 @@ export default function ChairProductionPrintPage() {
               type="button"
               onClick={() => window.print()}
               className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
+              suppressHydrationWarning
             >
               列印
             </button>
@@ -505,7 +543,7 @@ export default function ChairProductionPrintPage() {
           </div>
         </div>
 
-        <div className="mx-auto max-w-[210mm] px-3 py-5 print:max-w-none print:px-0 print:py-0">
+        <div className="mx-auto max-w-[210mm] px-3 py-5 pb-16 print:max-w-none print:px-0 print:py-0 print:pb-0">
           <div className="mb-2 flex items-baseline gap-2 text-sm print:mb-1">
             <span className="font-medium">製表日期：</span>
             <span className="min-w-[8em] border-b border-zinc-800 print:border-black">
@@ -525,19 +563,20 @@ export default function ChairProductionPrintPage() {
               <div className="chair-print-preview overflow-x-auto print:overflow-visible">
                 <table className="chair-print-table w-full min-w-[190mm] table-fixed border-collapse border border-black text-[15px] leading-snug print:leading-snug">
                   <colgroup>
-                    <col style={{ width: "4%" }} />
-                    <col style={{ width: "11%" }} />
-                    <col style={{ width: "5%" }} />
-                    <col style={{ width: "4%" }} />
-                    <col style={{ width: "4%" }} />
-                    <col style={{ width: "4%" }} />
-                    <col style={{ width: "4%" }} />
-                    <col style={{ width: "5.8%" }} />
-                    <col style={{ width: "5.8%" }} />
-                    <col style={{ width: "5.8%" }} />
-                    <col style={{ width: "5.8%" }} />
-                    <col style={{ width: "5.8%" }} />
-                    <col style={{ width: "5.8%" }} />
+                    <col style={{ width: "4.4%" }} />
+                    <col style={{ width: "13.2%" }} />
+                    <col style={{ width: "4.8%" }} />
+                    {/* 側邊、整張、噴漆、完成 — 等寬 */}
+                    <col style={{ width: "3.82%" }} />
+                    <col style={{ width: "3.82%" }} />
+                    <col style={{ width: "3.82%" }} />
+                    <col style={{ width: "3.82%" }} />
+                    <col style={{ width: "5.52%" }} />
+                    <col style={{ width: "5.52%" }} />
+                    <col style={{ width: "5.52%" }} />
+                    <col style={{ width: "5.52%" }} />
+                    <col style={{ width: "5.52%" }} />
+                    <col style={{ width: "5.52%" }} />
                   </colgroup>
                   <thead>
                     <tr>
@@ -549,7 +588,7 @@ export default function ChairProductionPrintPage() {
                       </th>
                       <th
                         rowSpan={2}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold w-[6%] print:bg-emerald-100"
+                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
                       >
                         預計交期
                       </th>
@@ -561,13 +600,13 @@ export default function ChairProductionPrintPage() {
                       </th>
                       <th
                         rowSpan={2}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold w-[5%] print:bg-emerald-100"
+                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
                       >
                         噴漆階段
                       </th>
                       <th
                         rowSpan={2}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold w-[5%] print:bg-emerald-100"
+                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
                       >
                         完成日期
                       </th>
@@ -591,10 +630,10 @@ export default function ChairProductionPrintPage() {
                       <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0 whitespace-normal break-words text-left">
                         客戶／聯絡人
                       </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium w-[4%] print:bg-emerald-100">
+                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
                         側邊
                       </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium w-[4%] print:bg-emerald-100">
+                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
                         整張
                       </th>
                       <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
@@ -637,7 +676,7 @@ export default function ChairProductionPrintPage() {
                           {showCol ? (
                             <td
                               rowSpan={span}
-                              className={`chair-body-td chair-series-merge-cell border border-black bg-amber-50 px-0.5 py-0.5 text-center font-semibold print:bg-amber-50 break-words min-w-0 max-w-[14mm] ${
+                              className={`chair-body-td chair-series-merge-cell border border-black bg-amber-50 px-0.5 py-0.5 text-center font-semibold print:bg-amber-50 break-words min-w-0 max-w-[15.4mm] ${
                                 span > 1 ? "chair-series-merge-span" : ""
                               }`}
                             >
@@ -668,23 +707,23 @@ export default function ChairProductionPrintPage() {
                           <CheckCell />
                           <CheckCell />
                           <CheckCell />
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words">
-                            {row.walnut[0]}
+                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+                            <ChairSpecCell text={row.walnut[0]} />
                           </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words">
-                            {row.walnut[1]}
+                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+                            <ChairSpecCell text={row.walnut[1]} />
                           </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words">
-                            {row.walnut[2]}
+                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+                            <ChairSpecCell text={row.walnut[2]} />
                           </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words">
-                            {row.oak[0]}
+                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+                            <ChairSpecCell text={row.oak[0]} />
                           </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words">
-                            {row.oak[1]}
+                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+                            <ChairSpecCell text={row.oak[1]} />
                           </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words">
-                            {row.oak[2]}
+                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+                            <ChairSpecCell text={row.oak[2]} />
                           </td>
                         </tr>
                         );
@@ -694,9 +733,9 @@ export default function ChairProductionPrintPage() {
                 </table>
               </div>
 
-              <p className="mt-3 text-[15px] text-zinc-500 print:mt-2 print:text-[12px] print:text-zinc-600">
+              <p className="chair-print-data-note relative z-10 mt-3 rounded-sm bg-zinc-100 px-0.5 pb-1 text-[15px] text-zinc-500 print:hidden">
                 資料來源：訂單狀態非「已出貨／結案／報價中」，產品代碼為 CH03／CH03A／CH03-A
-                系列；工單工序為「成品」或「已出貨」者不列入。第一欄依 CH03／CH03A 合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。右側依訂單木種分胡桃／白橡區。組立與噴漆請現場勾選。
+                系列；工單工序為「待出貨」或「已出貨」（舊資料「成品」）者不列入。第一欄依 CH03／CH03A 合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。胡桃／白橡欄之座高取自訂單明細座高（無則產品變體預設）。組立與噴漆請現場勾選。
               </p>
             </>
           )}
@@ -706,9 +745,29 @@ export default function ChairProductionPrintPage() {
   );
 }
 
+/** 規格主文 + 座高（第二行較小、灰字） */
+function ChairSpecCell({ text }: { text: string }) {
+  if (!text.trim()) return null;
+  const nl = text.indexOf("\n");
+  if (nl === -1) return <>{text}</>;
+  const main = text.slice(0, nl).trimEnd();
+  const sub = text.slice(nl + 1).trim();
+  if (!sub.startsWith("座高")) {
+    return <span className="whitespace-pre-line">{text}</span>;
+  }
+  return (
+    <span className="inline-flex flex-col items-center justify-center gap-0 text-center leading-tight">
+      <span>{main}</span>
+      <span className="text-[0.85em] font-normal leading-tight text-zinc-500 print:text-zinc-600">
+        {sub}
+      </span>
+    </span>
+  );
+}
+
 function CheckCell() {
   return (
-    <td className="chair-body-td border border-black bg-amber-50 w-[3%] min-w-[3mm] p-0 print:bg-amber-50 align-middle">
+    <td className="chair-body-td border border-black bg-amber-50 min-w-0 p-0 print:bg-amber-50 align-middle">
       <span className="sr-only">勾選</span>
     </td>
   );

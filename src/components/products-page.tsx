@@ -70,6 +70,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     dimension_w: r.dimension_w != null ? Number(r.dimension_w) : null,
     dimension_d: r.dimension_d != null ? Number(r.dimension_d) : null,
     dimension_h: r.dimension_h != null ? Number(r.dimension_h) : null,
+    seat_height_cm: r.seat_height_cm != null ? Number(r.seat_height_cm) : null,
     base_price: r.base_price != null ? Number(r.base_price) : null,
     desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
@@ -82,8 +83,13 @@ function formatDim(v: VariantRow): string {
   const d = v.dimension_d != null ? v.dimension_d : "";
   const h = v.dimension_h != null ? v.dimension_h : "";
   const parts = [w, d, h].filter((x) => x !== "");
-  if (parts.length === 0) return "—";
-  return `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
+  let base =
+    parts.length === 0 ? "—" : `W:${parts[0]} x D:${parts[1] ?? "—"} x H:${parts[2] ?? "—"}`;
+  const sh = v.seat_height_cm != null ? Number(v.seat_height_cm) : NaN;
+  if (Number.isFinite(sh)) {
+    base = base === "—" ? `座高 ${sh} cm` : `${base} · 座高 ${sh} cm`;
+  }
+  return base;
 }
 
 type SeriesSortKey = "name" | "category" | "variantCount" | "website";
