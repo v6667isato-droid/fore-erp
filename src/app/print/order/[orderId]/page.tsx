@@ -69,15 +69,15 @@ function parseExplanationImages(raw: string | null | undefined): ExplanationImag
 }
 
 /** 另存 PDF 時瀏覽器多會用 document.title 當預設檔名 */
-function orderDateToYyMmDd(orderDate: string | null): string {
+function orderDateToYyyyMmDd(orderDate: string | null): string {
   if (orderDate && /^\d{4}-\d{2}-\d{2}/.test(orderDate)) {
-    return `${orderDate.slice(2, 4)}${orderDate.slice(5, 7)}${orderDate.slice(8, 10)}`;
+    return `${orderDate.slice(0, 4)}${orderDate.slice(5, 7)}${orderDate.slice(8, 10)}`;
   }
   const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
+  const yyyy = String(now.getFullYear());
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
-  return `${yy}${mm}${dd}`;
+  return `${yyyy}${mm}${dd}`;
 }
 
 function sanitizeForPdfFilename(name: string): string {
@@ -90,7 +90,9 @@ function sanitizeForPdfFilename(name: string): string {
 }
 
 function buildPrintPdfFilename(o: PrintOrder): string {
-  return `${orderDateToYyMmDd(o.order_date)}_${sanitizeForPdfFilename(o.customer_name)}`;
+  return `Fore Furniture_訂購確認單_${orderDateToYyyyMmDd(o.order_date)}_${sanitizeForPdfFilename(
+    o.customer_name
+  )}`;
 }
 
 interface PrintOrderItem {

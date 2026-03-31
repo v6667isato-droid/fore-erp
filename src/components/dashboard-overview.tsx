@@ -1,12 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ClipboardList, Package, TrendingUp, UserCircle2 } from "lucide-react";
+import { ClipboardList, Package, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -116,19 +113,6 @@ export function DashboardOverview() {
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-between lg:col-span-2">
-        <div>
-          <p className="text-sm font-medium text-foreground">員工個人儀表板</p>
-          <p className="text-xs text-muted-foreground">公告、交辦、假勤與工單進度（暫用入口）</p>
-        </div>
-        <Link
-          href="/employee/dashboard"
-          className={cn(buttonVariants({ variant: "outline" }), "gap-2 shrink-0 self-start sm:self-auto")}
-        >
-          <UserCircle2 className="h-4 w-4" />
-          前往員工儀表板
-        </Link>
-      </div>
       {portalOrdersToday > 0 && (
         <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between">
           <span className="text-sm font-medium text-foreground">今日通路下單</span>

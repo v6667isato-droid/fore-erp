@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -24,11 +26,18 @@ import {
   groupPublicHolidaysByDateKey,
   type CalendarApprovedLeaveRow,
 } from "@/lib/company-calendar-extra";
+import {
+  fetchOrdersExpectedDeliveryBetween,
+  formatCalendarOrderDueTitle,
+  mockOrderDuesBetween,
+  type CalendarOrderDueItem,
+} from "@/lib/company-calendar-orders";
 import type { PublicHolidayEntry } from "@/lib/attendance-war-room";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { CompanyAnnouncementsBlock } from "@/components/company-announcements-block";
 import { CompanyCalendarAddEventDialog } from "@/components/company-calendar-add-event-dialog";
 import { CompanyCalendarEventDetailModal } from "@/components/company-calendar-event-detail-modal";
+import { OrderOverviewDialog } from "@/components/order-overview-dialog";
 
 interface CalendarEventItem {
   id: string;
@@ -45,7 +54,14 @@ type CalendarCellItem =
       isWorkday: boolean;
       tooltip: string;
     }
-  | { kind: "leave"; id: string; title: string; tooltip: string };
+  | { kind: "leave"; id: string; title: string; tooltip: string }
+  | {
+      kind: "orderDue";
+      id: string;
+      title: string;
+      tooltip: string;
+      detail: CalendarOrderDueItem;
+    };
 
 const WEEKDAY_LABELS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
 
@@ -89,6 +105,13 @@ const APPROVED_LEAVE_STYLES = {
   hover: "hover:bg-violet-200/85 dark:hover:bg-violet-900/35",
 };
 
+/** 訂單預計完成日（orders.expected_delivery_date） */
+const ORDER_DUE_STYLES = {
+  badge:
+    "border border-teal-600/35 bg-teal-50 text-teal-900 dark:border-teal-600/40 dark:bg-teal-950/40 dark:text-teal-100",
+  hover: "hover:bg-teal-100/90 dark:hover:bg-teal-900/35",
+};
+
 function groupEventsByDay(rows: CompanyEventRow[]): Map<string, CalendarEventItem[]> {
   const map = new Map<string, CalendarEventItem[]>();
   for (const r of rows) {
@@ -120,6 +143,7 @@ function todayIsoDate(): string {
 }
 
 export function CompanyCalendarPage() {
+  const router = useRouter();
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
@@ -134,6 +158,10 @@ export function CompanyCalendarPage() {
   /** 新增事件預設日期 YYYY-MM-DD（點當月格子或「新增事件」時寫入） */
   const [selectedDate, setSelectedDate] = useState("");
   const [viewingEvent, setViewingEvent] = useState<CompanyEventRow | null>(null);
+  /** 與訂單管理「訂單總覽」相同之 OrderOverviewDialog */
+  const [overviewOrderId, setOverviewOrderId] = useState<string | null>(null);
+  /** Supabase：orders 預計交貨日；未連線時由 useMemo 改為假資料 */
+  const [orderDuesFromDb, setOrderDuesFromDb] = useState<CalendarOrderDueItem[]>([]);
   const [version, setVersion] = useState(0);
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
@@ -159,6 +187,7 @@ export function CompanyCalendarPage() {
       setRows([]);
       setPublicHolidays([]);
       setApprovedLeaves([]);
+      setOrderDuesFromDb([]);
       setLoadState("idle");
       return;
     }
@@ -184,10 +213,17 @@ export function CompanyCalendarPage() {
       } catch (e) {
         console.error("[company-calendar] leave_requests", e);
       }
+      let nextOrderDues: CalendarOrderDueItem[] = [];
+      try {
+        nextOrderDues = await fetchOrdersExpectedDeliveryBetween(range.start, range.end);
+      } catch (e) {
+        console.error("[company-calendar] orders.expected_delivery_date", e);
+      }
       if (!cancelled) {
         setRows(nextRows);
         setPublicHolidays(nextHol);
         setApprovedLeaves(nextLeave);
+        setOrderDuesFromDb(nextOrderDues);
         setLoadState(evErr ? "error" : "idle");
       }
     })();
@@ -226,6 +262,23 @@ export function CompanyCalendarPage() {
     [approvedLeaves, range.start, range.end],
   );
 
+  const orderDueRowsForGrid = useMemo((): CalendarOrderDueItem[] => {
+    if (!isSupabaseConfigured) {
+      return mockOrderDuesBetween(range.start, range.end);
+    }
+    return orderDuesFromDb;
+  }, [isSupabaseConfigured, range.start, range.end, orderDuesFromDb]);
+
+  const orderDuesByDay = useMemo(() => {
+    const map = new Map<string, CalendarOrderDueItem[]>();
+    for (const r of orderDueRowsForGrid) {
+      const list = map.get(r.expected_date) ?? [];
+      list.push(r);
+      map.set(r.expected_date, list);
+    }
+    return map;
+  }, [orderDueRowsForGrid]);
+
   const cellItemsByDay = useMemo(() => {
     const map = new Map<string, CalendarCellItem[]>();
     const add = (dateKey: string, item: CalendarCellItem) => {
@@ -255,6 +308,19 @@ export function CompanyCalendarPage() {
         });
       }
     }
+    for (const [dateKey, orderList] of orderDuesByDay) {
+      for (const od of orderList) {
+        add(dateKey, {
+          kind: "orderDue",
+          id: od.id,
+          title: formatCalendarOrderDueTitle(od),
+          tooltip: isSupabaseConfigured
+            ? `${od.status ?? "—"} · 預計交貨 ${od.expected_date}（點擊開啟訂單總覽）`
+            : "試用預覽（點擊查閱）",
+          detail: od,
+        });
+      }
+    }
     for (const [dateKey, evs] of companyEventsByDay) {
       for (const ev of evs) {
         add(dateKey, {
@@ -266,7 +332,7 @@ export function CompanyCalendarPage() {
       }
     }
     return map;
-  }, [holidaysByDay, leavesByDay, companyEventsByDay]);
+  }, [holidaysByDay, leavesByDay, orderDuesByDay, companyEventsByDay, isSupabaseConfigured]);
 
   const eventById = useMemo(() => {
     const m = new Map<string, CompanyEventRow>();
@@ -325,6 +391,9 @@ export function CompanyCalendarPage() {
           <div className="flex flex-col gap-0.5">
             <p className="text-xs text-muted-foreground sm:text-sm">
               公司綜合行事曆 · company_event、public_holidays、已核准假單（leave_requests）
+              {isSupabaseConfigured
+                ? "；訂單交期僅顯示狀態為排程中～已完工，條目為「聯絡人」訂單（orders）"
+                : "；訂單預計完成日為本機試用假資料"}
             </p>
             {loadState === "loading" && (
               <span className="text-[11px] text-muted-foreground">同步行程中…</span>
@@ -445,6 +514,45 @@ export function CompanyCalendarPage() {
                         </div>
                       );
                     }
+                    if (item.kind === "orderDue") {
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          title={item.tooltip}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setViewingEvent(null);
+                            if (item.detail.id.startsWith("demo-")) {
+                              toast.info("試用假資料無訂單總覽，請連線資料庫後再試");
+                              return;
+                            }
+                            setOverviewOrderId(item.detail.id);
+                          }}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setViewingEvent(null);
+                              if (item.detail.id.startsWith("demo-")) {
+                                toast.info("試用假資料無訂單總覽，請連線資料庫後再試");
+                                return;
+                              }
+                              setOverviewOrderId(item.detail.id);
+                            }
+                          }}
+                          className={cn(
+                            "w-full cursor-pointer text-left text-[11px] font-medium leading-snug",
+                            "rounded px-1 py-0.5 truncate",
+                            ORDER_DUE_STYLES.badge,
+                            ORDER_DUE_STYLES.hover,
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                          )}
+                        >
+                          {item.title}
+                        </button>
+                      );
+                    }
                     const styles = EVENT_STYLES[item.category];
                     return (
                       <button
@@ -454,14 +562,20 @@ export function CompanyCalendarPage() {
                         onClick={(e) => {
                           e.stopPropagation();
                           const full = eventById.get(item.id);
-                          if (full) setViewingEvent(full);
+                          if (full) {
+                            setOverviewOrderId(null);
+                            setViewingEvent(full);
+                          }
                         }}
                         onKeyDown={(e) => {
                           e.stopPropagation();
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
                             const full = eventById.get(item.id);
-                            if (full) setViewingEvent(full);
+                            if (full) {
+                              setOverviewOrderId(null);
+                              setViewingEvent(full);
+                            }
                           }
                         }}
                         className={cn(
@@ -513,6 +627,10 @@ export function CompanyCalendarPage() {
           <span className="h-2 w-2 rounded-full bg-violet-400" />
           已核准休假
         </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-teal-500" />
+          {isSupabaseConfigured ? "訂單預計完成日（orders）" : "訂單預計完成日（試用假資料）"}
+        </span>
       </div>
 
       <CompanyCalendarAddEventDialog
@@ -526,6 +644,18 @@ export function CompanyCalendarPage() {
         event={viewingEvent}
         onClose={() => setViewingEvent(null)}
         onSaved={bump}
+      />
+
+      <OrderOverviewDialog
+        open={overviewOrderId != null}
+        onOpenChange={(open) => {
+          if (!open) setOverviewOrderId(null);
+        }}
+        orderId={overviewOrderId}
+        onEditOrder={(id) => {
+          setOverviewOrderId(null);
+          router.replace(`/?page=orders#orders:${encodeURIComponent(id)}`);
+        }}
       />
     </div>
   );

@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { CustomerRow } from "@/types/crm";
-import { Users, Pencil, Trash2, Download } from "lucide-react";
+import { Users, Pencil, Trash2, Download, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { EditCustomerDialog } from "@/components/crm/edit-customer-dialog";
@@ -114,6 +114,8 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [loading, setLoading] = useState(true);
   const [filterSource, setFilterSource] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [sortKey, setSortKey] = useState<"name" | "contact_method" | "source" | "customer_type" | "city">("name");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [viewRow, setViewRow] = useState<CustomerRow | null>(null);
   const [editRow, setEditRow] = useState<CustomerRow | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<CustomerRow | null>(null);
@@ -154,6 +156,60 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     }
     return list;
   }, [customers, filterSource, searchTerm]);
+
+  const sortedCustomers = useMemo(() => {
+    const list = [...filteredCustomers];
+    const factor = sortDirection === "asc" ? 1 : -1;
+    list.sort((a, b) => {
+      const aCity = shippingCity(a.delivery_address) ?? "";
+      const bCity = shippingCity(b.delivery_address) ?? "";
+      const aContact = contactMethodLabel(a.contact_method) ?? "";
+      const bContact = contactMethodLabel(b.contact_method) ?? "";
+
+      const aValue =
+        sortKey === "name"
+          ? a.name ?? ""
+          : sortKey === "contact_method"
+            ? aContact
+            : sortKey === "source"
+              ? a.source ?? ""
+              : sortKey === "customer_type"
+                ? a.customer_type ?? ""
+                : aCity;
+      const bValue =
+        sortKey === "name"
+          ? b.name ?? ""
+          : sortKey === "contact_method"
+            ? bContact
+            : sortKey === "source"
+              ? b.source ?? ""
+              : sortKey === "customer_type"
+                ? b.customer_type ?? ""
+                : bCity;
+
+      return aValue.localeCompare(bValue, "zh-Hant", { sensitivity: "base" }) * factor;
+    });
+    return list;
+  }, [filteredCustomers, sortDirection, sortKey]);
+
+  function toggleSort(nextKey: "name" | "contact_method" | "source" | "customer_type" | "city") {
+    if (sortKey === nextKey) {
+      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDirection("asc");
+  }
+
+  function SortIcon({ columnKey }: { columnKey: "name" | "contact_method" | "source" | "customer_type" | "city" }) {
+    if (sortKey !== columnKey) {
+      return <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />;
+    }
+    if (sortDirection === "asc") {
+      return <ArrowUp className="h-3.5 w-3.5 shrink-0 text-foreground" aria-hidden />;
+    }
+    return <ArrowDown className="h-3.5 w-3.5 shrink-0 text-foreground" aria-hidden />;
+  }
 
   async function fetchCustomers() {
     setLoading(true);
@@ -378,11 +434,61 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent border-b border-border">
-              <TableHead className="text-xs font-semibold p-2 align-middle">客戶姓名</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">聯絡方式</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">客戶來源</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">客戶種類</TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">聯絡區域</TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                  onClick={() => toggleSort("name")}
+                  aria-label="依客戶姓名排序"
+                >
+                  客戶姓名
+                  <SortIcon columnKey="name" />
+                </button>
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                  onClick={() => toggleSort("contact_method")}
+                  aria-label="依聯絡方式排序"
+                >
+                  聯絡方式
+                  <SortIcon columnKey="contact_method" />
+                </button>
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                  onClick={() => toggleSort("source")}
+                  aria-label="依客戶來源排序"
+                >
+                  客戶來源
+                  <SortIcon columnKey="source" />
+                </button>
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                  onClick={() => toggleSort("customer_type")}
+                  aria-label="依客戶種類排序"
+                >
+                  客戶種類
+                  <SortIcon columnKey="customer_type" />
+                </button>
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                  onClick={() => toggleSort("city")}
+                  aria-label="依聯絡區域排序"
+                >
+                  聯絡區域
+                  <SortIcon columnKey="city" />
+                </button>
+              </TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -396,7 +502,7 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredCustomers.map((row) => (
+              sortedCustomers.map((row) => (
                 <TableRow key={row.id} className="border-b border-border hover:bg-muted/30">
                   <TableCell className="align-middle whitespace-nowrap text-sm font-medium p-2">
                     <button

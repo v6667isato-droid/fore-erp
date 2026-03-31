@@ -67,6 +67,32 @@ function parseExplanationImages(raw: string | null | undefined): ExplanationImag
   }
 }
 
+function orderDateToYyyyMmDd(orderDate: string | null): string {
+  if (orderDate && /^\d{4}-\d{2}-\d{2}/.test(orderDate)) {
+    return `${orderDate.slice(0, 4)}${orderDate.slice(5, 7)}${orderDate.slice(8, 10)}`;
+  }
+  const now = new Date();
+  const yyyy = String(now.getFullYear());
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}${mm}${dd}`;
+}
+
+function sanitizeForPdfFilename(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '客戶';
+  const cleaned = trimmed
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+    .replace(/\s+/g, '');
+  return cleaned.slice(0, 80) || '客戶';
+}
+
+function buildPrintPdfFilename(o: PrintOrder): string {
+  return `Fore Furniture_報價單_${orderDateToYyyyMmDd(o.order_date)}_${sanitizeForPdfFilename(
+    o.customer_name
+  )}`;
+}
+
 interface PrintOrderItem {
   id: string;
   quantity: number;
@@ -405,14 +431,10 @@ export default function PrintQuotationPage() {
     };
   }, [order, items]);
 
-  // 另存 PDF 時讓檔名為「日期_客戶姓名」（須在條件 return 前呼叫，遵守 Hooks 順序）
+  // 另存 PDF 時讓檔名符合規範（須在條件 return 前呼叫，遵守 Hooks 順序）
   useEffect(() => {
     if (!order) return;
-    const dateStr = order.order_date
-      ? new Date(order.order_date).toISOString().slice(0, 10).replace(/-/g, '')
-      : '';
-    const safeName = (order.customer_name || '未填').replace(/[/\\:*?"<>|]/g, '').trim() || '客戶';
-    const title = `${dateStr}_${safeName}`;
+    const title = buildPrintPdfFilename(order);
     const prev = document.title;
     document.title = title;
     return () => {

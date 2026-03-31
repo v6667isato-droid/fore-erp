@@ -339,6 +339,7 @@ export default function DashboardShell() {
     if (pageParam === "vendors") return "procurement";
     if (pageParam === "channels") return "customers";
     if (pageParam === "calendar") return "dashboard";
+    if (pageParam === "orders_overview") return "orders";
     return pageParam && PAGE_IDS.has(pageParam as Page)
       ? (pageParam as Page)
       : "dashboard";
@@ -372,6 +373,11 @@ export default function DashboardShell() {
     if (p === "calendar") {
       router.replace("/?page=dashboard");
       setActivePage("dashboard");
+      return;
+    }
+    if (p === "orders_overview") {
+      router.replace("/?page=orders");
+      setActivePage("orders");
       return;
     }
     if (p && PAGE_IDS.has(p as Page)) setActivePage(p as Page);

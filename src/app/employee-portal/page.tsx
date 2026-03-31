@@ -52,6 +52,7 @@ import { CompanyAnnouncementsBlock } from "@/components/company-announcements-bl
 import { WorkshopWeeklyRotationBlock } from "@/components/workshop-weekly-rotation-block";
 import { MeetingAssignmentsBlock } from "@/components/meeting-assignments-block";
 import { MeetingMinutesSection } from "@/components/meeting-minutes-section";
+import { EmployeePortalMiniCalendar } from "@/components/employee-portal-mini-calendar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -1019,6 +1020,8 @@ export default function EmployeePortalPage() {
               </div>
             </div>
           </section>
+
+          <EmployeePortalMiniCalendar employeeId={employee.id} />
 
           {/* 公司公告（左）＋ 週五工坊輪替（右，lg 並排） */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">

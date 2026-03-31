@@ -21,7 +21,7 @@ import {
   ArrowDown,
   Printer,
 } from "lucide-react";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDateYyMmDd } from "@/lib/utils";
 import {
   DEFAULT_WORK_ORDER_STAGE,
   isWorkOrderStage,
@@ -126,6 +126,11 @@ function isOrderStatusBeforeProduction(status: string | null | undefined): boole
   const i = orderStatusIndex(status);
   const prod = orderStatusIndex("生產中");
   return i >= 0 && prod >= 0 && i < prod;
+}
+
+/** 工序為「已出貨」時視同非生產中，不列入「生產中」篩選 */
+function isWorkOrderStageShipped(stage: WorkOrderStage): boolean {
+  return stage === "已出貨";
 }
 
 type ProductionOrderStatusFilter = "全部" | "生產中" | "非生產中";
@@ -358,8 +363,10 @@ export function WorkOrdersPage() {
         orderStatusFilter === "全部"
           ? true
           : orderStatusFilter === "生產中"
-            ? isOrderStatusAtOrAfterProduction(w.order_status)
-            : isOrderStatusBeforeProduction(w.order_status);
+            ? isOrderStatusAtOrAfterProduction(w.order_status) &&
+              !isWorkOrderStageShipped(w.stage)
+            : isOrderStatusBeforeProduction(w.order_status) ||
+              isWorkOrderStageShipped(w.stage);
       const matchCategory =
         categoryFilter === "全部" ||
         workOrderCategoryLabel(w) === categoryFilter;
@@ -685,14 +692,14 @@ export function WorkOrdersPage() {
                       </select>
                     </div>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground hidden sm:table-cell whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>
+                  <TableCell className="text-xs text-muted-foreground hidden sm:table-cell w-[4.5rem] min-w-0 tabular-nums whitespace-nowrap p-1.5">
+                    <div className="flex items-center gap-1">
+                      <CalendarDays className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate">
                         {w.planned_end_date
-                          ? formatDate(w.planned_end_date)
+                          ? formatDateYyMmDd(w.planned_end_date)
                           : w.expected_delivery_date
-                          ? formatDate(w.expected_delivery_date)
+                          ? formatDateYyMmDd(w.expected_delivery_date)
                           : "—"}
                       </span>
                     </div>
@@ -715,8 +722,8 @@ export function WorkOrdersPage() {
         {orderStatusFilter === "全部"
           ? "（訂單狀態：全部）"
           : orderStatusFilter === "生產中"
-            ? "（訂單狀態：生產中～已出貨）"
-            : "（訂單狀態：非生產中）"}
+            ? "（訂單：生產中～已出貨；工序已出貨者改列於「非生產中」）"
+            : "（訂單：生產前段，或工序已出貨）"}
       </p>
     </div>
   );

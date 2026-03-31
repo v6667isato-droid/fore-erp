@@ -16,8 +16,11 @@ const MARKS: {
   { id: "up", label: "此處朝上", Icon: ArrowBigUp },
 ];
 
-/** 方形邊長（mm），兩格直向疊放約等於 A4 高度 */
-const TILE_MM = 136;
+/** 一頁 A4 直式可排 3 格；單格約寬 × 高（mm），三列加細框約佔滿列印高度 */
+const TILE_W_MM = 178;
+const TILE_H_MM = 96;
+
+const PER_PAGE = 3;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -45,7 +48,7 @@ export default function ShippingMarksPrintPage() {
     return out;
   }, [counts]);
 
-  const pages = useMemo(() => chunk(flatMarks, 2), [flatMarks]);
+  const pages = useMemo(() => chunk(flatMarks, PER_PAGE), [flatMarks]);
 
   function setCount(id: MarkId, value: number) {
     const v = Math.max(0, Math.min(99, Math.floor(Number.isFinite(value) ? value : 0)));
@@ -78,8 +81,10 @@ export default function ShippingMarksPrintPage() {
             </div>
           </div>
           <p className="text-xs text-gray-600 leading-relaxed">
-            每格為約 <strong className="font-medium text-gray-800">{TILE_MM}mm 方形</strong>
-            ，同一頁最多上下兩格；請為各標示設定列印數量（0 表示不印）。
+            每格約 <strong className="font-medium text-gray-800">{TILE_W_MM}×{TILE_H_MM} mm</strong>
+            ，<strong className="font-medium text-gray-800">一頁 A4 直式最多 3 格</strong>
+            （由上而下）；外框與分隔線為<strong className="font-medium text-gray-800">細線</strong>
+            。請為各標示設定列印數量（0 表示不印）。
           </p>
           <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50/90 px-3 py-2.5">
             <p className="text-[11px] font-medium text-gray-700 mb-2">各標示列印數量（0–99）</p>
@@ -108,20 +113,26 @@ export default function ShippingMarksPrintPage() {
           <p className="text-sm text-amber-800 print:hidden">請至少一項數量大於 0。</p>
         ) : (
           <div className="flex flex-col items-center gap-6 print:gap-0">
-            {pages.map((pair, pageIdx) => (
+            {pages.map((group, pageIdx) => (
               <div
                 key={pageIdx}
                 className={pageIdx < pages.length - 1 ? "print:break-after-page" : ""}
               >
-                <div className="flex flex-col items-center w-full max-w-[210mm] mx-auto rounded-lg overflow-hidden border-4 border-gray-900 print:border-gray-900">
-                  {pair.map((m, i) => (
-                    <ShippingMarkTile
+                <div className="flex flex-col w-fit mx-auto rounded-md overflow-hidden border-2 border-gray-900 print:border-gray-900">
+                  {group.map((m, i) => (
+                    <div
                       key={m.key}
-                      label={m.label}
-                      Icon={m.Icon}
-                      showDivider={i < pair.length - 1}
-                      sizeMm={TILE_MM}
-                    />
+                      className={
+                        i < group.length - 1 ? "border-b-2 border-gray-900" : ""
+                      }
+                    >
+                      <ShippingMarkTile
+                        label={m.label}
+                        Icon={m.Icon}
+                        widthMm={TILE_W_MM}
+                        heightMm={TILE_H_MM}
+                      />
+                    </div>
                   ))}
                 </div>
               </div>
@@ -136,31 +147,35 @@ export default function ShippingMarksPrintPage() {
 function ShippingMarkTile({
   label,
   Icon,
-  showDivider,
-  sizeMm,
+  widthMm,
+  heightMm,
 }: {
   label: string;
   Icon: typeof Hand;
-  showDivider: boolean;
-  sizeMm: number;
+  widthMm: number;
+  heightMm: number;
 }) {
-  const wh = `${sizeMm}mm`;
+  const w = `${widthMm}mm`;
+  const h = `${heightMm}mm`;
   return (
     <div
-      className={[
-        "flex flex-col items-center justify-center bg-amber-50/90 box-border",
-        "mx-auto",
-        showDivider ? "border-b-4 border-gray-900" : "",
-        "px-4 py-6 print:px-6",
-      ].join(" ")}
-      style={{ width: wh, height: wh, minWidth: wh, minHeight: wh, maxWidth: wh, maxHeight: wh }}
+      className="flex flex-col items-center justify-center bg-amber-50/90 box-border px-4 py-5 print:px-5 print:py-5"
+      style={{
+        width: w,
+        height: h,
+        minWidth: w,
+        minHeight: h,
+        maxWidth: w,
+        maxHeight: h,
+      }}
     >
+      {/* 圖示約為原先 h-14／列印 4.5rem 的 3 倍線性尺寸 */}
       <Icon
-        className="shrink-0 text-gray-900 w-[22%] h-[22%] min-w-[3.5rem] min-h-[3.5rem] max-w-[5rem] max-h-[5rem] sm:max-w-[5.5rem] sm:max-h-[5.5rem] print:max-w-[6rem] print:max-h-[6rem]"
-        strokeWidth={1.75}
+        className="shrink-0 text-gray-900 w-[10.5rem] h-[10.5rem] print:w-[13.5rem] print:h-[13.5rem]"
+        strokeWidth={1.5}
         aria-hidden
       />
-      <p className="mt-3 text-center text-2xl sm:text-3xl print:text-[1.65rem] font-black tracking-[0.15em] text-gray-900 print:tracking-[0.2em] leading-tight px-1">
+      <p className="mt-2 text-center text-lg sm:text-xl print:text-[1.35rem] font-black tracking-[0.12em] text-gray-900 print:tracking-[0.15em] leading-tight px-2">
         {label}
       </p>
     </div>

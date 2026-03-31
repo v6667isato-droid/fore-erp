@@ -21,9 +21,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import * as Dialog from "@radix-ui/react-dialog";
+import { OrderOverviewDialog } from "@/components/order-overview-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
-import { Search, Plus, X, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download } from "lucide-react";
+import { Search, Plus, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, Layers, ArrowLeft, MoreVertical } from "lucide-react";
 import { toast } from "sonner";
 
 type OrderStatus =
@@ -165,6 +166,19 @@ const ORDER_STATUS_SORT_ORDER: OrderStatus[] = [
 function orderStatusSortIndex(status: OrderStatus): number {
   const i = ORDER_STATUS_SORT_ORDER.indexOf(status);
   return i >= 0 ? i : ORDER_STATUS_SORT_ORDER.length;
+}
+
+/** 列表依「付款狀態」欄排序時使用 */
+const PAYMENT_STATUS_SORT_ORDER: PaymentStatus[] = [
+  "未付款",
+  "部分付款",
+  "已付訂金",
+  "已結清",
+];
+
+function paymentStatusSortIndex(p: PaymentStatus): number {
+  const i = PAYMENT_STATUS_SORT_ORDER.indexOf(p);
+  return i >= 0 ? i : PAYMENT_STATUS_SORT_ORDER.length;
 }
 
 function manualOrderStatusOptions(current: OrderStatus): OrderStatus[] {
@@ -324,13 +338,28 @@ function OrderFormDialog({
     isOrderStatusLockedForManualEdit(initialOrder.status);
   /** 結案檢視：勿用 fieldset disabled（會讓 select 無法展開閱讀），改以唯讀欄位呈現 */
   const viewFieldClass =
-    "flex min-h-9 w-full items-center rounded-lg border border-input bg-muted/30 px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]";
+    "flex min-h-10 w-full items-center rounded-lg border border-[#625E55]/25 bg-[#FAF9F6] px-3 py-2 text-sm text-[#625E55] [overflow-wrap:anywhere]";
+  /** Warm Ivory Ledger：表單輸入共用樣式 */
+  const ledgerIn =
+    "h-10 w-full max-w-full rounded-lg border border-[#625E55]/28 bg-white px-3 text-sm text-[#625E55] outline-none transition placeholder:text-[#7D7767]/55 focus:border-[#625E55] focus:ring-2 focus:ring-[#625E55]/30 read-only:bg-[#FAF9F6] read-only:cursor-default";
+  const ledgerSelect =
+    "h-10 w-full max-w-full rounded-lg border border-[#625E55]/28 bg-white px-3 text-sm text-[#625E55] outline-none focus:border-[#625E55] focus:ring-2 focus:ring-[#625E55]/30";
+  const ledgerTa =
+    "min-h-[72px] w-full rounded-lg border border-[#625E55]/28 bg-white px-3 py-2 text-sm text-[#625E55] outline-none transition placeholder:text-[#7D7767]/55 focus:border-[#625E55] focus:ring-2 focus:ring-[#625E55]/30 read-only:bg-[#FAF9F6] read-only:cursor-default";
+  const ledgerCard =
+    "rounded-lg border border-[#625E55]/22 bg-white p-4 shadow-[0_2px_10px_rgba(98,94,85,0.07)]";
+  const ledgerLabel =
+    "text-[11px] font-medium uppercase tracking-[0.06em] text-[#7D7767]";
+  const ledgerLabelZh = "text-xs text-[#7D7767]";
   const [saving, setSaving] = useState(false);
+  const todayLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
   const [customerId, setCustomerId] = useState<string>(
     initialOrder?.customer_id ?? ""
   );
   const [orderDate, setOrderDate] = useState<string>(
-    initialOrder?.order_date ?? ""
+    initialOrder?.order_date ?? todayLocal
   );
   const [expectedDate, setExpectedDate] = useState<string>(
     initialOrder?.expected_delivery_date ?? ""
@@ -433,7 +462,7 @@ function OrderFormDialog({
   useEffect(() => {
     if (initialOrder) {
       setCustomerId(initialOrder.customer_id ?? "");
-      setOrderDate(initialOrder.order_date ?? "");
+      setOrderDate(initialOrder.order_date ?? todayLocal);
       setExpectedDate(initialOrder.expected_delivery_date ?? "");
       setStatus(initialOrder.status);
       setPaymentStatus(initialOrder.payment_status);
@@ -459,13 +488,13 @@ function OrderFormDialog({
     if (initialOrder || (initialItems != null && initialItems.length > 0)) {
       prevTotalAmountRef.current = null;
     }
-  }, [initialOrder, initialItems]);
+  }, [initialOrder, initialItems, todayLocal]);
 
   // 每次以「新增模式」打開時，重置表單為空白狀態
   useEffect(() => {
     if (!open || initialOrder) return;
     setCustomerId("");
-    setOrderDate("");
+    setOrderDate(todayLocal);
     setExpectedDate("");
     setStatus("報價中");
     setPaymentStatus("未付款");
@@ -495,7 +524,7 @@ function OrderFormDialog({
       },
     ]);
     prevTotalAmountRef.current = null;
-  }, [open, initialOrder]);
+  }, [open, initialOrder, todayLocal]);
 
   // 新增模式：選到特定通路時，將訂金%預設改為 0%
   useEffect(() => {
@@ -574,6 +603,32 @@ function OrderFormDialog({
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [variants]);
 
+
+  function itemLedgerSummary(it: OrderItemInput): {
+    code: string;
+    title: string;
+    thumb: string | null;
+  } {
+    if (it.kind === "variant" && it.variant_id) {
+      const v = variants.find((x) => x.id === it.variant_id);
+      const code = v?.label?.split(/\s+/)[0]?.slice(0, 24) ?? "—";
+      const title = v
+        ? v.series_name
+          ? `${v.series_name} · ${v.label}`
+          : v.label
+        : "—";
+      return { code, title, thumb: it.image_url ?? null };
+    }
+    return {
+      code: it.custom_category?.trim() || "客製",
+      title:
+        it.custom_name?.trim() ||
+        it.custom_description?.trim() ||
+        "客製品項",
+      thumb: it.image_url ?? null,
+    };
+  }
+
   const itemSubtotals = itemRows.map(
     (it) => (Number(it.quantity) || 0) * (Number(it.unit_price) || 0)
   );
@@ -589,9 +644,17 @@ function OrderFormDialog({
   })();
   const grandTotal = discountBase + shippingFeeAmount;
 
+  /** 依訂金比例與折扣後底額計算訂金試算；不會自動寫入預收訂金，須按「帶入訂金」 */
+  const trialDepositAmount = useMemo(() => {
+    const p = Number(depositPercent);
+    if (depositPercent === "" || !Number.isFinite(p) || p <= 0) return null;
+    if (discountBase <= 0) return null;
+    return Math.round((discountBase * p) / 100);
+  }, [depositPercent, discountBase]);
+
   // 品項總額變動 → 同步「折扣後總金額」（單一 effect，避免與載入 effect 競態）
   // - 未鎖定（新增或尚未手改折扣）：直接等於品項總計
-  // - 已鎖定（編輯載入／手改過）：依品項總額差值調整，保留整單手動折扣差
+  // - 已鎖定：初次僅記錄品項總計；之後品項有增刪變動則本欄回歸品項總計（不再保留手動折讓差）
   useEffect(() => {
     if (!discountLocked) {
       setDiscountTotal(totalAmount > 0 ? String(totalAmount) : "");
@@ -606,23 +669,10 @@ function OrderFormDialog({
     }
     if (prev === totalAmount) return;
 
-    const delta = totalAmount - prev;
     prevTotalAmountRef.current = totalAmount;
-
-    setDiscountTotal((prevDiscountTotal) => {
-      const current = Number(prevDiscountTotal);
-      const nextBase = Math.max(
-        0,
-        (Number.isFinite(current) ? current : totalAmount) + delta
-      );
-      const p = Number(depositPercent);
-      if (p > 0) {
-        const amt = Math.round((nextBase * p) / 100);
-        setDeposit(String(amt));
-      }
-      return String(nextBase);
-    });
-  }, [totalAmount, discountLocked, depositPercent]);
+    const nextBase = Math.max(0, totalAmount);
+    setDiscountTotal(nextBase > 0 ? String(nextBase) : "");
+  }, [totalAmount, discountLocked]);
 
   async function handleItemImageUpload(id: string, file: File) {
     if (!file.type.startsWith("image/")) {
@@ -904,151 +954,186 @@ function OrderFormDialog({
     }
   }
 
+  const orderPrintHref = useMemo(() => {
+    if (!initialOrder?.id) return null;
+    return initialOrder.status === "報價中"
+      ? `/print/quotation/${initialOrder.id}`
+      : `/print/order/${initialOrder.id}`;
+  }, [initialOrder]);
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-border bg-card shadow-lg focus:outline-none flex flex-col"
+          className="fixed inset-0 z-50 flex max-h-[100dvh] flex-col overflow-hidden bg-[#FAF9F6] shadow-xl focus:outline-none sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-h-[90vh] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:border-[#625E55]/12"
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
-          <div className="flex items-start justify-between gap-4 border-b border-border p-5 pb-0">
-            <div>
-              <Dialog.Title className="text-base font-semibold text-foreground">
+          <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-2 border-b border-[#625E55]/12 bg-[#FAF9F6]/95 px-3 py-3 backdrop-blur-sm sm:px-4">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[#625E55] hover:bg-[#625E55]/10 focus:outline-none focus:ring-2 focus:ring-[#625E55]/30"
+                  aria-label="返回"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+              </Dialog.Close>
+              <Dialog.Title className="min-w-0 truncate font-[family-name:var(--font-manrope)] text-base font-semibold tracking-tight text-[#625E55]">
                 {isEdit ? (readOnly ? "檢視訂單" : "編輯訂單") : "新增訂單"}
               </Dialog.Title>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {readOnly
-                  ? "此訂單已結案，僅供檢視。"
-                  : "設定訂單主檔與品項明細。"}
-              </p>
             </div>
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
-                aria-label="關閉"
-              >
-                <X className="h-4 w-4 text-muted-foreground" />
-              </button>
-            </Dialog.Close>
+            <details className="relative shrink-0">
+              <summary className="flex cursor-pointer list-none items-center justify-center rounded-lg p-2 text-[#625E55] hover:bg-[#625E55]/10 focus:outline-none focus:ring-2 focus:ring-[#625E55]/30 [&::-webkit-details-marker]:hidden">
+                <MoreVertical className="h-5 w-5" aria-hidden />
+                <span className="sr-only">更多</span>
+              </summary>
+              <div className="absolute right-0 top-full z-30 mt-1 min-w-[10rem] rounded-lg border border-[#625E55]/15 bg-white py-1 text-sm shadow-lg">
+                {orderPrintHref ? (
+                  <Link
+                    href={orderPrintHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-3 py-2 text-[#625E55] hover:bg-[#FAF9F6]"
+                    onClick={() => {
+                      const el = document.activeElement as HTMLElement | null;
+                      el?.blur?.();
+                    }}
+                  >
+                    <Printer className="h-4 w-4 shrink-0" />
+                    列印訂單
+                  </Link>
+                ) : (
+                  <p className="px-3 py-2 text-xs text-[#7D7767]">儲存後可列印</p>
+                )}
+              </div>
+            </details>
           </div>
+          <Dialog.Description className="sr-only">
+            {isEdit
+              ? readOnly
+                ? "檢視訂單內容與明細"
+                : "編輯訂單內容、寄送資訊與品項明細"
+              : "建立新訂單"}
+          </Dialog.Description>
 
           <form
             onSubmit={handleSubmit}
-            className="mt-4 flex flex-1 flex-col overflow-hidden"
+            className="flex min-h-0 flex-1 flex-col"
           >
             {readOnly ? (
-              <div className="mx-5 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              <div className="mx-4 mb-2 mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 sm:mx-5">
                 已結案之訂單無法修改；請關閉視窗離開。
               </div>
             ) : null}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5">
+            <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4 pt-2 sm:px-5 sm:pb-6">
+              <div className="px-0.5">
+                <p className={ledgerLabel}>Order reference</p>
+                <p className="mt-1 font-[family-name:var(--font-manrope)] text-xl font-semibold tracking-tight text-[#625E55] sm:text-2xl">
+                  {draftOrderNumber || "—"}
+                </p>
+              </div>
               <datalist id={WOOD_TYPE_DATALIST_ID}>
                 {WOOD_TYPE_OPTIONS.map((w) => (
                   <option key={w} value={w} />
                 ))}
               </datalist>
-              <section className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    訂單主檔
+              <section className={`${ledgerCard} space-y-3`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-[#625E55]">
+                    客戶選擇
                   </h3>
-                  {draftOrderNumber && (
-                    <div className="text-xs text-muted-foreground whitespace-nowrap">
-                      訂單編號：{" "}
-                      <span className="font-mono text-foreground">
-                        {draftOrderNumber}
-                      </span>
+                  {!readOnly ? (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9 shrink-0 rounded-lg border-[#625E55]/20 text-[#625E55] hover:bg-[#625E55]/10"
+                        onClick={() => {
+                          if (!customerId) return;
+                          setEditCustomerOpen(true);
+                        }}
+                        disabled={!customerId}
+                        title="編輯客戶"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9 shrink-0 rounded-lg border-[#625E55]/20 text-[#625E55] hover:bg-[#625E55]/10"
+                        onClick={() => setAddCustomerOpen(true)}
+                        title="新增客戶"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                      </Button>
                     </div>
-                  )}
+                  ) : null}
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="order-customer"
-                      className="text-xs text-muted-foreground"
-                    >
-                      客戶 *
-                    </label>
-                    <div className="flex items-center gap-2">
-                      {readOnly ? (
-                        <div className={`${viewFieldClass} flex-1`}>
-                          {customers.find((c) => c.id === customerId)?.name ?? "—"}
-                        </div>
-                      ) : (
-                        <select
-                          id="order-customer"
-                          value={customerId}
-                          onChange={(e) => {
-                            const id = e.target.value;
-                            setCustomerId(id);
-                            const customer = customers.find((c) => c.id === id);
-                            if (customer?.delivery_address) {
-                              setShippingAddress(customer.delivery_address);
-                            }
-                          }}
-                          className="h-9 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                          required
-                        >
-                          <option value="">請選擇客戶</option>
-                          {customers.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      {!readOnly ? (
-                        <>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-9 shrink-0 px-2 text-xs"
-                            onClick={() => setAddCustomerOpen(true)}
-                          >
-                            <UserPlus className="h-3.5 w-3.5 mr-1" />
-                            新增客戶
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-9 shrink-0 px-2 text-xs"
-                            onClick={() => {
-                              if (!customerId) return;
-                              setEditCustomerOpen(true);
-                            }}
-                            disabled={!customerId}
-                          >
-                            編輯客戶
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
-                    <AddCustomerDialog
-                      channels={[]}
-                      open={addCustomerOpen}
-                      onOpenChange={setAddCustomerOpen}
-                      onSuccess={async () => {
-                        await onRefreshCustomers();
-                      }}
-                    />
-                    <AddCustomerDialog
-                      channels={[]}
-                      open={editCustomerOpen}
-                      onOpenChange={setEditCustomerOpen}
-                      customerId={customerId || null}
-                      onSuccess={async () => {
-                        await onRefreshCustomers();
-                      }}
-                    />
+                <div className="min-w-0 flex flex-col gap-1.5">
+                  <label htmlFor="order-customer" className={ledgerLabelZh}>
+                    客戶 *
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {readOnly ? (
+                      <div className={`${viewFieldClass} flex-1`}>
+                        {customers.find((c) => c.id === customerId)?.name ?? "—"}
+                      </div>
+                    ) : (
+                      <select
+                        id="order-customer"
+                        value={customerId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setCustomerId(id);
+                          const customer = customers.find((c) => c.id === id);
+                          if (customer?.delivery_address) {
+                            setShippingAddress(customer.delivery_address);
+                          }
+                        }}
+                        className={`${ledgerSelect} min-w-0 flex-1`}
+                        required
+                      >
+                        <option value="">請選擇客戶</option>
+                        {customers.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="order-date"
-                      className="text-xs text-muted-foreground"
-                    >
+                  <AddCustomerDialog
+                    channels={[]}
+                    open={addCustomerOpen}
+                    onOpenChange={setAddCustomerOpen}
+                    onSuccess={async () => {
+                      await onRefreshCustomers();
+                    }}
+                  />
+                  <AddCustomerDialog
+                    channels={[]}
+                    open={editCustomerOpen}
+                    onOpenChange={setEditCustomerOpen}
+                    customerId={customerId || null}
+                    onSuccess={async () => {
+                      await onRefreshCustomers();
+                    }}
+                  />
+                </div>
+              </section>
+
+              <section className={`${ledgerCard} space-y-3`}>
+                <h3 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-[#625E55]">
+                  訂單資訊
+                </h3>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <label htmlFor="order-date" className={ledgerLabelZh}>
                       下單日期
                     </label>
                     <input
@@ -1057,14 +1142,11 @@ function OrderFormDialog({
                       value={orderDate ?? ""}
                       onChange={(e) => setOrderDate(e.target.value)}
                       readOnly={readOnly}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                      className={ledgerIn}
                     />
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="order-expected"
-                      className="text-xs text-muted-foreground"
-                    >
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <label htmlFor="order-expected" className={ledgerLabelZh}>
                       預計交貨日
                     </label>
                     <input
@@ -1073,49 +1155,11 @@ function OrderFormDialog({
                       value={expectedDate ?? ""}
                       onChange={(e) => setExpectedDate(e.target.value)}
                       readOnly={readOnly}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                      className={ledgerIn}
                     />
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="order-status"
-                      className="text-xs text-muted-foreground"
-                    >
-                      訂單狀態
-                    </label>
-                    {readOnly || savedOrderStatusLocked ? (
-                      <div className="space-y-1">
-                        <div id="order-status" className={viewFieldClass}>
-                          {status}
-                        </div>
-                        {savedOrderStatusLocked && !readOnly ? (
-                          <p className="text-[11px] text-muted-foreground leading-snug">
-                            生產中／暫停時請至「生產管理」調整工單工序；全部進入「包裝管理」後將自動改為已完工。
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <select
-                        id="order-status"
-                        value={status}
-                        onChange={(e) =>
-                          setStatus(e.target.value as OrderStatus)
-                        }
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        {manualOrderStatusOptions(status).map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="order-payment"
-                      className="text-xs text-muted-foreground"
-                    >
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <label htmlFor="order-payment" className={ledgerLabelZh}>
                       付款狀態
                     </label>
                     {readOnly ? (
@@ -1129,7 +1173,7 @@ function OrderFormDialog({
                         onChange={(e) =>
                           setPaymentStatus(e.target.value as PaymentStatus)
                         }
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        className={ledgerSelect}
                       >
                         {PAYMENT_STATUS_OPTIONS.map((s) => (
                           <option key={s} value={s}>
@@ -1139,136 +1183,156 @@ function OrderFormDialog({
                       </select>
                     )}
                   </div>
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <label htmlFor="order-status" className={ledgerLabelZh}>
+                      訂單狀態
+                    </label>
+                    {readOnly || savedOrderStatusLocked ? (
+                      <div className="space-y-1">
+                        <div id="order-status" className={viewFieldClass}>
+                          {status}
+                        </div>
+                        {savedOrderStatusLocked && !readOnly ? (
+                          <p className="text-[11px] text-[#7D7767] leading-snug">
+                            生產中／暫停時請至「生產管理」調整工單工序；全部進入「包裝管理」後將自動改為已完工。
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <select
+                        id="order-status"
+                        value={status}
+                        onChange={(e) =>
+                          setStatus(e.target.value as OrderStatus)
+                        }
+                        className={ledgerSelect}
+                      >
+                        {manualOrderStatusOptions(status).map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-3 h-full sm:col-span-2">
+              </section>
+
+                <section className={`${ledgerCard} space-y-3`}>
+                  <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      <h4 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-[#625E55]">
                         寄送資訊
                       </h4>
                       <Button
                         type="button"
                         variant="outline"
-                        className="h-7 px-2 text-[11px]"
+                        className="h-8 rounded-lg border-[#625E55]/25 px-2.5 text-[11px] font-medium uppercase tracking-wide text-[#625E55] hover:bg-[#625E55]/10"
                         onClick={applyShippingFromCustomer}
                         disabled={readOnly || !customerId}
                       >
                         帶入客戶資料
                       </Button>
                     </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <div className="flex flex-col gap-1.5">
-                        <label
-                          htmlFor="order-ship-contact"
-                          className="text-xs text-muted-foreground"
-                        >
-                          聯絡人
-                        </label>
-                        <input
-                          id="order-ship-contact"
-                          type="text"
-                          value={shippingContactName}
-                          onChange={(e) => setShippingContactName(e.target.value)}
-                          readOnly={readOnly}
-                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
-                          placeholder="收貨聯絡人"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label
-                          htmlFor="order-ship-phone"
-                          className="text-xs text-muted-foreground"
-                        >
-                          聯絡電話
-                        </label>
-                        <input
-                          id="order-ship-phone"
-                          type="text"
-                          value={shippingContactPhone}
-                          onChange={(e) => setShippingContactPhone(e.target.value)}
-                          readOnly={readOnly}
-                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
-                          placeholder="手機或市話"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label
-                          htmlFor="order-ship-elevator"
-                          className="text-xs text-muted-foreground"
-                        >
-                          有無電梯
-                        </label>
-                        {readOnly ? (
-                          <div id="order-ship-elevator" className={viewFieldClass}>
-                            {shippingHasElevator === null
-                              ? "未填"
-                              : shippingHasElevator
-                                ? "有電梯"
-                                : "無電梯"}
-                          </div>
-                        ) : (
-                          <select
-                            id="order-ship-elevator"
-                            value={
-                              shippingHasElevator === null
-                                ? ""
-                                : shippingHasElevator
-                                ? "yes"
-                                : "no"
-                            }
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              if (v === "") setShippingHasElevator(null);
-                              else if (v === "yes") setShippingHasElevator(true);
-                              else setShippingHasElevator(false);
-                            }}
-                            className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                          >
-                            <option value="">未填</option>
-                            <option value="yes">有電梯</option>
-                            <option value="no">無電梯</option>
-                          </select>
-                        )}
-                      </div>
-                    </div>
                     <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <label
-                          htmlFor="order-shipping"
-                          className="text-xs text-muted-foreground"
-                        >
-                          送貨地址
-                        </label>
-                      </div>
-                      <textarea
-                        id="order-shipping"
-                        value={shippingAddress}
-                        onChange={(e) => setShippingAddress(e.target.value)}
+                      <label
+                        htmlFor="order-ship-contact"
+                        className={ledgerLabelZh}
+                      >
+                        聯絡人
+                      </label>
+                      <input
+                        id="order-ship-contact"
+                        type="text"
+                        value={shippingContactName}
+                        onChange={(e) => setShippingContactName(e.target.value)}
                         readOnly={readOnly}
-                        className="min-h-[72px] rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
-                        placeholder="送貨地址；選客戶時可自動帶入預設地址，亦可按「帶入客戶資料」一次帶入聯絡人／電話／地址／電梯。"
+                        className={ledgerIn}
+                        placeholder="收貨聯絡人"
                       />
                     </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label
+                        htmlFor="order-ship-phone"
+                        className={ledgerLabelZh}
+                      >
+                        聯絡電話
+                      </label>
+                      <input
+                        id="order-ship-phone"
+                        type="text"
+                        value={shippingContactPhone}
+                        onChange={(e) => setShippingContactPhone(e.target.value)}
+                        readOnly={readOnly}
+                        className={ledgerIn}
+                        placeholder="手機或市話"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label
+                        htmlFor="order-shipping"
+                        className={ledgerLabelZh}
+                      >
+                        送貨地址
+                      </label>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
+                        <textarea
+                          id="order-shipping"
+                          value={shippingAddress}
+                          onChange={(e) => setShippingAddress(e.target.value)}
+                          readOnly={readOnly}
+                          className={`${ledgerTa} min-h-[80px] min-w-0 flex-1`}
+                          placeholder="送貨地址；選客戶時可自動帶入預設地址，亦可按「帶入客戶資料」一次帶入聯絡人／電話／地址／電梯。"
+                        />
+                        <div className="flex shrink-0 items-start sm:min-w-[5.5rem] sm:pt-1">
+                          {readOnly ? (
+                            <div
+                              id="order-ship-elevator"
+                              className={`${viewFieldClass} text-sm`}
+                            >
+                              {shippingHasElevator === true
+                                ? "有電梯"
+                                : shippingHasElevator === false
+                                  ? "無電梯"
+                                  : "未填"}
+                            </div>
+                          ) : (
+                            <label
+                              htmlFor="order-ship-elevator"
+                              className="flex cursor-pointer items-center gap-2 text-sm text-[#625E55]"
+                            >
+                              <input
+                                id="order-ship-elevator"
+                                type="checkbox"
+                                checked={shippingHasElevator === true}
+                                onChange={(e) =>
+                                  setShippingHasElevator(e.target.checked ? true : false)
+                                }
+                                className="h-4 w-4 rounded border-[#625E55]/30 text-[#625E55] focus:ring-[#625E55]/30"
+                              />
+                              <span>有電梯</span>
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-1.5 h-full sm:col-span-2">
-                    <label
-                      htmlFor="order-notes"
-                      className="text-xs text-muted-foreground"
-                    >
-                      內部備註
-                    </label>
-                    <textarea
-                      id="order-notes"
-                      value={internalNotes}
-                      onChange={(e) => setInternalNotes(e.target.value)}
-                      readOnly={readOnly}
-                      className="min-h-[60px] h-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
-                    />
-                  </div>
-                </div>
+                </section>
+                <section className={`${ledgerCard} space-y-2`}>
+                  <label htmlFor="order-notes" className={ledgerLabelZh}>
+                    訂單備註
+                  </label>
+                  <textarea
+                    id="order-notes"
+                    value={internalNotes}
+                    onChange={(e) => setInternalNotes(e.target.value)}
+                    readOnly={readOnly}
+                    className={`${ledgerTa} min-h-[88px]`}
+                  />
+                </section>
                 <div className="grid grid-cols-1 gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-xs text-muted-foreground">
+                  <div className={`flex flex-col gap-1.5 rounded-lg border border-dashed border-[#625E55]/25 bg-[#FAF9F6] p-4`}>
+                    <span className={`${ledgerLabelZh} font-medium`}>
                       訂單說明圖（用於列印，建議放訂製品尺寸／圖樣示意，可多張）
                     </span>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3 sm:flex-wrap">
@@ -1363,33 +1427,61 @@ function OrderFormDialog({
                     </div>
                   </div>
                 </div>
-              </section>
 
               <section className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    品項明細
+                  <h3 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-[#625E55]">
+                    品項明細（{itemRows.length}）
                   </h3>
                   {!readOnly ? (
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-8 px-3 text-xs"
+                      className="h-9 rounded-lg border-[#625E55]/25 px-3 text-xs font-semibold uppercase tracking-wide text-[#625E55] hover:bg-[#625E55]/10"
                       onClick={addItem}
                     >
-                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      <Plus className="mr-1 h-3.5 w-3.5" />
                       新增品項
                     </Button>
                   ) : null}
                 </div>
                 <div className="space-y-3">
-                  {itemRows.map((it, idx) => (
+                  {itemRows.map((it, idx) => {
+                    const summary = itemLedgerSummary(it);
+                    return (
                     <div
                       key={it.id}
-                      className="rounded-lg border border-border bg-card/40 p-3 space-y-2"
+                      className={`${ledgerCard} space-y-2 p-3 sm:p-4`}
                     >
+                      <div className="flex gap-3 border-b border-[#625E55]/10 pb-3">
+                        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[#625E55]/15 bg-[#FAF9F6]">
+                          {summary.thumb ? (
+                            <img
+                              src={summary.thumb}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[10px] font-medium text-[#7D7767]/70">
+                              無圖
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-mono text-xs font-semibold text-[#625E55]">
+                            {summary.code}
+                          </p>
+                          <p className="mt-0.5 line-clamp-2 text-sm text-[#625E55]">
+                            {summary.title}
+                          </p>
+                          <p className="mt-1 text-xs tabular-nums text-[#7D7767]">
+                            NTD {(Number(it.unit_price) || 0).toLocaleString()} ×{" "}
+                            {it.quantity}
+                          </p>
+                        </div>
+                      </div>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-muted-foreground">
+                        <p className="text-xs font-medium text-[#7D7767]">
                           品項 {idx + 1}
                         </p>
                         {!readOnly && itemRows.length > 1 && (
@@ -1466,8 +1558,8 @@ function OrderFormDialog({
 
                       {it.kind === "variant" ? (
                         <>
-                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
-                            <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-2">
+                          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,9rem)_minmax(0,1.45fr)_minmax(0,5.5rem)_minmax(0,7rem)_minmax(0,7rem)] lg:items-end">
+                            <div className="flex flex-col gap-1.5">
                               <label className="text-xs text-muted-foreground">
                                 系列
                               </label>
@@ -1499,7 +1591,7 @@ function OrderFormDialog({
                                 </select>
                               )}
                             </div>
-                            <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-2">
+                            <div className="flex flex-col gap-1.5">
                               <label
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`item-variant-${it.id}`}
@@ -1586,7 +1678,7 @@ function OrderFormDialog({
                                 </p>
                               )}
                             </div>
-                            <div className="flex flex-col gap-1.5 sm:col-span-1">
+                            <div className="flex flex-col gap-1.5">
                               <label
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`item-qty-${it.id}`}
@@ -1607,7 +1699,7 @@ function OrderFormDialog({
                                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
-                            <div className="flex flex-col gap-1.5 sm:col-span-1">
+                            <div className="flex flex-col gap-1.5">
                               <label
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`item-price-${it.id}`}
@@ -1629,7 +1721,7 @@ function OrderFormDialog({
                                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
-                            <div className="flex flex-col gap-1.5 sm:col-span-1">
+                            <div className="flex flex-col gap-1.5">
                               <span className="text-xs text-muted-foreground">
                                 通路價格
                               </span>
@@ -2118,14 +2210,15 @@ function OrderFormDialog({
                           </div>
                         </>
                       )}
-                      <p className="text-xs text-muted-foreground text-right">
+                      <p className="text-xs text-[#7D7767] text-right">
                         小計：{" "}
-                        <span className="font-semibold text-foreground">
+                        <span className="font-semibold text-[#625E55]">
                           {itemSubtotals[idx].toLocaleString()}
                         </span>
                       </p>
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               </section>
 
@@ -2161,8 +2254,8 @@ function OrderFormDialog({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <label className="flex flex-col gap-1.5">
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,9.5rem)_minmax(0,7.5rem)_minmax(0,1fr)_minmax(0,11rem)] lg:items-end lg:gap-x-3">
+                  <label className="flex flex-col gap-1.5 min-w-0 max-w-[9.5rem]">
                     <span className="text-xs text-muted-foreground">折扣後總金額</span>
                     {readOnly ? (
                       <div className={`${viewFieldClass} tabular-nums`}>
@@ -2180,20 +2273,14 @@ function OrderFormDialog({
                         onChange={(e) => {
                           setDiscountLocked(true);
                           setDiscountTotal(e.target.value);
-                          const v = Number(e.target.value);
-                          const p = Number(depositPercent);
-                          if (p > 0 && Number.isFinite(v) && v > 0) {
-                            const amt = Math.round((v * p) / 100);
-                            setDeposit(String(amt));
-                          }
                         }}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         placeholder={totalAmount > 0 ? String(totalAmount) : "0"}
                       />
                     )}
                   </label>
 
-                  <label className="flex flex-col gap-1.5">
+                  <label className="flex flex-col gap-1.5 min-w-0 max-w-[7.5rem]">
                     <span className="text-xs text-muted-foreground">運費</span>
                     {readOnly ? (
                       <div className={`${viewFieldClass} tabular-nums`}>
@@ -2206,12 +2293,12 @@ function OrderFormDialog({
                         min={0}
                         value={shippingFee}
                         onChange={(e) => setShippingFee(e.target.value)}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     )}
                   </label>
 
-                  <label className="flex flex-col gap-1.5">
+                  <div className="flex flex-col gap-1.5 min-w-0">
                     <span className="text-xs text-muted-foreground">訂金比例</span>
                     {readOnly ? (
                       <div className={viewFieldClass}>
@@ -2220,29 +2307,54 @@ function OrderFormDialog({
                           : `${depositPercent}%`}
                       </div>
                     ) : (
-                      <select
-                        value={depositPercent}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setDepositPercent(v);
-                          const p = Number(v);
-                          if (p > 0 && discountBase > 0) {
-                            const amt = Math.round((discountBase * p) / 100);
-                            setDeposit(String(amt));
-                          }
-                        }}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">自訂</option>
-                        <option value="30">30%</option>
-                        <option value="40">40%</option>
-                        <option value="50">50%</option>
-                      </select>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+                        <select
+                          value={depositPercent}
+                          onChange={(e) => setDepositPercent(e.target.value)}
+                          className="h-9 w-full min-w-0 shrink-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[7.25rem]"
+                          aria-label="訂金比例"
+                        >
+                          <option value="">自訂</option>
+                          <option value="30">30%</option>
+                          <option value="40">40%</option>
+                          <option value="50">50%</option>
+                        </select>
+                        <div className="flex flex-1 flex-wrap items-center justify-end gap-2 sm:justify-end">
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            訂金試算
+                            {trialDepositAmount != null ? (
+                              <>
+                                {" "}
+                                <span className="font-semibold text-foreground">
+                                  {trialDepositAmount.toLocaleString()}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground/80"> —</span>
+                            )}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 shrink-0 px-2.5 text-xs"
+                            disabled={trialDepositAmount == null}
+                            onClick={() => {
+                              if (trialDepositAmount != null) {
+                                setDeposit(String(trialDepositAmount));
+                              }
+                            }}
+                          >
+                            帶入訂金
+                          </Button>
+                        </div>
+                      </div>
                     )}
-                  </label>
+                  </div>
 
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-xs text-muted-foreground">預收訂金（計算訂金不含運費）</span>
+                  <label className="flex flex-col gap-1.5 min-w-0">
+                    <span className="text-xs text-muted-foreground leading-snug">
+                      預收訂金（計算訂金不含運費）
+                    </span>
                     {readOnly ? (
                       <div className={`${viewFieldClass} tabular-nums`}>
                         {(Number(deposit) || 0).toLocaleString()}
@@ -2254,7 +2366,7 @@ function OrderFormDialog({
                         min={0}
                         value={deposit}
                         onChange={(e) => setDeposit(e.target.value)}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     )}
                   </label>
@@ -2263,17 +2375,48 @@ function OrderFormDialog({
             </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-border p-5 pt-4">
-              <Dialog.Close asChild>
-                <Button type="button" variant="ghost" disabled={saving}>
-                  {readOnly ? "關閉" : "取消"}
-                </Button>
-              </Dialog.Close>
-              {!readOnly ? (
-                <Button type="submit" disabled={saving}>
-                  {saving ? "儲存中…" : "儲存訂單"}
-                </Button>
-              ) : null}
+            <div className="sticky bottom-0 z-20 shrink-0 border-t border-[#625E55]/25 bg-[#3d3a35] px-4 py-4 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] sm:px-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-8">
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/55">
+                      應收總額（NTD）
+                    </p>
+                    <p className="mt-0.5 font-[family-name:var(--font-manrope)] text-2xl font-semibold tabular-nums tracking-tight text-[#FAF9F6]">
+                      {grandTotal.toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/55">
+                      應收訂金金額
+                    </p>
+                    <p className="mt-0.5 font-[family-name:var(--font-manrope)] text-2xl font-semibold tabular-nums tracking-tight text-[#FAF9F6]">
+                      {(Number(deposit) || 0).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+                  <Dialog.Close asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={saving}
+                      className="h-11 rounded-lg text-white/85 hover:bg-white/10 hover:text-white"
+                    >
+                      {readOnly ? "關閉" : "取消"}
+                    </Button>
+                  </Dialog.Close>
+                  {!readOnly ? (
+                    <Button
+                      type="submit"
+                      disabled={saving}
+                      className="h-12 min-w-[10rem] rounded-lg border-0 bg-[#FAF9F6] font-semibold text-[#625E55] shadow-sm hover:bg-[#f0efe8] focus-visible:ring-2 focus-visible:ring-[#FAF9F6]/40"
+                    >
+                      {saving ? "儲存中…" : "儲存訂單"}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </form>
         </Dialog.Content>
@@ -2315,6 +2458,7 @@ export function OrdersPage({
   );
   const [formOpen, setFormOpen] = useState(false);
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<OrderRow | null>(null);
+  const [overviewOrderId, setOverviewOrderId] = useState<string | null>(null);
   const hasAppliedInitialOpenRef = useRef(false);
 
   async function fetchCustomers() {
@@ -2549,18 +2693,35 @@ export function OrdersPage({
     return Array.from(set).sort().reverse();
   }, [orders]);
 
-  /** 下拉選單：主檔客戶 + 訂單曾出現但主檔可能缺漏的 customer_id */
+  /** 下拉選單：主檔客戶 + 訂單曾出現但主檔可能缺漏的 customer_id；通路客戶置頂並標示 [通路] */
   const customerFilterOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    customers.forEach((c) => byId.set(c.id, c.name));
+    const byId = new Map<string, { name: string; channelId: string | null }>();
+    customers.forEach((c) => {
+      const ch = c.channel_id != null && String(c.channel_id).trim() ? String(c.channel_id) : null;
+      byId.set(c.id, { name: c.name, channelId: ch });
+    });
     orders.forEach((o) => {
       if (o.customer_id && !byId.has(o.customer_id)) {
-        byId.set(o.customer_id, o.customer_name?.trim() || "—");
+        byId.set(o.customer_id, {
+          name: o.customer_name?.trim() || "—",
+          channelId: null,
+        });
       }
     });
     return Array.from(byId.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+      .map(([id, { name, channelId }]) => {
+        const isChannel = channelId != null;
+        return {
+          id,
+          name,
+          isChannel,
+          label: isChannel ? `[通路] ${name}` : name,
+        };
+      })
+      .sort((a, b) => {
+        if (a.isChannel !== b.isChannel) return a.isChannel ? -1 : 1;
+        return a.name.localeCompare(b.name, "zh-Hant", { numeric: true });
+      });
   }, [customers, orders]);
 
   const filtered = useMemo(() => {
@@ -2602,8 +2763,8 @@ export function OrdersPage({
     | "deposit_amount"
     | "total_amount";
   const [orderSort, setOrderSort] = useState<{ key: OrderSortKey; dir: "asc" | "desc" }>({
-    key: "order_date",
-    dir: "desc",
+    key: "status",
+    dir: "asc",
   });
   const sortKey = orderSort.key;
   const sortDir = orderSort.dir;
@@ -2611,13 +2772,27 @@ export function OrdersPage({
   const sortedOrders = useMemo(() => {
     const list = [...filtered];
     list.sort((a, b) => {
-      // 預設排序：已結清放底部，其餘依下單日新到舊
+      // 下單日降冪時：已結清放底部，其餘依日期新到舊
       if (sortKey === "order_date" && sortDir === "desc") {
         const aSettled = a.payment_status === "已結清";
         const bSettled = b.payment_status === "已結清";
         if (aSettled !== bSettled) return aSettled ? 1 : -1;
       }
       if (sortKey === "status") {
+        const ar = orderStatusSortIndex(a.status);
+        const br = orderStatusSortIndex(b.status);
+        if (ar !== br) return sortDir === "asc" ? ar - br : br - ar;
+        const ap = paymentStatusSortIndex(a.payment_status);
+        const bp = paymentStatusSortIndex(b.payment_status);
+        if (ap !== bp) return sortDir === "asc" ? ap - bp : bp - ap;
+        const ad = a.order_date ?? "";
+        const bd = b.order_date ?? "";
+        return bd.localeCompare(ad);
+      }
+      if (sortKey === "payment_status") {
+        const ap = paymentStatusSortIndex(a.payment_status);
+        const bp = paymentStatusSortIndex(b.payment_status);
+        if (ap !== bp) return sortDir === "asc" ? ap - bp : bp - ap;
         const ar = orderStatusSortIndex(a.status);
         const br = orderStatusSortIndex(b.status);
         if (ar !== br) return sortDir === "asc" ? ar - br : br - ar;
@@ -2927,7 +3102,7 @@ export function OrdersPage({
               <option value="">全部客戶</option>
               {customerFilterOptions.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {c.label}
                 </option>
               ))}
             </select>
@@ -2987,7 +3162,7 @@ export function OrdersPage({
             {monthFilter ? `目前篩選月份：${monthFilter}` : "目前顯示：全部月份"}
             {" · "}
             {customerFilter
-              ? `客戶：${customerFilterOptions.find((c) => c.id === customerFilter)?.name ?? "—"}`
+              ? `客戶：${customerFilterOptions.find((c) => c.id === customerFilter)?.label ?? "—"}`
               : "客戶：全部"}
             {" · "}
             {statusFilter === "全部"
@@ -3140,9 +3315,10 @@ export function OrdersPage({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleEdit(order);
+                        setOverviewOrderId(order.id);
                       }}
                       className="text-left font-medium text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                      title="訂單總覽（品項／負責人／工序）"
                     >
                       {order.customer_name || "—"}
                       {order.customer_alias && order.customer_alias.trim() && (
@@ -3241,6 +3417,20 @@ export function OrdersPage({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        title="訂單總覽（品項／負責人／工序）"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setOverviewOrderId(order.id);
+                        }}
+                      >
+                        <Layers className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
                         title={order.status === "報價中" ? "報價列印" : "訂單列印"}
                         onClick={(e) => {
                           e.preventDefault();
@@ -3311,6 +3501,19 @@ export function OrdersPage({
       <p className="text-xs text-muted-foreground">
         顯示 {filtered.length} / {orders.length} 筆訂單
       </p>
+
+      <OrderOverviewDialog
+        open={overviewOrderId != null}
+        onOpenChange={(open) => {
+          if (!open) setOverviewOrderId(null);
+        }}
+        orderId={overviewOrderId}
+        onEditOrder={(id) => {
+          const row = orders.find((o) => o.id === id);
+          setOverviewOrderId(null);
+          if (row) void handleEdit(row);
+        }}
+      />
 
       <OrderFormDialog
         key={editingOrder?.id ?? "new-order"}

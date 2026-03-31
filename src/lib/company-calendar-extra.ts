@@ -24,6 +24,8 @@ function num(v: unknown, fallback = 0): number {
 /** 與行事曆可視範圍有日期重疊之已核准假單（含員工姓名、total_days） */
 export type CalendarApprovedLeaveRow = {
   id: string;
+  /** employees.id，供區分本人／同仁 */
+  employee_id: string;
   employeeName: string;
   leaveType: string;
   totalDays: number;
@@ -105,6 +107,62 @@ export async function fetchCalendarApprovedLeavesOverlapping(
     .map((r) => mapLeaveRow(r, new Map()));
 }
 
+/** 僅目前員工、與區間重疊之已核准假單（員工儀表板小月曆用） */
+export async function fetchCalendarApprovedLeavesForEmployee(
+  employeeId: string,
+  rangeStart: string,
+  rangeEnd: string,
+): Promise<CalendarApprovedLeaveRow[]> {
+  if (!isSupabaseConfigured) return [];
+  const id = String(employeeId ?? "").trim();
+  if (!id) return [];
+
+  const withJoin = `
+    id,
+    employee_id,
+    leave_type,
+    start_date,
+    end_date,
+    status,
+    total_days,
+    employees ( name )
+  `;
+
+  let data: Record<string, unknown>[] | null = null;
+
+  const attempt1 = await supabase
+    .from("leave_requests")
+    .select(withJoin)
+    .eq("employee_id", id)
+    .lte("start_date", rangeEnd)
+    .gte("end_date", rangeStart);
+
+  if (!attempt1.error) {
+    data = attempt1.data as Record<string, unknown>[];
+  } else {
+    const plain = await supabase
+      .from("leave_requests")
+      .select("id, employee_id, leave_type, start_date, end_date, status, total_days")
+      .eq("employee_id", id)
+      .lte("start_date", rangeEnd)
+      .gte("end_date", rangeStart);
+    if (plain.error) {
+      console.warn("[company-calendar-extra] leave_requests (employee):", plain.error.message);
+      return [];
+    }
+    data = plain.data as Record<string, unknown>[];
+    const nameById = new Map<string, string>();
+    nameById.set(id, "");
+    return (data ?? [])
+      .filter((r) => isApprovedLeaveStatus(String(r.status ?? "")))
+      .map((r) => mapLeaveRow(r, nameById));
+  }
+
+  return (data ?? [])
+    .filter((r) => isApprovedLeaveStatus(String(r.status ?? "")))
+    .map((r) => mapLeaveRow(r, new Map()));
+}
+
 function mapLeaveRow(
   r: Record<string, unknown>,
   nameById: Map<string, string>,
@@ -116,6 +174,7 @@ function mapLeaveRow(
   const endDate = String(r.end_date ?? startDate).slice(0, 10);
   return {
     id,
+    employee_id: eid,
     employeeName: joined ?? (eid ? nameById.get(eid) ?? "—" : "—"),
     leaveType: String(r.leave_type ?? "請假").trim() || "請假",
     totalDays: num(r.total_days ?? r.days_count, 0),
