@@ -138,7 +138,13 @@ export async function POST(request: NextRequest) {
       });
 
       if (insertError) {
-        console.error("[line-webhook] insert line_messages:", insertError);
+        console.error("[line-webhook] insert line_messages:", JSON.stringify(insertError));
+        const code = String((insertError as { code?: string }).code ?? "");
+        if (code === "PGRST204") {
+          console.error(
+            "[line-webhook] PGRST204 = table/column not in PostgREST schema cache (new table/column). In Supabase → SQL Editor run: NOTIFY pgrst, 'reload schema'; then resend a LINE text. See: https://supabase.com/docs/guides/troubleshooting/postgrest-not-recognizing-new-columns-or-functions-bd75f5"
+          );
+        }
         const msg = String(insertError.message ?? "");
         if (/permission denied|rls|new row violates row-level security/i.test(msg)) {
           console.error(
