@@ -133,7 +133,8 @@ export async function POST(request: NextRequest) {
 
       const { error: insertError } = await supabase.from("line_messages").insert({
         line_user_id: userId,
-        text,
+        content: text,
+        message_type: "text",
         customer_id: customerId,
       });
 

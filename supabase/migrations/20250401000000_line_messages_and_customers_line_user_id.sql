@@ -12,13 +12,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS customers_line_user_id_unique
 CREATE TABLE IF NOT EXISTS line_messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   line_user_id text NOT NULL,
-  text text NOT NULL,
+  content text NOT NULL,
+  message_type text NOT NULL DEFAULT 'text',
   customer_id uuid REFERENCES customers(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-COMMENT ON TABLE line_messages IS 'LINE Webhook 收到的文字訊息';
+COMMENT ON TABLE line_messages IS 'LINE Webhook 收到的訊息';
 COMMENT ON COLUMN line_messages.line_user_id IS 'LINE source.userId';
+COMMENT ON COLUMN line_messages.content IS '訊息本文';
+COMMENT ON COLUMN line_messages.message_type IS '例如 text';
 COMMENT ON COLUMN line_messages.customer_id IS '若 customers.line_user_id 或 line_id 相符則自動填入';
 
 CREATE INDEX IF NOT EXISTS line_messages_created_at_idx ON line_messages (created_at DESC);

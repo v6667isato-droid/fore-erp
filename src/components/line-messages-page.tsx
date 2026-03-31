@@ -7,10 +7,16 @@ import { Button } from "@/components/ui/button";
 type LineMessageRow = {
   id: string;
   line_user_id: string;
-  text: string;
+  content?: string | null;
+  message_type?: string | null;
   customer_id: string | null;
   created_at: string;
 };
+
+function messageBody(r: LineMessageRow): string {
+  const s = r.content ?? "";
+  return typeof s === "string" ? s : "";
+}
 
 export function LineMessagesPage() {
   const [loading, setLoading] = useState(true);
@@ -23,7 +29,7 @@ export function LineMessagesPage() {
 
     const { data, error: qErr } = await supabase
       .from("line_messages")
-      .select("id, line_user_id, text, customer_id, created_at")
+      .select("id, line_user_id, content, message_type, customer_id, created_at")
       .order("created_at", { ascending: false })
       .limit(200);
 
@@ -120,7 +126,7 @@ export function LineMessagesPage() {
                   <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground" title={r.customer_id ?? ""}>
                     {r.customer_id ? r.customer_id.slice(0, 8) + "…" : "—"}
                   </td>
-                  <td className="px-3 py-2 max-w-md whitespace-pre-wrap break-words">{r.text}</td>
+                  <td className="px-3 py-2 max-w-md whitespace-pre-wrap break-words">{messageBody(r)}</td>
                 </tr>
               ))}
             </tbody>
