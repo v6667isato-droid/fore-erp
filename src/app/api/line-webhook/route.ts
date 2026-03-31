@@ -114,6 +114,12 @@ export async function POST(request: NextRequest) {
 
       if (insertError) {
         console.error("[line-webhook] insert line_messages:", insertError);
+        const msg = String(insertError.message ?? "");
+        if (/permission denied|rls|new row violates row-level security/i.test(msg)) {
+          console.error(
+            "[line-webhook] Insert blocked: use SUPABASE_SERVICE_ROLE_KEY from Supabase → Settings → API (service_role secret), not the anon key."
+          );
+        }
       }
     }
 

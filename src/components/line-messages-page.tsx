@@ -10,15 +10,7 @@ type LineMessageRow = {
   text: string;
   customer_id: string | null;
   created_at: string;
-  customers?: { name: string | null } | { name: string | null }[] | null;
 };
-
-function customerLabel(row: LineMessageRow): string {
-  const rel = row.customers;
-  if (!rel) return "—";
-  const c = Array.isArray(rel) ? rel[0] : rel;
-  return c?.name?.trim() ? c.name.trim() : "—";
-}
 
 export function LineMessagesPage() {
   const [loading, setLoading] = useState(true);
@@ -31,7 +23,7 @@ export function LineMessagesPage() {
 
     const { data, error: qErr } = await supabase
       .from("line_messages")
-      .select("id, line_user_id, text, customer_id, created_at, customers(name)")
+      .select("id, line_user_id, text, customer_id, created_at")
       .order("created_at", { ascending: false })
       .limit(200);
 
@@ -85,7 +77,26 @@ export function LineMessagesPage() {
       {loading ? (
         <p className="text-sm text-muted-foreground">載入中…</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">尚無訊息。請確認 Webhook 已啟用且使用者曾傳送文字訊息。</p>
+        <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground space-y-2">
+          <p>尚無訊息。請依序檢查：</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>
+              在 LINE 對<strong>這個官方帳號</strong>傳一則<strong>純文字</strong>（貼圖、照片不算）。
+            </li>
+            <li>
+              到 Supabase → <strong>Table Editor</strong> → <code className="text-foreground">line_messages</code>{" "}
+              是否有新列；若沒有，代表 Webhook 沒寫入成功。
+            </li>
+            <li>
+              Vercel 的 <code className="text-foreground">SUPABASE_SERVICE_ROLE_KEY</code> 必須是 Dashboard → API 的{" "}
+              <strong>service_role</strong>（長度與內容應與 <strong>anon</strong> 金鑰不同）。若誤貼成 anon，寫入會被 RLS 擋下。
+            </li>
+            <li>
+              確認已在 Supabase 執行過 migration，資料表 <code className="text-foreground">line_messages</code>{" "}
+              存在。
+            </li>
+          </ul>
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full min-w-[640px] text-sm">
@@ -93,7 +104,7 @@ export function LineMessagesPage() {
               <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
                 <th className="px-3 py-2 font-medium">時間</th>
                 <th className="px-3 py-2 font-medium">LINE userId</th>
-                <th className="px-3 py-2 font-medium">客戶</th>
+                <th className="px-3 py-2 font-medium">客戶 ID</th>
                 <th className="px-3 py-2 font-medium">內容</th>
               </tr>
             </thead>
@@ -106,7 +117,9 @@ export function LineMessagesPage() {
                   <td className="px-3 py-2 font-mono text-[12px] max-w-[200px] truncate" title={r.line_user_id}>
                     {r.line_user_id}
                   </td>
-                  <td className="px-3 py-2">{customerLabel(r)}</td>
+                  <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground" title={r.customer_id ?? ""}>
+                    {r.customer_id ? r.customer_id.slice(0, 8) + "…" : "—"}
+                  </td>
                   <td className="px-3 py-2 max-w-md whitespace-pre-wrap break-words">{r.text}</td>
                 </tr>
               ))}
