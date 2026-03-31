@@ -1090,7 +1090,7 @@ function OrderFormDialog({
                         </div>
                         {savedOrderStatusLocked && !readOnly ? (
                           <p className="text-[11px] text-muted-foreground leading-snug">
-                            生產中／暫停時請至「生產管理」調整工單工序；全部進入「包裝檢查」後將自動改為已完工。
+                            生產中／暫停時請至「生產管理」調整工單工序；全部進入「包裝管理」後將自動改為已完工。
                           </p>
                         ) : null}
                       </div>

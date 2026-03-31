@@ -41,6 +41,7 @@ import {
   SUPABASE_CONFIG_HELP,
 } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
+import { isAdminOrManagerRole } from "@/lib/post-login-redirect";
 
 type Page =
   | "dashboard"
@@ -440,6 +441,10 @@ export default function DashboardShell() {
         if (cancelled) return;
 
         const raw = ((profile?.role as string) ?? "").trim().toLowerCase();
+        if (!isAdminOrManagerRole(raw)) {
+          router.replace("/employee/dashboard");
+          return;
+        }
         let appRole: AppRole;
         if (raw === "admin") appRole = "admin";
         else if (raw === "manager") appRole = "manager";

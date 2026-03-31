@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * 工單工序站別（與 DB `work_orders.stage` 一致）。
- * 順序：待排程 → … → 包裝檢查 → 待出貨 → 已出貨；「暫停」為特殊狀態。
+ * 順序：待排程 → … → 包裝管理 → 待出貨 → 已出貨；「暫停」為特殊狀態。
  * 兩段組裝以 (一)(二) 區分（對應：組裝中 → 塗裝中 → 組裝中）。
  */
 export const WORK_ORDER_STAGES = [
@@ -13,7 +13,7 @@ export const WORK_ORDER_STAGES = [
   "組裝中(一)",
   "塗裝中",
   "組裝中(二)",
-  "包裝檢查",
+  "包裝管理",
   "待出貨",
   "已出貨",
   "暫停",
@@ -33,7 +33,8 @@ export function isOrderStatusLockedForManualEdit(orderStatus: string): boolean {
 const LEGACY_STAGE_MAP: Record<string, WorkOrderStage> = {
   開料中: "備料中",
   組裝中: "組裝中(一)",
-  品檢中: "包裝檢查",
+  品檢中: "包裝管理",
+  包裝檢查: "包裝管理",
   成品: "待出貨",
 };
 
@@ -69,7 +70,7 @@ export function stageStyleClassName(stage: WorkOrderStage): string {
       return "bg-indigo-100 text-indigo-900 border-indigo-200";
     case "塗裝中":
       return "bg-rose-100 text-rose-900 border-rose-200";
-    case "包裝檢查":
+    case "包裝管理":
       return "bg-cyan-100 text-cyan-900 border-cyan-200";
     case "待出貨":
       return "bg-teal-100 text-teal-900 border-teal-200";
@@ -82,12 +83,13 @@ export function stageStyleClassName(stage: WorkOrderStage): string {
   }
 }
 
-const PACKAGING_INSPECTION = "包裝檢查" as const;
+/** 全部品項達此站別時，訂單自動為「已完工」 */
+const PACKAGING_MANAGEMENT = "包裝管理" as const;
 
 /**
  * 訂單改為「生產中」時：將仍為「待排程」之工單改為「備料中」。
  * 訂單「已出貨」或「結案」：非暫停之工單改為「已出貨」。
- * （「已完工」改由工單全數進入包裝檢查時自動帶出，不在此函式推進。）
+ * （「已完工」改由工單全數進入包裝管理時自動帶出，不在此函式推進。）
  */
 export async function syncWorkOrdersToOrderStatus(
   client: SupabaseClient,
@@ -147,9 +149,9 @@ export async function syncWorkOrdersToOrderStatus(
 /**
  * 依工單工序回寫訂單狀態：
  * - 任一品項為「暫停」→ 訂單「暫停」
- * - 全部為「包裝檢查」→ 訂單「已完工」
- * - 自「暫停」復原（已無暫停）且尚未全部包裝檢查 →「生產中」
- * - 「已完工」但已非全部包裝檢查 → 退回「生產中」
+ * - 全部為「包裝管理」→ 訂單「已完工」
+ * - 自「暫停」復原（已無暫停）且尚未全部包裝管理 →「生產中」
+ * - 「已完工」但已非全部包裝管理 → 退回「生產中」
  * 已出貨／結案之訂單不自動變更狀態。
  */
 export async function syncOrderStatusFromWorkOrders(
@@ -203,7 +205,7 @@ export async function syncOrderStatusFromWorkOrders(
     if (orderStatus !== "暫停") {
       nextOrderStatus = "暫停";
     }
-  } else if (stages.every((st) => st === PACKAGING_INSPECTION)) {
+  } else if (stages.every((st) => st === PACKAGING_MANAGEMENT)) {
     if (orderStatus !== "已完工") {
       nextOrderStatus = "已完工";
     }

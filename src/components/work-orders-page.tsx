@@ -16,7 +16,6 @@ import {
   Wrench,
   CalendarDays,
   RefreshCw,
-  CalendarPlus,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -61,6 +60,32 @@ const EMPTY_WORK_CATEGORY_LABEL = "（未填類別）";
 function workOrderCategoryLabel(w: WorkOrderRow): string {
   const c = (w.category ?? "").trim();
   return c || EMPTY_WORK_CATEGORY_LABEL;
+}
+
+/** 與「預計完成」欄顯示一致：預計完成日優先，否則訂單交期 */
+function effectivePlannedCompletionDate(w: WorkOrderRow): string | null {
+  return w.planned_end_date ?? w.expected_delivery_date ?? null;
+}
+
+function parseDateMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+/** 依有效預計完成日排序；無日期者固定置於最後（升／降皆同） */
+function comparePlannedCompletion(
+  a: WorkOrderRow,
+  b: WorkOrderRow,
+  asc: boolean
+): number {
+  const na = parseDateMs(effectivePlannedCompletionDate(a));
+  const nb = parseDateMs(effectivePlannedCompletionDate(b));
+  if (na === null && nb === null) return 0;
+  if (na === null) return 1;
+  if (nb === null) return -1;
+  const diff = na - nb;
+  return asc ? diff : -diff;
 }
 
 interface EmployeeOption {
@@ -355,25 +380,28 @@ export function WorkOrdersPage() {
       if (key === "stage") {
         cmp =
           workOrderStageSortIndex(a.stage) - workOrderStageSortIndex(b.stage);
+        if (!sortAsc) cmp = -cmp;
+      } else if (key === "planned_end_date") {
+        cmp = comparePlannedCompletion(a, b, sortAsc);
       } else {
         // 1) 依照選擇的欄位排序
         const av = (a as any)[key];
         const bv = (b as any)[key];
 
-        if (key === "planned_end_date" || key === "expected_delivery_date") {
-          const ad = av ? new Date(av) : null;
-          const bd = bv ? new Date(bv) : null;
-          const at = ad ? ad.getTime() : 0;
-          const bt = bd ? bd.getTime() : 0;
-          cmp = at - bt;
+        if (key === "expected_delivery_date") {
+          const na = parseDateMs(av);
+          const nb = parseDateMs(bv);
+          if (na === null && nb === null) cmp = 0;
+          else if (na === null) cmp = 1;
+          else if (nb === null) cmp = -1;
+          else cmp = na - nb;
         } else {
           const as = av == null ? "" : String(av);
           const bs = bv == null ? "" : String(bv);
           cmp = as.localeCompare(bs, "zh-Hant", { numeric: true });
         }
+        if (!sortAsc) cmp = -cmp;
       }
-
-      if (!sortAsc) cmp = -cmp;
       if (cmp !== 0) return cmp;
 
       // 2) 若同值，再依工序階段權重決定順序
@@ -435,39 +463,6 @@ export function WorkOrdersPage() {
         )}
       </button>
     );
-  }
-
-  function buildGoogleCalendarUrl(w: WorkOrderRow): string | null {
-    const dateRaw = w.planned_end_date ?? w.expected_delivery_date;
-    if (!dateRaw) return null;
-
-    const d = new Date(dateRaw);
-    if (Number.isNaN(d.getTime())) return null;
-
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const ymd = `${year}${month}${day}`;
-
-    const text = `[${w.customer_name || "未命名客戶"}] ${
-      w.item_name || "未命名品項"
-    } / ${w.stage}`;
-
-    const detailsLines = [
-      `訂單編號：${w.order_number || "—"}`,
-      `負責人：${w.assignee || "未指派"}`,
-      `備註：${w.note || "—"}`,
-    ];
-    const details = detailsLines.join("\n");
-
-    const params = new URLSearchParams({
-      action: "TEMPLATE",
-      text,
-      dates: `${ymd}/${ymd}`,
-      details,
-    });
-
-    return `https://calendar.google.com/calendar/render?${params.toString()}`;
   }
 
   if (loading) {
@@ -613,9 +608,7 @@ export function WorkOrdersPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((w) => {
-                const calendarUrl = buildGoogleCalendarUrl(w);
-                return (
+              filtered.map((w) => (
                 <TableRow key={w.id} className="border-b border-border">
                   <TableCell className="p-2 align-middle whitespace-nowrap font-mono text-xs font-medium">
                     {w.order_id ? (
@@ -702,21 +695,10 @@ export function WorkOrdersPage() {
                           ? formatDate(w.expected_delivery_date)
                           : "—"}
                       </span>
-                      {calendarUrl && (
-                        <a
-                          href={calendarUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="加到 Google 行事曆"
-                          className="inline-flex h-7 w-7 ml-1 items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground"
-                        >
-                          <CalendarPlus className="h-3.5 w-3.5" />
-                        </a>
-                      )}
                     </div>
                   </TableCell>
                 </TableRow>
-              )})
+              ))
             )}
           </TableBody>
         </Table>
