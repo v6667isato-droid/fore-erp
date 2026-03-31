@@ -7,14 +7,17 @@ import { Button } from "@/components/ui/button";
 type LineMessageRow = {
   id: string;
   line_user_id: string;
+  /** 現行表結構 */
   content?: string | null;
+  /** 舊 migration 可能仍用 text */
+  text?: string | null;
   message_type?: string | null;
   customer_id: string | null;
   created_at: string;
 };
 
 function messageBody(r: LineMessageRow): string {
-  const s = r.content ?? "";
+  const s = r.content ?? r.text ?? "";
   return typeof s === "string" ? s : "";
 }
 
@@ -27,9 +30,10 @@ export function LineMessagesPage() {
     setLoading(true);
     setError(null);
 
+    // 用 * 避免明確列出不存在的欄位（例如舊版查 text、表只有 content）
     const { data, error: qErr } = await supabase
       .from("line_messages")
-      .select("id, line_user_id, content, message_type, customer_id, created_at")
+      .select("*")
       .order("created_at", { ascending: false })
       .limit(200);
 
