@@ -21,6 +21,14 @@ function getServiceSupabase() {
   return createClient(url, key);
 }
 
+function supabaseKeyMode(): "service_role" | "anon_fallback" | "missing" {
+  const sr = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+  if (sr.length > 0) return "service_role";
+  const anon = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
+  if (anon.length > 0) return "anon_fallback";
+  return "missing";
+}
+
 async function resolveCustomerId(
   supabase: SupabaseClient,
   lineUserId: string
@@ -94,8 +102,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
     }
 
-    const events = Array.isArray(payload.events) ? payload.events : [];
+    const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+    const keyMode = supabaseKeyMode();
+    try {
+      const host = url ? new URL(url).hostname : "(no url)";
+      console.log("[line-webhook] supabase host:", host, "| key:", keyMode);
+    } catch {
+      console.log("[line-webhook] key:", keyMode);
+    }
+    if (keyMode === "anon_fallback") {
+      console.warn(
+        "[line-webhook] Using anon key for inserts — if line_messages stays empty, set SUPABASE_SERVICE_ROLE_KEY (service_role) in Vercel and redeploy."
+      );
+    }
 
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    const typeSummary = events.map((e) => e.type ?? "?").join(",");
+    console.log("[line-webhook] events count:", events.length, typeSummary ? `types:[${typeSummary}]` : "");
+
+    let textInserts = 0;
     for (const event of events) {
       if (event.type !== "message") continue;
       if (event.message?.type !== "text") continue;
@@ -120,7 +145,21 @@ export async function POST(request: NextRequest) {
             "[line-webhook] Insert blocked: use SUPABASE_SERVICE_ROLE_KEY from Supabase → Settings → API (service_role secret), not the anon key."
           );
         }
+        if (/relation|does not exist/i.test(msg)) {
+          console.error(
+            "[line-webhook] Table missing: run migration 20250401000000_line_messages_and_customers_line_user_id.sql in Supabase SQL Editor."
+          );
+        }
+      } else {
+        textInserts += 1;
+        console.log("[line-webhook] inserted text message ok, count this batch:", textInserts);
       }
+    }
+
+    if (events.length > 0 && textInserts === 0) {
+      console.log(
+        "[line-webhook] No text message inserted (need type=message + message.type=text + source.userId; stickers/images are skipped)."
+      );
     }
 
     return NextResponse.json({ ok: true });
