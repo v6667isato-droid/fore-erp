@@ -61,6 +61,10 @@ export interface LeaveRequestRow {
   hours_count?: number | null;
   /** 請假事由（leave_requests.reason） */
   reason?: string | null;
+  /** 申請建立時間 */
+  created_at?: string | null;
+  /** 最後更新（leave_requests.updated_at；核准／退回或內容修改） */
+  updated_at?: string | null;
 }
 
 /** 進度下拉：待處理 | 進行中 | 已完成 */
@@ -246,6 +250,8 @@ export const employeePortalMock: EmployeePortalPayload = {
       status: "approved",
       deducts_salary: true,
       days_count: 1.5,
+      created_at: "2026-03-01T10:00:00+08:00",
+      updated_at: "2026-03-02T14:30:00+08:00",
     },
     {
       id: "lr3",

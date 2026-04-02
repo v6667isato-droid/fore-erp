@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  getSupabaseSession,
   isSupabaseConfigured,
   supabase,
   SUPABASE_CONFIG_HELP,
@@ -20,6 +21,11 @@ import {
 interface SettlementEmployee {
   id: string;
   name: string;
+  /** 發薪通知用；payroll_notification_email 空則用此 */
+  email: string | null;
+  payroll_notification_email: string | null;
+  remittance_bank: string | null;
+  remittance_account: string | null;
   monthly_wage: number;
   labor_insurance: number;
   /** 健保自付「每人」金額（employees.health_employee_burden） */
@@ -207,7 +213,18 @@ function isPayslipOnConflictTargetError(message: string): boolean {
   return /no unique or exclusion constraint matching/i.test(message);
 }
 
-/** 若遠端 payslips 尚未建明細欄位，改寫入核心欄位以免發薪失敗 */
+/**
+ * 若遠端 payslips 尚未建明細欄位，改寫入核心欄位以免發薪失敗。
+ * 發薪成功後會再嘗試 UPDATE 補齊（欄位已存在時可自動寫回）。
+ *
+ * 完整寫入對照（insertPayload）：
+ * - 識別／期間：employee_id, period_key, pay_period, month_label
+ * - 金額：base_salary, net_pay, net_salary, bonus_and_overtime, leave_deduction, other_adjust
+ * - 勞健保快照：labor_insurance_employee, health_insurance_employee, health_insured_persons
+ * - 假勤／加班：overtime_days, special_leave_days_settled, leave_days
+ * - 出勤備註：notes
+ * 上述「明細快照」鍵若缺欄會先略過；bonus_and_overtime／leave_deduction 不在此列，fallback 時仍會寫入。
+ */
 const PAYSLIP_DETAIL_SNAPSHOT_KEYS = [
   "labor_insurance_employee",
   "health_insurance_employee",
@@ -231,9 +248,27 @@ function mapRowToSettlementEmployee(r: Record<string, unknown>): SettlementEmplo
   const healthMult =
     healthInsuredPersons != null && healthInsuredPersons > 0 ? healthInsuredPersons : 1;
   const healthTotal = Math.round(healthPerPerson * healthMult);
+  const email =
+    r.email != null && String(r.email).trim() !== "" ? String(r.email).trim() : null;
+  const payrollNotify =
+    r.payroll_notification_email != null && String(r.payroll_notification_email).trim() !== ""
+      ? String(r.payroll_notification_email).trim()
+      : null;
+  const remittanceBank =
+    r.remittance_bank != null && String(r.remittance_bank).trim() !== ""
+      ? String(r.remittance_bank).trim()
+      : null;
+  const remittanceAccount =
+    r.remittance_account != null && String(r.remittance_account).trim() !== ""
+      ? String(r.remittance_account).trim()
+      : null;
   return {
     id: String(r.id),
     name: String(r.name ?? ""),
+    email,
+    payroll_notification_email: payrollNotify,
+    remittance_bank: remittanceBank,
+    remittance_account: remittanceAccount,
     monthly_wage: num(r.basic_salary ?? r.monthly_wage, 0),
     labor_insurance: labor,
     health_insurance_per_person: healthPerPerson,
@@ -251,6 +286,8 @@ function mapRowToSettlementEmployee(r: Record<string, unknown>): SettlementEmplo
 }
 
 const EMP_SELECT_ATTEMPTS = [
+  "id, name, email, payroll_notification_email, remittance_bank, remittance_account, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
+  "id, name, email, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
   "id, name, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
   "id, name, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status",
   "id, name, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
@@ -386,7 +423,7 @@ export function SalarySettlementCenter() {
       }
 
       const createdBounds = monthCreatedAtFilterBounds(payPeriod);
-      const [leaveOverlapRes, leaveCreatedRes, attRes, otRes, slipRes] = await Promise.all([
+      const [leaveOverlapRes, leaveCreatedRes, attRes, otRes] = await Promise.all([
         supabase
           .from("leave_requests")
           .select("*")
@@ -415,12 +452,30 @@ export function SalarySettlementCenter() {
           .gte("overtime_date", bounds.start)
           .lte("overtime_date", bounds.end)
           .in("employee_id", ids),
-        supabase
+      ]);
+
+      let slipRes = await supabase
+        .from("payslips")
+        .select(
+          "employee_id, period_key, status, notes, overtime_days, other_adjust, bonus_and_overtime",
+        )
+        .eq("period_key", payPeriod)
+        .in("employee_id", ids);
+      if (
+        slipRes.error &&
+        /column|does not exist/i.test(slipRes.error.message ?? "")
+      ) {
+        slipRes = (await supabase
           .from("payslips")
           .select("employee_id, period_key, status, notes")
           .eq("period_key", payPeriod)
-          .in("employee_id", ids),
-      ]);
+          .in("employee_id", ids)) as typeof slipRes;
+        if (!slipRes.error) {
+          console.warn(
+            "[salary-settlement] payslips 缺少 overtime_days/other_adjust/bonus_and_overtime 欄位，已發放列無法還原輸入。請套用 supabase/sql/payslips_settlement_columns.sql",
+          );
+        }
+      }
 
       let mergedLeaveForInputs: Record<string, unknown>[] = [];
       if (leaveOverlapRes.error) {
@@ -497,23 +552,64 @@ export function SalarySettlementCenter() {
       }
 
       const slipNoteByEmp = new Map<string, string>();
+      /** 已發放月份：從 payslips 快照還原加班天數／調整／是否計加班費，避免輸入格永遠顯示 0 */
+      const slipPaidSnapshotByEmp = new Map<
+        string,
+        {
+          overtime_days: unknown;
+          other_adjust: unknown;
+          bonus_and_overtime: unknown;
+        }
+      >();
       if (!slipRes.error) {
         for (const s of slipRes.data ?? []) {
           const row = s as {
             employee_id?: string;
             status?: string;
             notes?: string | null;
+            overtime_days?: unknown;
+            other_adjust?: unknown;
+            bonus_and_overtime?: unknown;
           };
           if (!row.employee_id || !isPaidStatus(row.status)) continue;
-          slipNoteByEmp.set(
-            String(row.employee_id),
-            row.notes != null ? String(row.notes) : "",
-          );
+          const id = String(row.employee_id);
+          slipNoteByEmp.set(id, row.notes != null ? String(row.notes) : "");
+          slipPaidSnapshotByEmp.set(id, {
+            overtime_days: row.overtime_days,
+            other_adjust: row.other_adjust,
+            bonus_and_overtime: row.bonus_and_overtime,
+          });
         }
       }
 
       const initInputs: Record<string, RowInputs> = {};
       for (const e of emps) {
+        const snap = slipPaidSnapshotByEmp.get(e.id);
+        if (snap) {
+          const od = num(snap.overtime_days, 0);
+          const oa = num(snap.other_adjust, 0);
+          const bot = num(snap.bonus_and_overtime, 0);
+          /** 發放時寫入：計加班費則 bonus_and_overtime>0；不計（轉補休）則多為 0 且 overtime_days>0 */
+          const settleAsComp = od > 0 && bot === 0;
+          const attendanceNotes = slipNoteByEmp.has(e.id)
+            ? slipNoteByEmp.get(e.id)!
+            : buildPayslipAttendanceRemarks(e.id, {
+                bounds: { start: bounds.start, end: bounds.end },
+                payPeriodYm: payPeriod,
+                attendanceRows: attList,
+                leaveRows: leaveList,
+                overtimeRows: otList,
+                settleOvertimeAsCompOff: settleAsComp,
+              });
+          initInputs[e.id] = {
+            overtimeDays: od,
+            otherAdjust: oa,
+            settleOvertimeAsCompOff: settleAsComp,
+            attendanceNotes,
+          };
+          continue;
+        }
+
         const sumH = sumApprovedOvertimeHoursForEmployee(e.id, otList);
         const days = overtimeHoursToHalfDaySteps(sumH);
         const settleAsComp = sumH > 0;
@@ -604,6 +700,7 @@ export function SalarySettlementCenter() {
 
     const notes = inp.attendanceNotes.trim();
 
+    /** 與 payslips 表／migrations 對齊；缺欄時依序略過 notes → 再略過 PAYSLIP_DETAIL_SNAPSHOT_KEYS */
     const insertPayload: Record<string, unknown> = {
       employee_id: emp.id,
       period_key: payPeriod,
@@ -667,15 +764,40 @@ export function SalarySettlementCenter() {
       return;
     }
 
+    const firstRow = ins.data?.[0] as { id?: string } | undefined;
+    const slipId = firstRow?.id != null ? String(firstRow.id) : null;
+
+    /** 先前因缺欄而略過的 notes／明細，在欄位已補上時用 UPDATE 一次寫回 */
+    if (slipId && (notesFallback || payslipDetailFallback)) {
+      const backfill: Record<string, unknown> = {};
+      if (notesFallback) {
+        const n = insertPayload.notes;
+        if (typeof n === "string" && n.trim()) backfill.notes = n.trim();
+      }
+      if (payslipDetailFallback) {
+        for (const k of PAYSLIP_DETAIL_SNAPSHOT_KEYS) {
+          if (insertPayload[k] !== undefined) backfill[k] = insertPayload[k];
+        }
+      }
+      if (Object.keys(backfill).length > 0) {
+        const { error: bfErr } = await supabase
+          .from("payslips")
+          .update(backfill)
+          .eq("id", slipId);
+        if (!bfErr) {
+          toast.success("已自動補齊薪資單先前略過的欄位。", { duration: 6000 });
+          notesFallback = false;
+          payslipDetailFallback = false;
+        }
+      }
+    }
+
     if (notesFallback) {
       toast.info(
         "薪資已入帳；payslips 尚無 notes 欄位，出勤備註未寫入。請套用 migration payslips_notes。",
         { duration: 8000 },
       );
     }
-
-    const firstRow = ins.data?.[0] as { id?: string } | undefined;
-    const slipId = firstRow?.id != null ? String(firstRow.id) : null;
 
     const { error: updErr } = await supabase
       .from("employees")
@@ -706,6 +828,49 @@ export function SalarySettlementCenter() {
         { duration: 9000 },
       );
     }
+
+    const notifyTo =
+      (emp.payroll_notification_email || emp.email)?.trim() || "";
+    if (notifyTo) {
+      const {
+        data: { session },
+      } = await getSupabaseSession();
+      const accessToken = session?.access_token;
+      if (accessToken) {
+        try {
+          const res = await fetch("/api/payroll-notify", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              to: notifyTo,
+              employeeName: emp.name,
+              monthLabel: bounds.label,
+              netPay: net,
+              remittanceBank: emp.remittance_bank,
+              remittanceAccount: emp.remittance_account,
+            }),
+          });
+          if (!res.ok) {
+            const j = (await res.json().catch(() => ({}))) as {
+              error?: string;
+            };
+            toast.warning(
+              j?.error
+                ? `薪資已入帳，但通知信未寄出：${String(j.error)}`
+                : "薪資已入帳，但通知信未寄出。",
+              { duration: 8000 },
+            );
+          }
+        } catch (e) {
+          console.error("[salary-settlement] payroll-notify", e);
+          toast.warning("薪資已入帳，但通知信發送失敗。", { duration: 6000 });
+        }
+      }
+    }
+
     setPaidIds((prev) => new Set(prev).add(emp.id));
     setEmployees((prev) =>
       prev.map((e) =>

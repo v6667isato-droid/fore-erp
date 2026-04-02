@@ -35,6 +35,10 @@ import {
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
 import { normalizePublicHolidayRows } from "@/lib/attendance-war-room";
+import {
+  formatLeaveUpdatedAtDisplay,
+  leaveRequestRowWasUpdated,
+} from "@/lib/leave-request-updated";
 import { fetchEmployeePortalFromSupabase } from "@/lib/employee-portal-supabase";
 import { fetchCompanyAnnouncementsFromEvents } from "@/lib/company-events";
 import {
@@ -1321,7 +1325,16 @@ export default function EmployeePortalPage() {
                           {displayLeaveReason(row.reason) || "—"}
                         </span>
                       </td>
-                      <td className="px-4 py-3">{leaveStatusBadge(row)}</td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex flex-col gap-1">
+                          {leaveStatusBadge(row)}
+                          {leaveRequestRowWasUpdated(row) ? (
+                            <span className="text-[11px] leading-snug text-muted-foreground">
+                              已更新 · {formatLeaveUpdatedAtDisplay(row.updated_at)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

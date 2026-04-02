@@ -58,11 +58,25 @@ interface EmployeeRow {
   personal_leave_days: number | null;
   /** 病假請假天數（sick_leave_days） */
   sick_leave_days: number | null;
+  /** 匯款銀行 */
+  remittance_bank: string | null;
+  /** 匯款帳號 */
+  remittance_account: string | null;
+  /** 薪資入帳通知信；空白則用 email */
+  payroll_notification_email: string | null;
 }
 
 // 對應資料庫 employees 表實際欄位
 const EMP_SELECT_ADMIN =
+  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, personal_leave_days, sick_leave_days, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate, remittance_bank, remittance_account, payroll_notification_email";
+
+/** 尚未套用 remittance／payroll_notification_email migration 時退回 */
+const EMP_SELECT_ADMIN_NO_REMITTANCE =
   "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, personal_leave_days, sick_leave_days, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate";
+
+function isEmployeesMissingColumnError(message: string): boolean {
+  return /could not find|column .* does not exist|schema cache/i.test(message);
+}
 
 const EMP_SELECT_STAFF =
   "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status";
@@ -139,6 +153,18 @@ function mapEmployee(r: Record<string, unknown>): EmployeeRow {
     sick_leave_days:
       (r as Record<string, unknown>).sick_leave_days != null
         ? Number((r as Record<string, unknown>).sick_leave_days as number)
+        : null,
+    remittance_bank:
+      (r as Record<string, unknown>).remittance_bank != null
+        ? String((r as Record<string, unknown>).remittance_bank)
+        : null,
+    remittance_account:
+      (r as Record<string, unknown>).remittance_account != null
+        ? String((r as Record<string, unknown>).remittance_account)
+        : null,
+    payroll_notification_email:
+      (r as Record<string, unknown>).payroll_notification_email != null
+        ? String((r as Record<string, unknown>).payroll_notification_email)
         : null,
   };
 }
@@ -219,7 +245,7 @@ function useCurrentUserRole() {
   return { role, name, loading };
 }
 
-type TabKey = "basic" | "salary";
+type TabKey = "basic" | "salary" | "remittance";
 
 interface EmployeeFormProps {
   initial: Partial<EmployeeRow>;
@@ -290,11 +316,13 @@ function EmployeeForm({
     }
     setSaving(true);
     try {
-      // employment_status 轉成 boolean 存進資料庫（在職=true、離職=false、其他/null）
-      let employmentBool: boolean | null = null;
+      // employment_status 轉成 boolean 存進資料庫（在職=true、離職=false）。
+      // 「留停」在 boolean 欄位無法單獨儲存，改寫 false（與離職相同）；若欄位為 NOT NULL，不可寫 null。
+      let employmentBool = true;
       if (values.employment_status === "在職") employmentBool = true;
       else if (values.employment_status === "離職") employmentBool = false;
-      else employmentBool = null;
+      else if (values.employment_status === "留停") employmentBool = false;
+      else employmentBool = true;
 
       const payload: Record<string, unknown> = {
         name: values.name.trim(),
@@ -348,6 +376,10 @@ function EmployeeForm({
             : 0;
         payload.sick_leave_days =
           values.sick_leave_days != null ? Number(values.sick_leave_days) : 0;
+        payload.remittance_bank = values.remittance_bank?.trim() || null;
+        payload.remittance_account = values.remittance_account?.trim() || null;
+        payload.payroll_notification_email =
+          values.payroll_notification_email?.trim() || null;
       }
       await onSubmit(payload);
     } finally {
@@ -385,6 +417,20 @@ function EmployeeForm({
             )}
           >
             薪資與保險
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setTab("remittance")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
+              tab === "remittance"
+                ? "border-b-2 border-primary bg-card text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            匯款資訊
           </button>
         )}
       </div>
@@ -521,6 +567,9 @@ function EmployeeForm({
                   <option value="離職">離職</option>
                   <option value="留停">留停</option>
                 </select>
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  「留停」會存成離職（布林 false），因資料庫僅支援在職／離職。
+                </p>
               </div>
             </div>
           </>
@@ -842,6 +891,67 @@ function EmployeeForm({
                   );
                 }}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          </div>
+        )}
+
+        {tab === "remittance" && isAdmin && (
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              供薪資發放與匯款參考；薪資入帳後會寄信至「薪資通知信箱」（未填則使用基本資料「信箱」）。
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="emp-remittance-bank"
+                className="text-xs text-muted-foreground"
+              >
+                匯款銀行
+              </label>
+              <input
+                id="emp-remittance-bank"
+                type="text"
+                autoComplete="off"
+                value={values.remittance_bank ?? ""}
+                onChange={(e) => setField("remittance_bank", e.target.value || null)}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="例：臺灣銀行"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="emp-remittance-account"
+                className="text-xs text-muted-foreground"
+              >
+                匯款帳號
+              </label>
+              <input
+                id="emp-remittance-account"
+                type="text"
+                autoComplete="off"
+                inputMode="numeric"
+                value={values.remittance_account ?? ""}
+                onChange={(e) => setField("remittance_account", e.target.value || null)}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="銀行帳號"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="emp-payroll-notify-email"
+                className="text-xs text-muted-foreground"
+              >
+                薪資通知信箱
+              </label>
+              <input
+                id="emp-payroll-notify-email"
+                type="email"
+                value={values.payroll_notification_email ?? ""}
+                onChange={(e) =>
+                  setField("payroll_notification_email", e.target.value || null)
+                }
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="空白則使用「基本資料」信箱"
               />
             </div>
           </div>
@@ -1266,11 +1376,25 @@ export function EmployeesPage() {
   async function fetchEmployees(currentRole: Role) {
     if (!currentRole) return;
     setLoading(true);
-    const select = currentRole === "admin" ? EMP_SELECT_ADMIN : EMP_SELECT_STAFF;
+    let select = currentRole === "admin" ? EMP_SELECT_ADMIN : EMP_SELECT_STAFF;
     let { data, error } = await supabase
       .from("employees")
       .select(select)
       .order("hire_date", { ascending: false });
+
+    if (
+      error &&
+      currentRole === "admin" &&
+      isEmployeesMissingColumnError(error.message)
+    ) {
+      select = EMP_SELECT_ADMIN_NO_REMITTANCE;
+      const second = await supabase
+        .from("employees")
+        .select(select)
+        .order("hire_date", { ascending: false });
+      data = second.data;
+      error = second.error;
+    }
 
     if (error) {
       console.error("employees fetch error:", error.message, error);

@@ -83,13 +83,19 @@ export function stageStyleClassName(stage: WorkOrderStage): string {
   }
 }
 
-/** 全部品項達此站別時，訂單自動為「已完工」 */
-const PACKAGING_MANAGEMENT = "包裝管理" as const;
+/** 全部品項為此兩站之一（可混合）時，訂單自動為「已完工」 */
+const STAGES_IMPLY_ORDER_DONE: readonly WorkOrderStage[] = [
+  "包裝管理",
+  "待出貨",
+];
+const STAGES_IMPLY_ORDER_DONE_SET = new Set<WorkOrderStage>(
+  STAGES_IMPLY_ORDER_DONE
+);
 
 /**
  * 訂單改為「生產中」時：將仍為「待排程」之工單改為「備料中」。
  * 訂單「已出貨」或「結案」：非暫停之工單改為「已出貨」。
- * （「已完工」改由工單全數進入包裝管理時自動帶出，不在此函式推進。）
+ * （「已完工／已出貨」改由 syncOrderStatusFromWorkOrders 依工序推進，不在此函式帶出。）
  */
 export async function syncWorkOrdersToOrderStatus(
   client: SupabaseClient,
@@ -149,9 +155,10 @@ export async function syncWorkOrdersToOrderStatus(
 /**
  * 依工單工序回寫訂單狀態：
  * - 任一品項為「暫停」→ 訂單「暫停」
- * - 全部為「包裝管理」→ 訂單「已完工」
- * - 自「暫停」復原（已無暫停）且尚未全部包裝管理 →「生產中」
- * - 「已完工」但已非全部包裝管理 → 退回「生產中」
+ * - 全部為「已出貨」→ 訂單「已出貨」
+ * - 全部為「包裝管理」或「待出貨」（可混合）→ 訂單「已完工」
+ * - 自「暫停」復原（已無暫停）且不符合上列 →「生產中」
+ * - 「已完工」但已不符合上列 → 退回「生產中」
  * 已出貨／結案之訂單不自動變更狀態。
  */
 export async function syncOrderStatusFromWorkOrders(
@@ -205,7 +212,11 @@ export async function syncOrderStatusFromWorkOrders(
     if (orderStatus !== "暫停") {
       nextOrderStatus = "暫停";
     }
-  } else if (stages.every((st) => st === PACKAGING_MANAGEMENT)) {
+  } else if (stages.every((st) => st === "已出貨")) {
+    if (orderStatus !== "已出貨") {
+      nextOrderStatus = "已出貨";
+    }
+  } else if (stages.every((st) => STAGES_IMPLY_ORDER_DONE_SET.has(st))) {
     if (orderStatus !== "已完工") {
       nextOrderStatus = "已完工";
     }

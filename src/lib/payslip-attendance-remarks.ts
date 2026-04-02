@@ -6,6 +6,7 @@ import {
   hoursToDayHourParts,
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
+import { appendLeaveRemarkUpdateSuffix } from "@/lib/leave-request-updated";
 
 export type PayslipRemarkBounds = {
   start: string;
@@ -232,13 +233,16 @@ function leaveLineForRow(
         const d1 = formatMdFromIso(ymdFromDate(e));
         datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
       }
-      return formatSpecialLeaveNoteLine(row, datePart);
+      return appendLeaveRemarkUpdateSuffix(
+        formatSpecialLeaveNoteLine(row, datePart),
+        row,
+      );
     }
     if (!hasOverlap) return null;
     const d0 = formatMdFromIso(ymdFromDate(s));
     const d1 = formatMdFromIso(ymdFromDate(e));
     const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
-    return formatSpecialLeaveNoteLine(row, datePart);
+    return appendLeaveRemarkUpdateSuffix(formatSpecialLeaveNoteLine(row, datePart), row);
   }
 
   if (!hasOverlap) return null;
@@ -250,14 +254,20 @@ function leaveLineForRow(
   const hours = num(row.hours_count, 0);
   if (hours > 0) {
     const hDisp = Number.isInteger(hours) ? String(hours) : String(hours);
-    return `${datePart} ${leaveType} ${hDisp}hr`;
+    return appendLeaveRemarkUpdateSuffix(
+      `${datePart} ${leaveType} ${hDisp}hr`,
+      row,
+    );
   }
   const td = num(row.total_days, 0);
   if (td > 0 && td !== 1) {
     const tdDisp = Number.isInteger(td) ? String(td) : String(td);
-    return `${datePart} ${leaveType} ${tdDisp}天`;
+    return appendLeaveRemarkUpdateSuffix(
+      `${datePart} ${leaveType} ${tdDisp}天`,
+      row,
+    );
   }
-  return `${datePart} ${leaveType}`;
+  return appendLeaveRemarkUpdateSuffix(`${datePart} ${leaveType}`, row);
 }
 
 function overtimeLineForRow(

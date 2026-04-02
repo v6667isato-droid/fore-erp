@@ -43,6 +43,9 @@ interface PaidSlipRow {
   month_label: string;
   base_salary: number;
   net_pay: number;
+  /** 發放時寫入之加班費（含費率×天數） */
+  bonus_and_overtime: number;
+  other_adjust: number;
   status: string;
   created_at: string | null;
   notes: string | null;
@@ -105,6 +108,8 @@ export function PayslipPaidHistoryPanel() {
         base_salary,
         net_pay,
         net_salary,
+        bonus_and_overtime,
+        other_adjust,
         status,
         created_at,
         notes,
@@ -129,7 +134,7 @@ export function PayslipPaidHistoryPanel() {
         let q2 = supabase
           .from("payslips")
           .select(
-            "id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, status, created_at, notes",
+            "id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, bonus_and_overtime, other_adjust, status, created_at, notes",
           )
           .order("created_at", { ascending: false });
         if (!showAllMonths) {
@@ -138,7 +143,70 @@ export function PayslipPaidHistoryPanel() {
         const r2 = await q2;
 
         if (r2.error) {
-          err = r2.error;
+          if (/column|does not exist/i.test(r2.error.message ?? "")) {
+            let q3 = supabase
+              .from("payslips")
+              .select(
+                "id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, status, created_at, notes",
+              )
+              .order("created_at", { ascending: false });
+            if (!showAllMonths) {
+              q3 = q3.eq("period_key", filterMonth);
+            }
+            const r3 = await q3;
+            if (r3.error) {
+              err = r3.error;
+            } else {
+              data = r3.data as Record<string, unknown>[];
+              const ids = [
+                ...new Set(
+                  (data ?? [])
+                    .map((r) => String(r.employee_id ?? "").trim())
+                    .filter(Boolean),
+                ),
+              ];
+              const nameById = new Map<string, string>();
+              if (ids.length) {
+                const { data: emps } = await supabase
+                  .from("employees")
+                  .select("id, name")
+                  .in("id", ids);
+                for (const e of emps ?? []) {
+                  const rec = e as { id: string; name?: string };
+                  if (rec.id)
+                    nameById.set(String(rec.id), String(rec.name ?? "—"));
+                }
+              }
+              const mapped: PaidSlipRow[] = (data ?? [])
+                .filter((r) => isPaidStatus(String(r.status ?? "")))
+                .map((r) => ({
+                  id: String(r.id ?? ""),
+                  employee_id: String(r.employee_id ?? ""),
+                  employee_name:
+                    nameById.get(String(r.employee_id ?? "")) ?? "—",
+                  period_key: String(r.period_key ?? ""),
+                  month_label: periodLabelForRow(
+                    String(r.period_key ?? ""),
+                    String(r.month_label ?? ""),
+                  ),
+                  base_salary: num(r.base_salary, 0),
+                  net_pay: num(r.net_pay ?? r.net_salary, 0),
+                  bonus_and_overtime: 0,
+                  other_adjust: 0,
+                  status: String(r.status ?? ""),
+                  created_at:
+                    r.created_at != null ? String(r.created_at) : null,
+                  notes:
+                    typeof r.notes === "string" && r.notes.trim()
+                      ? r.notes.trim()
+                      : null,
+                }));
+              setRows(mapped);
+              return;
+            }
+          } else {
+            err = r2.error;
+          }
         } else {
           data = r2.data as Record<string, unknown>[];
           const ids = [
@@ -172,6 +240,8 @@ export function PayslipPaidHistoryPanel() {
               ),
               base_salary: num(r.base_salary, 0),
               net_pay: num(r.net_pay ?? r.net_salary, 0),
+              bonus_and_overtime: num(r.bonus_and_overtime, 0),
+              other_adjust: num(r.other_adjust, 0),
               status: String(r.status ?? ""),
               created_at:
                 r.created_at != null ? String(r.created_at) : null,
@@ -206,6 +276,8 @@ export function PayslipPaidHistoryPanel() {
           ),
           base_salary: num(r.base_salary, 0),
           net_pay: num(r.net_pay ?? r.net_salary, 0),
+          bonus_and_overtime: num(r.bonus_and_overtime, 0),
+          other_adjust: num(r.other_adjust, 0),
           status: String(r.status ?? ""),
           created_at: r.created_at != null ? String(r.created_at) : null,
           notes:
@@ -340,6 +412,12 @@ export function PayslipPaidHistoryPanel() {
                 <TableHead className="text-right text-xs font-semibold">
                   實發總額
                 </TableHead>
+                <TableHead className="text-right text-xs font-semibold whitespace-nowrap">
+                  加班費
+                </TableHead>
+                <TableHead className="text-right text-xs font-semibold whitespace-nowrap">
+                  其他調整
+                </TableHead>
                 <TableHead className="text-xs font-semibold">狀態</TableHead>
                 <TableHead className="text-xs font-semibold whitespace-nowrap">
                   入帳時間
@@ -366,6 +444,16 @@ export function PayslipPaidHistoryPanel() {
                   </TableCell>
                   <TableCell className="text-right text-sm font-semibold tabular-nums text-primary">
                     NT$ {row.net_pay.toLocaleString("zh-TW")}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">
+                    NT$ {row.bonus_and_overtime.toLocaleString("zh-TW")}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">
+                    {row.other_adjust === 0
+                      ? "—"
+                      : row.other_adjust > 0
+                        ? `+NT$ ${row.other_adjust.toLocaleString("zh-TW")}`
+                        : `-NT$ ${Math.abs(row.other_adjust).toLocaleString("zh-TW")}`}
                   </TableCell>
                   <TableCell>
                     <span className="inline-flex items-center rounded-full border border-emerald-600/20 bg-emerald-600/10 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300">

@@ -1,4 +1,8 @@
 import { supabase } from "@/lib/supabase";
+import {
+  buildPayslipAttendanceRemarks,
+  sumApprovedOvertimeHoursForEmployee,
+} from "@/lib/payslip-attendance-remarks";
 import type {
   AnnouncementRow,
   EmployeePortalPayload,
@@ -29,6 +33,169 @@ function num(v: unknown, fallback = 0): number {
   if (v == null || v === "") return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** YYYY-MM */
+function parseYm(ym: string): { y: number; m: number } | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(ym.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  if (mo < 1 || mo > 12) return null;
+  return { y, m: mo };
+}
+
+function monthBoundsFromYm(ym: string): { start: string; end: string } | null {
+  const p = parseYm(ym);
+  if (!p) return null;
+  const last = new Date(p.y, p.m, 0);
+  const end = `${p.y}-${String(p.m).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+  const start = `${p.y}-${String(p.m).padStart(2, "0")}-01`;
+  return { start, end };
+}
+
+function spanBoundsInclusive(minYm: string, maxYm: string): { start: string; end: string } | null {
+  const a = parseYm(minYm);
+  const b = parseYm(maxYm);
+  if (!a || !b) return null;
+  const start = `${a.y}-${String(a.m).padStart(2, "0")}-01`;
+  const last = new Date(b.y, b.m, 0);
+  const end = `${b.y}-${String(b.m).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+  return { start, end };
+}
+
+function monthCreatedAtFilterBounds(ym: string): { gte: string; lt: string } | null {
+  const p = parseYm(ym);
+  if (!p) return null;
+  const start = new Date(p.y, p.m - 1, 1, 0, 0, 0, 0);
+  const nextMonthStart = new Date(p.y, p.m, 1, 0, 0, 0, 0);
+  return { gte: start.toISOString(), lt: nextMonthStart.toISOString() };
+}
+
+function wideCreatedBounds(minYm: string, maxYm: string): { gte: string; lt: string } | null {
+  const a = monthCreatedAtFilterBounds(minYm);
+  const b = monthCreatedAtFilterBounds(maxYm);
+  if (!a || !b) return null;
+  return { gte: a.gte, lt: b.lt };
+}
+
+function mergeLeaveRowsById(rowsA: unknown[], rowsB: unknown[]): Record<string, unknown>[] {
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const r of rowsA) {
+    const row = r as Record<string, unknown>;
+    const id = row.id != null ? String(row.id) : "";
+    if (id) merged.set(id, row);
+  }
+  for (const r of rowsB) {
+    const row = r as Record<string, unknown>;
+    const id = row.id != null ? String(row.id) : "";
+    if (id) merged.set(id, row);
+  }
+  return Array.from(merged.values());
+}
+
+/**
+ * payslips.notes 為空時，依 daily_attendance／假單／加班與薪資結算中心相同規則即時產生備註。
+ * （若資料表不存在或 RLS 無法讀取，維持空白。）
+ */
+async function enrichPayslipNotesWithAttendanceRemarks(
+  employeeId: string,
+  rows: PayslipRow[],
+): Promise<PayslipRow[]> {
+  const need = rows.filter((r) => !String(r.notes ?? "").trim());
+  if (need.length === 0) return rows;
+
+  const yms = [...new Set(rows.map((r) => r.period_key).filter((pk) => parseYm(pk) != null))] as string[];
+  if (yms.length === 0) return rows;
+  yms.sort();
+  const minYm = yms[0]!;
+  const maxYm = yms[yms.length - 1]!;
+  const span = spanBoundsInclusive(minYm, maxYm);
+  const createdSpan = wideCreatedBounds(minYm, maxYm);
+  if (!span || !createdSpan) return rows;
+
+  const [leaveOverlapRes, leaveCreatedRes, attRes, otRes] = await Promise.all([
+    supabase
+      .from("leave_requests")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .lte("start_date", span.end)
+      .gte("end_date", span.start),
+    supabase
+      .from("leave_requests")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .gte("created_at", createdSpan.gte)
+      .lt("created_at", createdSpan.lt),
+    supabase
+      .from("daily_attendance")
+      .select(
+        "employee_id, attendance_date, clock_in, clock_out, total_hours, is_abnormal, status_tags",
+      )
+      .eq("employee_id", employeeId)
+      .gte("attendance_date", span.start)
+      .lte("attendance_date", span.end),
+    supabase
+      .from("overtime_records")
+      .select("employee_id, overtime_date, hours, reason")
+      .eq("employee_id", employeeId)
+      .gte("overtime_date", span.start)
+      .lte("overtime_date", span.end),
+  ]);
+
+  let mergedLeave: Record<string, unknown>[] = [];
+  if (leaveOverlapRes.error) {
+    if (!/does not exist|relation|column/i.test(leaveOverlapRes.error.message)) {
+      console.warn("[employee-portal] leave_requests (overlap):", leaveOverlapRes.error.message);
+    }
+  } else {
+    mergedLeave = mergeLeaveRowsById(
+      leaveOverlapRes.data ?? [],
+      leaveCreatedRes.error ? [] : (leaveCreatedRes.data ?? []),
+    );
+    if (leaveCreatedRes.error && !/does not exist|relation|column/i.test(leaveCreatedRes.error.message)) {
+      console.warn("[employee-portal] leave_requests (created_at):", leaveCreatedRes.error.message);
+    }
+  }
+
+  const attList: Record<string, unknown>[] = attRes.error
+    ? []
+    : ((attRes.data ?? []) as Record<string, unknown>[]);
+  if (attRes.error && !/does not exist|relation|column/i.test(attRes.error.message)) {
+    console.warn("[employee-portal] daily_attendance:", attRes.error.message);
+  }
+
+  const otList: Record<string, unknown>[] = otRes.error
+    ? []
+    : ((otRes.data ?? []) as Record<string, unknown>[]);
+  if (otRes.error && !/does not exist|relation|column/i.test(otRes.error.message)) {
+    console.warn("[employee-portal] overtime_records:", otRes.error.message);
+  }
+
+  return rows.map((r) => {
+    if (String(r.notes ?? "").trim()) return r;
+    const mb = monthBoundsFromYm(r.period_key);
+    if (!mb) return r;
+    const attFiltered = attList.filter((row) => {
+      const d = String(row.attendance_date ?? "").slice(0, 10);
+      return d >= mb.start && d <= mb.end;
+    });
+    const otFiltered = otList.filter((row) => {
+      const d = String(row.overtime_date ?? "").slice(0, 10);
+      return d >= mb.start && d <= mb.end;
+    });
+    const otHours = sumApprovedOvertimeHoursForEmployee(employeeId, otFiltered);
+    const generated = buildPayslipAttendanceRemarks(employeeId, {
+      bounds: mb,
+      payPeriodYm: r.period_key,
+      attendanceRows: attFiltered,
+      leaveRows: mergedLeave,
+      overtimeRows: otFiltered,
+      settleOvertimeAsCompOff: otHours > 0,
+    }).trim();
+    if (!generated) return r;
+    return { ...r, notes: generated };
+  });
 }
 
 function mapProductionStatus(status: string | null | undefined): TaskStatus {
@@ -286,6 +453,9 @@ function mapLeaveRow(row: Record<string, unknown>, index: number): LeaveRequestR
   const reasonRaw = row.reason;
   const reason =
     reasonRaw != null && String(reasonRaw).trim() !== "" ? String(reasonRaw).trim() : null;
+  const createdAt =
+    row.created_at != null ? String(row.created_at) : row.inserted_at != null ? String(row.inserted_at) : null;
+  const updatedAt = row.updated_at != null ? String(row.updated_at) : null;
   return {
     id: String(row.id ?? `lr-${index}`),
     type_label: typeLabel,
@@ -300,6 +470,8 @@ function mapLeaveRow(row: Record<string, unknown>, index: number): LeaveRequestR
     end_day_end_hour: endDayEndHour,
     hours_count: hoursCount,
     reason,
+    created_at: createdAt,
+    updated_at: updatedAt,
   };
 }
 
@@ -356,7 +528,7 @@ function sumApprovedLeaveDaysInMonth(rows: LeaveRequestRow[]): number {
   return sum;
 }
 
-/** 與員工維護頁相同欄位：labor_employee_burden、health_employee_burden、health_employee_burden_number */
+/** 與員工維護頁相同欄位；health 為健保自付「合計」（每人 × 加保人數，與結算一致） */
 type EmployeeInsuranceSnapshot = {
   labor: number;
   health: number;
@@ -379,18 +551,26 @@ async function fetchEmployeeInsuranceSnapshot(employeeId: string): Promise<Emplo
     if (!data) return null;
     const r = data as unknown as Record<string, unknown>;
     const labor = num(r.labor_employee_burden ?? r.labor_insurance, 0);
-    const health = num(r.health_employee_burden ?? r.health_insurance, 0);
+    /** 與 salary-settlement-center mapRowToSettlementEmployee：健保自付「每人」× 加保人數（人數未填或 ≤0 時乘數為 1） */
+    const healthPerPerson = num(r.health_employee_burden ?? r.health_insurance, 0);
     const hp = r.health_employee_burden_number ?? r.health_insured_persons;
     const healthPersons =
       hp != null && hp !== "" && Number.isFinite(Number(hp))
         ? Math.max(0, Math.trunc(Number(hp)))
         : null;
+    const healthMult =
+      healthPersons != null && healthPersons > 0 ? healthPersons : 1;
+    const health = Math.round(healthPerPerson * healthMult);
     return { labor, health, healthPersons };
   }
   return null;
 }
 
-/** payslips 快照有值（含 0）則用快照；缺欄／null 則用 employees 目前資料 */
+/**
+ * payslips 快照有值則用快照；缺欄／null 則用 employees 目前資料。
+ * 若結算時曾剝除明細欄位（表尚無欄位），或 migration 的 DEFAULT 0 讓兩者皆為 0，
+ * 但員工主檔已有勞健保金額，則改以主檔快照顯示（與薪資結算中心提示一致）。
+ */
 function payslipLaborHealth(
   row: Record<string, unknown>,
   snap: EmployeeInsuranceSnapshot | null,
@@ -398,18 +578,34 @@ function payslipLaborHealth(
   const laborSnap = row.labor_insurance_employee;
   const healthSnap = row.health_insurance_employee;
   const personsSnap = row.health_insured_persons;
-  const labor =
+  let labor =
     laborSnap !== undefined && laborSnap !== null && laborSnap !== ""
       ? num(laborSnap, 0)
       : (snap?.labor ?? 0);
-  const health =
+  let health =
     healthSnap !== undefined && healthSnap !== null && healthSnap !== ""
       ? num(healthSnap, 0)
       : (snap?.health ?? 0);
-  const persons =
+  let persons =
     personsSnap !== undefined && personsSnap !== null && personsSnap !== ""
       ? Math.max(0, Math.trunc(num(personsSnap, 0)))
       : (snap?.healthPersons ?? null);
+
+  /** 僅在薪資單像「未寫入明細」（預設 0 且無加保人數）時才用主檔，避免覆蓋已結算為 0 的紀錄 */
+  const personsUnset =
+    personsSnap === undefined || personsSnap === null || personsSnap === "";
+  const slipLooksUnset =
+    labor === 0 &&
+    health === 0 &&
+    personsUnset &&
+    snap != null &&
+    (snap.labor > 0 || snap.health > 0);
+  if (slipLooksUnset) {
+    labor = snap.labor;
+    health = snap.health;
+    persons = snap.healthPersons ?? null;
+  }
+
   return { labor, health, persons };
 }
 
@@ -431,7 +627,7 @@ async function fetchPayslipRows(employeeId: string): Promise<PayslipRow[]> {
     return [];
   }
 
-  return (data ?? []).map((row: Record<string, unknown>) => {
+  const mapped = (data ?? []).map((row: Record<string, unknown>) => {
     const periodKey = String(row.period_key ?? row.pay_period ?? row.period ?? "").slice(0, 7);
     const pk = periodKey.length === 7 ? periodKey : String(row.id).slice(0, 12);
     const month_label =
@@ -459,9 +655,8 @@ async function fetchPayslipRows(employeeId: string): Promise<PayslipRow[]> {
       other_adjust: num(row.other_adjust, 0),
       net_pay: net,
     };
-    const notesRaw = row.notes;
-    const notes =
-      typeof notesRaw === "string" && notesRaw.trim() ? notesRaw.trim() : null;
+    const notesStr = String(row.notes ?? "").trim();
+    const notes = notesStr ? notesStr : null;
 
     return {
       id: String(row.id),
@@ -473,6 +668,8 @@ async function fetchPayslipRows(employeeId: string): Promise<PayslipRow[]> {
       notes,
     };
   });
+
+  return enrichPayslipNotesWithAttendanceRemarks(employeeId, mapped);
 }
 
 /**

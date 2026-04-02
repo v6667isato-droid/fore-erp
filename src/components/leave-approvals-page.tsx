@@ -42,6 +42,10 @@ import {
   type AttendanceManagementTabKey,
 } from "@/components/attendance-management-tabs";
 import { EmployeesPage } from "@/components/employees-page";
+import {
+  formatLeaveUpdatedAtDisplay,
+  leaveRequestRowWasUpdated,
+} from "@/lib/leave-request-updated";
 
 interface LeaveRequestAdminRow {
   id: string;
@@ -52,6 +56,8 @@ interface LeaveRequestAdminRow {
   end_date: string;
   days: number;
   created_at: string | null;
+  /** leave_requests.updated_at（核准／退回或內容修改） */
+  updated_at: string | null;
   status_raw: string;
 }
 
@@ -98,6 +104,10 @@ function num(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function isLeaveRequestsMissingColumnError(message: string): boolean {
+  return /could not find|column .* does not exist|schema cache/i.test(message);
+}
+
 function embedEmployeeName(rel: unknown): string | null {
   if (rel == null) return null;
   const o = Array.isArray(rel) ? rel[0] : rel;
@@ -133,6 +143,7 @@ function mapRowToAdminRow(
       : r.inserted_at != null
         ? String(r.inserted_at)
         : null;
+  const updated = r.updated_at != null ? String(r.updated_at) : null;
   return {
     id,
     employee_id: eid,
@@ -142,6 +153,7 @@ function mapRowToAdminRow(
     end_date: end || "—",
     days,
     created_at: created,
+    updated_at: updated,
     status_raw: String(r.status ?? ""),
   };
 }
@@ -200,7 +212,8 @@ export function LeaveApprovalsPage() {
     setLoading(true);
     setError(null);
     try {
-      const withJoin = `
+      /** 基礎表僅保證有 created_at；updated_at 需 migration 20250330140000_leave_requests_updated_at.sql */
+      const withJoinBase = `
         id,
         employee_id,
         leave_type,
@@ -211,24 +224,52 @@ export function LeaveApprovalsPage() {
         created_at,
         employees ( name )
       `;
+      const withJoinUpdated = `
+        id,
+        employee_id,
+        leave_type,
+        start_date,
+        end_date,
+        status,
+        total_days,
+        created_at,
+        updated_at,
+        employees ( name )
+      `;
 
       let data: Record<string, unknown>[] | null = null;
       let err: { message: string } | null = null;
 
-      const attempt1 = await supabase
+      let joined = await supabase
         .from("leave_requests")
-        .select(withJoin)
+        .select(withJoinUpdated)
         .order("created_at", { ascending: false });
 
-      if (!attempt1.error) {
-        data = attempt1.data as Record<string, unknown>[];
+      if (joined.error && isLeaveRequestsMissingColumnError(joined.error.message)) {
+        joined = (await supabase
+          .from("leave_requests")
+          .select(withJoinBase)
+          .order("created_at", { ascending: false })) as typeof joined;
+      }
+
+      if (!joined.error) {
+        data = joined.data as Record<string, unknown>[];
       } else {
-        const plain = await supabase
+        let plain = await supabase
           .from("leave_requests")
           .select(
-            "id, employee_id, leave_type, start_date, end_date, status, total_days, created_at, inserted_at",
+            "id, employee_id, leave_type, start_date, end_date, status, total_days, created_at, updated_at",
           )
           .order("created_at", { ascending: false });
+
+        if (plain.error && isLeaveRequestsMissingColumnError(plain.error.message)) {
+          plain = (await supabase
+            .from("leave_requests")
+            .select(
+              "id, employee_id, leave_type, start_date, end_date, status, total_days, created_at",
+            )
+            .order("created_at", { ascending: false })) as typeof plain;
+        }
 
         if (plain.error) {
           err = plain.error;
@@ -657,6 +698,20 @@ export function LeaveApprovalsPage() {
                           {formatDateTime(row.created_at)}
                         </span>
                       </p>
+                      {leaveRequestRowWasUpdated({
+                        created_at: row.created_at,
+                        updated_at: row.updated_at,
+                      }) ? (
+                        <p className="sm:col-span-2">
+                          <span className="text-xs uppercase tracking-wide">
+                            最後異動
+                          </span>
+                          <br />
+                          <span className="text-foreground">
+                            {formatLeaveUpdatedAtDisplay(row.updated_at)}
+                          </span>
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:w-40 sm:justify-center">
@@ -741,11 +796,18 @@ export function LeaveApprovalsPage() {
                     <TableHead className="text-xs font-semibold whitespace-nowrap">
                       申請時間
                     </TableHead>
+                    <TableHead className="text-xs font-semibold whitespace-nowrap">
+                      最後異動
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {historyList.map((row) => {
                     const st = normalizeStatus(row.status_raw);
+                    const showUpdated = leaveRequestRowWasUpdated({
+                      created_at: row.created_at,
+                      updated_at: row.updated_at,
+                    });
                     return (
                       <TableRow
                         key={row.id}
@@ -787,6 +849,9 @@ export function LeaveApprovalsPage() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                           {formatDateTime(row.created_at)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                          {showUpdated ? formatLeaveUpdatedAtDisplay(row.updated_at) : "—"}
                         </TableCell>
                       </TableRow>
                     );
