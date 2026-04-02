@@ -167,12 +167,15 @@ function PayslipBreakdownPanel({
   periodKey,
   b,
   notes,
+  annualLeaveRemaining,
   compact = false,
 }: {
   monthLabel: string;
   periodKey: string;
   b: PayslipDetailBreakdown;
   notes: string | null;
+  /** employees.annual_leave_remaining（目前剩餘，非該月薪資單歷史快照） */
+  annualLeaveRemaining: number | null;
   /** 對話框內：較矮、較緊湊，減少整體高度 */
   compact?: boolean;
 }) {
@@ -272,6 +275,21 @@ function PayslipBreakdownPanel({
               <tr className="border-b border-border/55">
                 <td className={slipLabel}>特休假結算</td>
                 <td className={slipVal}>{formatSlipDays(b.special_leave_days_settled)}</td>
+              </tr>
+              <tr className="border-b border-border/55">
+                <td className={cn(slipLabel, "whitespace-normal")}>
+                  <span className="block">特休假剩餘</span>
+                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                    目前主檔（非該月歷史快照）
+                  </span>
+                </td>
+                <td className={slipVal}>
+                  {annualLeaveRemaining != null && Number.isFinite(annualLeaveRemaining) ? (
+                    formatDayDecimalAsDayHour(annualLeaveRemaining)
+                  ) : (
+                    <span className="font-normal text-muted-foreground">—</span>
+                  )}
+                </td>
               </tr>
               <tr className="border-b border-border/55">
                 <td className={slipLabel}>其他加減項</td>
@@ -1453,6 +1471,7 @@ export default function EmployeePortalPage() {
                                     periodKey={row.period_key}
                                     b={row.breakdown}
                                     notes={row.notes}
+                                    annualLeaveRemaining={employee.annual_leave_remaining ?? null}
                                   />
                                 </td>
                               </tr>
