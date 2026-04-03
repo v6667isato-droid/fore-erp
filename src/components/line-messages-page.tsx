@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { MessageCircle, RefreshCw, Copy, Check } from "lucide-react";
+import { MessageCircle, RefreshCw, Copy, Check, Users, UserX } from "lucide-react";
+import { toast } from "sonner";
 
 type LineMessageRow = {
   id: string;
@@ -17,7 +18,7 @@ type LineMessageRow = {
   created_at: string;
 };
 
-type CustomerMini = { name: string | null; alias: string | null };
+type CustomerMini = { id: string; name: string | null; alias: string | null };
 
 function messageBody(r: LineMessageRow): string {
   const s = r.content ?? r.text ?? "";
@@ -60,57 +61,88 @@ function customerDisplayName(c: CustomerMini | undefined): string {
   return "—";
 }
 
+/** 依客戶分組；同組內依時間由舊到新（對話順序） */
+function groupMessagesByCustomer(
+  rows: LineMessageRow[],
+  customerById: Map<string, CustomerMini>
+): { key: string | null; label: string; rows: LineMessageRow[] }[] {
+  const map = new Map<string | null, LineMessageRow[]>();
+  for (const r of rows) {
+    const k = r.customer_id;
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(r);
+  }
+  for (const arr of map.values()) {
+    arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }
+
+  const entries = [...map.entries()];
+  entries.sort((a, b) => {
+    if (a[0] === null && b[0] !== null) return -1;
+    if (a[0] !== null && b[0] === null) return 1;
+    if (a[0] === null && b[0] === null) return 0;
+    const ca = customerById.get(a[0]!);
+    const cb = customerById.get(b[0]!);
+    return customerDisplayName(ca).localeCompare(customerDisplayName(cb), "zh-Hant");
+  });
+
+  return entries.map(([key, list]) => ({
+    key,
+    label:
+      key === null
+        ? "未綁定客戶"
+        : customerDisplayName(customerById.get(key)) || "未知客戶",
+    rows: list,
+  }));
+}
+
 export function LineMessagesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<LineMessageRow[]>([]);
   const [customerById, setCustomerById] = useState<Map<string, CustomerMini>>(new Map());
+  const [customerOptions, setCustomerOptions] = useState<CustomerMini[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    const { data, error: qErr } = await supabase
-      .from("line_messages")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(200);
+    const [msgRes, custRes] = await Promise.all([
+      supabase.from("line_messages").select("*").order("created_at", { ascending: false }).limit(200),
+      supabase.from("customers").select("id, name, alias").is("deleted_at", null).order("name"),
+    ]);
 
-    if (qErr) {
-      setError(qErr.message);
+    if (msgRes.error) {
+      setError(msgRes.error.message);
       setRows([]);
       setCustomerById(new Map());
+      setCustomerOptions([]);
       setLoading(false);
       return;
     }
 
-    const list = (data ?? []) as LineMessageRow[];
+    const list = (msgRes.data ?? []) as LineMessageRow[];
     setRows(list);
 
-    const ids = [...new Set(list.map((r) => r.customer_id).filter(Boolean))] as string[];
-    if (ids.length === 0) {
-      setCustomerById(new Map());
-      setLoading(false);
-      return;
+    const opts = (custRes.data ?? []) as CustomerMini[];
+    setCustomerOptions(opts);
+
+    const m = new Map<string, CustomerMini>();
+    for (const c of opts) {
+      m.set(c.id, c);
     }
-
-    const { data: custRows, error: cErr } = await supabase
-      .from("customers")
-      .select("id, name, alias")
-      .in("id", ids);
-
-    if (cErr) {
-      console.warn("[line-messages] customers lookup:", cErr);
-      setCustomerById(new Map());
-    } else {
-      const m = new Map<string, CustomerMini>();
-      for (const c of custRows ?? []) {
-        const row = c as { id: string; name: string | null; alias: string | null };
-        m.set(row.id, { name: row.name, alias: row.alias });
+    const msgCustomerIds = [...new Set(list.map((r) => r.customer_id).filter(Boolean))] as string[];
+    const missing = msgCustomerIds.filter((id) => !m.has(id));
+    if (missing.length > 0) {
+      const { data: extra } = await supabase.from("customers").select("id, name, alias").in("id", missing);
+      for (const c of extra ?? []) {
+        const row = c as CustomerMini;
+        m.set(row.id, row);
       }
-      setCustomerById(m);
     }
+    setCustomerById(m);
     setLoading(false);
   }, []);
 
@@ -120,6 +152,11 @@ export function LineMessagesPage() {
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const webhookUrl = origin ? `${origin}/api/line-webhook` : "/api/line-webhook";
+
+  const groups = useMemo(
+    () => groupMessagesByCustomer(rows, customerById),
+    [rows, customerById]
+  );
 
   const countLabel = useMemo(() => {
     if (loading) return "載入中…";
@@ -136,6 +173,32 @@ export function LineMessagesPage() {
     }
   }
 
+  async function assignCustomer(messageId: string, customerId: string | null) {
+    setSavingId(messageId);
+    const { error: uErr } = await supabase
+      .from("line_messages")
+      .update({ customer_id: customerId })
+      .eq("id", messageId);
+
+    if (uErr) {
+      toast.error(uErr.message || "更新失敗");
+      setSavingId(null);
+      return;
+    }
+
+    toast.success(customerId ? "已綁定客戶" : "已取消綁定");
+    setRows((prev) =>
+      prev.map((r) => (r.id === messageId ? { ...r, customer_id: customerId } : r))
+    );
+    if (customerId && !customerById.has(customerId)) {
+      const c = customerOptions.find((x) => x.id === customerId);
+      if (c) {
+        setCustomerById((prev) => new Map(prev).set(customerId, c));
+      }
+    }
+    setSavingId(null);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -146,7 +209,7 @@ export function LineMessagesPage() {
           <div>
             <p className="text-sm font-medium text-foreground">LINE 官方帳號訊息</p>
             <p className="mt-0.5 text-sm text-muted-foreground leading-relaxed">
-              顯示最近 200 筆文字訊息；與客戶綁定請在客戶資料填寫相同的 LINE userId。
+              依<strong>客戶</strong>分組顯示；未自動對應時請在「綁定客戶」手動選擇，之後同客戶訊息會集中在一起。
             </p>
             <p className="mt-2 inline-flex items-center rounded-full border border-border bg-muted/40 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
               {countLabel}
@@ -203,67 +266,107 @@ export function LineMessagesPage() {
           </p>
         </div>
       ) : (
-        <div className="rounded-xl border border-border bg-card shadow-sm">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="w-[120px] text-muted-foreground">時間</TableHead>
-                <TableHead className="min-w-[100px] text-muted-foreground">類型</TableHead>
-                <TableHead className="min-w-[140px] text-muted-foreground">客戶</TableHead>
-                <TableHead className="min-w-[180px] text-muted-foreground">LINE userId</TableHead>
-                <TableHead className="text-muted-foreground">內容</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => {
-                const t = formatMessageTime(r.created_at);
-                const mt = (r.message_type ?? "text").trim() || "text";
-                const cust = r.customer_id ? customerById.get(r.customer_id) : undefined;
-                const copyKey = `uid-${r.id}`;
-                return (
-                  <TableRow key={r.id}>
-                    <TableCell className="align-top text-muted-foreground">
-                      <time dateTime={r.created_at} title={t.full} className="whitespace-nowrap text-[13px]">
-                        {t.main}
-                      </time>
-                    </TableCell>
-                    <TableCell className="align-top">
-                      <span className="inline-flex rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
-                        {mt}
-                      </span>
-                    </TableCell>
-                    <TableCell className="align-top whitespace-normal text-[13px] text-foreground max-w-[160px]">
-                      <span className="line-clamp-2" title={customerDisplayName(cust)}>
-                        {r.customer_id ? customerDisplayName(cust) : (
-                          <span className="text-muted-foreground">未綁定</span>
-                        )}
-                      </span>
-                    </TableCell>
-                    <TableCell className="align-top whitespace-normal">
-                      <div className="flex items-start gap-1.5 max-w-[220px]">
-                        <code className="break-all text-[11px] leading-snug text-muted-foreground">{r.line_user_id}</code>
-                        <button
-                          type="button"
-                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                          title="複製 userId"
-                          onClick={() => void copyText(r.line_user_id, copyKey)}
-                        >
-                          {copiedId === copyKey ? (
-                            <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
-                          ) : (
-                            <Copy className="h-3.5 w-3.5" aria-hidden />
-                          )}
-                        </button>
-                      </div>
-                    </TableCell>
-                    <TableCell className="align-top whitespace-normal text-[13px] leading-relaxed min-w-[200px]">
-                      <span className="whitespace-pre-wrap break-words">{messageBody(r)}</span>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+        <div className="space-y-8">
+          {groups.map((g) => {
+            const uniqueUids = [...new Set(g.rows.map((r) => r.line_user_id))];
+            const Icon = g.key === null ? UserX : Users;
+            return (
+              <section
+                key={g.key ?? "unassigned"}
+                className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"
+              >
+                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-4 py-3">
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <h2 className="text-sm font-semibold text-foreground">{g.label}</h2>
+                  <span className="text-xs text-muted-foreground">（{g.rows.length} 則）</span>
+                  {uniqueUids.length > 0 && (
+                    <span className="text-[11px] text-muted-foreground font-mono truncate max-w-full">
+                      LINE userId：{uniqueUids.join(" · ")}
+                    </span>
+                  )}
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-[110px] text-muted-foreground">時間</TableHead>
+                      <TableHead className="min-w-[88px] text-muted-foreground">類型</TableHead>
+                      <TableHead className="min-w-[160px] text-muted-foreground">綁定客戶</TableHead>
+                      <TableHead className="min-w-[160px] text-muted-foreground">LINE userId</TableHead>
+                      <TableHead className="text-muted-foreground">內容</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {g.rows.map((r) => {
+                      const t = formatMessageTime(r.created_at);
+                      const mt = (r.message_type ?? "text").trim() || "text";
+                      const copyKey = `uid-${r.id}`;
+                      return (
+                        <TableRow key={r.id}>
+                          <TableCell className="align-top text-muted-foreground">
+                            <time dateTime={r.created_at} title={t.full} className="whitespace-nowrap text-[13px]">
+                              {t.main}
+                            </time>
+                          </TableCell>
+                          <TableCell className="align-top">
+                            <span className="inline-flex rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+                              {mt}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-top whitespace-normal min-w-[180px]">
+                            <select
+                              className={cn(
+                                "h-9 w-full max-w-[220px] rounded-md border border-input bg-background px-2 text-xs",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              )}
+                              value={r.customer_id ?? ""}
+                              disabled={savingId === r.id}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                void assignCustomer(r.id, v === "" ? null : v);
+                              }}
+                              aria-label="綁定客戶"
+                            >
+                              <option value="">未綁定</option>
+                              {customerOptions.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {customerDisplayName(c)}
+                                  {c.name?.trim() && c.alias?.trim() && c.alias !== c.name
+                                    ? `（${c.name.trim()}）`
+                                    : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </TableCell>
+                          <TableCell className="align-top whitespace-normal">
+                            <div className="flex items-start gap-1.5 max-w-[220px]">
+                              <code className="break-all text-[11px] leading-snug text-muted-foreground">
+                                {r.line_user_id}
+                              </code>
+                              <button
+                                type="button"
+                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                title="複製 userId"
+                                onClick={() => void copyText(r.line_user_id, copyKey)}
+                              >
+                                {copiedId === copyKey ? (
+                                  <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" aria-hidden />
+                                )}
+                              </button>
+                            </div>
+                          </TableCell>
+                          <TableCell className="align-top whitespace-normal text-[13px] leading-relaxed min-w-[200px]">
+                            <span className="whitespace-pre-wrap break-words">{messageBody(r)}</span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </section>
+            );
+          })}
         </div>
       )}
     </div>
