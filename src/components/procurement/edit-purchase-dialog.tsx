@@ -8,6 +8,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { PurchaseRow, ProcurementMaterialRow } from "@/types/procurement";
 import { computePurchaseLinePrices } from "@/lib/purchase-tax";
+import { purchaseSpecFromMaterialParts } from "@/lib/procurement-material";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
 
 const FILTER_MATERIAL_UNCATEGORIZED = "__uncategorized__";
@@ -29,6 +30,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
   const [itemName, setItemName] = useState("");
   const [itemCategory, setItemCategory] = useState("");
   const [spec, setSpec] = useState("");
+  const [spec2, setSpec2] = useState("");
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
@@ -54,9 +56,24 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       setPriceInputIsTaxInclusive(Boolean(row.unit_price_is_tax_inclusive));
       setMaterialId(row.material_id ?? null);
       setMaterialCategoryFilter("");
+      setSpec2("");
       setError(null);
     }
   }, [open, row]);
+
+  useEffect(() => {
+    if (!open || !row) return;
+    const mid = row.material_id;
+    if (!mid) {
+      setSpec2("");
+      return;
+    }
+    const m = materials.find((x) => x.id === mid);
+    if (m) {
+      setSpec(m.spec ?? "");
+      setSpec2(m.spec2 ?? "");
+    }
+  }, [open, row?.id, row?.material_id, materials]);
 
   useEffect(() => {
     if (!open) return;
@@ -68,7 +85,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       });
     supabase
       .from("procurement_materials")
-      .select("id, name, item_category, spec, unit, notes, created_at")
+      .select("id, name, item_category, spec, spec2, unit, notes, created_at")
       .order("name")
       .then(({ data }) => {
         setMaterials((data as ProcurementMaterialRow[]) ?? []);
@@ -182,7 +199,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       vendor_name: vendorName.trim() || null,
       item_name: itemName.trim(),
       item_category: itemCategory.trim() || null,
-      spec: spec.trim() || null,
+      spec: purchaseSpecFromMaterialParts(spec, spec2) || null,
       quantity: quantity.trim() ? Number(quantity) : null,
       unit: unit.trim() || null,
       material_id: materialId,
@@ -336,6 +353,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
                     const v = e.target.value;
                     if (!v) {
                       setMaterialId(null);
+                      setSpec2("");
                       return;
                     }
                     const m = materials.find((x) => x.id === v);
@@ -344,6 +362,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
                     setItemName(m.name);
                     setItemCategory(m.item_category ?? "");
                     setSpec(m.spec ?? "");
+                    setSpec2(m.spec2 ?? "");
                     setUnit(m.unit ?? "");
                   }}
                   className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -355,6 +374,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
                       {m.item_category ? `[${m.item_category}] ` : ""}
                       {m.name}
                       {m.spec ? ` — ${m.spec}` : ""}
+                      {m.spec2 ? ` · ${m.spec2}` : ""}
                     </option>
                   ))}
                 </select>
@@ -380,6 +400,10 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
                 <p className="mt-0.5 text-foreground">{spec.trim() ? spec : "—"}</p>
               </div>
               <div className="text-xs">
+                <span className="text-muted-foreground">規格2</span>
+                <p className="mt-0.5 text-foreground">{spec2.trim() ? spec2 : "—"}</p>
+              </div>
+              <div className="text-xs sm:col-span-2">
                 <span className="text-muted-foreground">單位</span>
                 <p className="mt-0.5 text-foreground">{unit.trim() ? unit : "—"}</p>
               </div>
@@ -432,6 +456,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
           ...m,
           item_category: m.item_category ?? "",
           spec: m.spec ?? "",
+          spec2: m.spec2 ?? "",
           unit: m.unit ?? "",
         };
         setMaterials((prev) => [...prev, rowM].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")));

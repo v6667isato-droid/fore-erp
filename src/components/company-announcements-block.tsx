@@ -1,4 +1,6 @@
 import { Megaphone } from "lucide-react";
+import { epSection } from "@/lib/employee-portal-section-styles";
+import { cn } from "@/lib/utils";
 
 export interface CompanyAnnouncementItem {
   id: string;
@@ -15,16 +17,14 @@ export function CompanyAnnouncementsBlock({
   subtitle?: string;
 }) {
   return (
-    <section className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-8">
-      <div className="mb-5 flex items-center gap-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
+    <section className={epSection.card}>
+      <div className={epSection.headerRow}>
+        <div className={epSection.iconBox}>
           <Megaphone className="h-4 w-4" />
         </div>
         <div>
-          <h3 className="text-base font-semibold">公司公告</h3>
-          {subtitle ? (
-            <p className="text-xs text-muted-foreground">{subtitle}</p>
-          ) : null}
+          <h3 className={epSection.title}>公司公告</h3>
+          {subtitle ? <p className={cn("mt-0.5", epSection.subtitle)}>{subtitle}</p> : null}
         </div>
       </div>
       <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">

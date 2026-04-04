@@ -20,6 +20,7 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
   const [name, setName] = useState("");
   const [itemCategory, setItemCategory] = useState("");
   const [spec, setSpec] = useState("");
+  const [spec2, setSpec2] = useState("");
   const [unit, setUnit] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +30,7 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
       setName(row.name ?? "");
       setItemCategory(row.item_category ?? "");
       setSpec(row.spec ?? "");
+      setSpec2(row.spec2 ?? "");
       setUnit(row.unit ?? "");
       setError(null);
     }
@@ -50,17 +52,19 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
     const nameT = name.trimEnd();
     const catT = itemCategory.trimEnd();
     const specT = spec.trimEnd();
+    const spec2T = spec2.trimEnd();
     const payload = {
       name: nameT,
       item_category: catT || null,
       spec: specT || null,
+      spec2: spec2T || null,
       unit: unit.trim() || null,
     };
     const { error: err } = await supabase.from("procurement_materials").update(payload).eq("id", row.id);
     setSaving(false);
     if (err) {
       if (/duplicate key|unique constraint|23505/i.test(err.message)) {
-        setError("已有相同品名與規格的物料");
+        setError("已有相同品名、規格與規格2 的物料");
       } else {
         setError(err.message || "更新失敗");
       }
@@ -87,7 +91,7 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">編輯採購物料</Dialog.Title>
               <p id="edit-material-desc" className="mt-1 text-sm text-muted-foreground">
-                修改後若與其他物料「品名＋規格」重複將無法儲存。
+                修改後若與其他物料「品名＋規格＋規格2」重複將無法儲存。
               </p>
             </div>
             <Dialog.Close asChild>
@@ -117,6 +121,10 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-material-spec" className="text-xs text-muted-foreground">規格</label>
               <input id="edit-material-spec" type="text" value={spec} onChange={(e) => setSpec(e.target.value)} onBlur={() => setSpec((s) => s.trimEnd())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-material-spec2" className="text-xs text-muted-foreground">規格2</label>
+              <input id="edit-material-spec2" type="text" value={spec2} onChange={(e) => setSpec2(e.target.value)} onBlur={() => setSpec2((s) => s.trimEnd())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-material-unit" className="text-xs text-muted-foreground">預設單位</label>

@@ -47,7 +47,10 @@ interface WorkOrderRow {
   category: string;
   stage: WorkOrderStage;
   order_status: string | null;
-  assignee: string | null;
+  /** 對應 public.employees.id */
+  assignee_id: string | null;
+  /** 由 employees 關聯帶出，供顯示／排序／搜尋 */
+  assignee_name: string | null;
   expected_delivery_date: string | null;
   planned_start_date: string | null;
   planned_end_date: string | null;
@@ -158,7 +161,7 @@ export function WorkOrdersPage() {
     | "item_name"
     | "category"
     | "stage"
-    | "assignee"
+    | "assignee_name"
     | "planned_end_date"
     | "expected_delivery_date";
   const [sortBy, setSortBy] = useState<WorkSortKey>("stage");
@@ -192,7 +195,10 @@ export function WorkOrdersPage() {
         `
         id,
         stage,
-        assignee,
+        assignee_id,
+        employees!assignee_id (
+          name
+        ),
         planned_start_date,
         planned_end_date,
         order_items(
@@ -271,6 +277,13 @@ export function WorkOrdersPage() {
         (s) => typeof s === "string" && s.trim()
       ) as string[];
 
+      const empRel = (r as any).employees;
+      const empOne = Array.isArray(empRel) ? empRel[0] : empRel;
+      const assigneeName =
+        empOne?.name != null && String(empOne.name).trim()
+          ? String(empOne.name).trim()
+          : null;
+
       return {
         id: String(r.id),
         order_item_id: oi?.id ? String(oi.id) : "",
@@ -289,7 +302,8 @@ export function WorkOrdersPage() {
         category: cat,
         stage: normalizeWorkOrderStage(r.stage),
         order_status: (order?.status as string | null) ?? null,
-        assignee: r.assignee ?? null,
+        assignee_id: r.assignee_id != null ? String(r.assignee_id) : null,
+        assignee_name: assigneeName,
         expected_delivery_date: order?.expected_delivery_date ?? null,
         planned_start_date: r.planned_start_date ?? null,
         planned_end_date: r.planned_end_date ?? null,
@@ -324,12 +338,14 @@ export function WorkOrdersPage() {
 
   async function updateWorkOrderInline(
     id: string,
-    patch: Partial<Pick<WorkOrderRow, "assignee">> & { stage?: WorkOrderStage }
+    patch: Partial<Pick<WorkOrderRow, "assignee_id" | "assignee_name">> & {
+      stage?: WorkOrderStage;
+    }
   ) {
     const orderIdForSync = rows.find((w) => w.id === id)?.order_id ?? null;
     const payload: any = {};
     if (patch.stage) payload.stage = patch.stage;
-    if (patch.assignee !== undefined) payload.assignee = patch.assignee;
+    if (patch.assignee_id !== undefined) payload.assignee_id = patch.assignee_id;
     if (Object.keys(payload).length === 0) return;
 
     const { error } = await supabase
@@ -373,7 +389,7 @@ export function WorkOrdersPage() {
       const q = assigneeFilter.trim().toLowerCase();
       const matchAssignee =
         !q ||
-        (w.assignee ?? "").toLowerCase().includes(q) ||
+        (w.assignee_name ?? "").toLowerCase().includes(q) ||
         w.customer_name.toLowerCase().includes(q) ||
         w.order_number.toLowerCase().includes(q);
       return matchStage && matchOrderStatus && matchCategory && matchAssignee;
@@ -597,7 +613,7 @@ export function WorkOrdersPage() {
                 <SortHeader label="工序站別" sortKey="stage" />
               </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                <SortHeader label="負責人" sortKey="assignee" />
+                <SortHeader label="負責人" sortKey="assignee_name" />
               </TableHead>
               <TableHead className="text-xs font-semibold hidden sm:table-cell">
                 <SortHeader label="預計完成" sortKey="planned_end_date" />
@@ -675,17 +691,20 @@ export function WorkOrdersPage() {
                     <div className="flex items-center gap-1.5">
                       <User className="h-3.5 w-3.5 text-muted-foreground" />
                       <select
-                        value={w.assignee ?? ""}
-                        onChange={(e) =>
+                        value={w.assignee_id ?? ""}
+                        onChange={(e) => {
+                          const id = e.target.value || null;
+                          const emp = employees.find((x) => x.id === id);
                           updateWorkOrderInline(w.id, {
-                            assignee: e.target.value || null,
-                          })
-                        }
+                            assignee_id: id,
+                            assignee_name: emp?.name ?? null,
+                          });
+                        }}
                         className="h-8 w-32 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       >
                         <option value="">未指派</option>
                         {employees.map((emp) => (
-                          <option key={emp.id} value={emp.name}>
+                          <option key={emp.id} value={emp.id}>
                             {emp.name}
                           </option>
                         ))}

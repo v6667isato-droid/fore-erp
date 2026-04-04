@@ -6,8 +6,17 @@ import {
   fetchLatestWorkshopRotationSafe,
   type WorkshopRotationDisplay,
 } from "@/lib/meeting-minutes";
+import { epSection } from "@/lib/employee-portal-section-styles";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+
+/** 週五工坊保養工作清單（PDF，Google Drive） */
+const WORKSHOP_CHECKLIST_FORM_URL =
+  "https://drive.google.com/file/d/1_Qk3N1q7GhRbp4SUSD2Az-1KCwFP7HOW/view?usp=sharing";
+
+/** 盤點表（PDF，Google Drive） */
+const WORKSHOP_INVENTORY_FORM_URL =
+  "https://drive.google.com/file/d/175bDNbVsgVMpirWtMwqsw0ylVSmqxOPI/view?usp=sharing";
 
 /** 2×2：左上 → 右上 → 左下 → 右下 */
 const CELLS: {
@@ -20,11 +29,12 @@ const CELLS: {
   { key: "duty", labelShort: "值日生" },
 ];
 
-function formatMeetingDateLabel(iso: string): string {
+/** 顯示為「近期更新 MM/DD」 */
+function formatRecentUpdateMd(iso: string): string {
   const d = iso.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return iso;
-  const [y, m, dayNum] = d.split("-").map(Number);
-  return `${y}/${m}/${dayNum}`;
+  const [, m, dayNum] = d.split("-").map(Number);
+  return `${String(m).padStart(2, "0")}/${String(dayNum).padStart(2, "0")}`;
 }
 
 function namesFor(
@@ -39,10 +49,13 @@ function namesFor(
 export function WorkshopWeeklyRotationBlock({
   refreshTick = 0,
   subtitle,
+  showSubtitleLine = true,
 }: {
   /** 與開會紀錄儲存同步時遞增，以重新抓取「最近一次」輪替 */
   refreshTick?: number;
   subtitle?: string;
+  /** false：不顯示預設／副標說明（給非 admin 儀表板） */
+  showSubtitleLine?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,18 +98,47 @@ export function WorkshopWeeklyRotationBlock({
     });
 
   return (
-    <section className="rounded-2xl border border-border/90 bg-card p-5 shadow-sm sm:p-6">
-      <div className="mb-3 flex shrink-0 items-start gap-2">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/12 text-amber-800 dark:text-amber-200">
+    <section className={epSection.card}>
+      <div className={cn(epSection.headerRowStart, "shrink-0")}>
+        <div className={epSection.iconBoxAmber}>
           <Wrench className="h-4 w-4" aria-hidden />
         </div>
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold leading-tight">週五工坊維護輪替</h3>
-          {subtitle ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
-          ) : (
-            <p className="mt-0.5 text-xs text-muted-foreground">依最近一次開會紀錄（會議日期）</p>
-          )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+            <div className="min-w-0">
+              <h3 className={epSection.title}>週五工坊維護輪替</h3>
+              {data?.meetingDate ? (
+                <p className={cn("mt-0.5", epSection.subtitle)}>
+                  近期更新 {formatRecentUpdateMd(data.meetingDate)}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <a
+                href={WORKSHOP_CHECKLIST_FORM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              >
+                工作清單表單
+              </a>
+              <a
+                href={WORKSHOP_INVENTORY_FORM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              >
+                盤點表
+              </a>
+            </div>
+          </div>
+          {showSubtitleLine ? (
+            subtitle ? (
+              <p className={cn("mt-0.5", epSection.subtitle)}>{subtitle}</p>
+            ) : (
+              <p className={cn("mt-0.5", epSection.subtitle)}>依最近一次開會紀錄（會議日期）</p>
+            )
+          ) : null}
         </div>
       </div>
 
@@ -116,9 +158,6 @@ export function WorkshopWeeklyRotationBlock({
         <p className="text-sm text-muted-foreground">尚無開會紀錄，請於開會紀錄填寫輪替。</p>
       ) : (
         <div>
-          <p className="mb-2 text-[10px] tabular-nums text-muted-foreground">
-            {formatMeetingDateLabel(data.meetingDate)}
-          </p>
           {!hasAnyNames ? (
             <p className="text-xs text-muted-foreground">尚未設定輪替。</p>
           ) : (

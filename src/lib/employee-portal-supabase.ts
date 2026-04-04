@@ -213,6 +213,42 @@ function productionTaskStatusToWorkProgressUi(status: string | null | undefined)
   return "pending";
 }
 
+/** 與 Kanban / DB 欄位一致（中文） */
+export function workProgressUiToDbStatus(ui: WorkProgressUiStatus): string {
+  if (ui === "done") return "已完成";
+  if (ui === "in_progress") return "進行中";
+  return "待處理";
+}
+
+/**
+ * 更新 production_tasks.status。
+ * 承辦身分由 RLS（employees.is_production_task_actor）判斷：production_tasks.employee_id 或 work_orders.assignee_id（employees.id）。
+ */
+export async function updateProductionTaskStatusForAssignee(
+  taskId: string,
+  _employeeId: string,
+  ui: WorkProgressUiStatus,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const status = workProgressUiToDbStatus(ui);
+  const { data, error } = await supabase
+    .from("production_tasks")
+    .update({ status })
+    .eq("id", taskId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+  if (!data) {
+    return {
+      ok: false,
+      message: "無法更新（任務不存在、非您負責，或無權限）",
+    };
+  }
+  return { ok: true };
+}
+
 function mapLeaveStatus(raw: string | null | undefined): LeaveRequestStatus {
   const s = (raw ?? "").trim().toLowerCase();
   if (s === "approved" || s === "已核准" || s === "核准") return "approved";
@@ -315,11 +351,125 @@ async function resolveEmployee(authUserId: string, authEmail: string | undefined
   return null;
 }
 
-async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRow[]> {
+function mergeProductionTaskRowsById<T extends { id: string }>(a: T[], b: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const r of a) map.set(String(r.id), r);
+  for (const r of b) {
+    const id = String(r.id);
+    if (!map.has(id)) map.set(id, r);
+  }
+  return [...map.values()].sort((x, y) => String(y.id).localeCompare(String(x.id), undefined, { numeric: true }));
+}
+
+/** 您為負責人之工單（work_orders.assignee_id）；需能 SELECT work_orders */
+async function getWorkOrdersForAssignee(employeeId: string): Promise<
+  { id: string; order_item_id: string | null }[]
+> {
+  const eid = employeeId.trim();
+  if (!eid) return [];
   const { data, error } = await supabase
+    .from("work_orders")
+    .select("id, order_item_id")
+    .eq("assignee_id", eid)
+    .order("id", { ascending: false })
+    .limit(300);
+
+  if (error) {
+    if (/column .*assignee_id|does not exist/i.test(error.message)) {
+      return [];
+    }
+    console.warn("[employee-portal] work_orders.assignee_id:", error.message);
+    return [];
+  }
+  return (data ?? []).map((r: Record<string, unknown>) => ({
+    id: String(r.id ?? ""),
+    order_item_id: r.order_item_id != null && String(r.order_item_id).trim() ? String(r.order_item_id) : null,
+  }));
+}
+
+async function fetchProductionTasksInColumn(
+  column: "work_order_id" | "order_item_id",
+  ids: string[],
+  select: string,
+): Promise<any[]> {
+  const uniq = [...new Set(ids.filter(Boolean))];
+  if (uniq.length === 0) return [];
+
+  const out: any[] = [];
+  const batchSize = 120;
+  for (let i = 0; i < uniq.length; i += batchSize) {
+    const chunk = uniq.slice(i, i + batchSize);
+    const { data, error } = await supabase
+      .from("production_tasks")
+      .select(select)
+      .in(column, chunk)
+      .order("id", { ascending: false })
+      .limit(120);
+
+    if (error) {
+      if (/column .*does not exist|Could not find|schema cache/i.test(error.message)) {
+        return [];
+      }
+      console.warn(`[employee-portal] production_tasks.${column}:`, error.message);
+      return [];
+    }
+    if (data?.length) out.push(...data);
+  }
+  return out;
+}
+
+/**
+ * 依工單負責人找 production_tasks：
+ * 1) 巢狀篩選 work_orders.assignee_id（略過須先讀 work_orders 的 RLS）
+ * 2) work_order_id / order_item_id 批次查詢（兩種 FK 並存時合併）
+ */
+async function fetchProductionTasksByWorkOrderAssigneeId(employeeId: string, select: string): Promise<any[]> {
+  const eid = employeeId.trim();
+  if (!eid) return [];
+
+  const selectInnerWo = select.includes("work_orders!inner")
+    ? select
+    : select.replace(/work_orders\s*\(/, "work_orders!inner(");
+
+  const { data: nested, error: nestedErr } = await supabase
     .from("production_tasks")
-    .select(
-      `
+    .select(selectInnerWo)
+    .eq("work_orders.assignee_id", eid)
+    .order("id", { ascending: false })
+    .limit(80);
+
+  if (!nestedErr && nested?.length) {
+    return nested as any[];
+  }
+  if (nestedErr && !/column|could not find|schema cache|assignee_id|work_orders|PGRST/i.test(nestedErr.message)) {
+    console.warn("[employee-portal] production_tasks work_orders.assignee_id filter:", nestedErr.message);
+  }
+
+  const woRows = await getWorkOrdersForAssignee(employeeId);
+  if (woRows.length === 0) return [];
+
+  const woIds = woRows.map((r) => r.id).filter(Boolean);
+  const oiIds = woRows.map((r) => r.order_item_id).filter((x): x is string => Boolean(x));
+
+  const byId = new Map<string, any>();
+
+  const add = (rows: any[]) => {
+    for (const r of rows) {
+      const id = String(r?.id ?? "");
+      if (id) byId.set(id, r);
+    }
+  };
+
+  add(await fetchProductionTasksInColumn("work_order_id", woIds, select));
+  add(await fetchProductionTasksInColumn("order_item_id", oiIds, select));
+
+  return [...byId.values()].sort((a, b) =>
+    String(b.id).localeCompare(String(a.id), undefined, { numeric: true }),
+  );
+}
+
+async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRow[]> {
+  const select = `
       id,
       status,
       step_name,
@@ -332,8 +482,11 @@ async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRo
           custom_name
         )
       )
-    `
-    )
+    `;
+
+  const { data: byEmp, error } = await supabase
+    .from("production_tasks")
+    .select(select)
     .eq("employee_id", employeeId)
     .order("id", { ascending: false })
     .limit(40);
@@ -346,7 +499,24 @@ async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRo
     return [];
   }
 
-  const rows = (data ?? []) as any[];
+  const taskSelectWo = `
+      id,
+      status,
+      step_name,
+      notes,
+      work_orders(
+        assignee_id,
+        planned_end_date,
+        order_items(
+          orders(order_number),
+          product_variants(product_code),
+          custom_name
+        )
+      )
+    `;
+  const byWoAssignee = await fetchProductionTasksByWorkOrderAssigneeId(employeeId, taskSelectWo);
+  const rows = mergeProductionTaskRowsById((byEmp ?? []) as any[], byWoAssignee).slice(0, 40);
+
   return rows.map((r) => {
     const wo = Array.isArray(r.work_orders) ? r.work_orders[0] : r.work_orders;
     const oi = wo?.order_items?.[0] ?? wo?.order_items;
@@ -372,17 +542,15 @@ async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRo
 }
 
 /**
- * 進度追蹤：與「生產任務」相同資料來源——僅顯示 production_tasks.employee_id 連結至您的生產物件（訂單／品項）。
+ * 生產交辦：production_tasks.employee_id 為您，或所屬工單之負責人為您（work_orders.assignee_id = 登入員工 id）。
  */
 async function fetchWorkProgressFromProductionTasks(employeeId: string): Promise<WorkProgressSeedRow[]> {
-  const { data, error } = await supabase
-    .from("production_tasks")
-    .select(
-      `
+  const select = `
       id,
       status,
       step_name,
       work_orders(
+        assignee_id,
         planned_end_date,
         order_items(
           orders(order_number, expected_delivery_date),
@@ -390,8 +558,11 @@ async function fetchWorkProgressFromProductionTasks(employeeId: string): Promise
           custom_name
         )
       )
-    `,
-    )
+    `;
+
+  const { data: byEmp, error } = await supabase
+    .from("production_tasks")
+    .select(select)
     .eq("employee_id", employeeId)
     .order("id", { ascending: false })
     .limit(40);
@@ -404,7 +575,9 @@ async function fetchWorkProgressFromProductionTasks(employeeId: string): Promise
     return [];
   }
 
-  const rows = (data ?? []) as any[];
+  const byWoAssignee = await fetchProductionTasksByWorkOrderAssigneeId(employeeId, select);
+  const rows = mergeProductionTaskRowsById((byEmp ?? []) as any[], byWoAssignee).slice(0, 40);
+
   return rows.map((r) => {
     const wo = Array.isArray(r.work_orders) ? r.work_orders[0] : r.work_orders;
     const oi = wo?.order_items?.[0] ?? wo?.order_items;

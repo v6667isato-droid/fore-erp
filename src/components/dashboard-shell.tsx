@@ -7,8 +7,6 @@ import {
   ShoppingCart,
   Menu,
   Package,
-  TrendingUp,
-  Clock,
   Users,
   LogOut,
   LogIn,
@@ -34,7 +32,6 @@ import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompanyCalendarPage } from "@/components/company-calendar-page";
 import { CostStatisticsPage } from "@/components/cost-statistics-page";
 import { LineMessagesPage } from "@/components/line-messages-page";
-import { dashboardStats } from "@/lib/mock-data";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   getSupabaseSession,
@@ -306,36 +303,6 @@ function MobileHeader({
   );
 }
 
-function StatsRow() {
-  const stats = [
-    { label: "生產中訂單", value: dashboardStats.activeOrders, unit: "件", icon: Package },
-    { label: "進行中工序", value: dashboardStats.inProgressTasks, unit: "項", icon: TrendingUp },
-    { label: "待付訂", value: dashboardStats.pendingPayments, unit: "件", icon: Clock },
-  ];
-
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      {stats.map((s) => {
-        const Icon = s.icon;
-        return (
-          <div key={s.label} className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary">
-              <Icon className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
-              <p className="text-xl font-semibold text-foreground">
-                {s.value}
-                <span className="ml-1 text-sm font-normal text-muted-foreground">{s.unit}</span>
-              </p>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 const PAGE_IDS = new Set(navItems.map((i) => i.id));
 
 export default function DashboardShell() {
@@ -554,9 +521,6 @@ export default function DashboardShell() {
 
           {activePage === "dashboard" && (
             <>
-              <div className="mb-6">
-                <StatsRow />
-              </div>
               <DashboardOverview />
               <section className="mt-10 lg:mt-12 pt-8 border-t border-border scroll-mt-6" aria-labelledby="dashboard-calendar-heading">
                 <h2

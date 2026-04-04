@@ -7,6 +7,8 @@ export interface ProcurementMaterialRow {
   name: string;
   item_category: string;
   spec: string;
+  /** 規格2（補充） */
+  spec2?: string | null;
   unit: string;
   notes?: string | null;
   created_at?: string | null;

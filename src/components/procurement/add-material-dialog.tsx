@@ -20,6 +20,7 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
   const [name, setName] = useState("");
   const [itemCategory, setItemCategory] = useState("");
   const [spec, setSpec] = useState("");
+  const [spec2, setSpec2] = useState("");
   const [unit, setUnit] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +30,7 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
       setName("");
       setItemCategory("");
       setSpec("");
+      setSpec2("");
       setUnit("");
       setError(null);
     }
@@ -44,6 +46,7 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
     const nameT = name.trimEnd();
     const catT = itemCategory.trimEnd();
     const specT = spec.trimEnd();
+    const spec2T = spec2.trimEnd();
     if (!nameT.trim()) {
       setError("請輸入標準品名");
       return;
@@ -53,13 +56,14 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
       name: nameT,
       item_category: catT || null,
       spec: specT || null,
+      spec2: spec2T || null,
       unit: unit.trim() || null,
     };
-    const { data, error: err } = await supabase.from("procurement_materials").insert(payload).select("id, name, item_category, spec, unit, notes, created_at").single();
+    const { data, error: err } = await supabase.from("procurement_materials").insert(payload).select("id, name, item_category, spec, spec2, unit, notes, created_at").single();
     setSaving(false);
     if (err) {
       if (/duplicate key|unique constraint|23505/i.test(err.message)) {
-        setError("已有相同品名與規格的物料，請改用主檔選取或調整規格欄位");
+        setError("已有相同品名、規格與規格2 的物料，請改用主檔選取或調整欄位");
       } else {
         setError(err.message || "新增失敗");
       }
@@ -85,7 +89,7 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">新增採購物料</Dialog.Title>
               <p id="add-material-desc" className="mt-1 text-sm text-muted-foreground">
-                建立後可於採購時選取，自動帶入類別、規格、單位；相同品名＋規格不可重複。
+                建立後可於採購時選取，自動帶入類別、規格、規格2、單位；相同品名＋規格＋規格2 不可重複。
               </p>
             </div>
             <Dialog.Close asChild>
@@ -116,6 +120,10 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-spec" className="text-xs text-muted-foreground">規格</label>
               <input id="add-material-spec" type="text" value={spec} onChange={(e) => setSpec(e.target.value)} onBlur={() => setSpec((s) => s.trimEnd())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="選填" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="add-material-spec2" className="text-xs text-muted-foreground">規格2</label>
+              <input id="add-material-spec2" type="text" value={spec2} onChange={(e) => setSpec2(e.target.value)} onBlur={() => setSpec2((s) => s.trimEnd())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="選填" />
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-unit" className="text-xs text-muted-foreground">預設單位</label>

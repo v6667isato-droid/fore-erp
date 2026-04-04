@@ -40,6 +40,45 @@ function rowKey(employeeId: string, attendanceDate: string): string {
   return `${employeeId}\t${attendanceDate}`;
 }
 
+/** 同員工同日多列時（例：CSV 無打卡列 + 戰情合成未出勤），保留較可信之一列再寫入 */
+function rankWarRowForPersistence(r: WarRoomRow): number {
+  if (r.uid.startsWith("absent:")) return 0;
+  const hasPunch = r.clockIn != null || r.clockOut != null;
+  if (hasPunch) return 3;
+  if (r.uid.startsWith("leave-only:")) return 2;
+  return 1;
+}
+
+export function dedupeWarRowsForPersistence(rows: WarRoomRow[]): WarRoomRow[] {
+  const byKey = new Map<string, WarRoomRow[]>();
+  for (const r of rows) {
+    if (!r.employeeId) continue;
+    const k = rowKey(r.employeeId, r.dateIso.slice(0, 10));
+    const arr = byKey.get(k) ?? [];
+    arr.push(r);
+    byKey.set(k, arr);
+  }
+  const out: WarRoomRow[] = [];
+  for (const list of byKey.values()) {
+    if (list.length === 1) {
+      out.push(list[0]);
+      continue;
+    }
+    let best = list[0];
+    let bestR = rankWarRowForPersistence(best);
+    for (let i = 1; i < list.length; i++) {
+      const r = list[i];
+      const rr = rankWarRowForPersistence(r);
+      if (rr > bestR) {
+        best = r;
+        bestR = rr;
+      }
+    }
+    out.push(best);
+  }
+  return out;
+}
+
 function mergePreservedCompOffTag(computed: string[], existing: string[] | null | undefined): string[] {
   const out = [...computed];
   if (!existing?.length) return out;
@@ -62,8 +101,6 @@ export function warRoomRowToDailyAttendancePayload(
   status_tags: string[];
   updated_at: string;
 } | null {
-  /** 月曆「未出勤」合成列不寫入；「僅請假、無 CSV 列」之 leave-only:… 列與一般打卡列皆寫入 */
-  if (r.uid.startsWith("absent:")) return null;
   if (!r.employeeId) return null;
   const fromPreview = r.tags.map((t) => t.label);
   const status_tags = mergePreservedCompOffTag(fromPreview, existingTags);
@@ -91,7 +128,7 @@ export async function bulkUpsertDailyAttendanceFromWarRows(
   for (const r of warRows) {
     if (!r.employeeId) skipped += 1;
   }
-  const withEmp = warRows.filter((r) => r.employeeId);
+  const withEmp = dedupeWarRowsForPersistence(warRows.filter((r) => r.employeeId));
 
   if (withEmp.length === 0) {
     return { written: 0, skipped, error: null };

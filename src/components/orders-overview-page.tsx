@@ -163,7 +163,14 @@ const ORDER_OVERVIEW_SELECT = `
           custom_dimension_d,
           custom_dimension_h,
           product_variants(product_code, dimension_w, dimension_d, dimension_h),
-          work_orders(id, stage, assignee, planned_start_date, planned_end_date)
+          work_orders(
+            id,
+            stage,
+            assignee_id,
+            employees!assignee_id(name),
+            planned_start_date,
+            planned_end_date
+          )
         )
       `;
 
@@ -178,7 +185,8 @@ function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
       const wo = wos[0] as
         | {
             stage?: string | null;
-            assignee?: string | null;
+            assignee_id?: string | null;
+            employees?: { name?: string | null } | { name?: string | null }[] | null;
             planned_end_date?: string | null;
           }
         | undefined;
@@ -187,13 +195,19 @@ function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
         ? normalizeWorkOrderStage(wo.stage)
         : DEFAULT_WORK_ORDER_STAGE;
       const has_work_order = wos.length > 0;
+      const empRel = wo?.employees;
+      const empOne = Array.isArray(empRel) ? empRel[0] : empRel;
+      const assigneeName =
+        empOne?.name != null && String(empOne.name).trim()
+          ? String(empOne.name).trim()
+          : null;
 
       return {
         order_item_id: String(oi.id ?? ""),
         quantity: Number(oi.quantity ?? 0),
         item_label: buildItemLabel(oi),
         stage,
-        assignee: wo?.assignee != null && String(wo.assignee).trim() ? String(wo.assignee).trim() : null,
+        assignee: assigneeName,
         planned_end_date: wo?.planned_end_date ?? null,
         expected_delivery_date: row.expected_delivery_date ?? null,
         has_work_order,

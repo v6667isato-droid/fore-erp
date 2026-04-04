@@ -778,12 +778,12 @@ export function AttendanceImporterPanel({
   }, [refreshOvertimeKeys]);
 
   const persistMonthToDatabase = useCallback(async () => {
-    if (!isSupabaseConfigured || warRowsWithLeaveOnly.length === 0) return;
+    if (!isSupabaseConfigured || panelVisibleWarRows.length === 0) return;
     setSaveLoading(true);
     try {
       const { written, skipped, error } = await bulkUpsertDailyAttendanceFromWarRows(
         supabase,
-        warRowsWithLeaveOnly,
+        panelVisibleWarRows,
       );
       if (error) {
         toast.error(error);
@@ -803,7 +803,7 @@ export function AttendanceImporterPanel({
     } finally {
       setSaveLoading(false);
     }
-  }, [warRowsWithLeaveOnly, refreshOvertimeKeys]);
+  }, [panelVisibleWarRows, refreshOvertimeKeys]);
 
   const reset = useCallback(() => {
     setFileName(null);
@@ -1091,7 +1091,7 @@ export function AttendanceImporterPanel({
               )}
             </Button>
             <p className="text-[11px] text-muted-foreground">
-              以 UNIQUE(employee_id, attendance_date) 覆寫或新增；含「僅請假、CSV 無該日打卡列」之列（上下班／時數為空、status_tags 為假單標籤）。資料庫內既有的「🔒 已轉補休」標籤會保留。
+              以 UNIQUE(employee_id, attendance_date) 覆寫或新增；含「僅請假、CSV 無該日打卡列」之列（上下班／時數為空、status_tags 為假單標籤），以及應出勤日之「未出勤（無打卡紀錄）」合成列。資料庫內既有的「🔒 已轉補休」標籤會保留。
             </p>
           </div>
           <p className="text-[11px] leading-relaxed text-muted-foreground whitespace-pre-line border-t border-border/60 pt-3">
@@ -1100,7 +1100,7 @@ export function AttendanceImporterPanel({
             打卡時間異常(提早下班、遲到)15分鐘為裕度{"\n"}
             當日有效工時（扣午休）≤7 小時標示「時數不足」；&gt;9 小時標示「時間超時」（可搭配核准加班／補休）{"\n"}
             已核准請假但 CSV 該日完全沒有該員之列時，仍會顯示一列（僅假單標籤，上下班與時數為空）；按下「寫入資料庫」時一併寫入 daily_attendance。{"\n"}
-            在職員工於主力月份之應出勤日（平日或補班週末），若 CSV 無任何打卡紀錄且非核准假單涵蓋日、非國定放假日，會列示「未出勤」。國定放假日（public_holidays.is_workday=false）不標缺卡；補班日（is_workday=true）視同平日。{"\n"}
+            在職員工於主力月份之應出勤日（平日或補班週末），若 CSV 無任何打卡紀錄且非核准假單涵蓋日、非國定放假日，會列示「未出勤」；按下「寫入資料庫」時會寫入 daily_attendance（薪資結算出勤備註會顯示「未出勤」）。國定放假日（public_holidays.is_workday=false）不標缺卡；補班日（is_workday=true）視同平日。{"\n"}
             離職或無法對應在職 timeclock_uid 之 CSV 列已略過，不列入本表、Raw 匯總與月曆異常統計。
           </p>
         </div>

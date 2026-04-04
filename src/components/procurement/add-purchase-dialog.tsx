@@ -8,6 +8,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { ProcurementMaterialRow } from "@/types/procurement";
 import { computePurchaseLinePrices } from "@/lib/purchase-tax";
+import { purchaseSpecFromMaterialParts } from "@/lib/procurement-material";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
 
 export interface AddPurchaseDialogProps {
@@ -26,6 +27,7 @@ type LineDraft = {
   itemCategory: string;
   itemName: string;
   spec: string;
+  spec2: string;
   quantity: string;
   unit: string;
   unitPrice: string;
@@ -43,6 +45,7 @@ function emptyLine(): LineDraft {
     itemCategory: "",
     itemName: "",
     spec: "",
+    spec2: "",
     quantity: "",
     unit: "",
     unitPrice: "",
@@ -159,7 +162,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
       });
       supabase
         .from("procurement_materials")
-        .select("id, name, item_category, spec, unit, notes, created_at")
+        .select("id, name, item_category, spec, spec2, unit, notes, created_at")
         .order("name")
         .then(({ data }) => {
           setMaterials((data as ProcurementMaterialRow[]) ?? []);
@@ -214,7 +217,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
         vendor_name: vendor,
         item_name: line.itemName.trim(),
         item_category: line.itemCategory.trim() || null,
-        spec: line.spec.trim() || null,
+        spec: purchaseSpecFromMaterialParts(line.spec, line.spec2) || null,
         quantity: line.quantity.trim() ? Number(line.quantity) : null,
         unit: line.unit.trim() || null,
         material_id: line.materialId,
@@ -446,6 +449,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                                 itemName: "",
                                 itemCategory: "",
                                 spec: "",
+                                spec2: "",
                                 unit: "",
                               });
                               return;
@@ -457,6 +461,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                               itemName: m.name,
                               itemCategory: m.item_category ?? "",
                               spec: m.spec ?? "",
+                              spec2: m.spec2 ?? "",
                               unit: m.unit ?? "",
                             });
                           }}
@@ -469,6 +474,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                               {m.item_category ? `[${m.item_category}] ` : ""}
                               {m.name}
                               {m.spec ? ` — ${m.spec}` : ""}
+                              {m.spec2 ? ` · ${m.spec2}` : ""}
                             </option>
                           ))}
                         </select>
@@ -492,6 +498,10 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                         <p className="mt-0.5 text-foreground">{line.materialId ? line.spec || "—" : "—"}</p>
                       </div>
                       <div className="text-xs">
+                        <span className="text-muted-foreground">規格2</span>
+                        <p className="mt-0.5 text-foreground">{line.materialId ? line.spec2 || "—" : "—"}</p>
+                      </div>
+                      <div className="text-xs sm:col-span-2">
                         <span className="text-muted-foreground">單位</span>
                         <p className="mt-0.5 text-foreground">{line.materialId ? line.unit || "—" : "—"}</p>
                       </div>
@@ -577,6 +587,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
           ...m,
           item_category: m.item_category ?? "",
           spec: m.spec ?? "",
+          spec2: m.spec2 ?? "",
           unit: m.unit ?? "",
         };
         setMaterials((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")));

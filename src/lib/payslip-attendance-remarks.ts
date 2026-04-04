@@ -106,6 +106,24 @@ function lateMinutesFromClockIn(clockIn: unknown): number | null {
   return actual - 9 * 60;
 }
 
+/**
+ * 依上下班打卡有無區分備註（薪資結算出勤欄）：
+ * 僅缺上班／僅缺下班／兩者皆無；若資料顯示兩者皆有但標籤仍含「缺卡」則保留「缺卡」。
+ */
+/** 歷史查詢月曆等處與薪資備註共用之缺卡文案 */
+export function missingPunchRemark(
+  hasIn: boolean,
+  hasOut: boolean,
+  tagHasMissingCard: boolean,
+): string | null {
+  if (hasIn && hasOut) {
+    return tagHasMissingCard ? "缺卡" : null;
+  }
+  if (!hasIn && !hasOut) return "無打卡紀錄";
+  if (hasIn && !hasOut) return "缺下班卡";
+  return "缺上班卡";
+}
+
 function attendanceLineForRow(row: Record<string, unknown>): string | null {
   const dateIso = String(row.attendance_date ?? "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) return null;
@@ -121,8 +139,12 @@ function attendanceLineForRow(row: Record<string, unknown>): string | null {
   const parts: string[] = [];
 
   const tagText = tags.join(" ");
-  if (tagText.includes("缺卡") || (hasIn && !hasOut) || (!hasIn && hasOut)) {
-    parts.push("缺卡");
+  const punchRm = missingPunchRemark(hasIn, hasOut, tagText.includes("缺卡"));
+  /** 戰情寫入之「未出勤」列：標籤已含未出勤，備註只寫「未出勤」，避免與「無打卡紀錄」重複 */
+  if (tagText.includes("未出勤")) {
+    parts.push("未出勤");
+  } else if (punchRm) {
+    parts.push(punchRm);
   }
 
   if (tagText.includes("遲到")) {
@@ -130,7 +152,6 @@ function attendanceLineForRow(row: Record<string, unknown>): string | null {
     parts.push(lm != null && lm > 0 ? `遲到 ${lm}分` : "遲到");
   }
   if (tagText.includes("早退")) parts.push("早退");
-  if (tagText.includes("未出勤")) parts.push("未出勤");
   if (tagText.includes("工時不足")) parts.push("工時不足");
   if (tagText.includes("時數不足")) parts.push("時數不足");
   /** 「時間超時」「時數異常」不列入薪資備註（老闆要求略過） */
@@ -146,9 +167,7 @@ function attendanceLineForRow(row: Record<string, unknown>): string | null {
   if (onlyLeaveTags && parts.length === 0) return null;
 
   const mentionsTrackedIssue =
-    tagText.includes("缺卡") ||
-    (hasIn && !hasOut) ||
-    (!hasIn && hasOut) ||
+    punchRm != null ||
     tagText.includes("遲到") ||
     tagText.includes("早退") ||
     tagText.includes("未出勤") ||

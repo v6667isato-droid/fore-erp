@@ -22,7 +22,7 @@ import { toast } from "sonner";
 /** 下拉選單：僅「未填類別」的列 */
 const FILTER_UNCATEGORIZED = "__uncategorized__";
 
-type MaterialSortKey = "name" | "item_category" | "spec" | "unit" | "created_at";
+type MaterialSortKey = "name" | "item_category" | "spec" | "spec2" | "unit" | "created_at";
 
 export function ProcurementMaterialsTab() {
   const [records, setRecords] = useState<ProcurementMaterialRow[]>([]);
@@ -42,7 +42,7 @@ export function ProcurementMaterialsTab() {
     setLoading(true);
     const { data, error } = await supabase
       .from("procurement_materials")
-      .select("id, name, item_category, spec, unit, notes, created_at")
+      .select("id, name, item_category, spec, spec2, unit, notes, created_at")
       .order("name");
     setLoading(false);
     if (error) {
@@ -85,6 +85,7 @@ export function ProcurementMaterialsTab() {
         r.name.toLowerCase().includes(q) ||
         (r.item_category || "").toLowerCase().includes(q) ||
         (r.spec || "").toLowerCase().includes(q) ||
+        (r.spec2 || "").toLowerCase().includes(q) ||
         (r.unit || "").toLowerCase().includes(q),
     );
   }, [records, filterCategory, search]);
@@ -165,6 +166,7 @@ export function ProcurementMaterialsTab() {
     const payloadBase = {
       item_category: row.item_category?.trim() || null,
       spec: row.spec?.trim() || null,
+      spec2: row.spec2?.trim() || null,
       unit: row.unit?.trim() || null,
       notes: row.notes?.trim() || null,
     };
@@ -259,6 +261,9 @@ export function ProcurementMaterialsTab() {
                 <SortHeader label="規格" colKey="spec" />
               </TableHead>
               <TableHead className="p-2 align-middle">
+                <SortHeader label="規格2" colKey="spec2" />
+              </TableHead>
+              <TableHead className="p-2 align-middle">
                 <SortHeader label="預設單位" colKey="unit" />
               </TableHead>
               <TableHead className="p-2 align-middle">
@@ -280,6 +285,7 @@ export function ProcurementMaterialsTab() {
                   <TableCell className="text-sm p-2 font-medium">{r.name}</TableCell>
                   <TableCell className="text-sm p-2 text-muted-foreground">{r.item_category || "—"}</TableCell>
                   <TableCell className="text-sm p-2 text-muted-foreground">{r.spec || "—"}</TableCell>
+                  <TableCell className="text-sm p-2 text-muted-foreground">{r.spec2 || "—"}</TableCell>
                   <TableCell className="text-sm p-2">{r.unit || "—"}</TableCell>
                   <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap">
                     {r.created_at ? formatDate(r.created_at) : "—"}

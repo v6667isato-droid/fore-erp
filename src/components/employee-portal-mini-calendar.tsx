@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { epSection } from "@/lib/employee-portal-section-styles";
 import { cn } from "@/lib/utils";
 import { buildCalendarMonthGrid, formatDateKey, getDaysInMonth } from "@/lib/calendar-month";
 import {
@@ -117,7 +118,14 @@ async function loadRemoteEvents(
   return merged;
 }
 
-export function EmployeePortalMiniCalendar({ employeeId }: { employeeId: string }) {
+export function EmployeePortalMiniCalendar({
+  employeeId,
+  showSubtitleHints = true,
+}: {
+  employeeId: string;
+  /** false：不顯示行事曆資料來源說明（給非 admin 儀表板） */
+  showSubtitleHints?: boolean;
+}) {
   const today = useMemo(() => new Date(), []);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -192,30 +200,36 @@ export function EmployeePortalMiniCalendar({ employeeId }: { employeeId: string 
   const todayKey = formatDateKey(today.getFullYear(), today.getMonth() + 1, today.getDate());
 
   return (
-    <section
-      className={cn(
-        "rounded-2xl border border-border/90 bg-card p-5 shadow-sm sm:p-6",
-        "ring-1 ring-border/30",
-      )}
-    >
+    <section className={epSection.cardRing}>
       <details className="group">
         <summary
           className={cn(
-            "flex cursor-pointer list-none items-start gap-3 rounded-lg outline-none",
+            "flex cursor-pointer list-none items-start gap-2 rounded-lg outline-none",
             "marker:content-none [&::-webkit-details-marker]:hidden",
             "hover:bg-muted/30",
           )}
         >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <CalendarDays className="h-5 w-5" aria-hidden />
+          <div className={epSection.iconBoxPrimary}>
+            <CalendarDays className="h-4 w-4" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">本月行事曆</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {useDb
-                ? "國定假日、補班與已核准休假（含同仁）"
-                : "未連線 · 示意事件"}
-              <span className="mt-0.5 block text-[11px] text-primary/80">點此列展開月曆</span>
+            <h3 className={epSection.title}>本月行事曆</h3>
+            <p className={cn("mt-0.5", epSection.subtitle)}>
+              {showSubtitleHints ? (
+                <>
+                  {useDb
+                    ? "國定假日、補班與已核准休假（含同仁）"
+                    : "未連線 · 示意事件"}
+                </>
+              ) : null}
+              <span
+                className={cn(
+                  "block text-xs text-primary/80",
+                  showSubtitleHints ? "mt-0.5" : null,
+                )}
+              >
+                點此列展開月曆
+              </span>
             </p>
           </div>
           <ChevronDown

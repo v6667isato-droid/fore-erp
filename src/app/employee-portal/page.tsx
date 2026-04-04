@@ -14,7 +14,6 @@ import {
   type PayslipDetailBreakdown,
   type PayslipRow,
   type PayslipStatus,
-  type TaskStatus,
   type WorkProgressSeedRow,
   type WorkProgressUiStatus,
 } from "@/lib/employee-portal-mock";
@@ -39,7 +38,10 @@ import {
   formatLeaveUpdatedAtDisplay,
   leaveRequestRowWasUpdated,
 } from "@/lib/leave-request-updated";
-import { fetchEmployeePortalFromSupabase } from "@/lib/employee-portal-supabase";
+import {
+  fetchEmployeePortalFromSupabase,
+  updateProductionTaskStatusForAssignee,
+} from "@/lib/employee-portal-supabase";
 import { fetchCompanyAnnouncementsFromEvents } from "@/lib/company-events";
 import {
   fetchNormalizedUserProfileRole,
@@ -52,6 +54,7 @@ import {
   isSupabaseConfigured,
   supabase,
 } from "@/lib/supabase";
+import { epSection } from "@/lib/employee-portal-section-styles";
 import { CompanyAnnouncementsBlock } from "@/components/company-announcements-block";
 import { WorkshopWeeklyRotationBlock } from "@/components/workshop-weekly-rotation-block";
 import { MeetingAssignmentsBlock } from "@/components/meeting-assignments-block";
@@ -64,7 +67,6 @@ import {
   CalendarPlus,
   ChevronDown,
   ClipboardList,
-  Factory,
   FileText,
   Home,
   Leaf,
@@ -103,18 +105,6 @@ function leaveStatusBadge(row: LeaveRequestRow) {
       退回
     </Badge>
   );
-}
-
-function taskStatusLabel(s: TaskStatus) {
-  if (s === "todo") return "待辦";
-  if (s === "in_progress") return "進行中";
-  return "已完成";
-}
-
-function taskStatusStyle(s: TaskStatus) {
-  if (s === "todo") return "bg-[var(--kanban-todo)] text-secondary-foreground";
-  if (s === "in_progress") return "bg-[var(--kanban-progress)] text-foreground";
-  return "bg-[var(--kanban-done)] text-[var(--badge-done-fg)]";
 }
 
 function formatNtd(n: number) {
@@ -269,11 +259,11 @@ function PayslipBreakdownPanel({
                 </td>
               </tr>
               <tr className="border-b border-border/55">
-                <td className={slipLabel}>請假天數</td>
+                <td className={slipLabel}>病、事假</td>
                 <td className={slipVal}>{formatSlipDays(b.leave_days)}</td>
               </tr>
               <tr className="border-b border-border/55">
-                <td className={slipLabel}>特休假結算</td>
+                <td className={slipLabel}>特休請假</td>
                 <td className={slipVal}>{formatSlipDays(b.special_leave_days_settled)}</td>
               </tr>
               <tr className="border-b border-border/55">
@@ -404,7 +394,7 @@ function StatMini({
     >
       <div className="flex min-h-0 flex-1 flex-col justify-center">
         {label ? (
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {label}
           </span>
         ) : null}
@@ -501,8 +491,8 @@ export default function EmployeePortalPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<"mock" | "supabase">("mock");
-  const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
   const [progressById, setProgressById] = useState<Record<string, WorkProgressUiStatus>>({});
+  const [savingProductionTaskId, setSavingProductionTaskId] = useState<string | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
   const [expandedPayslipId, setExpandedPayslipId] = useState<string | null>(null);
@@ -652,11 +642,6 @@ export default function EmployeePortalPage() {
     setProgressById(buildProgressMap(data.work_progress_seed));
   }, [data]);
 
-  const visibleTasks = useMemo(() => {
-    if (!data) return [];
-    return data.tasks.filter((t) => t.status === "todo" || t.status === "in_progress");
-  }, [data]);
-
   const payslipsSorted = useMemo(() => {
     if (!data?.payslips?.length) return [];
     return [...data.payslips].sort((a, b) => b.period_key.localeCompare(a.period_key));
@@ -704,15 +689,6 @@ export default function EmployeePortalPage() {
     if (!timedLeaveHourPreview) return false;
     return timedLeaveHourPreview.totalHours > rem;
   }, [leaveForm.type, data?.employee.comp_leave_remaining, timedLeaveHourPreview]);
-
-  function toggleTaskComplete(id: string, checked: boolean) {
-    setCompletedTaskIds((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
 
   async function submitLeaveRequest(e: React.FormEvent) {
     e.preventDefault();
@@ -1020,7 +996,7 @@ export default function EmployeePortalPage() {
                 <StatMini className="min-h-[7rem] sm:min-h-[7.5rem]">
                   <div className="flex flex-col gap-2.5 text-left font-normal">
                     <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         特休
                       </p>
                       <p className="mt-0.5 text-base font-semibold tabular-nums tracking-tight text-primary sm:text-lg md:text-xl">
@@ -1028,7 +1004,7 @@ export default function EmployeePortalPage() {
                       </p>
                     </div>
                     <div className="min-w-0 border-t border-border/50 pt-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         補休
                       </p>
                       <p className="mt-0.5 text-base font-semibold tabular-nums tracking-tight text-primary sm:text-lg md:text-xl">
@@ -1043,7 +1019,10 @@ export default function EmployeePortalPage() {
             </div>
           </section>
 
-          <EmployeePortalMiniCalendar employeeId={employee.id} />
+          <EmployeePortalMiniCalendar
+            employeeId={employee.id}
+            showSubtitleHints={showAdminFieldHints}
+          />
 
           {/* 公司公告（左）＋ 週五工坊輪替（右，lg 並排） */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
@@ -1064,6 +1043,7 @@ export default function EmployeePortalPage() {
             />
             <WorkshopWeeklyRotationBlock
               refreshTick={meetingDataTick}
+              showSubtitleLine={showAdminFieldHints}
               subtitle={
                 showAdminFieldHints
                   ? isSupabaseConfigured
@@ -1086,18 +1066,18 @@ export default function EmployeePortalPage() {
           />
 
           {/* 我的交辦 */}
-          <section className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-8">
-            <div className="mb-5 flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
+          <section className={epSection.card}>
+            <div className={epSection.headerRow}>
+              <div className={epSection.iconBox}>
                 <ClipboardList className="h-4 w-4" />
               </div>
               <div>
-                <h3 className="text-base font-semibold">我的交辦事項</h3>
+                <h3 className={epSection.title}>我的交辦事項</h3>
                 {showAdminFieldHints ? (
-                  <p className="text-xs text-muted-foreground">
+                  <p className={cn("mt-0.5", epSection.subtitle)}>
                     {dataSource === "supabase"
-                      ? "開會紀錄交辦（可勾選已完成）· 與 production_tasks 生產任務"
-                      : "Mock · employee_tasks"}
+                      ? "開會紀錄交辦 · 生產交辦（production_tasks）"
+                      : "Mock · meeting_assignments · work_progress_seed"}
                   </p>
                 ) : null}
               </div>
@@ -1117,175 +1097,120 @@ export default function EmployeePortalPage() {
               </div>
               <div className="border-t border-border/60 pt-5">
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  生產任務
+                  生產交辦
                 </p>
-                <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
-                  <ul className="space-y-2 pr-2">
-                    {visibleTasks.length === 0 ? (
-                      <li className="text-sm text-muted-foreground">沒有待辦或進行中的任務。</li>
-                    ) : (
-                      visibleTasks.map((t) => {
-                        const done = completedTaskIds.has(t.id);
+                {showAdminFieldHints ? (
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    {dataSource === "supabase"
+                      ? "合併 production_tasks 承辦人與您為負責人之工單（work_orders.assignee_id = 員工 id）；狀態寫入 production_tasks.status。"
+                      : "Mock 種子；進度僅存在頁面（未連線）。"}
+                  </p>
+                ) : null}
+                <div className="max-h-80 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
+                  {work_progress_seed.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">目前沒有生產交辦。</p>
+                  ) : (
+                    <ul className="space-y-2 pr-2">
+                      {work_progress_seed.map((row) => {
+                        const status = progressById[row.id] ?? "pending";
+                        const isDone = status === "done";
                         return (
                           <li
-                            key={t.id}
+                            key={row.id}
                             className={cn(
-                              "flex gap-3 rounded-xl border border-border/60 px-3 py-3 sm:px-4",
-                              "bg-muted/15 transition-colors hover:bg-muted/25"
+                              "rounded-xl border border-border/60 px-3 py-3 sm:px-4",
+                              "transition-colors",
+                              workProgressRowTone(status)
                             )}
                           >
-                            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                              <input
-                                type="checkbox"
-                                checked={done}
-                                onChange={(e) => toggleTaskComplete(t.id, e.target.checked)}
-                                className="mt-1 size-4 shrink-0 rounded border-input text-primary focus:ring-ring"
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                              <div className="min-w-0 flex-1 space-y-1.5">
+                                <p
                                   className={cn(
-                                    "block font-medium",
-                                    done && "text-muted-foreground line-through decoration-border"
+                                    "font-medium leading-snug text-foreground",
+                                    isDone && "text-muted-foreground line-through decoration-border/80"
                                   )}
                                 >
-                                  {t.title}
-                                </span>
-                                <span className="mt-1 flex flex-wrap items-center gap-2">
+                                  {row.order_ref}
+                                </p>
+                                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-muted-foreground">
                                   <span
                                     className={cn(
-                                      "inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium",
-                                      taskStatusStyle(t.status)
+                                      isDone && "line-through opacity-90"
                                     )}
                                   >
-                                    {taskStatusLabel(t.status)}
+                                    工序：{row.stage_label}
                                   </span>
-                                  {t.due_date && (
-                                    <span className="text-xs text-muted-foreground tabular-nums">
-                                      截止 {t.due_date}
-                                    </span>
+                                  <span
+                                    className={cn(
+                                      "tabular-nums",
+                                      isDone && "line-through opacity-90"
+                                    )}
+                                  >
+                                    預計 {row.expected_complete_date}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="shrink-0 sm:w-[11rem]">
+                                <label className="sr-only" htmlFor={`prod-progress-${row.id}`}>
+                                  {row.order_ref} 狀態
+                                </label>
+                                <select
+                                  id={`prod-progress-${row.id}`}
+                                  value={status}
+                                  disabled={savingProductionTaskId === row.id}
+                                  onChange={async (e) => {
+                                    const v = e.target.value as WorkProgressUiStatus;
+                                    const prev = progressById[row.id] ?? row.initial_ui_status ?? "pending";
+                                    setProgressById((p) => ({ ...p, [row.id]: v }));
+                                    if (dataSource !== "supabase") return;
+                                    setSavingProductionTaskId(row.id);
+                                    const r = await updateProductionTaskStatusForAssignee(
+                                      row.id,
+                                      employee.id,
+                                      v,
+                                    );
+                                    setSavingProductionTaskId(null);
+                                    if (!r.ok) {
+                                      setProgressById((p) => ({ ...p, [row.id]: prev }));
+                                      toast.error(r.message);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm text-foreground",
+                                    "focus:outline-none focus:ring-2 focus:ring-ring",
+                                    savingProductionTaskId === row.id && "opacity-70"
                                   )}
-                                </span>
-                              </span>
-                            </label>
+                                >
+                                  {(Object.keys(workProgressStatusLabels) as WorkProgressUiStatus[]).map((k) => (
+                                    <option key={k} value={k}>
+                                      {workProgressStatusLabels[k]}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
                           </li>
                         );
-                      })
-                    )}
-                  </ul>
+                      })}
+                    </ul>
+                  )}
                 </div>
               </div>
-            </div>
-          </section>
-
-          {/* 我的進度追蹤 */}
-          <section
-            className={cn(
-              "rounded-2xl border-2 border-primary/15 bg-card p-6 shadow-md sm:p-8 lg:p-10",
-              "ring-1 ring-border/40"
-            )}
-          >
-            <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Factory className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold tracking-tight sm:text-xl">我的進度追蹤</h3>
-                  {showAdminFieldHints ? (
-                    <p className="text-xs text-muted-foreground">
-                      {dataSource === "supabase"
-                        ? "production_tasks · employee_id 為您之生產物件（下拉僅前端預覽，尚未寫回 DB）"
-                        : "Mock · 下拉為本地 State"}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-            <div className="overflow-x-auto rounded-xl border border-border/70">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-                    <th className="px-4 py-3.5 font-medium">訂單／生產單號</th>
-                    <th className="px-4 py-3.5 font-medium">負責工序</th>
-                    <th className="px-4 py-3.5 font-medium">預計完成日</th>
-                    <th className="px-4 py-3.5 font-medium min-w-[9rem]">目前狀態</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {work_progress_seed.map((row) => {
-                    const status = progressById[row.id] ?? "pending";
-                    const isDone = status === "done";
-                    return (
-                      <tr
-                        key={row.id}
-                        className={cn(
-                          "border-b border-border/60 transition-colors last:border-0",
-                          workProgressRowTone(status)
-                        )}
-                      >
-                        <td
-                          className={cn(
-                            "px-4 py-3.5 font-medium text-foreground",
-                            isDone && "text-muted-foreground line-through decoration-border/80"
-                          )}
-                        >
-                          {row.order_ref}
-                        </td>
-                        <td
-                          className={cn(
-                            "px-4 py-3.5 text-muted-foreground",
-                            isDone && "line-through opacity-90"
-                          )}
-                        >
-                          {row.stage_label}
-                        </td>
-                        <td
-                          className={cn(
-                            "px-4 py-3.5 tabular-nums text-muted-foreground",
-                            isDone && "line-through opacity-90"
-                          )}
-                        >
-                          {row.expected_complete_date}
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={status}
-                            onChange={(e) => {
-                              const v = e.target.value as WorkProgressUiStatus;
-                              setProgressById((prev) => ({ ...prev, [row.id]: v }));
-                            }}
-                            className={cn(
-                              "h-9 w-full max-w-[11rem] rounded-lg border border-input bg-background px-2.5 text-sm text-foreground",
-                              "focus:outline-none focus:ring-2 focus:ring-ring"
-                            )}
-                            aria-label={`${row.order_ref} 狀態`}
-                          >
-                            {(Object.keys(workProgressStatusLabels) as WorkProgressUiStatus[]).map((k) => (
-                              <option key={k} value={k}>
-                                {workProgressStatusLabels[k]}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
             </div>
           </section>
 
           {/* 我的請假狀態 */}
-          <section className="rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-8">
-            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <section className={epSection.card}>
+            <div className={cn(epSection.headerRowBetween, "sm:items-start")}>
               <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary">
+                <div className={epSection.iconBox}>
                   <Leaf className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold">我的請假狀態</h3>
+                  <h3 className={epSection.title}>我的請假狀態</h3>
                   {showAdminFieldHints ? (
-                    <p className="text-xs text-muted-foreground">leave_requests · 近期紀錄</p>
+                    <p className={cn("mt-0.5", epSection.subtitle)}>leave_requests · 近期紀錄</p>
                   ) : null}
                 </div>
               </div>
@@ -1299,15 +1224,15 @@ export default function EmployeePortalPage() {
                 申請休假
               </Button>
             </div>
-            <div className="overflow-x-auto rounded-xl border border-border/60">
-              <table className="w-full min-w-[640px] text-sm">
+            <div className={epSection.tableWrap}>
+              <table className={epSection.table}>
                 <thead>
-                  <tr className="border-b border-border bg-muted/30 text-left text-xs text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">假別</th>
-                    <th className="px-4 py-3 font-medium">區間</th>
-                    <th className="px-4 py-3 font-medium">天數/時數</th>
-                    <th className="min-w-[6rem] px-4 py-3 font-medium">事由</th>
-                    <th className="px-4 py-3 font-medium">狀態</th>
+                  <tr className={epSection.thead}>
+                    <th className={epSection.th}>假別</th>
+                    <th className={epSection.th}>區間</th>
+                    <th className={epSection.th}>天數/時數</th>
+                    <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
+                    <th className={epSection.th}>狀態</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1316,8 +1241,8 @@ export default function EmployeePortalPage() {
                       key={row.id}
                       className="border-b border-border/60 last:border-0 hover:bg-muted/15"
                     >
-                      <td className="px-4 py-3 font-medium text-foreground">{row.type_label}</td>
-                      <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                      <td className={cn(epSection.td, "font-medium text-foreground")}>{row.type_label}</td>
+                      <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
                         <span className="text-foreground">
                           {row.start_date} — {row.end_date}
                         </span>
@@ -1335,15 +1260,15 @@ export default function EmployeePortalPage() {
                           </span>
                         ) : null}
                       </td>
-                      <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                      <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
                         {leaveDurationTableLabel(row)}
                       </td>
-                      <td className="max-w-[14rem] px-4 py-3 text-muted-foreground">
+                      <td className={cn(epSection.td, "max-w-[14rem] text-muted-foreground")}>
                         <span className="break-words text-xs leading-snug text-foreground/90">
                           {displayLeaveReason(row.reason) || "—"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 align-top">
+                      <td className={cn(epSection.td, "align-top")}>
                         <div className="flex flex-col gap-1">
                           {leaveStatusBadge(row)}
                           {leaveRequestRowWasUpdated(row) ? (

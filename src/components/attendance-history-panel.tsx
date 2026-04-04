@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { LayoutGrid, List, Loader2 } from "lucide-react";
+import { missingPunchRemark } from "@/lib/payslip-attendance-remarks";
 import {
   Table,
   TableBody,
@@ -44,6 +45,53 @@ function formatClockDb(value: string | null | undefined): string {
   const t = String(value).trim();
   if (t.length >= 5 && t[2] === ":") return t.slice(0, 5);
   return t;
+}
+
+function hasClock(value: string | null | undefined): boolean {
+  return value != null && String(value).trim() !== "";
+}
+
+/** 與列表／月曆共用：有標籤則用標籤；無標籤時依打卡欄位補缺上／缺下／無紀錄 */
+function statusLineForHistoryRow(r: AttendanceHistoryRow): string {
+  const tags = r.status_tags?.filter(Boolean) ?? [];
+  const tagText = tags.join(" ");
+  if (tags.length) return tags.join("、");
+  return (
+    missingPunchRemark(
+      hasClock(r.clock_in),
+      hasClock(r.clock_out),
+      tagText.includes("缺卡"),
+    ) ?? ""
+  );
+}
+
+function buildCalendarCellDates(ym: string): { dateIso: string | null }[] {
+  const r = monthRangeIso(ym);
+  if (!r) return [];
+  const [y, mo] = ym.split("-").map(Number);
+  const first = new Date(y, mo - 1, 1);
+  const lastDay = new Date(y, mo, 0).getDate();
+  const startPad = first.getDay();
+  const cells: { dateIso: string | null }[] = [];
+  for (let i = 0; i < startPad; i++) {
+    cells.push({ dateIso: null });
+  }
+  for (let d = 1; d <= lastDay; d++) {
+    const iso = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    cells.push({ dateIso: iso });
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push({ dateIso: null });
+  }
+  return cells;
+}
+
+const WEEKDAY_HEADERS = ["日", "一", "二", "三", "四", "五", "六"] as const;
+
+function isWeekendIso(iso: string): boolean {
+  const [y, mo, d] = iso.split("-").map(Number);
+  const w = new Date(y, mo - 1, d).getDay();
+  return w === 0 || w === 6;
 }
 
 type EmpOption = { id: string; name: string };
@@ -95,6 +143,7 @@ export function AttendanceHistoryPanel() {
   const [loading, setLoading] = useState(false);
   const [empLoading, setEmpLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -166,6 +215,24 @@ export function AttendanceHistoryPanel() {
     return `${y} 年 ${mo} 月`;
   }, [monthYm]);
 
+  const rowsByDate = useMemo(() => {
+    const m = new Map<string, AttendanceHistoryRow[]>();
+    for (const r of rows) {
+      const iso = String(r.attendance_date).slice(0, 10);
+      const arr = m.get(iso) ?? [];
+      arr.push(r);
+      m.set(iso, arr);
+    }
+    for (const arr of m.values()) {
+      arr.sort((a, b) =>
+        (a.employees?.name ?? "").localeCompare(b.employees?.name ?? "", "zh-Hant"),
+      );
+    }
+    return m;
+  }, [rows]);
+
+  const calendarCells = useMemo(() => buildCalendarCellDates(monthYm), [monthYm]);
+
   if (!isSupabaseConfigured) {
     return (
       <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
@@ -215,6 +282,38 @@ export function AttendanceHistoryPanel() {
               載入員工…
             </span>
           )}
+          <div
+            className="inline-flex rounded-lg border border-stone-200/80 bg-white p-0.5 shadow-sm dark:border-border dark:bg-background"
+            role="group"
+            aria-label="查詢結果顯示方式"
+          >
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors",
+                viewMode === "list"
+                  ? "bg-amber-600/15 text-stone-900 shadow-sm dark:bg-primary/15 dark:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <List className="h-3.5 w-3.5" aria-hidden />
+              列表
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("calendar")}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors",
+                viewMode === "calendar"
+                  ? "bg-amber-600/15 text-stone-900 shadow-sm dark:bg-primary/15 dark:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+              月曆
+            </button>
+          </div>
         </div>
       </div>
 
@@ -236,6 +335,85 @@ export function AttendanceHistoryPanel() {
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             載入紀錄中…
+          </div>
+        ) : viewMode === "calendar" ? (
+          <div className="p-3 sm:p-4">
+            {rows.length === 0 && (
+              <p className="mb-3 text-center text-xs text-muted-foreground">
+                該月份尚無出勤紀錄，請先由匯入中心寫入。
+              </p>
+            )}
+            <div className="mb-2 grid grid-cols-7 gap-px text-center text-[11px] font-medium text-muted-foreground">
+              {WEEKDAY_HEADERS.map((w) => (
+                <div key={w} className="py-1.5">
+                  週{w}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-px rounded-lg border border-stone-200/90 bg-stone-200/90 dark:border-border dark:bg-border">
+              {calendarCells.map((cell, idx) => {
+                if (!cell.dateIso) {
+                  return (
+                    <div
+                      key={`pad-${idx}`}
+                      className="min-h-[6rem] bg-stone-50/40 sm:min-h-[6.5rem] dark:bg-muted/30"
+                      aria-hidden
+                    />
+                  );
+                }
+                const dayRows = rowsByDate.get(cell.dateIso) ?? [];
+                const dayNum = Number(cell.dateIso.slice(8, 10));
+                const abnormal = dayRows.some((r) => r.is_abnormal);
+                const weekend = isWeekendIso(cell.dateIso);
+                return (
+                  <div
+                    key={cell.dateIso}
+                    className={cn(
+                      "flex min-h-[6rem] flex-col bg-white p-1.5 sm:min-h-[6.5rem] dark:bg-card",
+                      weekend && !abnormal && "bg-stone-50/50 dark:bg-muted/15",
+                      abnormal && "bg-red-50/90 dark:bg-red-950/25",
+                    )}
+                  >
+                    <div className="flex shrink-0 justify-end">
+                      <span className="text-[11px] font-semibold tabular-nums text-stone-600 dark:text-muted-foreground">
+                        {dayNum}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 max-h-36 min-h-0 space-y-1 overflow-y-auto sm:max-h-40">
+                      {dayRows.length === 0 ? (
+                        <span className="text-[10px] text-muted-foreground/70">—</span>
+                      ) : (
+                        dayRows.map((r, ri) => {
+                          const statusText = statusLineForHistoryRow(r);
+                          const rowKey =
+                            r.id || `${r.employee_id}:${cell.dateIso}:${ri}`;
+                          return (
+                            <div
+                              key={rowKey}
+                              className="rounded-md border border-stone-100/90 bg-white/60 px-1 py-0.5 text-[10px] leading-snug dark:border-border dark:bg-background/40"
+                            >
+                              {!employeeId && (
+                                <div className="truncate font-medium text-stone-800 dark:text-foreground">
+                                  {r.employees?.name?.trim() || "—"}
+                                </div>
+                              )}
+                              <div className="tabular-nums text-muted-foreground">
+                                {formatClockDb(r.clock_in)} – {formatClockDb(r.clock_out)}
+                              </div>
+                              {statusText ? (
+                                <div className="truncate text-amber-900/90 dark:text-amber-200/90">
+                                  {statusText}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : rows.length === 0 ? (
           <div className="px-4 py-14 text-center text-sm text-muted-foreground">
@@ -273,7 +451,7 @@ export function AttendanceHistoryPanel() {
                 {rows.map((r, rowIndex) => {
                   const iso = String(r.attendance_date).slice(0, 10);
                   const name = r.employees?.name?.trim() || "—";
-                  const tags = r.status_tags?.filter(Boolean) ?? [];
+                  const statusText = statusLineForHistoryRow(r);
                   const rowKey =
                     r.id ||
                     [r.employee_id || "unknown", iso, String(rowIndex)].join(":");
@@ -306,8 +484,8 @@ export function AttendanceHistoryPanel() {
                         {r.total_hours != null ? `${r.total_hours} 小時` : "—"}
                       </TableCell>
                       <TableCell className="min-w-[10rem] text-sm text-stone-700 dark:text-foreground">
-                        {tags.length ? (
-                          <span className="leading-relaxed">{tags.join("、")}</span>
+                        {statusText ? (
+                          <span className="leading-relaxed">{statusText}</span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}

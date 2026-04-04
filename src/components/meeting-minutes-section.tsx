@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import imageCompression from "browser-image-compression";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/button";
+import { epSection } from "@/lib/employee-portal-section-styles";
 import { cn } from "@/lib/utils";
 import {
   deleteMeetingMinute,
@@ -648,22 +649,19 @@ export function MeetingMinutesSection({
   };
 
   return (
-    <section
-      className={cn(
-        "rounded-2xl border border-border/90 bg-card p-6 shadow-sm sm:p-8",
-        "ring-1 ring-border/30",
-      )}
-    >
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <ClipboardList className="h-5 w-5" />
+    <section className={epSection.cardRing}>
+      <div className={cn(epSection.headerRowBetween, "sm:items-start")}>
+        <div className="flex items-start gap-2">
+          <div className={epSection.iconBoxPrimary}>
+            <ClipboardList className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-lg font-semibold tracking-tight sm:text-xl">開會紀錄</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
-              預設顯示最近 {MEETING_HISTORY_VISIBLE_FIRST} 筆，其餘可展開；點「填寫」新增一筆。
-            </p>
+            <h3 className={epSection.title}>開會紀錄</h3>
+            {showAdminHints ? (
+              <p className={cn("mt-0.5", epSection.subtitle)}>
+                預設顯示最近 {MEETING_HISTORY_VISIBLE_FIRST} 筆，其餘可展開；點「填寫」新增一筆。
+              </p>
+            ) : null}
           </div>
         </div>
         <Button
