@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { MessageCircle, RefreshCw, Copy, Check, Users, UserX } from "lucide-react";
+import { MessageCircle, RefreshCw, Copy, Check, Users, UserX, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 type LineMessageRow = {
@@ -106,6 +106,8 @@ export function LineMessagesPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   /** 正在批次套用同一 LINE 帳號（line_user_id）的綁定 */
   const [savingLineUserId, setSavingLineUserId] = useState<string | null>(null);
+  /** 分組收折：key 為 customer_id 或 "__unassigned__"；false = 收合 */
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,6 +161,22 @@ export function LineMessagesPage() {
     () => groupMessagesByCustomer(rows, customerById),
     [rows, customerById]
   );
+
+  function groupSectionKey(key: string | null): string {
+    return key ?? "__unassigned__";
+  }
+
+  function isGroupExpanded(key: string | null): boolean {
+    return expandedGroups[groupSectionKey(key)] !== false;
+  }
+
+  function toggleGroup(key: string | null) {
+    const k = groupSectionKey(key);
+    setExpandedGroups((prev) => {
+      const open = prev[k] !== false;
+      return { ...prev, [k]: !open };
+    });
+  }
 
   const countLabel = useMemo(() => {
     if (loading) return "載入中…";
@@ -298,25 +316,43 @@ export function LineMessagesPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-4">
           {groups.map((g) => {
             const uniqueUids = [...new Set(g.rows.map((r) => r.line_user_id))];
             const Icon = g.key === null ? UserX : Users;
+            const expanded = isGroupExpanded(g.key);
             return (
               <section
                 key={g.key ?? "unassigned"}
                 className="rounded-xl border border-border bg-card shadow-sm overflow-hidden"
               >
-                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(g.key)}
+                  className={cn(
+                    "flex w-full flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-4 py-3 text-left",
+                    "hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  )}
+                  aria-expanded={expanded}
+                  aria-controls={`line-msg-group-${groupSectionKey(g.key)}`}
+                >
+                  {expanded ? (
+                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  )}
                   <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                   <h2 className="text-sm font-semibold text-foreground">{g.label}</h2>
                   <span className="text-xs text-muted-foreground">（{g.rows.length} 則）</span>
                   {uniqueUids.length > 0 && (
-                    <span className="text-[11px] text-muted-foreground font-mono truncate max-w-full">
+                    <span className="text-[11px] text-muted-foreground font-mono truncate max-w-full sm:ml-auto">
                       LINE userId：{uniqueUids.join(" · ")}
                     </span>
                   )}
-                </div>
+                  <span className="sr-only">{expanded ? "收合" : "展開"}訊息列表</span>
+                </button>
+                {expanded ? (
+                  <div id={`line-msg-group-${groupSectionKey(g.key)}`}>
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
@@ -396,6 +432,8 @@ export function LineMessagesPage() {
                     })}
                   </TableBody>
                 </Table>
+                  </div>
+                ) : null}
               </section>
             );
           })}
