@@ -104,6 +104,8 @@ export function LineMessagesPage() {
   const [customerOptions, setCustomerOptions] = useState<CustomerMini[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  /** 正在批次套用同一 LINE 帳號（line_user_id）的綁定 */
+  const [savingLineUserId, setSavingLineUserId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,10 +176,46 @@ export function LineMessagesPage() {
   }
 
   async function assignCustomer(messageId: string, customerId: string | null) {
+    const row = rows.find((r) => r.id === messageId);
+    if (!row) return;
+    const lineUserId = row.line_user_id;
+    const sameLineCount = rows.filter((r) => r.line_user_id === lineUserId).length;
+
+    if (customerId !== null) {
+      setSavingLineUserId(lineUserId);
+      const { error: uErr } = await supabase
+        .from("line_messages")
+        .update({ customer_id: customerId })
+        .eq("line_user_id", lineUserId);
+
+      if (uErr) {
+        toast.error(uErr.message || "更新失敗");
+        setSavingLineUserId(null);
+        return;
+      }
+
+      toast.success(
+        sameLineCount > 1
+          ? `已綁定客戶（已同步 ${sameLineCount} 則相同 LINE 帳號訊息）`
+          : "已綁定客戶"
+      );
+      setRows((prev) =>
+        prev.map((r) => (r.line_user_id === lineUserId ? { ...r, customer_id: customerId } : r))
+      );
+      if (!customerById.has(customerId)) {
+        const c = customerOptions.find((x) => x.id === customerId);
+        if (c) {
+          setCustomerById((prev) => new Map(prev).set(customerId, c));
+        }
+      }
+      setSavingLineUserId(null);
+      return;
+    }
+
     setSavingId(messageId);
     const { error: uErr } = await supabase
       .from("line_messages")
-      .update({ customer_id: customerId })
+      .update({ customer_id: null })
       .eq("id", messageId);
 
     if (uErr) {
@@ -186,16 +224,10 @@ export function LineMessagesPage() {
       return;
     }
 
-    toast.success(customerId ? "已綁定客戶" : "已取消綁定");
+    toast.success("已取消此則訊息的綁定");
     setRows((prev) =>
-      prev.map((r) => (r.id === messageId ? { ...r, customer_id: customerId } : r))
+      prev.map((r) => (r.id === messageId ? { ...r, customer_id: null } : r))
     );
-    if (customerId && !customerById.has(customerId)) {
-      const c = customerOptions.find((x) => x.id === customerId);
-      if (c) {
-        setCustomerById((prev) => new Map(prev).set(customerId, c));
-      }
-    }
     setSavingId(null);
   }
 
@@ -209,7 +241,7 @@ export function LineMessagesPage() {
           <div>
             <p className="text-sm font-medium text-foreground">LINE 官方帳號訊息</p>
             <p className="mt-0.5 text-sm text-muted-foreground leading-relaxed">
-              依<strong>客戶</strong>分組顯示；未自動對應時請在「綁定客戶」手動選擇，之後同客戶訊息會集中在一起。
+              依<strong>客戶</strong>分組顯示。綁定客戶時會依<strong>同一 LINE 帳號</strong>（line_user_id）自動套用至該帳號所有訊息，一併歸到同客戶。
             </p>
             <p className="mt-2 inline-flex items-center rounded-full border border-border bg-muted/40 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
               {countLabel}
@@ -319,7 +351,7 @@ export function LineMessagesPage() {
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               )}
                               value={r.customer_id ?? ""}
-                              disabled={savingId === r.id}
+                              disabled={savingId === r.id || savingLineUserId === r.line_user_id}
                               onChange={(e) => {
                                 const v = e.target.value;
                                 void assignCustomer(r.id, v === "" ? null : v);
