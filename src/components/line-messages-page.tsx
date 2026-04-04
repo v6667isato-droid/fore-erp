@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import { MessageCircle, RefreshCw, Copy, Check, Users, UserX, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
+import { LineMessageCustomerSelect } from "@/components/line-messages-customer-select";
 
 type LineMessageRow = {
   id: string;
@@ -259,7 +260,7 @@ export function LineMessagesPage() {
           <div>
             <p className="text-sm font-medium text-foreground">LINE 官方帳號訊息</p>
             <p className="mt-0.5 text-sm text-muted-foreground leading-relaxed">
-              依<strong>客戶</strong>分組顯示。綁定客戶時會依<strong>同一 LINE 帳號</strong>（line_user_id）自動套用至該帳號所有訊息，一併歸到同客戶。
+              依<strong>客戶</strong>分組顯示。綁定客戶時會依<strong>同一 LINE 帳號</strong>（line_user_id）自動套用至該帳號所有訊息。客戶欄可<strong>搜尋</strong>名稱或別名。
             </p>
             <p className="mt-2 inline-flex items-center rounded-full border border-border bg-muted/40 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
               {countLabel}
@@ -380,30 +381,13 @@ export function LineMessagesPage() {
                               {mt}
                             </span>
                           </TableCell>
-                          <TableCell className="align-top whitespace-normal min-w-[180px]">
-                            <select
-                              className={cn(
-                                "h-9 w-full max-w-[220px] rounded-md border border-input bg-background px-2 text-xs",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              )}
-                              value={r.customer_id ?? ""}
+                          <TableCell className="align-top whitespace-normal min-w-[200px] max-w-[300px]">
+                            <LineMessageCustomerSelect
+                              value={r.customer_id}
+                              options={customerOptions}
                               disabled={savingId === r.id || savingLineUserId === r.line_user_id}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                void assignCustomer(r.id, v === "" ? null : v);
-                              }}
-                              aria-label="綁定客戶"
-                            >
-                              <option value="">未綁定</option>
-                              {customerOptions.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {customerDisplayName(c)}
-                                  {c.name?.trim() && c.alias?.trim() && c.alias !== c.name
-                                    ? `（${c.name.trim()}）`
-                                    : ""}
-                                </option>
-                              ))}
-                            </select>
+                              onChange={(customerId) => void assignCustomer(r.id, customerId)}
+                            />
                           </TableCell>
                           <TableCell className="align-top whitespace-normal">
                             <div className="flex items-start gap-1.5 max-w-[220px]">
