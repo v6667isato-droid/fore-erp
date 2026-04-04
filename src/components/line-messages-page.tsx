@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { MessageCircle, RefreshCw, Copy, Check, Users, UserX, ChevronDown, ChevronRight } from "lucide-react";
+import { MessageCircle, RefreshCw, Users, UserX, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { LineMessageCustomerSelect } from "@/components/line-messages-customer-select";
 
@@ -103,7 +103,6 @@ export function LineMessagesPage() {
   const [rows, setRows] = useState<LineMessageRow[]>([]);
   const [customerById, setCustomerById] = useState<Map<string, CustomerMini>>(new Map());
   const [customerOptions, setCustomerOptions] = useState<CustomerMini[]>([]);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   /** 正在批次套用同一 LINE 帳號（line_user_id）的綁定 */
   const [savingLineUserId, setSavingLineUserId] = useState<string | null>(null);
@@ -184,16 +183,6 @@ export function LineMessagesPage() {
     return `${rows.length} 筆`;
   }, [loading, rows.length]);
 
-  async function copyText(text: string, rowKey: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedId(rowKey);
-      window.setTimeout(() => setCopiedId((k) => (k === rowKey ? null : k)), 2000);
-    } catch {
-      /* ignore */
-    }
-  }
-
   async function assignCustomer(messageId: string, customerId: string | null) {
     const row = rows.find((r) => r.id === messageId);
     if (!row) return;
@@ -260,7 +249,7 @@ export function LineMessagesPage() {
           <div>
             <p className="text-sm font-medium text-foreground">LINE 官方帳號訊息</p>
             <p className="mt-0.5 text-sm text-muted-foreground leading-relaxed">
-              依<strong>客戶</strong>分組顯示。綁定客戶時會依<strong>同一 LINE 帳號</strong>（line_user_id）自動套用至該帳號所有訊息。客戶欄可<strong>搜尋</strong>名稱或別名。
+              依<strong>客戶</strong>分組顯示。綁定客戶時會同步套用至<strong>同一 LINE 帳號</strong>下的所有訊息。客戶欄可<strong>搜尋</strong>名稱或別名。
             </p>
             <p className="mt-2 inline-flex items-center rounded-full border border-border bg-muted/40 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
               {countLabel}
@@ -319,7 +308,6 @@ export function LineMessagesPage() {
       ) : (
         <div className="space-y-4">
           {groups.map((g) => {
-            const uniqueUids = [...new Set(g.rows.map((r) => r.line_user_id))];
             const Icon = g.key === null ? UserX : Users;
             const expanded = isGroupExpanded(g.key);
             return (
@@ -345,11 +333,6 @@ export function LineMessagesPage() {
                   <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                   <h2 className="text-sm font-semibold text-foreground">{g.label}</h2>
                   <span className="text-xs text-muted-foreground">（{g.rows.length} 則）</span>
-                  {uniqueUids.length > 0 && (
-                    <span className="text-[11px] text-muted-foreground font-mono truncate max-w-full sm:ml-auto">
-                      LINE userId：{uniqueUids.join(" · ")}
-                    </span>
-                  )}
                   <span className="sr-only">{expanded ? "收合" : "展開"}訊息列表</span>
                 </button>
                 {expanded ? (
@@ -359,8 +342,7 @@ export function LineMessagesPage() {
                     <TableRow className="hover:bg-transparent">
                       <TableHead className="w-[110px] text-muted-foreground">時間</TableHead>
                       <TableHead className="min-w-[88px] text-muted-foreground">類型</TableHead>
-                      <TableHead className="min-w-[160px] text-muted-foreground">綁定客戶</TableHead>
-                      <TableHead className="min-w-[160px] text-muted-foreground">LINE userId</TableHead>
+                      <TableHead className="min-w-[200px] text-muted-foreground">綁定客戶</TableHead>
                       <TableHead className="text-muted-foreground">內容</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -368,7 +350,6 @@ export function LineMessagesPage() {
                     {g.rows.map((r) => {
                       const t = formatMessageTime(r.created_at);
                       const mt = (r.message_type ?? "text").trim() || "text";
-                      const copyKey = `uid-${r.id}`;
                       return (
                         <TableRow key={r.id}>
                           <TableCell className="align-top text-muted-foreground">
@@ -381,7 +362,7 @@ export function LineMessagesPage() {
                               {mt}
                             </span>
                           </TableCell>
-                          <TableCell className="align-top whitespace-normal min-w-[200px] max-w-[300px]">
+                          <TableCell className="align-top whitespace-normal min-w-[200px] max-w-[320px]">
                             <LineMessageCustomerSelect
                               value={r.customer_id}
                               options={customerOptions}
@@ -389,26 +370,7 @@ export function LineMessagesPage() {
                               onChange={(customerId) => void assignCustomer(r.id, customerId)}
                             />
                           </TableCell>
-                          <TableCell className="align-top whitespace-normal">
-                            <div className="flex items-start gap-1.5 max-w-[220px]">
-                              <code className="break-all text-[11px] leading-snug text-muted-foreground">
-                                {r.line_user_id}
-                              </code>
-                              <button
-                                type="button"
-                                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                title="複製 userId"
-                                onClick={() => void copyText(r.line_user_id, copyKey)}
-                              >
-                                {copiedId === copyKey ? (
-                                  <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
-                                ) : (
-                                  <Copy className="h-3.5 w-3.5" aria-hidden />
-                                )}
-                              </button>
-                            </div>
-                          </TableCell>
-                          <TableCell className="align-top whitespace-normal text-[13px] leading-relaxed min-w-[200px]">
+                          <TableCell className="align-top whitespace-normal text-[13px] leading-relaxed min-w-[220px]">
                             <span className="whitespace-pre-wrap break-words">{messageBody(r)}</span>
                           </TableCell>
                         </TableRow>
