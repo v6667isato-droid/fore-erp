@@ -123,6 +123,24 @@ export interface PayslipRow {
   notes: string | null;
 }
 
+/** 員工為工單負責人時，生產交辦區塊顯示之 work_orders（與生產管理列表欄位對齊，不含聯絡人／負責人指定） */
+export interface AssigneeWorkOrderRow {
+  id: string;
+  order_id: string | null;
+  order_number: string;
+  customer_name: string;
+  customer_alias: string | null;
+  /** 品項＋尺寸，同生產管理「品項 / 尺寸」 */
+  item_size_label: string;
+  quantity: number;
+  category: string;
+  stage: string | null;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  expected_delivery_date: string | null;
+  order_status: string | null;
+}
+
 export interface EmployeePortalPayload {
   employee: EmployeePortalEmployee;
   stats: EmployeePortalStats;
@@ -130,6 +148,8 @@ export interface EmployeePortalPayload {
   tasks: EmployeeTaskRow[];
   leave_requests: LeaveRequestRow[];
   work_progress_seed: WorkProgressSeedRow[];
+  /** 您為負責人之工單（work_orders.assignee_id） */
+  assignee_work_orders: AssigneeWorkOrderRow[];
   payslips: PayslipRow[];
 }
 
@@ -262,6 +282,38 @@ export const employeePortalMock: EmployeePortalPayload = {
       deducts_salary: true,
       days_count: 1,
       reason: "辦理證件",
+    },
+  ],
+  assignee_work_orders: [
+    {
+      id: "wo-mock-1",
+      order_id: "order-mock-8841",
+      order_number: "ORD-8841",
+      customer_name: "謝木木工作室",
+      customer_alias: null,
+      item_size_label: "餐桌系列 B / W:140 x D:80 x H:75",
+      quantity: 3,
+      category: "桌",
+      stage: "組裝中(一)",
+      planned_start_date: "2026-03-18",
+      planned_end_date: "2026-03-25",
+      expected_delivery_date: "2026-04-26",
+      order_status: "生產中",
+    },
+    {
+      id: "wo-mock-2",
+      order_id: "order-mock-8850",
+      order_number: "ORD-8850",
+      customer_name: "謝木木工作室",
+      customer_alias: "專案 A",
+      item_size_label: "ST01-C / W:40 x D:48 x H:75",
+      quantity: 3,
+      category: "凳",
+      stage: "待排程",
+      planned_start_date: "2026-03-20",
+      planned_end_date: "2026-03-28",
+      expected_delivery_date: "2026-04-20",
+      order_status: "生產中",
     },
   ],
   work_progress_seed: [

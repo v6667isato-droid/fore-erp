@@ -1,22 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Wrench } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { ExternalLink, Loader2, Wrench, X } from "lucide-react";
 import {
   fetchLatestWorkshopRotationSafe,
   type WorkshopRotationDisplay,
 } from "@/lib/meeting-minutes";
 import { epSection } from "@/lib/employee-portal-section-styles";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
-/** 週五工坊保養工作清單（PDF，Google Drive） */
-const WORKSHOP_CHECKLIST_FORM_URL =
-  "https://drive.google.com/file/d/1_Qk3N1q7GhRbp4SUSD2Az-1KCwFP7HOW/view?usp=sharing";
+/** Google Drive：/preview 利於 iframe 與瀏覽器內直接預覽 PDF（免先下載） */
+const WORKSHOP_CHECKLIST_PREVIEW_URL =
+  "https://drive.google.com/file/d/1_Qk3N1q7GhRbp4SUSD2Az-1KCwFP7HOW/preview";
 
-/** 盤點表（PDF，Google Drive） */
-const WORKSHOP_INVENTORY_FORM_URL =
-  "https://drive.google.com/file/d/175bDNbVsgVMpirWtMwqsw0ylVSmqxOPI/view?usp=sharing";
+const WORKSHOP_INVENTORY_PREVIEW_URL =
+  "https://drive.google.com/file/d/175bDNbVsgVMpirWtMwqsw0ylVSmqxOPI/preview";
 
 /** 2×2：左上 → 右上 → 左下 → 右下 */
 const CELLS: {
@@ -61,6 +62,7 @@ export function WorkshopWeeklyRotationBlock({
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [data, setData] = useState<WorkshopRotationDisplay | null>(null);
+  const [pdfViewer, setPdfViewer] = useState<null | { title: string; src: string }>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -99,6 +101,55 @@ export function WorkshopWeeklyRotationBlock({
 
   return (
     <section className={epSection.card}>
+      <Dialog.Root
+        open={pdfViewer != null}
+        onOpenChange={(open) => {
+          if (!open) setPdfViewer(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(92vh,52rem)] w-[calc(100%-1.25rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl focus:outline-none sm:w-[calc(100%-2rem)]">
+            <div className="flex items-center justify-between gap-3 border-b border-border/80 px-3 py-2.5 sm:px-4">
+              <Dialog.Title className="min-w-0 text-sm font-semibold text-foreground">
+                {pdfViewer?.title ?? "PDF"}
+              </Dialog.Title>
+              <div className="flex shrink-0 items-center gap-1">
+                {pdfViewer ? (
+                  <a
+                    href={pdfViewer.src}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                      buttonVariants({ variant: "ghost" }),
+                      "h-8 gap-1 px-2 text-xs text-muted-foreground",
+                    )}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    新分頁
+                  </a>
+                ) : null}
+                <Dialog.Close asChild>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="關閉">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </Dialog.Close>
+              </div>
+            </div>
+            <Dialog.Description className="sr-only">
+              於此視窗內預覽 PDF；若無法顯示請使用「新分頁」開啟。
+            </Dialog.Description>
+            {pdfViewer ? (
+              <iframe
+                title={pdfViewer.title}
+                src={pdfViewer.src}
+                className="min-h-[min(72vh,560px)] w-full flex-1 border-0 bg-muted/20"
+              />
+            ) : null}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       <div className={cn(epSection.headerRowStart, "shrink-0")}>
         <div className={epSection.iconBoxAmber}>
           <Wrench className="h-4 w-4" aria-hidden />
@@ -114,22 +165,24 @@ export function WorkshopWeeklyRotationBlock({
               ) : null}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1">
-              <a
-                href={WORKSHOP_CHECKLIST_FORM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              <button
+                type="button"
+                onClick={() =>
+                  setPdfViewer({ title: "工作清單表單", src: WORKSHOP_CHECKLIST_PREVIEW_URL })
+                }
+                className="cursor-pointer text-left text-xs font-medium text-primary underline-offset-2 hover:underline"
               >
                 工作清單表單
-              </a>
-              <a
-                href={WORKSHOP_INVENTORY_FORM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setPdfViewer({ title: "盤點表", src: WORKSHOP_INVENTORY_PREVIEW_URL })
+                }
+                className="cursor-pointer text-left text-xs font-medium text-primary underline-offset-2 hover:underline"
               >
                 盤點表
-              </a>
+              </button>
             </div>
           </div>
           {showSubtitleLine ? (

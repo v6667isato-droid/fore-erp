@@ -3,8 +3,14 @@ import {
   buildPayslipAttendanceRemarks,
   sumApprovedOvertimeHoursForEmployee,
 } from "@/lib/payslip-attendance-remarks";
+import {
+  normalizeWorkOrderStage,
+  syncOrderStatusFromWorkOrders,
+  type WorkOrderStage,
+} from "@/lib/work-order-stages";
 import type {
   AnnouncementRow,
+  AssigneeWorkOrderRow,
   EmployeePortalPayload,
   EmployeeTaskRow,
   LeaveRequestRow,
@@ -224,6 +230,58 @@ export function workProgressUiToDbStatus(ui: WorkProgressUiStatus): string {
  * 更新 production_tasks.status。
  * 承辦身分由 RLS（employees.is_production_task_actor）判斷：production_tasks.employee_id 或 work_orders.assignee_id（employees.id）。
  */
+/**
+ * 負責人更新自己工單之工序；可選回寫訂單狀態（若 RLS 不允許更新 orders 則僅回傳警告）。
+ */
+export async function updateWorkOrderStageForAssignee(
+  workOrderId: string,
+  employeeId: string,
+  orderId: string | null,
+  stage: WorkOrderStage,
+): Promise<
+  | { ok: true; syncMessage?: string; syncWarning?: string }
+  | { ok: false; message: string }
+> {
+  const eid = employeeId.trim();
+  if (!eid) {
+    return { ok: false, message: "缺少員工識別" };
+  }
+
+  const { data, error } = await supabase
+    .from("work_orders")
+    .update({ stage })
+    .eq("id", workOrderId)
+    .eq("assignee_id", eid)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+  if (!data) {
+    return { ok: false, message: "無法更新工單（可能無權限或資料已變更）" };
+  }
+
+  if (!orderId?.trim()) {
+    return { ok: true };
+  }
+
+  const sync = await syncOrderStatusFromWorkOrders(supabase, orderId.trim());
+  if (!sync.ok) {
+    return {
+      ok: true,
+      syncWarning: sync.error ?? "訂單狀態未能自動同步（工序已儲存）",
+    };
+  }
+  if (sync.nextOrderStatus) {
+    return {
+      ok: true,
+      syncMessage: `訂單狀態已同步為「${sync.nextOrderStatus}」`,
+    };
+  }
+  return { ok: true };
+}
+
 export async function updateProductionTaskStatusForAssignee(
   taskId: string,
   _employeeId: string,
@@ -782,6 +840,117 @@ function payslipLaborHealth(
   return { labor, health, persons };
 }
 
+function mapWorkOrderRowToAssigneePortal(r: Record<string, unknown>): AssigneeWorkOrderRow {
+  const oiRaw = r.order_items as Record<string, unknown> | Record<string, unknown>[] | null | undefined;
+  const oi = Array.isArray(oiRaw) ? oiRaw[0] : oiRaw;
+  const variant = oi?.product_variants as Record<string, unknown> | Record<string, unknown>[] | null | undefined;
+  const pv = Array.isArray(variant) ? variant[0] : variant;
+  const ord = oi?.orders as Record<string, unknown> | Record<string, unknown>[] | null | undefined;
+  const orderObj = Array.isArray(ord) ? ord[0] : ord;
+  const customerRel = orderObj?.customers as Record<string, unknown> | Record<string, unknown>[] | null | undefined;
+  const cust = Array.isArray(customerRel) ? customerRel[0] : customerRel;
+
+  const customerName = cust?.name != null ? String(cust.name) : "";
+  const customerAlias =
+    cust?.alias != null && String(cust.alias).trim() ? String(cust.alias) : null;
+
+  let itemName = "";
+  if (oi?.custom_name) {
+    itemName = String(oi.custom_name);
+  } else if (pv?.product_code) {
+    itemName = String(pv.product_code);
+  }
+
+  const cat = (oi?.custom_category as string | null | undefined)?.trim() ?? "";
+
+  const w = oi?.custom_dimension_w ?? pv?.dimension_w ?? null;
+  const d = oi?.custom_dimension_d ?? pv?.dimension_d ?? null;
+  const h = oi?.custom_dimension_h ?? pv?.dimension_h ?? null;
+  const parts = [w, d, h].filter((x) => x != null);
+  const dim =
+    parts.length === 0 ? "" : `W:${w ?? "—"} x D:${d ?? "—"} x H:${h ?? "—"}`;
+  const fullNameParts = [itemName, dim].filter((s) => typeof s === "string" && s.trim()) as string[];
+  const item_size_label = fullNameParts.length ? fullNameParts.join(" / ") : "—";
+
+  const order_number = orderObj?.order_number != null ? String(orderObj.order_number) : "";
+  const order_id = orderObj?.id != null ? String(orderObj.id) : null;
+  const expected_delivery_date =
+    orderObj?.expected_delivery_date != null
+      ? String(orderObj.expected_delivery_date).slice(0, 10)
+      : null;
+  const order_status = orderObj?.status != null ? String(orderObj.status) : null;
+
+  return {
+    id: String(r.id ?? ""),
+    order_id,
+    order_number,
+    customer_name: customerName,
+    customer_alias: customerAlias,
+    item_size_label,
+    quantity: Number(oi?.quantity ?? 0),
+    category: cat,
+    stage: normalizeWorkOrderStage(r.stage as string | null | undefined),
+    planned_start_date:
+      r.planned_start_date != null ? String(r.planned_start_date).slice(0, 10) : null,
+    planned_end_date:
+      r.planned_end_date != null ? String(r.planned_end_date).slice(0, 10) : null,
+    expected_delivery_date,
+    order_status,
+  };
+}
+
+/** 生產交辦：您為負責人之工單（work_orders.assignee_id） */
+async function fetchAssigneeWorkOrders(employeeId: string): Promise<AssigneeWorkOrderRow[]> {
+  const eid = employeeId.trim();
+  if (!eid) return [];
+
+  const { data, error } = await supabase
+    .from("work_orders")
+    .select(
+      `
+      id,
+      stage,
+      planned_start_date,
+      planned_end_date,
+      order_items(
+        id,
+        custom_name,
+        custom_category,
+        custom_dimension_w,
+        custom_dimension_d,
+        custom_dimension_h,
+        quantity,
+        orders(
+          id,
+          order_number,
+          status,
+          expected_delivery_date,
+          customers(name, alias)
+        ),
+        product_variants(
+          product_code,
+          dimension_w,
+          dimension_d,
+          dimension_h
+        )
+      )
+    `,
+    )
+    .eq("assignee_id", eid)
+    .order("planned_start_date", { ascending: true, nullsFirst: false })
+    .limit(80);
+
+  if (error) {
+    if (/column .*assignee_id|does not exist/i.test(error.message)) {
+      return [];
+    }
+    console.warn("[employee-portal] work_orders (assignee):", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => mapWorkOrderRowToAssigneePortal(row as Record<string, unknown>));
+}
+
 async function fetchPayslipRows(employeeId: string): Promise<PayslipRow[]> {
   const [ins, slipRes] = await Promise.all([
     fetchEmployeeInsuranceSnapshot(employeeId),
@@ -865,9 +1034,10 @@ export async function fetchEmployeePortalFromSupabase(
     }
 
     const baseSalary = num(emp.monthly_wage, 0);
-    const [tasks, workProgress, leaveRows, payslips] = await Promise.all([
+    const [tasks, workProgress, assigneeWorkOrders, leaveRows, payslips] = await Promise.all([
       fetchTasksForEmployee(emp.id),
       fetchWorkProgressFromProductionTasks(emp.id),
+      fetchAssigneeWorkOrders(emp.id),
       fetchLeaveRows(emp.id),
       fetchPayslipRows(emp.id),
     ]);
@@ -898,6 +1068,7 @@ export async function fetchEmployeePortalFromSupabase(
       tasks,
       leave_requests: leaveRows,
       work_progress_seed: workProgress,
+      assignee_work_orders: assigneeWorkOrders,
       payslips,
     };
 

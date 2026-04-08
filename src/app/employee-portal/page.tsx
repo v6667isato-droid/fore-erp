@@ -41,7 +41,17 @@ import {
 import {
   fetchEmployeePortalFromSupabase,
   updateProductionTaskStatusForAssignee,
+  updateWorkOrderStageForAssignee,
 } from "@/lib/employee-portal-supabase";
+import {
+  DEFAULT_WORK_ORDER_STAGE,
+  WORK_ORDER_STAGES,
+  isWorkOrderStage,
+  normalizeWorkOrderStage,
+  stageStyleClassName,
+  workOrderStageSortIndex,
+  type WorkOrderStage,
+} from "@/lib/work-order-stages";
 import { fetchCompanyAnnouncementsFromEvents } from "@/lib/company-events";
 import {
   fetchNormalizedUserProfileRole,
@@ -62,8 +72,20 @@ import { MeetingMinutesSection } from "@/components/meeting-minutes-section";
 import { EmployeePortalMiniCalendar } from "@/components/employee-portal-mini-calendar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn, formatDateYyMmDd } from "@/lib/utils";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CalendarDays,
   CalendarPlus,
   ChevronDown,
   ClipboardList,
@@ -485,6 +507,41 @@ function applyLeaveStartDateChange(
   };
 }
 
+type AssigneeWoSortKey =
+  | "order_number"
+  | "customer_name"
+  | "item_size_label"
+  | "category"
+  | "stage"
+  | "planned_end_date";
+
+function parseDateMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function effectiveAssigneeWoCompletion(w: {
+  planned_end_date: string | null;
+  expected_delivery_date: string | null;
+}): string | null {
+  return w.planned_end_date ?? w.expected_delivery_date ?? null;
+}
+
+function compareAssigneeWoPlannedCompletion(
+  a: { planned_end_date: string | null; expected_delivery_date: string | null },
+  b: { planned_end_date: string | null; expected_delivery_date: string | null },
+  asc: boolean,
+): number {
+  const na = parseDateMs(effectiveAssigneeWoCompletion(a));
+  const nb = parseDateMs(effectiveAssigneeWoCompletion(b));
+  if (na === null && nb === null) return 0;
+  if (na === null) return 1;
+  if (nb === null) return -1;
+  const diff = na - nb;
+  return asc ? diff : -diff;
+}
+
 export default function EmployeePortalPage() {
   const router = useRouter();
   const [data, setData] = useState<EmployeePortalPayload | null>(null);
@@ -493,6 +550,10 @@ export default function EmployeePortalPage() {
   const [dataSource, setDataSource] = useState<"mock" | "supabase">("mock");
   const [progressById, setProgressById] = useState<Record<string, WorkProgressUiStatus>>({});
   const [savingProductionTaskId, setSavingProductionTaskId] = useState<string | null>(null);
+  const [woStageById, setWoStageById] = useState<Record<string, string>>({});
+  const [woSortBy, setWoSortBy] = useState<AssigneeWoSortKey>("planned_end_date");
+  const [woSortAsc, setWoSortAsc] = useState(true);
+  const [savingWorkOrderStageId, setSavingWorkOrderStageId] = useState<string | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
   const [expandedPayslipId, setExpandedPayslipId] = useState<string | null>(null);
@@ -641,6 +702,62 @@ export default function EmployeePortalPage() {
     if (!data?.work_progress_seed?.length) return;
     setProgressById(buildProgressMap(data.work_progress_seed));
   }, [data]);
+
+  useEffect(() => {
+    const rows = data?.assignee_work_orders;
+    if (!rows?.length) {
+      setWoStageById({});
+      return;
+    }
+    const m: Record<string, string> = {};
+    for (const w of rows) {
+      m[w.id] = normalizeWorkOrderStage(w.stage);
+    }
+    setWoStageById(m);
+  }, [data?.assignee_work_orders]);
+
+  const sortedAssigneeWorkOrders = useMemo(() => {
+    const list = [...(data?.assignee_work_orders ?? [])];
+    list.sort((a, b) => {
+      const key = woSortBy;
+      let cmp = 0;
+      if (key === "stage") {
+        const sa = woStageById[a.id] ?? normalizeWorkOrderStage(a.stage);
+        const sb = woStageById[b.id] ?? normalizeWorkOrderStage(b.stage);
+        cmp = workOrderStageSortIndex(sa) - workOrderStageSortIndex(sb);
+        if (!woSortAsc) cmp = -cmp;
+      } else if (key === "planned_end_date") {
+        cmp = compareAssigneeWoPlannedCompletion(a, b, woSortAsc);
+      } else {
+        const av =
+          key === "order_number"
+            ? a.order_number
+            : key === "customer_name"
+              ? a.customer_name
+              : key === "item_size_label"
+                ? a.item_size_label
+                : a.category;
+        const bv =
+          key === "order_number"
+            ? b.order_number
+            : key === "customer_name"
+              ? b.customer_name
+              : key === "item_size_label"
+                ? b.item_size_label
+                : b.category;
+        const as = av == null ? "" : String(av);
+        const bs = bv == null ? "" : String(bv);
+        cmp = as.localeCompare(bs, "zh-Hant", { numeric: true });
+        if (!woSortAsc) cmp = -cmp;
+      }
+      if (cmp !== 0) return cmp;
+      return (
+        workOrderStageSortIndex(woStageById[a.id] ?? normalizeWorkOrderStage(a.stage)) -
+        workOrderStageSortIndex(woStageById[b.id] ?? normalizeWorkOrderStage(b.stage))
+      );
+    });
+    return list;
+  }, [data?.assignee_work_orders, woSortBy, woSortAsc, woStageById]);
 
   const payslipsSorted = useMemo(() => {
     if (!data?.payslips?.length) return [];
@@ -898,7 +1015,39 @@ export default function EmployeePortalPage() {
     );
   }
 
-  const { employee, stats, leave_requests, work_progress_seed } = data;
+  const { employee, stats, leave_requests, work_progress_seed, assignee_work_orders } = data;
+
+  function toggleWoSort(key: AssigneeWoSortKey) {
+    if (woSortBy === key) {
+      setWoSortAsc((p) => !p);
+    } else {
+      setWoSortBy(key);
+      setWoSortAsc(true);
+    }
+  }
+
+  function WoSortHeader({ label, sortKey }: { label: string; sortKey: AssigneeWoSortKey }) {
+    const active = woSortBy === sortKey;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleWoSort(sortKey)}
+        className="inline-flex items-center gap-1 p-1.5 text-xs font-semibold align-middle hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded"
+        aria-label={`依${label}排序${active ? (woSortAsc ? "升冪" : "降冪") : ""}`}
+      >
+        {label}
+        {active ? (
+          woSortAsc ? (
+            <ArrowUp className="h-3.5 w-3.5" />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+      </button>
+    );
+  }
 
   return (
     <div
@@ -1076,8 +1225,8 @@ export default function EmployeePortalPage() {
                 {showAdminFieldHints ? (
                   <p className={cn("mt-0.5", epSection.subtitle)}>
                     {dataSource === "supabase"
-                      ? "開會紀錄交辦 · 生產交辦（production_tasks）"
-                      : "Mock · meeting_assignments · work_progress_seed"}
+                      ? "開會紀錄交辦 · 生產交辦（work_orders · production_tasks）"
+                      : "Mock · meeting_assignments · work_orders · work_progress_seed"}
                   </p>
                 ) : null}
               </div>
@@ -1102,16 +1251,144 @@ export default function EmployeePortalPage() {
                 {showAdminFieldHints ? (
                   <p className="mb-3 text-xs text-muted-foreground">
                     {dataSource === "supabase"
-                      ? "合併 production_tasks 承辦人與您為負責人之工單（work_orders.assignee_id = 員工 id）；狀態寫入 production_tasks.status。"
-                      : "Mock 種子；進度僅存在頁面（未連線）。"}
+                      ? "上方：work_orders（assignee_id），可改工序站別；下方：production_tasks。"
+                      : "Mock 種子；工序變更僅存在此頁（未連線）。"}
                   </p>
                 ) : null}
-                <div className="max-h-80 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
-                  {work_progress_seed.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">目前沒有生產交辦。</p>
-                  ) : (
-                    <ul className="space-y-2 pr-2">
-                      {work_progress_seed.map((row) => {
+                <div className="max-h-[min(70vh,28rem)] overflow-y-auto overflow-x-auto pr-1 [scrollbar-gutter:stable]">
+                  <div className="space-y-4">
+                    <div>
+                      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        負責工單（work_orders）
+                      </p>
+                      {assignee_work_orders.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">目前沒有以您為負責人的工單。</p>
+                      ) : (
+                        <div className="rounded-xl border border-border/70 bg-card/40 overflow-hidden">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="hover:bg-transparent border-border/60">
+                                <TableHead className="text-xs font-semibold whitespace-nowrap min-w-[7rem]">
+                                  <WoSortHeader label="訂單編號" sortKey="order_number" />
+                                </TableHead>
+                                <TableHead className="text-xs font-semibold min-w-[8rem]">
+                                  <WoSortHeader label="客戶 / 專案" sortKey="customer_name" />
+                                </TableHead>
+                                <TableHead className="text-xs font-semibold min-w-[10rem]">
+                                  <WoSortHeader label="品項 / 尺寸" sortKey="item_size_label" />
+                                </TableHead>
+                                <TableHead className="text-xs font-semibold text-right whitespace-nowrap w-[3.5rem]">
+                                  數量
+                                </TableHead>
+                                <TableHead className="text-xs font-semibold hidden sm:table-cell min-w-[3.5rem]">
+                                  <WoSortHeader label="類別" sortKey="category" />
+                                </TableHead>
+                                <TableHead className="text-xs font-semibold whitespace-nowrap min-w-[7rem]">
+                                  <WoSortHeader label="工序站別" sortKey="stage" />
+                                </TableHead>
+                                <TableHead className="text-xs font-semibold hidden md:table-cell min-w-[5rem]">
+                                  <WoSortHeader label="預計完成" sortKey="planned_end_date" />
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sortedAssigneeWorkOrders.map((wo) => {
+                                const stageVal =
+                                  woStageById[wo.id] ?? normalizeWorkOrderStage(wo.stage);
+                                const safeStage = isWorkOrderStage(stageVal)
+                                  ? stageVal
+                                  : DEFAULT_WORK_ORDER_STAGE;
+                                const completion = effectiveAssigneeWoCompletion(wo);
+                                return (
+                                  <TableRow key={wo.id} className="border-border/60">
+                                    <TableCell className="p-2 align-middle font-mono text-xs font-medium whitespace-nowrap">
+                                      {wo.order_number || "—"}
+                                    </TableCell>
+                                    <TableCell className="p-2 align-middle text-sm">
+                                      <span className="font-medium text-foreground">
+                                        {wo.customer_name || "—"}
+                                      </span>
+                                      {wo.customer_alias?.trim() ? (
+                                        <span className="ml-1 text-xs text-muted-foreground">
+                                          ({wo.customer_alias})
+                                        </span>
+                                      ) : null}
+                                    </TableCell>
+                                    <TableCell className="p-2 align-middle text-sm max-w-[14rem]">
+                                      <span className="line-clamp-2">{wo.item_size_label || "—"}</span>
+                                    </TableCell>
+                                    <TableCell className="p-2 align-middle text-sm text-right tabular-nums">
+                                      {Number.isFinite(wo.quantity) && wo.quantity > 0 ? wo.quantity : "—"}
+                                    </TableCell>
+                                    <TableCell className="p-2 align-middle text-sm text-muted-foreground hidden sm:table-cell">
+                                      {wo.category?.trim() || "—"}
+                                    </TableCell>
+                                    <TableCell className="p-2 align-middle">
+                                      <select
+                                        value={safeStage}
+                                        disabled={savingWorkOrderStageId === wo.id}
+                                        onChange={async (e) => {
+                                          const next = e.target.value as WorkOrderStage;
+                                          const prev = woStageById[wo.id] ?? normalizeWorkOrderStage(wo.stage);
+                                          setWoStageById((p) => ({ ...p, [wo.id]: next }));
+                                          if (dataSource !== "supabase") return;
+                                          setSavingWorkOrderStageId(wo.id);
+                                          const r = await updateWorkOrderStageForAssignee(
+                                            wo.id,
+                                            employee.id,
+                                            wo.order_id,
+                                            next,
+                                          );
+                                          setSavingWorkOrderStageId(null);
+                                          if (!r.ok) {
+                                            setWoStageById((p) => ({ ...p, [wo.id]: prev }));
+                                            toast.error(r.message);
+                                            return;
+                                          }
+                                          if (r.syncWarning) {
+                                            toast.warning(r.syncWarning);
+                                          } else if (r.syncMessage) {
+                                            toast.success(r.syncMessage);
+                                          }
+                                        }}
+                                        className={cn(
+                                          "h-8 max-w-[9.5rem] rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-none",
+                                          stageStyleClassName(safeStage),
+                                          savingWorkOrderStageId === wo.id && "opacity-70",
+                                        )}
+                                      >
+                                        {WORK_ORDER_STAGES.map((s) => (
+                                          <option key={s} value={s}>
+                                            {s}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </TableCell>
+                                    <TableCell className="p-2 align-middle text-xs text-muted-foreground tabular-nums whitespace-nowrap hidden md:table-cell">
+                                      <div className="flex items-center gap-1">
+                                        <CalendarDays className="h-3 w-3 shrink-0" />
+                                        <span>
+                                          {completion ? formatDateYyMmDd(completion) : "—"}
+                                        </span>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                    <div className="border-t border-border/60 pt-4">
+                      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        生產任務（production_tasks）
+                      </p>
+                      {work_progress_seed.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">目前沒有生產任務交辦。</p>
+                      ) : (
+                        <ul className="space-y-2 pr-2">
+                          {work_progress_seed.map((row) => {
                         const status = progressById[row.id] ?? "pending";
                         const isDone = status === "done";
                         return (
@@ -1194,7 +1471,9 @@ export default function EmployeePortalPage() {
                         );
                       })}
                     </ul>
-                  )}
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { validateSignature } from "@line/bot-sdk";
+import { getLineMessagingClient } from "@/lib/line-factory";
+import { tryBindEmployeeByVerificationCode } from "@/lib/line-employee-bind";
 
 export const runtime = "nodejs";
 
 type LineMessageEvent = {
   type?: string;
+  replyToken?: string;
   message?: { type?: string; text?: string };
   source?: { type?: string; userId?: string };
 };
@@ -120,6 +123,13 @@ export async function POST(request: NextRequest) {
     const typeSummary = events.map((e) => e.type ?? "?").join(",");
     console.log("[line-webhook] events count:", events.length, typeSummary ? `types:[${typeSummary}]` : "");
 
+    const lineClient = getLineMessagingClient();
+    if (!lineClient) {
+      console.warn(
+        "[line-webhook] LINE_CHANNEL_ACCESS_TOKEN missing: Rich Menu 連結與綁定回覆將無法送出（資料庫綁定仍會寫入）。"
+      );
+    }
+
     let textInserts = 0;
     for (const event of events) {
       if (event.type !== "message") continue;
@@ -128,6 +138,12 @@ export async function POST(request: NextRequest) {
       const text = typeof event.message.text === "string" ? event.message.text : "";
       const userId = typeof event.source?.userId === "string" ? event.source.userId : "";
       if (!userId || !text) continue;
+
+      await tryBindEmployeeByVerificationCode(supabase, lineClient, {
+        lineUserId: userId,
+        text,
+        replyToken: typeof event.replyToken === "string" ? event.replyToken : undefined,
+      });
 
       const customerId = await resolveCustomerId(supabase, userId);
 
