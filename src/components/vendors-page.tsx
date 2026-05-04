@@ -287,12 +287,10 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                       onClick={() => setViewRow(row)}
                       className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
                     >
-                      {row.name || "—"}
-                      {row.notes?.trim() && (
-                        <span className="ml-1.5 text-xs text-muted-foreground">
-                          {row.notes.trim()}
-                        </span>
-                      )}
+                      <span>{row.name || "—"}</span>
+                      {row.notes?.trim() ? (
+                        <span className="text-muted-foreground font-normal whitespace-pre-wrap">&nbsp;（{row.notes.trim()}）</span>
+                      ) : null}
                     </button>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">{row.main_category || "—"}</TableCell>

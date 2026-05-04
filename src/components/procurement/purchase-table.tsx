@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 20;
 
-const COL_SPAN_BASE = 9;
+const COL_SPAN_BASE = 10;
 
 export interface PurchaseTableProps {
   records: PurchaseRow[];
@@ -130,7 +130,10 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
               <SortHeader label="類別" sortKey="item_category" />
             </TableHead>
             <TableHead className="p-2 align-middle">
-              <SortHeader label="規格" sortKey="spec" />
+              <SortHeader label="規格" sortKey="spec_primary" />
+            </TableHead>
+            <TableHead className="p-2 align-middle">
+              <SortHeader label="規格2" sortKey="spec_secondary" />
             </TableHead>
             <TableHead className="p-2 align-middle">
               <SortHeader label="數量" sortKey="quantity" />
@@ -160,7 +163,14 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
             pageRecords.map((record) => (
               <TableRow key={record.id} className="border-b border-border hover:bg-muted/30">
                 <TableCell className="text-sm p-2 whitespace-nowrap">{record.purchase_date}</TableCell>
-                <TableCell className="text-sm p-2">{record.vendor_name}</TableCell>
+                <TableCell className="text-sm p-2">
+                  <span className="inline-flex flex-wrap items-baseline gap-x-0">
+                    <span>{record.vendor_name}</span>
+                    {record.vendor_notes?.trim() ? (
+                      <span className="text-muted-foreground">&nbsp;（{record.vendor_notes.trim()}）</span>
+                    ) : null}
+                  </span>
+                </TableCell>
                 <TableCell className="text-sm p-2">
                   <span className="inline-flex flex-wrap items-center gap-1.5">
                     <span>{record.item_name}</span>
@@ -172,7 +182,8 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
                   </span>
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground p-2">{record.item_category || "—"}</TableCell>
-                <TableCell className="text-sm text-muted-foreground p-2">{record.spec || "—"}</TableCell>
+                <TableCell className="text-sm text-muted-foreground p-2">{record.spec_primary.trim() ? record.spec_primary : "—"}</TableCell>
+                <TableCell className="text-sm text-muted-foreground p-2">{record.spec_secondary.trim() ? record.spec_secondary : "—"}</TableCell>
                 <TableCell className="text-sm p-2">{record.quantity}</TableCell>
                 <TableCell className="text-sm p-2">{record.unit || "—"}</TableCell>
                 <TableCell className="text-sm text-right p-2 tabular-nums">{record.unit_price_inc_tax.toLocaleString()}</TableCell>

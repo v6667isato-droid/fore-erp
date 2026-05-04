@@ -18,12 +18,23 @@ export interface PurchaseRow {
   id: string;
   purchase_date: string;
   vendor_name: string;
+  /** vendors.notes（有對應主檔時；名稱後括號顯示） */
+  vendor_notes?: string | null;
   vendor_id?: string;
   /** 採購物料主檔；未對應時為 undefined */
   material_id?: string | null;
   item_name: string;
   item_category: string;
+  /** 資料庫寫入之合併規格（或舊資料單一字串）；供匯出等 */
   spec: string;
+  /** purchases.spec2；若無則自 spec 推導顯示用 */
+  spec2?: string | null;
+  /** 主檔備註（僅對應 material_id；供搜尋） */
+  material_notes?: string | null;
+  /** 主規格欄顯示／排序 */
+  spec_primary: string;
+  /** 規格二欄顯示／排序 */
+  spec_secondary: string;
   quantity: string | number;
   unit: string;
   /** 使用者輸入之單價（已稅或未稅，見 unit_price_is_tax_inclusive） */

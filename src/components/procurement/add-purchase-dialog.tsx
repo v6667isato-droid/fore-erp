@@ -218,6 +218,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
         item_name: line.itemName.trim(),
         item_category: line.itemCategory.trim() || null,
         spec: purchaseSpecFromMaterialParts(line.spec, line.spec2) || null,
+        spec2: line.spec2.trim() || null,
         quantity: line.quantity.trim() ? Number(line.quantity) : null,
         unit: line.unit.trim() || null,
         material_id: line.materialId,

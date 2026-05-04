@@ -25,6 +25,8 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [categoryList, setCategoryList] = useState<string[]>([]);
+
   useEffect(() => {
     if (open) {
       setName("");
@@ -34,6 +36,26 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
       setUnit("");
       setError(null);
     }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    supabase
+      .from("procurement_materials")
+      .select("item_category")
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const set = new Set<string>();
+        for (const raw of data) {
+          const c = String((raw as { item_category?: string | null }).item_category ?? "").trim();
+          if (c) set.add(c);
+        }
+        setCategoryList([...set].sort((a, b) => a.localeCompare(b, "zh-Hant")));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -115,7 +137,24 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-cat" className="text-xs text-muted-foreground">物品類別</label>
-              <input id="add-material-cat" type="text" value={itemCategory} onChange={(e) => setItemCategory(e.target.value)} onBlur={() => setItemCategory((s) => s.trimEnd())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="選填" />
+              <input
+                id="add-material-cat"
+                list="add-material-category-suggestions"
+                type="text"
+                value={itemCategory}
+                onChange={(e) => setItemCategory(e.target.value)}
+                onBlur={() => setItemCategory((s) => s.trimEnd())}
+                autoComplete="off"
+                title="可由清單選既有的類別，或直接輸入新類別"
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="選既有類別或輸入新類別"
+              />
+              <datalist id="add-material-category-suggestions">
+                {categoryList.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+              <p className="text-[11px] text-muted-foreground">下拉為既有類別提示，可自行輸入未列出的類別。</p>
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-spec" className="text-xs text-muted-foreground">規格</label>

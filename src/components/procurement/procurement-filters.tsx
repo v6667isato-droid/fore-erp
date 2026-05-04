@@ -108,7 +108,7 @@ export function ProcurementFilters({
           type="search"
           value={filterSearch}
           onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="搜尋廠商、品名、類別、規格…"
+          placeholder="搜尋廠商、廠商備註、品名、類別、規格、規格2、主檔備註…"
           className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           aria-label="搜尋採購紀錄"
         />

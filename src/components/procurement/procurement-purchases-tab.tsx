@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { formatDate, relName } from "@/lib/utils";
 import { computePurchaseLinePrices, roundMoney2 } from "@/lib/purchase-tax";
 import type { PurchaseRow, NameRel } from "@/types/procurement";
+import { purchaseSpecPartsForDisplay } from "@/lib/procurement-material";
 import { ProcurementSummaryCard } from "@/components/procurement/procurement-summary-card";
 import { ProcurementFilters } from "@/components/procurement/procurement-filters";
 import { PurchaseTable } from "@/components/procurement/purchase-table";
@@ -20,13 +21,13 @@ const PURCHASE_TAX_FIELDS =
   "unit_price, unit_price_is_tax_inclusive, unit_price_ex_tax, unit_price_inc_tax, amount_ex_tax, tax_included_amount";
 
 const PURCHASE_LINE_FIELDS =
-  `item_name, item_category, spec, quantity, unit, material_id, ${PURCHASE_TAX_FIELDS}`;
+  `item_name, item_category, spec, spec2, quantity, unit, material_id, ${PURCHASE_TAX_FIELDS}`;
 
 const SELECT_WITH_VENDOR_REL =
-  `id, purchase_date, ${PURCHASE_LINE_FIELDS}, vendor(id, name)`;
+  `id, purchase_date, ${PURCHASE_LINE_FIELDS}, vendor(id, name, notes), procurement_materials(notes)`;
 
 const SELECT_WITH_VENDOR_ID =
-  `id, purchase_date, vendor_id, ${PURCHASE_LINE_FIELDS}, vendors(name)`;
+  `id, purchase_date, vendor_id, ${PURCHASE_LINE_FIELDS}, vendors(name, notes), procurement_materials(notes)`;
 
 type SupabaseRowVendorRel = {
   id: string;
@@ -34,6 +35,7 @@ type SupabaseRowVendorRel = {
   item_name: string;
   item_category?: string | null;
   spec?: string | null;
+  spec2?: string | null;
   quantity?: number | string;
   unit?: string | null;
   material_id?: string | null;
@@ -43,7 +45,8 @@ type SupabaseRowVendorRel = {
   unit_price_inc_tax?: number | null;
   amount_ex_tax?: number | null;
   tax_included_amount: number;
-  vendor?: NameRel | string | { id?: string; name?: string } | null;
+  vendor?: NameRel | string | { id?: string; name?: string; notes?: string | null } | null;
+  procurement_materials?: { notes?: string | null } | null;
 };
 
 type SupabaseRowWithVendor = {
@@ -53,6 +56,7 @@ type SupabaseRowWithVendor = {
   item_name: string;
   item_category?: string | null;
   spec?: string | null;
+  spec2?: string | null;
   quantity?: number | string;
   unit?: string | null;
   material_id?: string | null;
@@ -62,7 +66,8 @@ type SupabaseRowWithVendor = {
   unit_price_inc_tax?: number | null;
   amount_ex_tax?: number | null;
   tax_included_amount: number;
-  vendors: NameRel;
+  vendors: NameRel | { name?: string | null; notes?: string | null };
+  procurement_materials?: { notes?: string | null } | null;
 };
 
 type SupabaseRowNoVendor = {
@@ -71,6 +76,7 @@ type SupabaseRowNoVendor = {
   item_name: string;
   item_category?: string | null;
   spec?: string | null;
+  spec2?: string | null;
   quantity?: number | string;
   unit?: string | null;
   material_id?: string | null;
@@ -81,6 +87,9 @@ type SupabaseRowNoVendor = {
   amount_ex_tax?: number | null;
   tax_included_amount: number;
   vendor_name?: string | null;
+  /** 由 purchases.vendor_name FK 內嵌之 vendors（僅載入 notes） */
+  vendors?: { notes?: string | null } | { notes?: string | null }[] | null;
+  procurement_materials?: { notes?: string | null } | null;
 };
 
 function vendorDisplayName(vendor: SupabaseRowVendorRel["vendor"]): string {
@@ -94,6 +103,59 @@ function vendorIdFromRel(vendor: SupabaseRowVendorRel["vendor"]): string | undef
   if (vendor == null || typeof vendor !== "object") return undefined;
   if ("id" in vendor && typeof (vendor as { id?: string }).id === "string") return (vendor as { id: string }).id;
   return undefined;
+}
+
+function vendorNotesFromRel(vendor: SupabaseRowVendorRel["vendor"]): string | null {
+  if (vendor == null || typeof vendor !== "object") return null;
+  if (Array.isArray(vendor)) {
+    const n = (vendor[0] as { notes?: unknown } | undefined)?.notes;
+    return normalizedMaterialNotes(n);
+  }
+  if ("notes" in vendor) return normalizedMaterialNotes((vendor as { notes?: unknown }).notes);
+  return null;
+}
+
+function vendorNotesFromVendorsJoin(vendors: SupabaseRowWithVendor["vendors"]): string | null {
+  if (vendors == null) return null;
+  if (Array.isArray(vendors)) {
+    const n = (vendors[0] as { notes?: unknown } | undefined)?.notes;
+    return normalizedMaterialNotes(n);
+  }
+  if (typeof vendors === "object" && "notes" in vendors) {
+    return normalizedMaterialNotes((vendors as { notes?: unknown }).notes);
+  }
+  return null;
+}
+
+function vendorNotesFromNameFkEmbed(row: SupabaseRowNoVendor): string | null {
+  const v = row.vendors;
+  if (v == null) return null;
+  if (Array.isArray(v)) {
+    return normalizedMaterialNotes(v[0]?.notes);
+  }
+  return normalizedMaterialNotes(v.notes);
+}
+function normalizedMaterialNotes(notes: unknown): string | null {
+  if (notes == null) return null;
+  const t = String(notes).trim();
+  return t || null;
+}
+
+function specFieldsForPurchaseRow(
+  mergedSpec: string | null | undefined,
+  spec2Col: string | null | undefined,
+  procurement_materials?: { notes?: string | null } | null,
+): Pick<PurchaseRow, "spec" | "spec2" | "spec_primary" | "spec_secondary" | "material_notes"> {
+  const merged = mergedSpec ?? "";
+  const raw2 = spec2Col ?? null;
+  const parts = purchaseSpecPartsForDisplay(merged, raw2);
+  return {
+    spec: merged,
+    spec2: raw2,
+    spec_primary: parts.primary,
+    spec_secondary: parts.secondary,
+    material_notes: normalizedMaterialNotes(procurement_materials?.notes),
+  };
 }
 
 function parseQuantityForTax(q: string | number | undefined | null): number {
@@ -140,11 +202,12 @@ function mapRowVendorRel(row: SupabaseRowVendorRel): PurchaseRow {
     id: row.id,
     purchase_date: formatDate(row.purchase_date),
     vendor_name: vendorDisplayName(row.vendor),
+    vendor_notes: vendorNotesFromRel(row.vendor),
     vendor_id: vendorIdFromRel(row.vendor),
     material_id: row.material_id ?? undefined,
     item_name: row.item_name ?? "—",
     item_category: row.item_category ?? "",
-    spec: row.spec ?? "",
+    ...specFieldsForPurchaseRow(row.spec ?? "", row.spec2 ?? null, row.procurement_materials),
     quantity: row.quantity ?? "—",
     unit: row.unit ?? "",
     ...mapPurchaseTaxFields(row),
@@ -156,11 +219,12 @@ function mapRowWithVendor(row: SupabaseRowWithVendor): PurchaseRow {
     id: row.id,
     purchase_date: formatDate(row.purchase_date),
     vendor_name: relName(row.vendors) || "—",
+    vendor_notes: vendorNotesFromVendorsJoin(row.vendors),
     vendor_id: row.vendor_id ?? undefined,
     material_id: row.material_id ?? undefined,
     item_name: row.item_name ?? "—",
     item_category: row.item_category ?? "",
-    spec: row.spec ?? "",
+    ...specFieldsForPurchaseRow(row.spec ?? "", row.spec2 ?? null, row.procurement_materials),
     quantity: row.quantity ?? "—",
     unit: row.unit ?? "",
     ...mapPurchaseTaxFields(row),
@@ -172,11 +236,12 @@ function mapRowNoVendor(row: SupabaseRowNoVendor): PurchaseRow {
     id: row.id,
     purchase_date: formatDate(row.purchase_date),
     vendor_name: row.vendor_name?.trim() || "—",
+    vendor_notes: vendorNotesFromNameFkEmbed(row),
     vendor_id: undefined,
     material_id: row.material_id ?? undefined,
     item_name: row.item_name ?? "—",
     item_category: row.item_category ?? "",
-    spec: row.spec ?? "",
+    ...specFieldsForPurchaseRow(row.spec ?? "", row.spec2 ?? null, row.procurement_materials),
     quantity: row.quantity ?? "—",
     unit: row.unit ?? "",
     ...mapPurchaseTaxFields(row),
@@ -204,7 +269,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
 
     const resVendorName = await supabase
       .from("purchases")
-      .select(`id, purchase_date, ${PURCHASE_LINE_FIELDS}, vendor_name`)
+      .select(`id, purchase_date, ${PURCHASE_LINE_FIELDS}, vendor_name, procurement_materials(notes), vendors(notes)`)
       .order("purchase_date", { ascending: false });
 
     if (!resVendorName.error && resVendorName.data) {
@@ -235,7 +300,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
 
     const fallback = await supabase
       .from("purchases")
-      .select(`id, purchase_date, ${PURCHASE_LINE_FIELDS}`)
+      .select(`id, purchase_date, ${PURCHASE_LINE_FIELDS}, procurement_materials(notes)`)
       .order("purchase_date", { ascending: false });
 
     if (fallback.error) {
@@ -265,7 +330,20 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     if (filterItemName && r.item_name !== filterItemName) return false;
     if (filterSearch.trim()) {
       const q = filterSearch.trim().toLowerCase();
-      const text = [r.vendor_name, r.item_name, r.item_category, r.spec, r.unit, String(r.quantity)].join(" ").toLowerCase();
+      const text = [
+        r.vendor_name,
+        r.vendor_notes ?? "",
+        r.item_name,
+        r.item_category,
+        r.spec,
+        r.spec_primary,
+        r.spec_secondary,
+        r.material_notes ?? "",
+        r.unit,
+        String(r.quantity),
+      ]
+        .join(" ")
+        .toLowerCase();
       if (!text.includes(q)) return false;
     }
     return true;
@@ -435,7 +513,12 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
           filteredRecords.map((record) => (
             <div key={record.id} className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-foreground">{record.vendor_name}</span>
+                <span className="text-sm font-medium text-foreground">
+                  {record.vendor_name}
+                  {record.vendor_notes?.trim() ? (
+                    <span className="text-muted-foreground font-normal">&nbsp;（{record.vendor_notes.trim()}）</span>
+                  ) : null}
+                </span>
                 <span className="text-sm font-semibold text-foreground">
                   ${record.tax_included_amount.toLocaleString()}
                 </span>
@@ -444,8 +527,11 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
                 <p className="mt-0.5 text-xs text-muted-foreground">類別：{record.item_category}</p>
               ) : null}
               <p className="mt-1 text-xs text-muted-foreground">{record.item_name}</p>
-              {record.spec ? (
-                <p className="mt-0.5 text-xs text-muted-foreground">規格：{record.spec}</p>
+              {record.spec_primary ? (
+                <p className="mt-0.5 text-xs text-muted-foreground">規格：{record.spec_primary}</p>
+              ) : null}
+              {record.spec_secondary ? (
+                <p className="mt-0.5 text-xs text-muted-foreground">規格2：{record.spec_secondary}</p>
               ) : null}
               <div className="mt-2 flex flex-col gap-0.5 text-xs text-muted-foreground">
                 <span>

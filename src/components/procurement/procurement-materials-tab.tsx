@@ -86,7 +86,8 @@ export function ProcurementMaterialsTab() {
         (r.item_category || "").toLowerCase().includes(q) ||
         (r.spec || "").toLowerCase().includes(q) ||
         (r.spec2 || "").toLowerCase().includes(q) ||
-        (r.unit || "").toLowerCase().includes(q),
+        (r.unit || "").toLowerCase().includes(q) ||
+        (r.notes || "").toLowerCase().includes(q),
     );
   }, [records, filterCategory, search]);
 
@@ -240,7 +241,7 @@ export function ProcurementMaterialsTab() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜尋品名、類別、規格、單位…"
+            placeholder="搜尋品名、類別、規格、規格2、單位、備註…"
             className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             aria-label="搜尋物料"
           />

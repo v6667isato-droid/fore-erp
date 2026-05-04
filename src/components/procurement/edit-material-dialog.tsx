@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
@@ -24,7 +24,33 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
   const [unit, setUnit] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [existingCategories, setExistingCategories] = useState<string[]>([]);
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    supabase
+      .from("procurement_materials")
+      .select("item_category")
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const set = new Set<string>();
+        for (const raw of data) {
+          const c = String((raw as { item_category?: string | null }).item_category ?? "").trim();
+          if (c) set.add(c);
+        }
+        setExistingCategories([...set].sort((a, b) => a.localeCompare(b, "zh-Hant")));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const categoryDatalistOptions = useMemo(() => {
+    const set = new Set(existingCategories);
+    if (open && row?.item_category?.trim()) set.add(row.item_category.trim());
+    return [...set].sort((a, b) => a.localeCompare(b, "zh-Hant"));
+  }, [existingCategories, open, row]);
   useEffect(() => {
     if (open && row) {
       setName(row.name ?? "");
@@ -116,7 +142,23 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-material-cat" className="text-xs text-muted-foreground">物品類別</label>
-              <input id="edit-material-cat" type="text" value={itemCategory} onChange={(e) => setItemCategory(e.target.value)} onBlur={() => setItemCategory((s) => s.trimEnd())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+              <input
+                id="edit-material-cat"
+                list="edit-material-category-suggestions"
+                type="text"
+                value={itemCategory}
+                onChange={(e) => setItemCategory(e.target.value)}
+                onBlur={() => setItemCategory((s) => s.trimEnd())}
+                autoComplete="off"
+                title="可由清單選既有的類別，或直接輸入新類別"
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <datalist id="edit-material-category-suggestions">
+                {categoryDatalistOptions.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+              <p className="text-[11px] text-muted-foreground">下拉為既有類別提示，可自行輸入未列出的類別。</p>
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-material-spec" className="text-xs text-muted-foreground">規格</label>

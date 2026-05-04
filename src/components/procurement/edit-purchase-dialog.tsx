@@ -8,7 +8,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { PurchaseRow, ProcurementMaterialRow } from "@/types/procurement";
 import { computePurchaseLinePrices } from "@/lib/purchase-tax";
-import { purchaseSpecFromMaterialParts } from "@/lib/procurement-material";
+import { purchaseSpecFromMaterialParts, purchaseSpecPartsForDisplay } from "@/lib/procurement-material";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
 
 const FILTER_MATERIAL_UNCATEGORIZED = "__uncategorized__";
@@ -49,14 +49,15 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       setVendorName(row.vendor_name ?? "");
       setItemName(row.item_name ?? "");
       setItemCategory(row.item_category ?? "");
-      setSpec(row.spec ?? "");
+      const parts = purchaseSpecPartsForDisplay(row.spec ?? "", row.spec2 ?? null);
+      setSpec(parts.primary);
+      setSpec2(parts.secondary);
       setQuantity(row.quantity === "—" ? "" : String(row.quantity));
       setUnit(row.unit ?? "");
       setUnitPrice(row.unit_price != null ? String(row.unit_price) : "");
       setPriceInputIsTaxInclusive(Boolean(row.unit_price_is_tax_inclusive));
       setMaterialId(row.material_id ?? null);
       setMaterialCategoryFilter("");
-      setSpec2("");
       setError(null);
     }
   }, [open, row]);
@@ -65,7 +66,6 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
     if (!open || !row) return;
     const mid = row.material_id;
     if (!mid) {
-      setSpec2("");
       return;
     }
     const m = materials.find((x) => x.id === mid);
@@ -200,6 +200,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       item_name: itemName.trim(),
       item_category: itemCategory.trim() || null,
       spec: purchaseSpecFromMaterialParts(spec, spec2) || null,
+      spec2: spec2.trim() || null,
       quantity: quantity.trim() ? Number(quantity) : null,
       unit: unit.trim() || null,
       material_id: materialId,
