@@ -65,11 +65,11 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const nameT = name.trimEnd();
-    const catT = itemCategory.trimEnd();
-    const specT = spec.trimEnd();
-    const spec2T = spec2.trimEnd();
-    if (!nameT.trim()) {
+    const nameT = name.trim();
+    const catT = itemCategory.trim();
+    const specT = spec.trim();
+    const spec2T = spec2.trim();
+    if (!nameT) {
       setError("請輸入標準品名");
       return;
     }
@@ -85,11 +85,13 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
     setSaving(false);
     if (err) {
       if (/duplicate key|unique constraint|23505/i.test(err.message)) {
-        setError("已有相同品名、規格與規格2 的物料，請改用主檔選取或調整欄位");
+        setError("已有相同品名、規格與規格2 的物料；請在主檔搜尋並選取現有資料，或調整這三項欄位其中之一。");
       } else {
         setError(err.message || "新增失敗");
       }
-      toast.error(err.message || "新增失敗");
+      toast.error(
+        /duplicate key|unique constraint|23505/i.test(err.message) ? "品名／規格／規格2 組合已被使用。" : err.message || "新增失敗",
+      );
       return;
     }
     const row = data as ProcurementMaterialRow;
@@ -129,7 +131,7 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onBlur={() => setName((s) => s.trimEnd())}
+                onBlur={() => setName((s) => s.trim())}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="例如：不鏽鋼板"
                 required
@@ -143,7 +145,7 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
                 type="text"
                 value={itemCategory}
                 onChange={(e) => setItemCategory(e.target.value)}
-                onBlur={() => setItemCategory((s) => s.trimEnd())}
+                onBlur={() => setItemCategory((s) => s.trim())}
                 autoComplete="off"
                 title="可由清單選既有的類別，或直接輸入新類別"
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -158,11 +160,11 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-spec" className="text-xs text-muted-foreground">規格</label>
-              <input id="add-material-spec" type="text" value={spec} onChange={(e) => setSpec(e.target.value)} onBlur={() => setSpec((s) => s.trimEnd())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="選填" />
+              <input id="add-material-spec" type="text" value={spec} onChange={(e) => setSpec(e.target.value)} onBlur={() => setSpec((s) => s.trim())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="選填" />
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-spec2" className="text-xs text-muted-foreground">規格2</label>
-              <input id="add-material-spec2" type="text" value={spec2} onChange={(e) => setSpec2(e.target.value)} onBlur={() => setSpec2((s) => s.trimEnd())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="選填" />
+              <input id="add-material-spec2" type="text" value={spec2} onChange={(e) => setSpec2(e.target.value)} onBlur={() => setSpec2((s) => s.trim())} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="選填" />
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-unit" className="text-xs text-muted-foreground">預設單位</label>
