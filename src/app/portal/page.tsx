@@ -1,20 +1,38 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   DEFAULT_WORK_ORDER_STAGE,
+  plannedEndDateFromOrderDelivery,
   syncWorkOrdersToOrderStatus,
 } from "@/lib/work-order-stages";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { ShoppingCart, Plus, Trash2, LogOut, ClipboardList, Pencil, X, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  ShoppingCart,
+  Plus,
+  Trash2,
+  LogOut,
+  ClipboardList,
+  Pencil,
+  X,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  Search,
+  Download,
+} from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { VariantSeriesThumb } from "@/components/variant-series-thumb";
+import { OrderOverviewDialog } from "@/components/order-overview-dialog";
 import {
   DEFAULT_SEAT_HEIGHT_CM,
   SEAT_HEIGHT_UPCHARGE_NTD,
 } from "@/lib/product-seat-height";
+import { formatDateYyMmDd } from "@/lib/utils";
+import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-payment-status";
 
 function resolvePortalSeatHeight(v: {
   seat_height_cm?: number | null;
@@ -29,6 +47,26 @@ function resolvePortalSeatHeight(v: {
 }
 
 const PORTAL_SESSION_KEY = "fore_portal_session";
+
+function localYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function endOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0);
+}
+
+type PortalDateBasis = "order_date" | "expected_delivery";
+
+/** 「我的訂單」列表：進行中（非結案）／已結案 */
+type MyOrdersScopeTab = "ongoing" | "closed";
 
 function PortalSeatHeightNotice() {
   return (
@@ -47,6 +85,8 @@ interface PortalSession {
   customer_name: string;
   delivery_address: string | null;
   channel_id: string | null;
+  /** 登入時由伺服器簽發，用於 API 代查 work_orders（預計完成日） */
+  portal_token?: string;
 }
 
 interface VariantOption {
@@ -56,6 +96,8 @@ interface VariantOption {
   spec1?: string | null;
   series_category?: string | null;
   seat_height_cm?: number | null;
+  /** 示意圖：product_variants.image_url 優先，否則 product_series.image_url */
+  series_image_url?: string | null;
 }
 
 interface PortalItem {
@@ -74,8 +116,43 @@ interface MyOrderRow {
   order_date: string | null;
   shipping_contact_name: string | null;
   expected_delivery_date: string | null;
+  /** 同訂單多張工單時取 planned_end_date 最晚者 */
+  planned_end_max: string | null;
   status: string;
+  /** 通路端僅 已結清／未結清 */
+  payment_status: "已結清" | "未結清";
   total_amount: number;
+}
+
+function portalOrderDateForBasis(o: MyOrderRow, basis: PortalDateBasis): string | null {
+  if (basis === "order_date") {
+    return o.order_date ? String(o.order_date).slice(0, 10) : null;
+  }
+  return o.expected_delivery_date ? String(o.expected_delivery_date).slice(0, 10) : null;
+}
+
+/** 排序「預計完成」：有工單完成日則用之，否則以預計交貨備援 */
+function plannedColumnSortDate(o: MyOrderRow): string | null {
+  if (o.planned_end_max) return o.planned_end_max;
+  const d = o.expected_delivery_date;
+  return d ? String(d).slice(0, 10) : null;
+}
+
+type MyOrderSortKey =
+  | "order_number"
+  | "order_date"
+  | "contact_name"
+  | "expected_delivery_date"
+  | "planned_end_max"
+  | "status"
+  | "payment_status"
+  | "total_amount";
+
+function compareNullableDate(a: string | null, b: string | null): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return a.localeCompare(b);
 }
 
 function getSession(): PortalSession | null {
@@ -103,10 +180,20 @@ function generateOrderNumber() {
   return `ORD-${ymd}-${suffix}`;
 }
 
-/** 僅「結案」時不可修改或刪除 */
-const LOCKED_STATUSES = ["結案"];
+/**
+ * 訂單狀態為「生產中」之後（含）即鎖定，與內部訂單流程一致。
+ * 此前：報價中、繪圖中、排程中、繪製製作圖 — 通路可編輯／刪除。
+ */
+const PORTAL_NO_EDIT_DELETE_STATUSES = new Set([
+  "生產中",
+  "暫停",
+  "已完工",
+  "已出貨",
+  "結案",
+]);
+
 function canEditOrDelete(status: string) {
-  return !LOCKED_STATUSES.includes(status);
+  return !PORTAL_NO_EDIT_DELETE_STATUSES.has(String(status ?? "").trim());
 }
 
 export default function PortalPage() {
@@ -133,6 +220,7 @@ export default function PortalPage() {
 
   const [myOrders, setMyOrders] = useState<MyOrderRow[]>([]);
   const [myOrdersLoading, setMyOrdersLoading] = useState(false);
+  const [myOrdersScopeTab, setMyOrdersScopeTab] = useState<MyOrdersScopeTab>("ongoing");
 
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{
@@ -145,6 +233,15 @@ export default function PortalPage() {
   const [editFormLoading, setEditFormLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<MyOrderRow | null>(null);
+  const [orderOverviewId, setOrderOverviewId] = useState<string | null>(null);
+  const [myOrderSearch, setMyOrderSearch] = useState("");
+  const [myOrderSortBy, setMyOrderSortBy] = useState<MyOrderSortKey>("order_date");
+  const [myOrderSortAsc, setMyOrderSortAsc] = useState(false);
+
+  const [settleDateBasis, setSettleDateBasis] = useState<PortalDateBasis>("order_date");
+  const [settleDateFrom, setSettleDateFrom] = useState("");
+  const [settleDateTo, setSettleDateTo] = useState("");
+  const [settlePayFilter, setSettlePayFilter] = useState<string>("全部");
 
   const loadVariants = useCallback(async (channelId: string | null) => {
     if (!channelId) {
@@ -176,7 +273,7 @@ export default function PortalPage() {
     const { data: variantRows } = await supabase
       .from("product_variants")
       .select(
-        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1"
+        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1, image_url"
       )
       .in("series_id", seriesIds)
       .order("product_code", { ascending: true });
@@ -185,17 +282,25 @@ export default function PortalPage() {
       new Set((variantRows ?? []).map((r: { series_id?: string }) => String(r.series_id ?? "")).filter(Boolean))
     );
     let categoryBySeriesId = new Map<string, string>();
+    const imageBySeriesId = new Map<string, string | null>();
     if (sidList.length > 0) {
       const { data: seriesRows } = await supabase
         .from("product_series")
-        .select("id, category")
+        .select("id, category, image_url")
         .in("id", sidList);
-      categoryBySeriesId = new Map(
-        ((seriesRows ?? []) as { id: string; category?: string }[]).map((s) => [
-          String(s.id),
-          s.category != null ? String(s.category) : "",
-        ])
-      );
+      for (const s of (seriesRows ?? []) as {
+        id: string;
+        category?: string;
+        image_url?: string | null;
+      }[]) {
+        const sid = String(s.id);
+        categoryBySeriesId.set(sid, s.category != null ? String(s.category) : "");
+        const img =
+          s.image_url != null && String(s.image_url).trim()
+            ? String(s.image_url).trim()
+            : null;
+        imageBySeriesId.set(sid, img);
+      }
     }
 
     setVariants(
@@ -214,12 +319,18 @@ export default function PortalPage() {
         const labelParts = [v.product_code ?? "", v.wood_type ?? "", v.spec1 ?? "", dim].filter(
           (s: string) => s && s.trim()
         );
+        const variantImg =
+          v.image_url != null && String(v.image_url).trim()
+            ? String(v.image_url).trim()
+            : null;
+        const seriesImg = imageBySeriesId.get(String(v.series_id ?? "")) ?? null;
         return {
           id: String(v.id),
           label: labelParts.join(" / "),
           base_price: v.base_price != null ? Number(v.base_price) : null,
           spec1: v.spec1 ?? null,
           series_category,
+          series_image_url: variantImg ?? seriesImg,
           seat_height_cm:
             v.seat_height_cm != null ? Number(v.seat_height_cm) : null,
         };
@@ -243,34 +354,312 @@ export default function PortalPage() {
     if (!session?.customer_id) return;
     setMyOrdersLoading(true);
     try {
-      const { data } = await supabase
+      let rawList: any[] = [];
+      const orderSelect =
+        "id, order_number, order_date, shipping_contact_name, expected_delivery_date, status, payment_status, total_amount";
+
+      const { data: orderData, error: orderError } = await supabase
         .from("orders")
-        .select(
-          "id, order_number, order_date, shipping_contact_name, expected_delivery_date, status, total_amount"
-        )
+        .select(orderSelect)
         .eq("customer_id", session.customer_id)
         .order("order_date", { ascending: false })
-        .limit(50);
+        .limit(100);
+
+      if (orderError) {
+        console.error("[portal] orders:", orderError);
+        toast.error("無法載入訂單，請稍後再試");
+        setMyOrders([]);
+        return;
+      }
+      rawList = (orderData ?? []) as any[];
+      const orderIds = rawList.map((r) => String(r.id));
+
+      let plannedMap = new Map<string, string | null>();
+      if (orderIds.length > 0 && session.portal_token) {
+        try {
+          const res = await fetch("/api/portal/planned-end-dates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: session.portal_token, order_ids: orderIds }),
+          });
+          if (res.ok) {
+            const json = (await res.json()) as { planned_by_order?: Record<string, string | null> };
+            for (const [k, v] of Object.entries(json.planned_by_order ?? {})) {
+              const d = v != null && String(v).trim() ? String(v).slice(0, 10) : null;
+              plannedMap.set(k, d);
+            }
+          }
+        } catch {
+          /* 略過 */
+        }
+      }
+
       setMyOrders(
-        ((data ?? []) as any[]).map((r) => ({
-          id: String(r.id),
-          order_number: String(r.order_number ?? ""),
-          order_date: r.order_date ?? null,
-          shipping_contact_name:
-            r.shipping_contact_name != null ? String(r.shipping_contact_name) : null,
-          expected_delivery_date: r.expected_delivery_date ?? null,
-          status: r.status ?? "—",
-          total_amount: Number(r.total_amount ?? 0),
-        }))
+        rawList.map((r) => {
+          const oid = String(r.id);
+          const total = Number(r.total_amount ?? 0);
+          return {
+            id: oid,
+            order_number: String(r.order_number ?? ""),
+            order_date: r.order_date ?? null,
+            shipping_contact_name:
+              r.shipping_contact_name != null ? String(r.shipping_contact_name) : null,
+            expected_delivery_date: r.expected_delivery_date ?? null,
+            planned_end_max: plannedMap.get(oid) ?? null,
+            status: r.status ?? "—",
+            payment_status: normalizeChannelPartnerPaymentStatus(r.payment_status),
+            total_amount: total,
+          };
+        })
       );
     } finally {
       setMyOrdersLoading(false);
     }
-  }, [session?.customer_id]);
+  }, [session?.customer_id, session?.portal_token]);
 
   useEffect(() => {
     fetchMyOrders();
   }, [fetchMyOrders, submittedOrderNumber]);
+
+  const settlePaymentOptions = useMemo(
+    () => [
+      { value: "全部", label: "全部" },
+      { value: "未結清", label: "未結清" },
+      { value: "已結清", label: "已結清" },
+    ],
+    []
+  );
+
+  const myOrdersScopeCounts = useMemo(() => {
+    let ongoing = 0;
+    let closed = 0;
+    for (const o of myOrders) {
+      if (o.status === "結案") closed += 1;
+      else ongoing += 1;
+    }
+    return { ongoing, closed };
+  }, [myOrders]);
+
+  const myOrdersFilteredSorted = useMemo(() => {
+    const q = myOrderSearch.trim().toLowerCase();
+    let list = myOrders.filter((o) => {
+      if (myOrdersScopeTab === "closed") {
+        if (o.status !== "結案") return false;
+      } else if (o.status === "結案") {
+        return false;
+      }
+
+      if (settlePayFilter !== "全部" && o.payment_status !== settlePayFilter) {
+        return false;
+      }
+
+      if (settleDateFrom || settleDateTo) {
+        const d = portalOrderDateForBasis(o, settleDateBasis);
+        if (!d) return false;
+        if (settleDateFrom && d < settleDateFrom) return false;
+        if (settleDateTo && d > settleDateTo) return false;
+      }
+
+      if (!q) return true;
+      const hay = [
+        o.order_number,
+        o.shipping_contact_name ?? "",
+        o.payment_status ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+    const dir = myOrderSortAsc ? 1 : -1;
+    list = [...list].sort((a, b) => {
+      let cmp = 0;
+      switch (myOrderSortBy) {
+        case "order_number":
+          cmp = a.order_number.localeCompare(b.order_number, "zh-Hant", { numeric: true });
+          break;
+        case "order_date":
+          cmp = compareNullableDate(
+            a.order_date ? String(a.order_date).slice(0, 10) : null,
+            b.order_date ? String(b.order_date).slice(0, 10) : null
+          );
+          break;
+        case "contact_name": {
+          const an = a.shipping_contact_name ?? "";
+          const bn = b.shipping_contact_name ?? "";
+          cmp = an.localeCompare(bn, "zh-Hant", { numeric: true });
+          break;
+        }
+        case "expected_delivery_date":
+          cmp = compareNullableDate(
+            a.expected_delivery_date ? String(a.expected_delivery_date).slice(0, 10) : null,
+            b.expected_delivery_date ? String(b.expected_delivery_date).slice(0, 10) : null
+          );
+          break;
+        case "planned_end_max":
+          cmp = compareNullableDate(plannedColumnSortDate(a), plannedColumnSortDate(b));
+          break;
+        case "status":
+          cmp = a.status.localeCompare(b.status, "zh-Hant");
+          break;
+        case "payment_status":
+          cmp = a.payment_status.localeCompare(b.payment_status, "zh-Hant");
+          break;
+        case "total_amount":
+          cmp = a.total_amount - b.total_amount;
+          break;
+        default:
+          cmp = 0;
+      }
+      if (cmp !== 0) return cmp * dir;
+      return a.order_number.localeCompare(b.order_number, "zh-Hant", { numeric: true });
+    });
+    return list;
+  }, [
+    myOrders,
+    myOrdersScopeTab,
+    myOrderSearch,
+    myOrderSortBy,
+    myOrderSortAsc,
+    settlePayFilter,
+    settleDateBasis,
+    settleDateFrom,
+    settleDateTo,
+  ]);
+
+  const portalSettlementTotals = useMemo(() => {
+    const list = myOrdersFilteredSorted;
+    const count = list.length;
+    const sum = list.reduce((s, o) => s + o.total_amount, 0);
+    const settledRows = list.filter((o) => o.payment_status === "已結清");
+    const pendingRows = list.filter((o) => o.payment_status !== "已結清");
+    return {
+      count,
+      sum,
+      settledCount: settledRows.length,
+      settledSum: settledRows.reduce((s, o) => s + o.total_amount, 0),
+      pendingCount: pendingRows.length,
+      pendingSum: pendingRows.reduce((s, o) => s + o.total_amount, 0),
+    };
+  }, [myOrdersFilteredSorted]);
+
+  function toggleMyOrderSort(key: MyOrderSortKey) {
+    if (myOrderSortBy === key) {
+      setMyOrderSortAsc((v) => !v);
+    } else {
+      setMyOrderSortBy(key);
+      setMyOrderSortAsc(
+        key === "order_date" || key === "planned_end_max" || key === "contact_name"
+          ? false
+          : true
+      );
+    }
+  }
+
+  function MyOrderSortHeader({
+    label,
+    sortKey,
+    align = "left",
+  }: {
+    label: string;
+    sortKey: MyOrderSortKey;
+    align?: "left" | "right";
+  }) {
+    const active = myOrderSortBy === sortKey;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleMyOrderSort(sortKey)}
+        className={
+          align === "right"
+            ? "inline-flex w-full max-w-full flex-nowrap items-center justify-end gap-1 whitespace-nowrap text-right text-sm font-medium leading-none text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
+            : "inline-flex max-w-full flex-nowrap items-center gap-1 whitespace-nowrap text-left text-sm font-medium leading-none text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
+        }
+        aria-label={`依${label}排序${active ? (myOrderSortAsc ? "升冪" : "降冪") : ""}`}
+      >
+        <span className="shrink-0 whitespace-nowrap">{label}</span>
+        {active ? (
+          myOrderSortAsc ? (
+            <ArrowUp className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5 shrink-0" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+        )}
+      </button>
+    );
+  }
+
+  function applyPortalSettleThisMonth() {
+    const now = new Date();
+    setSettleDateBasis("order_date");
+    setSettleDateFrom(localYmd(startOfMonth(now)));
+    setSettleDateTo(localYmd(endOfMonth(now)));
+  }
+
+  function clearPortalSettleDates() {
+    setSettleDateFrom("");
+    setSettleDateTo("");
+  }
+
+  function exportPortalSettlementCsv() {
+    if (!myOrdersFilteredSorted.length) return;
+    const basisLabel = settleDateBasis === "order_date" ? "下單日" : "預計交貨";
+    const rangeLabel =
+      settleDateFrom || settleDateTo
+        ? `${basisLabel} ${settleDateFrom || "…"}～${settleDateTo || "…"}`
+        : "未限定日期";
+    const payLabel = settlePayFilter === "全部" ? "全部" : settlePayFilter;
+    const t = portalSettlementTotals;
+    const scopeLabel = myOrdersScopeTab === "closed" ? "已結案" : "進行中";
+    const meta = [
+      `# 通路結算匯出（我的訂單）`,
+      `# 客戶:${session?.customer_name ?? ""};列表:${scopeLabel};${rangeLabel};付款:${payLabel}`,
+      `# 筆數:${t.count};應收合計(含運):${t.sum}`,
+      `# 已結清:${t.settledSum}(${t.settledCount}筆);未結清:${t.pendingSum}(${t.pendingCount}筆)`,
+    ].join("\n");
+
+    const header = [
+      "訂單編號",
+      "聯絡人",
+      "下單日",
+      "預計交貨",
+      "預計完成",
+      "狀態",
+      "付款狀態",
+      "應收(含運)",
+    ];
+    const rows = myOrdersFilteredSorted.map((o) => [
+      o.order_number,
+      o.shipping_contact_name ?? "",
+      o.order_date ? String(o.order_date).slice(0, 10) : "",
+      o.expected_delivery_date ? String(o.expected_delivery_date).slice(0, 10) : "",
+      o.planned_end_max ?? "",
+      o.status,
+      o.payment_status,
+      String(o.total_amount),
+    ]);
+    const csv = [meta, "", header, ...rows]
+      .map((line) =>
+        Array.isArray(line)
+          ? line
+              .map((v) => {
+                const s = String(v ?? "");
+                if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+                return s;
+              })
+              .join(",")
+          : line
+      )
+      .join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `我的訂單_結算_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -295,6 +684,7 @@ export default function PortalPage() {
         customer_name: json.customer_name ?? "",
         delivery_address: json.delivery_address ?? null,
         channel_id: json.channel_id ?? null,
+        portal_token: typeof json.portal_token === "string" ? json.portal_token : undefined,
       };
       setSession(newSession);
       setSessionState(newSession);
@@ -316,15 +706,15 @@ export default function PortalPage() {
 
   function requestDeleteOrder(order: MyOrderRow) {
     if (!canEditOrDelete(order.status)) {
-      toast.error("訂單已結案，無法刪除");
+      toast.error("訂單已進入生產或後續階段，無法刪除");
       return;
     }
     setDeleteConfirmOrder(order);
   }
 
-  function viewOrder(orderId: string) {
+  function openOrderOverview(orderId: string) {
     if (!orderId) return;
-    window.open(`/print/order/${orderId}`, "_blank", "noopener,noreferrer");
+    setOrderOverviewId(orderId);
   }
 
   async function performDeleteOrder() {
@@ -362,8 +752,8 @@ export default function PortalPage() {
         return;
       }
       const o = orderRes.data as any;
-      if (o.status && LOCKED_STATUSES.includes(o.status)) {
-        toast.error("此訂單已結案，無法修改");
+      if (o.status && PORTAL_NO_EDIT_DELETE_STATUSES.has(String(o.status).trim())) {
+        toast.error("此訂單已進入生產或後續階段，無法修改");
         setEditingOrderId(null);
         setEditFormLoading(false);
         return;
@@ -460,6 +850,24 @@ export default function PortalPage() {
       toast.error("請至少保留一筆有效品項");
       return;
     }
+    const { data: statusCheck, error: statusCheckErr } = await supabase
+      .from("orders")
+      .select("status")
+      .eq("id", editingOrderId)
+      .eq("customer_id", session.customer_id)
+      .single();
+    if (statusCheckErr || !statusCheck) {
+      toast.error(statusCheckErr?.message || "無法確認訂單狀態，請稍後再試");
+      return;
+    }
+    const liveStatus = String((statusCheck as { status?: string }).status ?? "");
+    if (!canEditOrDelete(liveStatus)) {
+      toast.error("此訂單已進入生產或後續階段，無法修改");
+      setEditingOrderId(null);
+      setEditForm(null);
+      fetchMyOrders();
+      return;
+    }
     const totalAmount = validItems.reduce((s, it) => s + it.quantity * (it.unit_price || 0), 0);
     setEditSaving(true);
     try {
@@ -507,10 +915,14 @@ export default function PortalPage() {
         toast.error(itemsErr.message || "更新明細失敗");
         return;
       }
+      const plannedFromDelivery = plannedEndDateFromOrderDelivery(
+        editForm.expected_delivery_date
+      );
       const workOrderPayload = (insertedItems ?? []).map((row: { id: string }) => ({
         order_item_id: row.id,
         stage: DEFAULT_WORK_ORDER_STAGE,
         status: "未開始",
+        planned_end_date: plannedFromDelivery,
       }));
       if (workOrderPayload.length > 0) {
         const { error: woInsErr } = await supabase.from("work_orders").insert(workOrderPayload);
@@ -674,10 +1086,12 @@ export default function PortalPage() {
         return;
       }
 
+      const plannedFromDelivery = plannedEndDateFromOrderDelivery(expectedDate);
       const workOrderPayload = (insertedItems ?? []).map((row: { id: string }) => ({
         order_item_id: row.id,
         stage: DEFAULT_WORK_ORDER_STAGE,
         status: "未開始",
+        planned_end_date: plannedFromDelivery,
       }));
       if (workOrderPayload.length > 0) {
         const { error: woError } = await supabase
@@ -913,22 +1327,33 @@ export default function PortalPage() {
                       )}
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <div className="flex flex-col gap-1.5 sm:col-span-1">
+                      <div className="flex flex-col gap-1.5 sm:col-span-1 min-w-0">
                         <label className="text-xs text-muted-foreground">品項 *</label>
-                        <select
-                          value={it.variant_id}
-                          onChange={(e) => onVariantChange(it.id, e.target.value)}
-                          className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                          required={idx === 0}
-                        >
-                          <option value="">請選擇</option>
-                          {variants.map((v) => (
-                            <option key={v.id} value={v.id}>
-                              {v.label}
-                              {v.base_price != null ? ` · $${v.base_price}` : ""}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="flex w-full min-w-0 flex-col gap-1.5">
+                          <select
+                            value={it.variant_id}
+                            onChange={(e) => onVariantChange(it.id, e.target.value)}
+                            className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            required={idx === 0}
+                          >
+                            <option value="">請選擇</option>
+                            {variants.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.label}
+                                {v.base_price != null ? ` · $${v.base_price}` : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="flex shrink-0 items-start">
+                            <VariantSeriesThumb
+                              imageUrl={
+                                variants.find((v) => v.id === it.variant_id)?.series_image_url
+                              }
+                              compactPlaceholder
+                              sizeClassName="h-10 w-10 sm:h-11 sm:w-11"
+                            />
+                          </div>
+                        </div>
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs text-muted-foreground">數量 *</label>
@@ -991,87 +1416,302 @@ export default function PortalPage() {
         </div>
 
         <div className="rounded-xl border border-border bg-card shadow-sm p-6">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-4">
-            <ClipboardList className="h-4 w-4" />
-            我的訂單
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <ClipboardList className="h-4 w-4" />
+              我的訂單
+            </div>
+            {!myOrdersLoading && myOrders.length > 0 ? (
+              <div
+                role="tablist"
+                aria-label="訂單列表分類"
+                className="flex w-full shrink-0 gap-1 rounded-lg border border-border bg-muted/40 p-1 sm:w-auto"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={myOrdersScopeTab === "ongoing"}
+                  id="portal-my-orders-tab-ongoing"
+                  aria-controls="portal-my-orders-panel"
+                  onClick={() => setMyOrdersScopeTab("ongoing")}
+                  className={
+                    myOrdersScopeTab === "ongoing"
+                      ? "flex-1 rounded-md bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm sm:flex-none"
+                      : "flex-1 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground sm:flex-none"
+                  }
+                >
+                  進行中
+                  <span className="ml-1 tabular-nums text-muted-foreground">({myOrdersScopeCounts.ongoing})</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={myOrdersScopeTab === "closed"}
+                  id="portal-my-orders-tab-closed"
+                  aria-controls="portal-my-orders-panel"
+                  onClick={() => setMyOrdersScopeTab("closed")}
+                  className={
+                    myOrdersScopeTab === "closed"
+                      ? "flex-1 rounded-md bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm sm:flex-none"
+                      : "flex-1 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground sm:flex-none"
+                  }
+                >
+                  已結案
+                  <span className="ml-1 tabular-nums text-muted-foreground">({myOrdersScopeCounts.closed})</span>
+                </button>
+              </div>
+            ) : null}
           </div>
           {myOrdersLoading ? (
             <p className="text-sm text-muted-foreground">載入中…</p>
           ) : myOrders.length === 0 ? (
             <p className="text-sm text-muted-foreground">尚無訂單紀錄</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="pb-2 pr-4 font-medium">訂單編號</th>
-                    <th className="pb-2 pr-4 font-medium">下單日</th>
-                    <th className="pb-2 pr-4 font-medium">客戶</th>
-                    <th className="pb-2 pr-4 font-medium">預計交貨</th>
-                    <th className="pb-2 pr-4 font-medium">狀態</th>
-                    <th className="pb-2 text-right font-medium">金額</th>
-                    <th className="pb-2 pl-4 font-medium">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {myOrders.map((o) => (
-                    <tr key={o.id} className="border-b border-border/60">
-                      <td className="py-2.5 pr-4 font-mono text-foreground">{o.order_number}</td>
-                      <td className="py-2.5 pr-4 text-muted-foreground">
-                        {o.order_date ? o.order_date.slice(0, 10) : "—"}
-                      </td>
-                      <td className="py-2.5 pr-4 text-muted-foreground max-w-[12rem] truncate" title={o.shipping_contact_name ?? undefined}>
-                        {o.shipping_contact_name?.trim() || "—"}
-                      </td>
-                      <td className="py-2.5 pr-4 text-muted-foreground">
-                        {o.expected_delivery_date
-                          ? o.expected_delivery_date.slice(0, 10)
-                          : "—"}
-                      </td>
-                      <td className="py-2.5 pr-4 text-muted-foreground">{o.status}</td>
-                      <td className="py-2.5 text-right font-medium text-foreground">
-                        ${o.total_amount.toLocaleString()}
-                      </td>
-                      <td className="py-2.5 pl-4">
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-8 px-2 text-xs"
-                            onClick={() => viewOrder(o.id)}
-                          >
-                            檢視訂單
-                          </Button>
-                          {canEditOrDelete(o.status) ? (
-                            <>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                className="h-8 px-2 text-xs"
-                                onClick={() => setEditingOrderId(o.id)}
-                              >
-                                <Pencil className="h-3.5 w-3.5 mr-1" />
-                                編輯
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                className="h-8 px-2 text-xs text-destructive hover:text-destructive"
-                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteOrder(o); }}
-                              >
-                                <Trash2 className="h-3.5 w-3.5 mr-1" />
-                                刪除
-                              </Button>
-                            </>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">已進入生產，無法修改/刪除</span>
-                          )}
-                        </div>
-                      </td>
+            <div id="portal-my-orders-panel" role="tabpanel" className="space-y-3" aria-labelledby={myOrdersScopeTab === "closed" ? "portal-my-orders-tab-closed" : "portal-my-orders-tab-ongoing"}>
+              <div className="rounded-lg border border-border bg-muted/15 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  結算管理
+                </p>
+                <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="portal-settle-basis">
+                      期間依據
+                    </label>
+                    <select
+                      id="portal-settle-basis"
+                      value={settleDateBasis}
+                      onChange={(e) => setSettleDateBasis(e.target.value as PortalDateBasis)}
+                      className="h-9 min-w-[10rem] rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="order_date">下單日</option>
+                      <option value="expected_delivery">預計交貨日</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground" htmlFor="portal-settle-from">
+                        起
+                      </label>
+                      <input
+                        id="portal-settle-from"
+                        type="date"
+                        value={settleDateFrom}
+                        onChange={(e) => setSettleDateFrom(e.target.value)}
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground" htmlFor="portal-settle-to">
+                        迄
+                      </label>
+                      <input
+                        id="portal-settle-to"
+                        type="date"
+                        value={settleDateTo}
+                        onChange={(e) => setSettleDateTo(e.target.value)}
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+                    <Button type="button" variant="outline" className="h-9 text-xs" onClick={applyPortalSettleThisMonth}>
+                      本月（下單）
+                    </Button>
+                    <Button type="button" variant="ghost" className="h-9 text-xs" onClick={clearPortalSettleDates}>
+                      清除日期
+                    </Button>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="portal-settle-pay">
+                      付款狀態
+                    </label>
+                    <select
+                      id="portal-settle-pay"
+                      value={settlePayFilter}
+                      onChange={(e) => setSettlePayFilter(e.target.value)}
+                      className="h-9 min-w-[11rem] rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {settlePaymentOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+                  與貴司對帳時可依下單日或交貨日篩選本期單據。金額以訂單總額為準。
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                <div className="text-sm text-foreground space-y-1">
+                  <div>
+                    <span className="font-medium tabular-nums">{portalSettlementTotals.count}</span>
+                    <span className="text-muted-foreground"> 筆 · 應收（含運） </span>
+                    <span className="font-semibold tabular-nums">
+                      ${portalSettlementTotals.sum.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs shrink-0"
+                  disabled={!myOrdersFilteredSorted.length}
+                  onClick={exportPortalSettlementCsv}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  匯出結算 CSV
+                </Button>
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-1.5 max-w-md">
+                <label className="text-xs font-medium text-muted-foreground" htmlFor="portal-my-orders-search">
+                  搜尋（聯絡人／訂單編號／付款狀態）
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    id="portal-my-orders-search"
+                    value={myOrderSearch}
+                    onChange={(e) => setMyOrderSearch(e.target.value)}
+                    placeholder="輸入關鍵字…"
+                    className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+              <div className="overflow-x-auto rounded-md border border-border/80">
+                <table className="w-full min-w-[880px] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30 text-left">
+                      <th className="w-[10rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                        <MyOrderSortHeader label="訂單編號" sortKey="order_number" />
+                      </th>
+                      <th className="w-[5.25rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                        <MyOrderSortHeader label="下單日" sortKey="order_date" />
+                      </th>
+                      <th className="min-w-[6.5rem] max-w-[11rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                        <MyOrderSortHeader label="聯絡人" sortKey="contact_name" />
+                      </th>
+                      <th className="min-w-[7rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                        <MyOrderSortHeader label="預計交貨" sortKey="expected_delivery_date" />
+                      </th>
+                      <th className="min-w-[7rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                        <MyOrderSortHeader label="預計完成" sortKey="planned_end_max" />
+                      </th>
+                      <th className="min-w-[4.5rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                        <MyOrderSortHeader label="狀態" sortKey="status" />
+                      </th>
+                      <th className="min-w-[4.25rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                        <MyOrderSortHeader label="付款" sortKey="payment_status" />
+                      </th>
+                      <th className="min-w-[6.75rem] whitespace-nowrap px-2 py-2.5 text-right align-bottom sm:px-3">
+                        <MyOrderSortHeader label="折後(運)" sortKey="total_amount" align="right" />
+                      </th>
+                      <th className="min-w-[12rem] whitespace-nowrap px-2 py-2.5 pl-3 align-bottom text-sm font-medium text-muted-foreground sm:px-3">
+                        操作
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {myOrdersFilteredSorted.map((o) => (
+                      <tr key={o.id} className="border-b border-border/60">
+                        <td className="px-2 py-2.5 align-middle font-mono text-sm text-foreground sm:px-3">
+                          {o.order_number}
+                        </td>
+                        <td className="px-2 py-2.5 align-middle text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:px-3">
+                          {o.order_date ? formatDateYyMmDd(o.order_date) : "—"}
+                        </td>
+                        <td
+                          className="max-w-[11rem] px-2 py-2.5 align-middle text-sm text-foreground sm:px-3"
+                          title={o.shipping_contact_name ?? undefined}
+                        >
+                          <span className="block truncate">{o.shipping_contact_name?.trim() || "—"}</span>
+                        </td>
+                        <td className="px-2 py-2.5 align-middle text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:px-3">
+                          {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}
+                        </td>
+                        <td className="px-2 py-2.5 align-middle text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:px-3">
+                          {o.planned_end_max ? (
+                            formatDateYyMmDd(o.planned_end_max)
+                          ) : o.expected_delivery_date ? (
+                            <span className="inline-flex flex-col gap-0.5 leading-snug">
+                              <span>{formatDateYyMmDd(o.expected_delivery_date)}</span>
+                              <span className="text-xs text-muted-foreground/85">（預計交貨）</span>
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-2 py-2.5 align-middle text-sm text-muted-foreground sm:px-3">
+                          {o.status}
+                        </td>
+                        <td className="px-2 py-2.5 align-middle text-sm text-muted-foreground whitespace-nowrap sm:px-3">
+                          {o.payment_status || "—"}
+                        </td>
+                        <td className="px-2 py-2.5 align-middle text-right text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:px-3">
+                          ${o.total_amount.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-2.5 pl-3 align-middle sm:px-3">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-8 px-2 text-sm font-normal"
+                              onClick={() => openOrderOverview(o.id)}
+                            >
+                              檢視訂單
+                            </Button>
+                            {canEditOrDelete(o.status) ? (
+                              <>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className="h-8 px-2 text-sm font-normal"
+                                  onClick={() => setEditingOrderId(o.id)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5 mr-1" />
+                                  編輯
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className="h-8 px-2 text-sm font-normal text-destructive hover:text-destructive"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    requestDeleteOrder(o);
+                                  }}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                  刪除
+                                </Button>
+                              </>
+                            ) : (
+                              <span className="max-w-[14rem] text-sm leading-snug text-muted-foreground">
+                                已進入生產或後續階段，無法修改/刪除
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {myOrdersFilteredSorted.length === 0 && (
+                  <p className="text-sm text-muted-foreground py-6 text-center">
+                    {myOrdersScopeTab === "closed"
+                      ? myOrdersScopeCounts.closed === 0
+                        ? "尚無已結案訂單"
+                        : "沒有符合條件的已結案訂單"
+                      : myOrdersScopeCounts.ongoing === 0
+                        ? "尚無進行中訂單"
+                        : "沒有符合條件的訂單"}
+                  </p>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                「預計完成」為同訂單各工單預計完成日之最晚者；無則以預計交貨備援標示。匯出需登入憑證並請後端設定 SUPABASE_SERVICE_ROLE_KEY。
+              </p>
             </div>
           )}
         </div>
@@ -1172,18 +1812,32 @@ export default function PortalPage() {
                             )}
                           </div>
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                            <div>
+                            <div className="min-w-0">
                               <label className="text-[11px] text-muted-foreground">品項 *</label>
-                              <select
-                                value={it.variant_id}
-                                onChange={(e) => onEditVariantChange(it.id, e.target.value)}
-                                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                              >
-                                <option value="">請選擇</option>
-                                {variants.map((v) => (
-                                  <option key={v.id} value={v.id}>{v.label}{v.base_price != null ? ` · $${v.base_price}` : ""}</option>
-                                ))}
-                              </select>
+                              <div className="mt-0.5 flex w-full min-w-0 flex-col gap-1.5">
+                                <select
+                                  value={it.variant_id}
+                                  onChange={(e) => onEditVariantChange(it.id, e.target.value)}
+                                  className="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                >
+                                  <option value="">請選擇</option>
+                                  {variants.map((v) => (
+                                    <option key={v.id} value={v.id}>
+                                      {v.label}
+                                      {v.base_price != null ? ` · $${v.base_price}` : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                                <div className="flex shrink-0 items-start">
+                                  <VariantSeriesThumb
+                                    imageUrl={
+                                      variants.find((v) => v.id === it.variant_id)?.series_image_url
+                                    }
+                                    compactPlaceholder
+                                    sizeClassName="h-8 w-8 sm:h-9 sm:w-9"
+                                  />
+                                </div>
+                              </div>
                             </div>
                             <div>
                               <label className="text-[11px] text-muted-foreground">數量 *</label>
@@ -1258,6 +1912,16 @@ export default function PortalPage() {
           confirmLabel="確定刪除"
           onConfirm={performDeleteOrder}
           destructive
+        />
+
+        <OrderOverviewDialog
+          open={orderOverviewId != null}
+          onOpenChange={(open) => {
+            if (!open) setOrderOverviewId(null);
+          }}
+          orderId={orderOverviewId}
+          visualTone="warm"
+          showEditButton={false}
         />
       </div>
     </div>

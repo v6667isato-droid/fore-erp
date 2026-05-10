@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
+import { normalizeWorkOrderStage } from "@/lib/work-order-stages";
 import { Loader2 } from "lucide-react";
 
 /** 單一訂單明細列 */
@@ -21,7 +22,8 @@ type ChairRow = {
   isChannelOrder: boolean;
   /** 明細備註（與規格主文不同時另起一行） */
   itemNotesLine: string;
-  eta: string;
+  /** 完成日顯示：工單預計完成日優先，否則訂單交期 */
+  completionDateMd: string;
   walnut: [string, string, string];
   oak: [string, string, string];
 };
@@ -29,8 +31,14 @@ type ChairRow = {
 /** 未出貨：與生產工單相同，排除尚未確認與已結／已出貨 */
 const EXCLUDED_ORDER_STATUSES = new Set(["已出貨", "結案", "報價中"]);
 
-/** 工單工序已達「待出貨」或之後者（含舊欄位「成品」），不列入椅子生產表 */
-const EXCLUDED_WORK_STAGES_FOR_CHAIR_PRINT = new Set(["待出貨", "已出貨", "成品"]);
+/** 不列入椅子生產表之工單工序（已正規化，含舊站別對應後之結果） */
+const EXCLUDED_WORK_STAGES_FOR_CHAIR_PRINT = new Set([
+  "塗裝後製程(組配、編織)",
+  "包裝管理",
+  "待出貨",
+  "已出貨",
+  "暫停",
+]);
 
 function workStageFromOrderItem(raw: { work_orders?: unknown }): string | null {
   const wo = raw.work_orders as { stage?: string } | { stage?: string }[] | null | undefined;
@@ -39,6 +47,19 @@ function workStageFromOrderItem(raw: { work_orders?: unknown }): string | null {
   const s = row?.stage;
   if (s == null || String(s).trim() === "") return null;
   return String(s).trim();
+}
+
+function workOrderPlannedEndFromItem(raw: { work_orders?: unknown }): string | null {
+  const wo = raw.work_orders as
+    | { planned_end_date?: string | null }
+    | { planned_end_date?: string | null }[]
+    | null
+    | undefined;
+  if (!wo) return null;
+  const row = Array.isArray(wo) ? wo[0] : wo;
+  const d = row?.planned_end_date;
+  if (d == null || String(d).trim() === "") return null;
+  return String(d);
 }
 
 /** CH03 vs CH03A（含 CH03A／CH03-A 無連字號與子規格） */
@@ -300,7 +321,8 @@ export default function ChairProductionPrintPage() {
             )
           ),
           work_orders (
-            stage
+            stage,
+            planned_end_date
           )
         `
         )
@@ -320,11 +342,11 @@ export default function ChairProductionPrintPage() {
         if (!chairModelFromCode(code)) continue;
 
         const workStage = workStageFromOrderItem(raw);
-        if (
-          workStage != null &&
-          EXCLUDED_WORK_STAGES_FOR_CHAIR_PRINT.has(workStage)
-        ) {
-          continue;
+        if (workStage != null) {
+          const normalized = normalizeWorkOrderStage(workStage);
+          if (EXCLUDED_WORK_STAGES_FOR_CHAIR_PRINT.has(normalized)) {
+            continue;
+          }
         }
 
         const qty = Math.max(1, Number(raw.quantity ?? 1));
@@ -369,7 +391,9 @@ export default function ChairProductionPrintPage() {
           contactName,
           isChannelOrder,
           itemNotesLine,
-          eta: formatEtaMd(raw.orders?.expected_delivery_date ?? null),
+          completionDateMd: formatEtaMd(
+            workOrderPlannedEndFromItem(raw) ?? raw.orders?.expected_delivery_date ?? null,
+          ),
           walnut,
           oak,
         });
@@ -380,8 +404,8 @@ export default function ChairProductionPrintPage() {
         if (fam !== 0) return fam;
         const s = a.seriesName.localeCompare(b.seriesName, "zh-Hant");
         if (s !== 0) return s;
-        const ea = a.eta || "";
-        const eb = b.eta || "";
+        const ea = a.completionDateMd || "";
+        const eb = b.completionDateMd || "";
         if (ea !== eb) return ea.localeCompare(eb, undefined, { numeric: true });
         return a.customerName.localeCompare(b.customerName, "zh-Hant");
       });
@@ -590,7 +614,7 @@ export default function ChairProductionPrintPage() {
                         rowSpan={2}
                         className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
                       >
-                        預計交期
+                        完成日
                       </th>
                       <th
                         colSpan={2}
@@ -701,7 +725,7 @@ export default function ChairProductionPrintPage() {
                             </div>
                           </td>
                           <td className="chair-body-td border border-black bg-amber-50 text-center px-0.5 py-0.5 print:bg-amber-50">
-                            {row.eta}
+                            {row.completionDateMd}
                           </td>
                           <CheckCell />
                           <CheckCell />
@@ -735,7 +759,8 @@ export default function ChairProductionPrintPage() {
 
               <p className="chair-print-data-note relative z-10 mt-3 rounded-sm bg-zinc-100 px-0.5 pb-1 text-[15px] text-zinc-500 print:hidden">
                 資料來源：訂單狀態非「已出貨／結案／報價中」，產品代碼為 CH03／CH03A／CH03-A
-                系列；工單工序為「待出貨」或「已出貨」（舊資料「成品」）者不列入。第一欄依 CH03／CH03A 合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。胡桃／白橡欄之座高取自訂單明細座高（無則產品變體預設）。組立與噴漆請現場勾選。
+                系列；工單工序為「塗裝後製程(組配、編織)／包裝管理／待出貨／已出貨／暫停」（舊站別正規化後同樣適用，例如「成品」→待出貨、「品檢中」→包裝管理）者不列入。「完成日」優先為工單預計完成日，無則為訂單預計交期。第一欄依 CH03／CH03A
+                合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。胡桃／白橡欄之座高取自訂單明細座高（無則產品變體預設）。組立與噴漆請現場勾選。
               </p>
             </>
           )}

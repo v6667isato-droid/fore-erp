@@ -123,13 +123,15 @@ export interface PayslipRow {
   notes: string | null;
 }
 
-/** 員工為工單負責人時，生產交辦區塊顯示之 work_orders（與生產管理列表欄位對齊，不含聯絡人／負責人指定） */
+/** 員工為工單負責人時，生產交辦區塊顯示之 work_orders（與生產管理列表對齊；聯絡人僅附於客戶欄供辨識，不獨立欄） */
 export interface AssigneeWorkOrderRow {
   id: string;
   order_id: string | null;
   order_number: string;
   customer_name: string;
   customer_alias: string | null;
+  /** orders.shipping_contact_name */
+  shipping_contact_name: string | null;
   /** 品項＋尺寸，同生產管理「品項 / 尺寸」 */
   item_size_label: string;
   quantity: number;
@@ -291,6 +293,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       order_number: "ORD-8841",
       customer_name: "謝木木工作室",
       customer_alias: null,
+      shipping_contact_name: "陳大明",
       item_size_label: "餐桌系列 B / W:140 x D:80 x H:75",
       quantity: 3,
       category: "桌",
@@ -306,6 +309,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       order_number: "ORD-8850",
       customer_name: "謝木木工作室",
       customer_alias: "專案 A",
+      shipping_contact_name: "林小姐",
       item_size_label: "ST01-C / W:40 x D:48 x H:75",
       quantity: 3,
       category: "凳",

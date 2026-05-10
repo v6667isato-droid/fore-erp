@@ -521,20 +521,14 @@ function parseDateMs(iso: string | null | undefined): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-function effectiveAssigneeWoCompletion(w: {
-  planned_end_date: string | null;
-  expected_delivery_date: string | null;
-}): string | null {
-  return w.planned_end_date ?? w.expected_delivery_date ?? null;
-}
-
-function compareAssigneeWoPlannedCompletion(
-  a: { planned_end_date: string | null; expected_delivery_date: string | null },
-  b: { planned_end_date: string | null; expected_delivery_date: string | null },
+/** 預計完成欄僅使用 work_orders.planned_end_date（不依訂單交期遞補） */
+function compareAssigneeWoPlannedEndDate(
+  a: { planned_end_date: string | null },
+  b: { planned_end_date: string | null },
   asc: boolean,
 ): number {
-  const na = parseDateMs(effectiveAssigneeWoCompletion(a));
-  const nb = parseDateMs(effectiveAssigneeWoCompletion(b));
+  const na = parseDateMs(a.planned_end_date);
+  const nb = parseDateMs(b.planned_end_date);
   if (na === null && nb === null) return 0;
   if (na === null) return 1;
   if (nb === null) return -1;
@@ -727,7 +721,7 @@ export default function EmployeePortalPage() {
         cmp = workOrderStageSortIndex(sa) - workOrderStageSortIndex(sb);
         if (!woSortAsc) cmp = -cmp;
       } else if (key === "planned_end_date") {
-        cmp = compareAssigneeWoPlannedCompletion(a, b, woSortAsc);
+        cmp = compareAssigneeWoPlannedEndDate(a, b, woSortAsc);
       } else {
         const av =
           key === "order_number"
@@ -1298,21 +1292,22 @@ export default function EmployeePortalPage() {
                                 const safeStage = isWorkOrderStage(stageVal)
                                   ? stageVal
                                   : DEFAULT_WORK_ORDER_STAGE;
-                                const completion = effectiveAssigneeWoCompletion(wo);
                                 return (
                                   <TableRow key={wo.id} className="border-border/60">
                                     <TableCell className="p-2 align-middle font-mono text-xs font-medium whitespace-nowrap">
                                       {wo.order_number || "—"}
                                     </TableCell>
                                     <TableCell className="p-2 align-middle text-sm">
-                                      <span className="font-medium text-foreground">
-                                        {wo.customer_name || "—"}
-                                      </span>
-                                      {wo.customer_alias?.trim() ? (
-                                        <span className="ml-1 text-xs text-muted-foreground">
-                                          ({wo.customer_alias})
+                                      <div className="min-w-0 leading-snug">
+                                        <span className="font-medium text-foreground">
+                                          {wo.customer_name || "—"}
                                         </span>
-                                      ) : null}
+                                        {wo.shipping_contact_name?.trim() ? (
+                                          <span className="ml-1.5 text-xs text-muted-foreground">
+                                            {wo.shipping_contact_name.trim()}
+                                          </span>
+                                        ) : null}
+                                      </div>
                                     </TableCell>
                                     <TableCell className="p-2 align-middle text-sm max-w-[14rem]">
                                       <span className="line-clamp-2">{wo.item_size_label || "—"}</span>
@@ -1368,7 +1363,9 @@ export default function EmployeePortalPage() {
                                       <div className="flex items-center gap-1">
                                         <CalendarDays className="h-3 w-3 shrink-0" />
                                         <span>
-                                          {completion ? formatDateYyMmDd(completion) : "—"}
+                                          {wo.planned_end_date
+                                            ? formatDateYyMmDd(wo.planned_end_date)
+                                            : "—"}
                                         </span>
                                       </div>
                                     </TableCell>

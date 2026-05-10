@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { OrderOverviewDialog } from "@/components/order-overview-dialog";
 import { cn } from "@/lib/utils";
 import { User, MessageSquare, Wrench } from "lucide-react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -54,13 +56,16 @@ const statusToColumnId: Record<string, string> = {
   已完成: "done",
 };
 
-function KanbanCardItem({ card }: { card: KanbanCard }) {
+function KanbanCardItem({
+  card,
+  onOpenOrderOverview,
+}: {
+  card: KanbanCard;
+  onOpenOrderOverview: (orderId: string) => void;
+}) {
   const handleOpenOrder = () => {
     if (!card.orderId) return;
-    if (typeof window === "undefined") return;
-    const encodedId = encodeURIComponent(card.orderId);
-    // 保留在目前頁面，只更新網址 hash，交由主系統視情況處理
-    window.location.hash = `orders:${encodedId}`;
+    onOpenOrderOverview(card.orderId);
   };
 
   return (
@@ -97,7 +102,13 @@ function KanbanCardItem({ card }: { card: KanbanCard }) {
   );
 }
 
-function KanbanColumnView({ column }: { column: KanbanColumn }) {
+function KanbanColumnView({
+  column,
+  onOpenOrderOverview,
+}: {
+  column: KanbanColumn;
+  onOpenOrderOverview: (orderId: string) => void;
+}) {
   const colors = columnColors[column.id] ?? columnColors.todo;
   return (
     <div
@@ -117,7 +128,11 @@ function KanbanColumnView({ column }: { column: KanbanColumn }) {
       </div>
       <div className="flex flex-col gap-2.5 px-3 pb-4">
         {column.cards.map((card) => (
-          <KanbanCardItem key={card.id} card={card} />
+          <KanbanCardItem
+            key={card.id}
+            card={card}
+            onOpenOrderOverview={onOpenOrderOverview}
+          />
         ))}
       </div>
     </div>
@@ -125,6 +140,8 @@ function KanbanColumnView({ column }: { column: KanbanColumn }) {
 }
 
 export function KanbanPage() {
+  const router = useRouter();
+  const [overviewOrderId, setOverviewOrderId] = useState<string | null>(null);
   const [columns, setColumns] = useState<KanbanColumn[]>([
     { id: "todo", title: "待處理", cards: [] },
     { id: "in-progress", title: "進行中", cards: [] },
@@ -269,11 +286,27 @@ export function KanbanPage() {
       <ScrollArea className="w-full">
         <div className="flex gap-4 pb-4 lg:grid lg:grid-cols-3">
           {columns.map((col) => (
-            <KanbanColumnView key={col.id} column={col} />
+            <KanbanColumnView
+              key={col.id}
+              column={col}
+              onOpenOrderOverview={(id) => setOverviewOrderId(id)}
+            />
           ))}
         </div>
         <ScrollBar orientation="horizontal" className="lg:hidden" />
       </ScrollArea>
+
+      <OrderOverviewDialog
+        open={overviewOrderId != null}
+        onOpenChange={(open) => {
+          if (!open) setOverviewOrderId(null);
+        }}
+        orderId={overviewOrderId}
+        onEditOrder={(id) => {
+          setOverviewOrderId(null);
+          router.replace(`/?page=orders#orders:${encodeURIComponent(id)}`);
+        }}
+      />
     </div>
   );
 }

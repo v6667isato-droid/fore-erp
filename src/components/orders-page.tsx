@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { supabase } from "@/lib/supabase";
 import {
   DEFAULT_WORK_ORDER_STAGE,
   isOrderStatusLockedForManualEdit,
+  plannedEndDateFromOrderDelivery,
   syncWorkOrdersToOrderStatus,
 } from "@/lib/work-order-stages";
 import { DEFAULT_SEAT_HEIGHT_CM } from "@/lib/product-seat-height";
@@ -24,6 +25,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { OrderOverviewDialog } from "@/components/order-overview-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
+import { VariantSeriesThumb } from "@/components/variant-series-thumb";
 import { Search, Plus, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, Layers, ArrowLeft, MoreVertical } from "lucide-react";
 import { toast } from "sonner";
 
@@ -90,6 +92,8 @@ interface VariantOption {
   series_id: string;
   series_name: string;
   series_category?: string | null;
+  /** 示意圖：product_variants.image_url 優先，否則 product_series.image_url */
+  series_image_url?: string | null;
   label: string;
   base_price: number | null;
   spec1?: string | null;
@@ -603,6 +607,46 @@ function OrderFormDialog({
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [variants]);
 
+  /**
+   * 計算指定品項在目前客戶下的「通路成交價」。
+   * 客戶有所屬通路且該系列設定折扣 % 時，回傳 base_price * (1 - pct/100)，否則回傳 null。
+   */
+  const resolveChannelUnitPrice = useCallback(
+    (variantId: string | null | undefined, seriesId: string | null | undefined): number | null => {
+      if (!variantId) return null;
+      const variant = variants.find((v) => v.id === variantId);
+      const base = variant?.base_price ?? null;
+      if (base == null || !Number.isFinite(Number(base))) return null;
+
+      const customer = customers.find((c) => c.id === customerId);
+      const channelId = customer?.channel_id ?? null;
+      const sid = seriesId ?? variant?.series_id ?? null;
+      if (!channelId || !sid) return null;
+
+      const discounts = seriesDiscounts[sid] ?? [];
+      const row = discounts.find((d) => d.channel_id === channelId);
+      const pct = row?.discount_percent ?? 0;
+      if (!(pct > 0)) return null;
+
+      return Math.round(Number(base) * (1 - pct / 100));
+    },
+    [variants, customers, customerId, seriesDiscounts]
+  );
+
+  /**
+   * 結算單價：有通路價格優先採用通路價格，否則採用品項成交單價（unit_price，預設為 base_price）。
+   * 用於品項小計、訂單合計、列印金額等結算用途。
+   */
+  const resolveItemSettlementPrice = useCallback(
+    (it: OrderItemInput): number => {
+      const channelPrice = resolveChannelUnitPrice(it.variant_id, it.series_id ?? null);
+      if (channelPrice != null) return channelPrice;
+      const fallback = Number(it.unit_price) || 0;
+      return fallback;
+    },
+    [resolveChannelUnitPrice]
+  );
+
 
   function itemLedgerSummary(it: OrderItemInput): {
     code: string;
@@ -629,8 +673,9 @@ function OrderFormDialog({
     };
   }
 
+  // 每項小計：通路價格優先（有設定折扣 % 時）、其次採用「成交單價」(unit_price)
   const itemSubtotals = itemRows.map(
-    (it) => (Number(it.quantity) || 0) * (Number(it.unit_price) || 0)
+    (it) => (Number(it.quantity) || 0) * resolveItemSettlementPrice(it)
   );
   const totalAmount = itemSubtotals.reduce((sum, v) => sum + v, 0);
   const shippingFeeAmount = Math.max(0, Number(shippingFee) || 0);
@@ -916,11 +961,13 @@ function OrderFormDialog({
       }
 
       // 依照 order_items 自動建立工單（work_orders）
+      const plannedFromDelivery = plannedEndDateFromOrderDelivery(expectedDate);
       const workOrderPayload =
         (insertedItems ?? []).map((row: any) => ({
           order_item_id: row.id,
           stage: DEFAULT_WORK_ORDER_STAGE,
           status: "未開始",
+          planned_end_date: plannedFromDelivery,
         })) ?? [];
       if (workOrderPayload.length > 0) {
         const { error: woError } = await supabase
@@ -1475,7 +1522,7 @@ function OrderFormDialog({
                             {summary.title}
                           </p>
                           <p className="mt-1 text-xs tabular-nums text-[#7D7767]">
-                            NTD {(Number(it.unit_price) || 0).toLocaleString()} ×{" "}
+                            NTD {resolveItemSettlementPrice(it).toLocaleString()} ×{" "}
                             {it.quantity}
                           </p>
                         </div>
@@ -1599,72 +1646,97 @@ function OrderFormDialog({
                                 產品規格 *
                               </label>
                               {readOnly ? (
-                                <div
-                                  id={`item-variant-${it.id}`}
-                                  className={viewFieldClass}
-                                >
-                                  {(() => {
-                                    const v = variants.find(
-                                      (vv) => vv.id === it.variant_id
-                                    );
-                                    if (!v) return "—";
-                                    return v.series_name
-                                      ? `${v.series_name} / ${v.label}`
-                                      : v.label;
-                                  })()}
+                                <div className="flex w-full min-w-0 flex-col gap-1.5">
+                                  <div
+                                    id={`item-variant-${it.id}`}
+                                    className={`${viewFieldClass} w-full min-w-0`}
+                                  >
+                                    {(() => {
+                                      const v = variants.find(
+                                        (vv) => vv.id === it.variant_id
+                                      );
+                                      if (!v) return "—";
+                                      return v.series_name
+                                        ? `${v.series_name} / ${v.label}`
+                                        : v.label;
+                                    })()}
+                                  </div>
+                                  <div className="flex shrink-0 items-start">
+                                    <VariantSeriesThumb
+                                      imageUrl={
+                                        variants.find((vv) => vv.id === it.variant_id)
+                                          ?.series_image_url
+                                      }
+                                      compactPlaceholder
+                                      sizeClassName="h-10 w-10 sm:h-11 sm:w-11"
+                                    />
+                                  </div>
                                 </div>
                               ) : (
-                                <select
-                                  id={`item-variant-${it.id}`}
-                                  value={it.variant_id}
-                                  onChange={(e) => {
-                                    const value = e.target.value;
-                                    const selected = variants.find(
-                                      (v) => v.id === value
-                                    );
-                                    const wt = selected?.wood_type?.trim();
-                                    const dimW = selected?.dimension_w ?? null;
-                                    const dimD = selected?.dimension_d ?? null;
-                                    const dimH = selected?.dimension_h ?? null;
-                                    const seatResolved =
-                                      selected?.seat_height_cm != null
-                                        ? Number(selected.seat_height_cm)
-                                        : selected?.series_category === "椅" ||
-                                            selected?.series_category === "凳"
-                                          ? DEFAULT_SEAT_HEIGHT_CM
-                                          : null;
-                                    updateItem(it.id, {
-                                      variant_id: value,
-                                      series_id: selected?.series_id ?? it.series_id ?? null,
-                                      unit_price:
-                                        selected?.base_price ??
-                                        it.unit_price ??
-                                        0,
-                                      wood_type: wt ? wt : null,
-                                      custom_dimension_w: dimW,
-                                      custom_dimension_d: dimD,
-                                      custom_dimension_h: dimH,
-                                      seat_height_cm: seatResolved,
-                                    });
-                                  }}
-                                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                  required
-                                >
-                                  <option value="">請選擇規格</option>
-                                  {variants
-                                    .filter((v) =>
-                                      it.series_id
-                                        ? v.series_id === it.series_id
-                                        : true
-                                    )
-                                    .map((v) => (
-                                      <option key={v.id} value={v.id}>
-                                        {v.series_name
-                                          ? `${v.series_name} / ${v.label}`
-                                          : v.label}
-                                      </option>
-                                    ))}
-                                </select>
+                                <div className="flex w-full min-w-0 flex-col gap-1.5">
+                                  <select
+                                    id={`item-variant-${it.id}`}
+                                    value={it.variant_id}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      const selected = variants.find(
+                                        (v) => v.id === value
+                                      );
+                                      const wt = selected?.wood_type?.trim();
+                                      const dimW = selected?.dimension_w ?? null;
+                                      const dimD = selected?.dimension_d ?? null;
+                                      const dimH = selected?.dimension_h ?? null;
+                                      const seatResolved =
+                                        selected?.seat_height_cm != null
+                                          ? Number(selected.seat_height_cm)
+                                          : selected?.series_category === "椅" ||
+                                              selected?.series_category === "凳"
+                                            ? DEFAULT_SEAT_HEIGHT_CM
+                                            : null;
+                                      updateItem(it.id, {
+                                        variant_id: value,
+                                        series_id: selected?.series_id ?? it.series_id ?? null,
+                                        // 成交單價顯示原價（base_price）；結算金額另由通路價格優先決定
+                                        unit_price:
+                                          selected?.base_price ??
+                                          it.unit_price ??
+                                          0,
+                                        wood_type: wt ? wt : null,
+                                        custom_dimension_w: dimW,
+                                        custom_dimension_d: dimD,
+                                        custom_dimension_h: dimH,
+                                        seat_height_cm: seatResolved,
+                                      });
+                                    }}
+                                    className="h-9 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                    required
+                                  >
+                                    <option value="">請選擇規格</option>
+                                    {variants
+                                      .filter((v) =>
+                                        it.series_id
+                                          ? v.series_id === it.series_id
+                                          : true
+                                      )
+                                      .map((v) => (
+                                        <option key={v.id} value={v.id}>
+                                          {v.series_name
+                                            ? `${v.series_name} / ${v.label}`
+                                            : v.label}
+                                        </option>
+                                      ))}
+                                  </select>
+                                  <div className="flex shrink-0 items-start">
+                                    <VariantSeriesThumb
+                                      imageUrl={
+                                        variants.find((vv) => vv.id === it.variant_id)
+                                          ?.series_image_url
+                                      }
+                                      compactPlaceholder
+                                      sizeClassName="h-10 w-10 sm:h-11 sm:w-11"
+                                    />
+                                  </div>
+                                </div>
                               )}
                               {!readOnly &&
                                 variants.find((v) => v.id === it.variant_id) && (
@@ -1726,20 +1798,10 @@ function OrderFormDialog({
                                 通路價格
                               </span>
                               {(() => {
-                                const customer = customers.find((c) => c.id === customerId);
-                                const channelId = customer?.channel_id ?? null;
-                                const seriesId = it.series_id ?? null;
-                                let channelPrice: number | null = null;
-                                if (channelId && seriesId) {
-                                  const discounts = seriesDiscounts[seriesId] ?? [];
-                                  const row = discounts.find((d) => d.channel_id === channelId);
-                                  const pct = row?.discount_percent ?? 0;
-                                  const variant = variants.find((v) => v.id === it.variant_id);
-                                  const base = variant?.base_price ?? null;
-                                  if (base != null && Number.isFinite(base) && pct > 0) {
-                                    channelPrice = Math.round(base * (1 - pct / 100));
-                                  }
-                                }
+                                const channelPrice = resolveChannelUnitPrice(
+                                  it.variant_id,
+                                  it.series_id ?? null
+                                );
                                 return (
                                   <div className="h-9 flex items-center justify-end rounded-lg border border-dashed border-border bg-muted/40 px-3 text-xs tabular-nums text-muted-foreground">
                                     {channelPrice != null ? channelPrice.toLocaleString() : "—"}
@@ -2496,10 +2558,11 @@ export function OrdersPage({
       // 產品系列名稱／類別（用於規格庫先選系列 & 自動帶入 custom_category）
       const { data: seriesData } = await supabase
         .from("product_series")
-        .select("id, series_name, category")
+        .select("id, series_name, category, image_url")
         .order("id", { ascending: true });
       const seriesNameMap = new Map<string, string>();
       const seriesCategoryMap = new Map<string, string | null>();
+      const seriesImageMap = new Map<string, string | null>();
       (seriesData ?? []).forEach((s: any) => {
         const name = s.series_name ?? "";
         const cat =
@@ -2509,13 +2572,15 @@ export function OrdersPage({
         const id = String(s.id);
         seriesNameMap.set(id, String(name));
         seriesCategoryMap.set(id, cat);
+        const img = s.image_url != null && String(s.image_url).trim() ? String(s.image_url).trim() : null;
+        seriesImageMap.set(id, img);
       });
 
       // 產品規格選單（含 series_id）
       const { data: variantData } = await supabase
         .from("product_variants")
         .select(
-          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1"
+          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1, image_url"
         )
         .order("product_code", { ascending: true });
       setVariants(
@@ -2544,11 +2609,16 @@ export function OrdersPage({
             v.spec1 ?? "",
             dim,
           ].filter((s: string) => s && s.trim());
+          const variantImg =
+            v.image_url != null && String(v.image_url).trim()
+              ? String(v.image_url).trim()
+              : null;
           return {
             id: String(v.id),
             series_id: seriesId,
             series_name: seriesName,
             series_category: seriesCategoryMap.get(seriesId) ?? null,
+            series_image_url: variantImg ?? seriesImageMap.get(seriesId) ?? null,
             label: labelParts.join(" / "),
             base_price:
               v.base_price !== undefined && v.base_price !== null

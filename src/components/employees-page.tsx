@@ -314,6 +314,28 @@ function EmployeeForm({
       setError("請輸入姓名");
       return;
     }
+    if (isAdmin) {
+      const alD = annualLeaveDaysInput.trim();
+      const alH = annualLeaveHoursInput.trim();
+      if (alD !== "" && !Number.isFinite(Number(alD))) {
+        setError("特休剩餘「日」請輸入有效數字（可含小數）");
+        return;
+      }
+      if (alH !== "" && !Number.isFinite(Number(alH))) {
+        setError("特休剩餘「小時」請輸入有效數字（可含小數）");
+        return;
+      }
+      const clD = compLeaveDaysInput.trim();
+      const clH = compLeaveHoursInput.trim();
+      if (clD !== "" && !Number.isFinite(Number(clD))) {
+        setError("補休剩餘「日」請輸入有效數字（可含小數）");
+        return;
+      }
+      if (clH !== "" && !Number.isFinite(Number(clH))) {
+        setError("補休剩餘「小時」請輸入有效數字（可含小數）");
+        return;
+      }
+    }
     setSaving(true);
     try {
       // employment_status 轉成 boolean 存進資料庫（在職=true、離職=false）。
@@ -608,7 +630,7 @@ function EmployeeForm({
                     id="emp-special-leave-days"
                     type="number"
                     min={0}
-                    step={1}
+                    step="any"
                     value={annualLeaveDaysInput}
                     onChange={(e) => setAnnualLeaveDaysInput(e.target.value)}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
@@ -625,13 +647,16 @@ function EmployeeForm({
                     id="emp-special-leave-hours"
                     type="number"
                     min={0}
-                    step={1}
+                    step="any"
                     value={annualLeaveHoursInput}
                     onChange={(e) => setAnnualLeaveHoursInput(e.target.value)}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
               </div>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                日、小時皆可輸入小數（例：12.5 日或 4.5 小時）；儲存時合計為「日 + 小時÷8」。
+              </p>
             </div>
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">
@@ -649,7 +674,7 @@ function EmployeeForm({
                     id="emp-comp-leave-days"
                     type="number"
                     min={0}
-                    step={1}
+                    step="any"
                     value={compLeaveDaysInput}
                     onChange={(e) => setCompLeaveDaysInput(e.target.value)}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
@@ -666,7 +691,7 @@ function EmployeeForm({
                     id="emp-comp-leave-hours"
                     type="number"
                     min={0}
-                    step={1}
+                    step="any"
                     value={compLeaveHoursInput}
                     onChange={(e) => setCompLeaveHoursInput(e.target.value)}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"

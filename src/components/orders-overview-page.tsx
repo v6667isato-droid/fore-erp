@@ -29,6 +29,8 @@ import {
   type WorkOrderStage,
 } from "@/lib/work-order-stages";
 import { toast } from "sonner";
+import { VariantSeriesThumb } from "@/components/variant-series-thumb";
+import { maxPlannedEndDate } from "@/lib/planned-end-aggregate";
 
 /** 與訂單／生產列表一致之訂單狀態排序 */
 const ORDER_STATUS_SEQUENCE = [
@@ -130,6 +132,8 @@ export type OverviewOrder = {
   customer_name: string;
   customer_alias: string | null;
   shipping_contact_name: string | null;
+  /** 訂單內所有工單 planned_end_date 之最晚日；皆無則遞補為訂單預計交貨日（見 parse） */
+  planned_end_order_max: string | null;
   lines: OverviewLine[];
 };
 
@@ -137,6 +141,8 @@ export type OverviewLine = {
   order_item_id: string;
   quantity: number;
   item_label: string;
+  /** 規格圖優先，否則系列主視覺 */
+  thumbnail_url: string | null;
   stage: WorkOrderStage;
   assignee: string | null;
   planned_end_date: string | null;
@@ -162,7 +168,14 @@ const ORDER_OVERVIEW_SELECT = `
           custom_dimension_w,
           custom_dimension_d,
           custom_dimension_h,
-          product_variants(product_code, dimension_w, dimension_d, dimension_h),
+          product_variants(
+            product_code,
+            dimension_w,
+            dimension_d,
+            dimension_h,
+            image_url,
+            product_series(image_url)
+          ),
           work_orders(
             id,
             stage,
@@ -191,6 +204,10 @@ function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
           }
         | undefined;
 
+      const linePlannedEnd = maxPlannedEndDate(
+        wos.map((w: { planned_end_date?: string | null }) => w.planned_end_date)
+      );
+
       const stage = wo?.stage
         ? normalizeWorkOrderStage(wo.stage)
         : DEFAULT_WORK_ORDER_STAGE;
@@ -202,19 +219,48 @@ function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
           ? String(empOne.name).trim()
           : null;
 
+      const pvRaw = asArray(oi.product_variants)[0] as
+        | {
+            image_url?: string | null;
+            product_series?: { image_url?: string | null } | { image_url?: string | null }[] | null;
+          }
+        | undefined;
+      let thumbnail_url: string | null = null;
+      if (pvRaw) {
+        const vi =
+          pvRaw.image_url != null && String(pvRaw.image_url).trim()
+            ? String(pvRaw.image_url).trim()
+            : null;
+        const sr = pvRaw.product_series;
+        const sOne = Array.isArray(sr) ? sr[0] : sr;
+        const si =
+          sOne?.image_url != null && String(sOne.image_url).trim()
+            ? String(sOne.image_url).trim()
+            : null;
+        thumbnail_url = vi ?? si ?? null;
+      }
+
       return {
         order_item_id: String(oi.id ?? ""),
         quantity: Number(oi.quantity ?? 0),
         item_label: buildItemLabel(oi),
+        thumbnail_url,
         stage,
         assignee: assigneeName,
-        planned_end_date: wo?.planned_end_date ?? null,
+        planned_end_date: linePlannedEnd,
         expected_delivery_date: row.expected_delivery_date ?? null,
         has_work_order,
       };
     });
 
     lines.sort((a, b) => workOrderStageSortIndex(a.stage) - workOrderStageSortIndex(b.stage));
+
+    const fromWorkOrders = maxPlannedEndDate(lines.map((l) => l.planned_end_date));
+    const exp =
+      row.expected_delivery_date != null && String(row.expected_delivery_date).trim()
+        ? String(row.expected_delivery_date).slice(0, 10)
+        : null;
+    const planned_end_order_max = fromWorkOrders ?? exp ?? null;
 
     return {
       id: String(row.id),
@@ -229,6 +275,7 @@ function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
         row.shipping_contact_name != null && String(row.shipping_contact_name).trim()
           ? String(row.shipping_contact_name)
           : null,
+      planned_end_order_max,
       lines,
     };
   });
@@ -262,26 +309,52 @@ export function OrderOverviewCard({
   order,
   variant = "page",
   onEditOrder,
+  showEditButton = true,
+  /** 通路／精簡檢視：米色摘要區，贴近訂單總覽示意 */
+  visualTone = "default",
 }: {
   order: OverviewOrder;
   variant?: "page" | "dialog";
   onEditOrder?: () => void;
+  /** dialog 時是否顯示「編輯訂單」（通路客戶端可關閉） */
+  showEditButton?: boolean;
+  visualTone?: "default" | "warm";
 }) {
+  const warm = visualTone === "warm";
   return (
-    <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-      <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-4 py-3 sm:p-4">
+    <div
+      className={cn(
+        "overflow-hidden rounded-xl border bg-card shadow-sm",
+        warm ? "border-[#E6DFD3]" : "border-border"
+      )}
+    >
+      <div
+        className={cn(
+          "flex flex-col gap-3 border-b px-4 py-3 sm:p-4",
+          warm ? "border-[#E6DFD3] bg-[#F4EFE8]" : "border-border bg-muted/30"
+        )}
+      >
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
             <span className="font-mono text-base font-semibold tabular-nums text-foreground">
               {order.order_number || "—"}
             </span>
-            <span className="text-sm font-medium text-foreground truncate">
-              {order.customer_name || "—"}
-              {order.customer_alias ? (
-                <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  ({order.customer_alias})
+            <span className="text-sm font-medium text-foreground min-w-0">
+              <span className="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="truncate">
+                  {order.customer_name || "—"}
+                  {order.customer_alias ? (
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      ({order.customer_alias})
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
+                {order.shipping_contact_name?.trim() ? (
+                  <span className="text-xs font-normal text-muted-foreground break-words">
+                    {order.shipping_contact_name.trim()}
+                  </span>
+                ) : null}
+              </span>
             </span>
           </div>
           {variant === "page" ? (
@@ -294,18 +367,24 @@ export function OrderOverviewCard({
               <ExternalLink className="h-3.5 w-3.5" />
               訂單管理開啟
             </Button>
-          ) : (
+          ) : showEditButton !== false ? (
             <Button
               type="button"
               variant="outline"
               className="h-8 shrink-0 w-fit px-3 text-xs"
               onClick={onEditOrder}
+              disabled={!onEditOrder}
             >
               編輯訂單
             </Button>
-          )}
+          ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2 text-xs",
+            warm ? "text-[#5c574f]" : "text-muted-foreground"
+          )}
+        >
           <Badge
             variant="outline"
             className={cn(
@@ -333,89 +412,118 @@ export function OrderOverviewCard({
               交期 {formatDateYyMmDd(order.expected_delivery_date)}
             </span>
           )}
-          {order.shipping_contact_name && <span>聯絡 {order.shipping_contact_name}</span>}
+          {order.planned_end_order_max && (
+            <span className="inline-flex items-center gap-1 tabular-nums" title="訂單內各工單預計完成日之最晚者">
+              <CalendarDays className="h-3 w-3 shrink-0" />
+              預計完成 {formatDateYyMmDd(order.planned_end_order_max)}
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent border-b border-border">
-              <TableHead className="text-xs font-semibold min-w-[200px]">品項</TableHead>
-              <TableHead className="text-xs font-semibold w-16 text-right">數量</TableHead>
-              <TableHead className="text-xs font-semibold min-w-[120px]">
-                <span className="inline-flex items-center gap-1">
-                  <User className="h-3.5 w-3.5 text-muted-foreground" />
-                  負責窗口
-                </span>
-              </TableHead>
-              <TableHead className="text-xs font-semibold min-w-[120px]">工序／進度</TableHead>
-              <TableHead className="text-xs font-semibold whitespace-nowrap min-w-[100px]">
-                <span className="inline-flex items-center gap-1">
-                  <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
-                  預計完成
-                </span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {order.lines.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-sm text-muted-foreground py-6 text-center">
-                  此訂單尚無品項。
-                </TableCell>
-              </TableRow>
-            ) : (
-              order.lines.map((line) => {
-                const stage = line.stage;
-                return (
-                  <TableRow key={line.order_item_id} className="border-b border-border">
-                    <TableCell className="text-sm align-top py-2.5 max-w-[min(100vw,28rem)]">
-                      <span className="line-clamp-3 text-foreground">{line.item_label}</span>
-                    </TableCell>
-                    <TableCell className="text-sm align-top py-2.5 text-right tabular-nums text-muted-foreground">
-                      {Number.isFinite(line.quantity) && line.quantity > 0 ? line.quantity : "—"}
-                    </TableCell>
-                    <TableCell className="text-sm align-top py-2.5">
-                      {line.assignee ? (
-                        <span className="inline-flex items-center gap-1.5 text-foreground">
-                          <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          {line.assignee}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm align-top py-2.5">
-                      {line.has_work_order ? (
-                        <span
-                          className={cn(
-                            "inline-flex rounded-md border px-2 py-0.5 text-xs font-semibold",
-                            stageStyleClassName(stage)
-                          )}
-                        >
-                          {stage}
-                        </span>
-                      ) : (
-                        <span className="inline-flex rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                          尚無工單
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs align-top py-2.5 tabular-nums text-muted-foreground whitespace-nowrap">
-                      {line.planned_end_date
-                        ? formatDateYyMmDd(line.planned_end_date)
-                        : line.expected_delivery_date
-                          ? formatDateYyMmDd(line.expected_delivery_date)
-                          : "—"}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
+      <Table
+        className="table-fixed w-full min-w-0 text-xs"
+        wrapperClassName="overflow-x-visible"
+      >
+        <TableHeader>
+          <TableRow
+            className={cn(
+              "hover:bg-transparent border-b",
+              warm ? "border-[#E8E0D4] bg-[#FAF8F4]" : "border-border"
             )}
-          </TableBody>
-        </Table>
-      </div>
+          >
+            <TableHead className="w-[40%] min-w-0 px-2 text-xs font-semibold whitespace-normal">
+              品項
+            </TableHead>
+            <TableHead className="w-11 min-w-0 px-1 text-right text-xs font-semibold whitespace-normal">
+              數量
+            </TableHead>
+            <TableHead className="w-[18%] min-w-0 px-1 text-xs font-semibold whitespace-normal">
+              <span className="inline-flex items-center gap-1">
+                <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                {variant === "dialog" ? "負責" : "負責窗口"}
+              </span>
+            </TableHead>
+            <TableHead className="w-[22%] min-w-0 px-1 text-xs font-semibold whitespace-normal">
+              {variant === "dialog" ? "工序" : "工序／進度"}
+            </TableHead>
+            <TableHead className="w-[18%] min-w-0 px-1 text-xs font-semibold whitespace-normal">
+              <span
+                className="inline-flex items-center gap-1"
+                title="同訂單各品項工單中之最晚預計完成日"
+              >
+                <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                預計完成（全單最晚）
+              </span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {order.lines.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={5} className="text-sm text-muted-foreground py-6 text-center whitespace-normal">
+                此訂單尚無品項。
+              </TableCell>
+            </TableRow>
+          ) : (
+            order.lines.map((line) => {
+              const stage = line.stage;
+              return (
+                <TableRow
+                  key={line.order_item_id}
+                  className={cn("border-b", warm ? "border-[#EEE8DE]" : "border-border")}
+                >
+                  <TableCell className="p-2 align-top text-xs whitespace-normal break-words">
+                    <div className="flex gap-2 items-start min-w-0">
+                      <VariantSeriesThumb
+                        imageUrl={line.thumbnail_url}
+                        sizeClassName="h-10 w-10"
+                        compactPlaceholder
+                        className={warm ? "border-[#E0D8CC] bg-white/80" : undefined}
+                      />
+                      <span className="line-clamp-4 text-foreground min-w-0">{line.item_label}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="p-2 align-top text-right text-xs tabular-nums text-muted-foreground whitespace-nowrap">
+                    {Number.isFinite(line.quantity) && line.quantity > 0 ? line.quantity : "—"}
+                  </TableCell>
+                  <TableCell className="p-2 align-top text-xs whitespace-normal break-words">
+                    {line.assignee ? (
+                      <span className="inline-flex items-start gap-1 text-foreground">
+                        <User className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+                        {line.assignee}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="p-2 align-top text-xs whitespace-normal">
+                    {line.has_work_order ? (
+                      <span
+                        className={cn(
+                          "inline-flex max-w-full rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
+                          stageStyleClassName(stage)
+                        )}
+                      >
+                        {stage}
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        尚無工單
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="p-2 align-top text-[11px] tabular-nums text-muted-foreground whitespace-normal break-words">
+                    {order.planned_end_order_max
+                      ? formatDateYyMmDd(order.planned_end_order_max)
+                      : "—"}
+                  </TableCell>
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </Table>
     </div>
   );
 }

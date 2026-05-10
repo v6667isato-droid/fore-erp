@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { signPortalSession } from "@/lib/portal-token";
 
 export async function POST(request: NextRequest) {
   try {
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
       delivery_address: (customer as any).delivery_address ?? null,
       channel_id: channel.id,
       channel_name: channel.name ?? "",
+      portal_token: signPortalSession(String(customer.id), String(channel.id)),
     });
   } catch (e) {
     console.error("portal-login error:", e);

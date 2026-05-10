@@ -15,7 +15,6 @@ import {
   UserCircle2,
   ClipboardCheck,
   BarChart3,
-  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,7 +30,6 @@ import { FeedbackPage } from "@/components/feedback-page";
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompanyCalendarPage } from "@/components/company-calendar-page";
 import { CostStatisticsPage } from "@/components/cost-statistics-page";
-import { LineMessagesPage } from "@/components/line-messages-page";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   getSupabaseSession,
@@ -54,8 +52,7 @@ type Page =
   | "products"
   | "customers"
   | "leave_approvals"
-  | "feedback"
-  | "line_messages";
+  | "feedback";
 type AppRole = "admin" | "manager" | "staff" | null;
 
 /** 報價／訂單／產品等：admin 與 manager 可編輯；員工出勤管理（含員工資料分頁）僅 admin */
@@ -67,7 +64,6 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "總覽", icon: LayoutGrid },
   { id: "products", label: "產品資料", icon: Package },
   { id: "customers", label: "客戶資料", icon: Users },
-  { id: "line_messages", label: "LINE 訊息", icon: MessageCircle },
   { id: "quotes", label: "報價管理", icon: ClipboardList },
   { id: "orders", label: "訂單管理", icon: ShoppingCart },
   { id: "kanban", label: "生產管理", icon: Package },
@@ -551,7 +547,6 @@ export default function DashboardShell() {
             <ProcurementPage isAdmin={isErpEditorRole(userRole)} />
           )}
           {activePage === "cost_statistics" && userRole === "admin" && <CostStatisticsPage />}
-          {activePage === "line_messages" && <LineMessagesPage />}
           {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "leave_approvals" && userRole === "admin" && (

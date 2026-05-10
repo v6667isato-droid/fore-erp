@@ -25,16 +25,22 @@ export function formatDayDecimalAsDayHour(dayDecimal: number | null | undefined)
   return `${days} 天 ${hours} 小時`;
 }
 
-/** 表單「整數日 + 整數小時」→ 寫入 DB 的 annual_leave_remaining（小數日）；小時滿 8 自動進位 */
+/** 表單「日 + 小時」→ 寫入 DB 的 annual_leave_remaining（小數日）；日／小時皆可小數，合計為 日 + 小時/8 */
 export function annualLeavePartsToDecimal(daysStr: string, hoursStr: string): number | null {
   const dTrim = daysStr.trim();
   const hTrim = hoursStr.trim();
   if (dTrim === "" && hTrim === "") return null;
-  const d = dTrim === "" ? 0 : Math.max(0, Math.trunc(Number(dTrim)) || 0);
-  let h = hTrim === "" ? 0 : Math.max(0, Math.trunc(Number(hTrim)) || 0);
-  const carry = Math.floor(h / LEAVE_WORK_DAY_HOURS);
-  h %= LEAVE_WORK_DAY_HOURS;
-  return d + carry + h / LEAVE_WORK_DAY_HOURS;
+  const dParsed = dTrim === "" ? 0 : Number(dTrim);
+  const hParsed = hTrim === "" ? 0 : Number(hTrim);
+  if (
+    (dTrim !== "" && !Number.isFinite(dParsed)) ||
+    (hTrim !== "" && !Number.isFinite(hParsed))
+  ) {
+    return null;
+  }
+  const d = Math.max(0, dParsed);
+  const h = Math.max(0, hParsed);
+  return d + h / LEAVE_WORK_DAY_HOURS;
 }
 
 /** 總時數 → ?日?小時（餘數可含小數） */
@@ -53,8 +59,7 @@ export function formatHoursAsDayHour(totalHours: number | null | undefined): str
 }
 
 /**
- * 表單「整數日 + 整數小時」→ 寫入 DB 的 comp_leave_remaining（總小時）；
- * 小時滿 8 自動進位成日。兩欄皆空回傳 null。
+ * 表單「日 + 小時」→ 寫入 DB 的 comp_leave_remaining（總小時）；日／小時皆可小數（8 小時 = 1 日）。
  */
 export function compLeavePartsToTotalHours(
   daysStr: string,
@@ -63,11 +68,17 @@ export function compLeavePartsToTotalHours(
   const dTrim = daysStr.trim();
   const hTrim = hoursStr.trim();
   if (dTrim === "" && hTrim === "") return null;
-  const d = dTrim === "" ? 0 : Math.max(0, Math.trunc(Number(dTrim)) || 0);
-  let h = hTrim === "" ? 0 : Math.max(0, Math.trunc(Number(hTrim)) || 0);
-  const carry = Math.floor(h / LEAVE_WORK_DAY_HOURS);
-  h %= LEAVE_WORK_DAY_HOURS;
-  return (d + carry) * LEAVE_WORK_DAY_HOURS + h;
+  const dParsed = dTrim === "" ? 0 : Number(dTrim);
+  const hParsed = hTrim === "" ? 0 : Number(hTrim);
+  if (
+    (dTrim !== "" && !Number.isFinite(dParsed)) ||
+    (hTrim !== "" && !Number.isFinite(hParsed))
+  ) {
+    return null;
+  }
+  const d = Math.max(0, dParsed);
+  const h = Math.max(0, hParsed);
+  return d * LEAVE_WORK_DAY_HOURS + h;
 }
 
 const MS_MIN = 60_000;

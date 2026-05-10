@@ -879,6 +879,10 @@ function mapWorkOrderRowToAssigneePortal(r: Record<string, unknown>): AssigneeWo
       ? String(orderObj.expected_delivery_date).slice(0, 10)
       : null;
   const order_status = orderObj?.status != null ? String(orderObj.status) : null;
+  const shipping_contact_name =
+    orderObj?.shipping_contact_name != null && String(orderObj.shipping_contact_name).trim()
+      ? String(orderObj.shipping_contact_name).trim()
+      : null;
 
   return {
     id: String(r.id ?? ""),
@@ -886,6 +890,7 @@ function mapWorkOrderRowToAssigneePortal(r: Record<string, unknown>): AssigneeWo
     order_number,
     customer_name: customerName,
     customer_alias: customerAlias,
+    shipping_contact_name,
     item_size_label,
     quantity: Number(oi?.quantity ?? 0),
     category: cat,
@@ -925,6 +930,7 @@ async function fetchAssigneeWorkOrders(employeeId: string): Promise<AssigneeWork
           order_number,
           status,
           expected_delivery_date,
+          shipping_contact_name,
           customers(name, alias)
         ),
         product_variants(

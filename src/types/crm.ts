@@ -8,8 +8,6 @@ export interface CustomerRow {
   contact_person?: string | null;
   phone?: string | null;
   line_id?: string | null;
-  /** LINE Messaging API userId（U 開頭）；與 Webhook 自動關聯用 */
-  line_user_id?: string | null;
   ig_account?: string | null;
   delivery_address?: string | null;
   /** 送貨地址是否有電梯 */

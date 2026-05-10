@@ -10,17 +10,24 @@ import {
   type OverviewOrder,
 } from "@/components/orders-overview-page";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 export function OrderOverviewDialog({
   open,
   onOpenChange,
   orderId,
   onEditOrder,
+  /** 通路客戶端等：隱藏「編輯訂單」 */
+  showEditButton = true,
+  /** 通路訂單等：米色摘要區、較寬浮層 */
+  visualTone = "default",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   orderId: string | null;
-  onEditOrder: (orderId: string) => void;
+  onEditOrder?: (orderId: string) => void;
+  showEditButton?: boolean;
+  visualTone?: "default" | "warm";
 }) {
   const [data, setData] = useState<OverviewOrder | null>(null);
   const [loading, setLoading] = useState(false);
@@ -52,7 +59,10 @@ export function OrderOverviewDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-[60] max-h-[90vh] w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-0 shadow-lg focus:outline-none"
+          className={cn(
+            "fixed left-1/2 top-1/2 z-[60] max-h-[90vh] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-0 shadow-lg focus:outline-none",
+            visualTone === "warm" ? "max-w-5xl" : "max-w-4xl"
+          )}
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
           <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card px-5 py-4">
@@ -77,7 +87,13 @@ export function OrderOverviewDialog({
               <OrderOverviewCard
                 order={data}
                 variant="dialog"
-                onEditOrder={() => orderId && onEditOrder(orderId)}
+                visualTone={visualTone}
+                showEditButton={showEditButton}
+                onEditOrder={
+                  showEditButton && orderId && onEditOrder
+                    ? () => onEditOrder(orderId)
+                    : undefined
+                }
               />
             ) : (
               <p className="text-sm text-muted-foreground py-8 text-center">無法顯示資料</p>

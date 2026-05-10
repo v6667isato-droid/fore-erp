@@ -2,8 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * 工單工序站別（與 DB `work_orders.stage` 一致）。
- * 順序：待排程 → … → 包裝管理 → 待出貨 → 已出貨；「暫停」為特殊狀態。
- * 兩段組裝以 (一)(二) 區分（對應：組裝中 → 塗裝中 → 組裝中）。
+ * 順序：待排程 → … → 塗裝後製程(組配、編織) → 包裝管理 → 待出貨 → 已出貨；「暫停」為特殊狀態。
+ * 兩段組裝／塗裝以 (一)(二) 區分（… → 塗裝中(二) → 塗裝後製程(組配、編織) → 包裝管理）。
  */
 export const WORK_ORDER_STAGES = [
   "待排程",
@@ -13,6 +13,8 @@ export const WORK_ORDER_STAGES = [
   "組裝中(一)",
   "塗裝中",
   "組裝中(二)",
+  "塗裝中(二)",
+  "塗裝後製程(組配、編織)",
   "包裝管理",
   "待出貨",
   "已出貨",
@@ -22,6 +24,19 @@ export const WORK_ORDER_STAGES = [
 export type WorkOrderStage = (typeof WORK_ORDER_STAGES)[number];
 
 export const DEFAULT_WORK_ORDER_STAGE: WorkOrderStage = "待排程";
+
+/**
+ * 新建工單時將訂單交期寫入 `work_orders.planned_end_date`（Postgres `date` 用 YYYY-MM-DD）。
+ * 無交期則為 null，生產管理可再手動調整。
+ */
+export function plannedEndDateFromOrderDelivery(
+  expectedDelivery: string | null | undefined
+): string | null {
+  if (expectedDelivery == null) return null;
+  const s = String(expectedDelivery).trim();
+  if (!s) return null;
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
 
 /** 訂單狀態為「生產中」或「暫停」時，主檔狀態不可手動更改（請改生產工單工序） */
 export function isOrderStatusLockedForManualEdit(orderStatus: string): boolean {
@@ -35,6 +50,8 @@ const LEGACY_STAGE_MAP: Record<string, WorkOrderStage> = {
   組裝中: "組裝中(一)",
   品檢中: "包裝管理",
   包裝檢查: "包裝管理",
+  /** 舊簡稱（migration 可能曾寫入） */
+  塗裝後製程: "塗裝後製程(組配、編織)",
   成品: "待出貨",
 };
 
@@ -69,7 +86,9 @@ export function stageStyleClassName(stage: WorkOrderStage): string {
     case "組裝中(二)":
       return "bg-indigo-100 text-indigo-900 border-indigo-200";
     case "塗裝中":
+    case "塗裝中(二)":
       return "bg-rose-100 text-rose-900 border-rose-200";
+    case "塗裝後製程(組配、編織)":
     case "包裝管理":
       return "bg-cyan-100 text-cyan-900 border-cyan-200";
     case "待出貨":

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { OrderOverviewDialog } from "@/components/order-overview-dialog";
 import {
   Table,
   TableBody,
@@ -12,7 +14,6 @@ import {
 } from "@/components/ui/table";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
-  User,
   Wrench,
   CalendarDays,
   RefreshCw,
@@ -65,30 +66,31 @@ function workOrderCategoryLabel(w: WorkOrderRow): string {
   return c || EMPTY_WORK_CATEGORY_LABEL;
 }
 
-/** 與「預計完成」欄顯示一致：預計完成日優先，否則訂單交期 */
-function effectivePlannedCompletionDate(w: WorkOrderRow): string | null {
-  return w.planned_end_date ?? w.expected_delivery_date ?? null;
-}
-
 function parseDateMs(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const t = new Date(iso).getTime();
   return Number.isNaN(t) ? null : t;
 }
 
-/** 依有效預計完成日排序；無日期者固定置於最後（升／降皆同） */
-function comparePlannedCompletion(
+/** 依工單「預計完成日」（planned_end_date）排序；無日期者置於最後 */
+function comparePlannedEndDate(
   a: WorkOrderRow,
   b: WorkOrderRow,
   asc: boolean
 ): number {
-  const na = parseDateMs(effectivePlannedCompletionDate(a));
-  const nb = parseDateMs(effectivePlannedCompletionDate(b));
+  const na = parseDateMs(a.planned_end_date);
+  const nb = parseDateMs(b.planned_end_date);
   if (na === null && nb === null) return 0;
   if (na === null) return 1;
   if (nb === null) return -1;
   const diff = na - nb;
   return asc ? diff : -diff;
+}
+
+function dateInputValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const s = String(iso).trim();
+  return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
 interface EmployeeOption {
@@ -147,8 +149,10 @@ const PRODUCTION_ORDER_STATUS_FILTERS: ProductionOrderStatusFilter[] = [
 const STAGE_OPTIONS = WORK_ORDER_STAGES;
 
 export function WorkOrdersPage() {
+  const router = useRouter();
   const [rows, setRows] = useState<WorkOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [overviewOrderId, setOverviewOrderId] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<WorkOrderStage | "全部">("全部");
   const [orderStatusFilter, setOrderStatusFilter] =
     useState<ProductionOrderStatusFilter>("生產中");
@@ -159,11 +163,10 @@ export function WorkOrdersPage() {
     | "order_number"
     | "customer_name"
     | "item_name"
-    | "category"
     | "stage"
     | "assignee_name"
-    | "planned_end_date"
-    | "expected_delivery_date";
+    | "expected_delivery_date"
+    | "planned_end_date";
   const [sortBy, setSortBy] = useState<WorkSortKey>("stage");
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -338,7 +341,9 @@ export function WorkOrdersPage() {
 
   async function updateWorkOrderInline(
     id: string,
-    patch: Partial<Pick<WorkOrderRow, "assignee_id" | "assignee_name">> & {
+    patch: Partial<
+      Pick<WorkOrderRow, "assignee_id" | "assignee_name" | "planned_end_date">
+    > & {
       stage?: WorkOrderStage;
     }
   ) {
@@ -346,6 +351,9 @@ export function WorkOrdersPage() {
     const payload: any = {};
     if (patch.stage) payload.stage = patch.stage;
     if (patch.assignee_id !== undefined) payload.assignee_id = patch.assignee_id;
+    if (patch.planned_end_date !== undefined) {
+      payload.planned_end_date = patch.planned_end_date;
+    }
     if (Object.keys(payload).length === 0) return;
 
     const { error } = await supabase
@@ -404,25 +412,28 @@ export function WorkOrdersPage() {
         cmp =
           workOrderStageSortIndex(a.stage) - workOrderStageSortIndex(b.stage);
         if (!sortAsc) cmp = -cmp;
+      } else if (key === "assignee_name") {
+        const as = (a.assignee_name ?? "").trim();
+        const bs = (b.assignee_name ?? "").trim();
+        cmp = as.localeCompare(bs, "zh-Hant", { numeric: true });
+        if (!sortAsc) cmp = -cmp;
       } else if (key === "planned_end_date") {
-        cmp = comparePlannedCompletion(a, b, sortAsc);
+        cmp = comparePlannedEndDate(a, b, sortAsc);
+      } else if (key === "expected_delivery_date") {
+        const na = parseDateMs(a.expected_delivery_date);
+        const nb = parseDateMs(b.expected_delivery_date);
+        if (na === null && nb === null) cmp = 0;
+        else if (na === null) cmp = 1;
+        else if (nb === null) cmp = -1;
+        else cmp = na - nb;
+        if (!sortAsc) cmp = -cmp;
       } else {
         // 1) 依照選擇的欄位排序
         const av = (a as any)[key];
         const bv = (b as any)[key];
-
-        if (key === "expected_delivery_date") {
-          const na = parseDateMs(av);
-          const nb = parseDateMs(bv);
-          if (na === null && nb === null) cmp = 0;
-          else if (na === null) cmp = 1;
-          else if (nb === null) cmp = -1;
-          else cmp = na - nb;
-        } else {
-          const as = av == null ? "" : String(av);
-          const bs = bv == null ? "" : String(bv);
-          cmp = as.localeCompare(bs, "zh-Hant", { numeric: true });
-        }
+        const as = av == null ? "" : String(av);
+        const bs = bv == null ? "" : String(bv);
+        cmp = as.localeCompare(bs, "zh-Hant", { numeric: true });
         if (!sortAsc) cmp = -cmp;
       }
       if (cmp !== 0) return cmp;
@@ -442,12 +453,9 @@ export function WorkOrdersPage() {
     sortAsc,
   ]);
 
-  function openOrderDetail(w: WorkOrderRow) {
+  function openOrderOverview(w: WorkOrderRow) {
     if (!w.order_id) return;
-    if (typeof window === "undefined") return;
-    const encodedId = encodeURIComponent(w.order_id);
-    // 保留在目前頁面，只更新網址 hash，交由主系統視情況處理
-    window.location.hash = `orders:${encodedId}`;
+    setOverviewOrderId(w.order_id);
   }
 
   const uniqueAssignees = useMemo(
@@ -471,7 +479,7 @@ export function WorkOrdersPage() {
       <button
         type="button"
         onClick={() => toggleSort(sortKey)}
-        className="inline-flex items-center gap-1 text-xs font-semibold p-1.5 align-middle hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded"
+        className="inline-flex items-center gap-1 text-sm font-semibold p-1.5 align-middle hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded"
         aria-label={`依${label}排序${active ? (sortAsc ? "升冪" : "降冪") : ""}`}
       >
         {label}
@@ -587,35 +595,35 @@ export function WorkOrdersPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <Table>
+      <div className="rounded-xl border border-border bg-card overflow-hidden min-w-0 max-w-full">
+        <Table
+          className="table-fixed w-full min-w-0 text-sm"
+          wrapperClassName="w-full min-w-0 overflow-x-visible"
+        >
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs font-semibold">
-                <SortHeader label="訂單編號" sortKey="order_number" />
+              <TableHead className="w-[10%] min-w-0 px-2 text-sm font-semibold whitespace-normal">
+                <SortHeader label="訂單" sortKey="order_number" />
               </TableHead>
-              <TableHead className="text-xs font-semibold">
+              <TableHead className="w-[16%] min-w-0 px-2 text-sm font-semibold whitespace-normal">
                 <SortHeader label="客戶 / 專案" sortKey="customer_name" />
               </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap">
-                聯絡人
+              <TableHead className="min-w-0 px-2 text-sm font-semibold whitespace-normal">
+                <SortHeader label="品項" sortKey="item_name" />
               </TableHead>
-              <TableHead className="text-xs font-semibold">
-                <SortHeader label="品項 / 尺寸" sortKey="item_name" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold text-right whitespace-nowrap">
+              <TableHead className="w-11 min-w-0 px-2 text-right text-sm font-semibold whitespace-normal">
                 數量
               </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                <SortHeader label="類別" sortKey="category" />
+              <TableHead className="hidden w-[9%] min-w-0 px-2 text-sm font-semibold whitespace-normal sm:table-cell">
+                <SortHeader label="工序" sortKey="stage" />
               </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                <SortHeader label="工序站別" sortKey="stage" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">
+              <TableHead className="hidden w-[9%] min-w-0 px-2 text-sm font-semibold whitespace-normal sm:table-cell">
                 <SortHeader label="負責人" sortKey="assignee_name" />
               </TableHead>
-              <TableHead className="text-xs font-semibold hidden sm:table-cell">
+              <TableHead className="hidden w-[11%] min-w-0 px-2 text-sm font-semibold whitespace-normal sm:table-cell">
+                <SortHeader label="交期" sortKey="expected_delivery_date" />
+              </TableHead>
+              <TableHead className="hidden w-[12%] min-w-0 px-2 text-sm font-semibold whitespace-normal sm:table-cell">
                 <SortHeader label="預計完成" sortKey="planned_end_date" />
               </TableHead>
             </TableRow>
@@ -625,7 +633,7 @@ export function WorkOrdersPage() {
               <TableRow>
                 <TableCell
                   colSpan={8}
-                  className="h-24 text-center text-muted-foreground"
+                  className="h-24 text-center text-sm text-muted-foreground"
                 >
                   目前尚無工單或不符合篩選條件。
                 </TableCell>
@@ -633,12 +641,12 @@ export function WorkOrdersPage() {
             ) : (
               filtered.map((w) => (
                 <TableRow key={w.id} className="border-b border-border">
-                  <TableCell className="p-2 align-middle whitespace-nowrap font-mono text-xs font-medium">
+                  <TableCell className="p-2 align-top font-mono text-sm font-medium whitespace-normal break-all">
                     {w.order_id ? (
                       <button
                         type="button"
-                        onClick={() => openOrderDetail(w)}
-                        className="text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded px-1 py-0.5"
+                        onClick={() => openOrderOverview(w)}
+                        className="text-left text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded px-0.5 py-0.5"
                       >
                         {w.order_number || "—"}
                       </button>
@@ -646,29 +654,32 @@ export function WorkOrdersPage() {
                       w.order_number || "—"
                     )}
                   </TableCell>
-                  <TableCell className="text-sm">
-                    <span className="font-medium text-foreground">
-                      {w.customer_name || "—"}
-                    </span>
-                    {w.customer_alias && String(w.customer_alias).trim() && (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        ({w.customer_alias})
-                      </span>
-                    )}
+                  <TableCell className="p-2 align-top text-sm whitespace-normal break-words">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <div>
+                        <span className="font-medium text-foreground">
+                          {w.customer_name || "—"}
+                        </span>
+                        {w.customer_alias && String(w.customer_alias).trim() && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            ({w.customer_alias})
+                          </span>
+                        )}
+                      </div>
+                      {w.shipping_contact_name?.trim() ? (
+                        <span className="text-xs font-normal text-muted-foreground break-words leading-snug">
+                          {w.shipping_contact_name.trim()}
+                        </span>
+                      ) : null}
+                    </div>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">
-                    {w.shipping_contact_name?.trim() || "—"}
+                  <TableCell className="p-2 align-top text-sm whitespace-normal break-words">
+                    <span className="line-clamp-4 text-foreground">{w.item_name || "—"}</span>
                   </TableCell>
-                  <TableCell className="text-sm">
-                    {w.item_name || "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-right tabular-nums">
+                  <TableCell className="p-2 align-top text-right text-sm tabular-nums whitespace-nowrap">
                     {Number.isFinite(w.quantity) && w.quantity > 0 ? w.quantity : "—"}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
-                    {w.category || "—"}
-                  </TableCell>
-                  <TableCell className="text-sm hidden sm:table-cell">
+                  <TableCell className="hidden p-2 align-top sm:table-cell">
                     <select
                       value={w.stage}
                       onChange={(e) =>
@@ -676,7 +687,8 @@ export function WorkOrdersPage() {
                           stage: e.target.value as WorkOrderStage,
                         })
                       }
-                      className={`h-8 rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${stageStyleClassName(
+                      title={w.stage}
+                      className={`h-8 w-full min-w-0 rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${stageStyleClassName(
                         isWorkOrderStage(w.stage) ? w.stage : DEFAULT_WORK_ORDER_STAGE
                       )}`}
                     >
@@ -687,40 +699,49 @@ export function WorkOrdersPage() {
                       ))}
                     </select>
                   </TableCell>
-                  <TableCell className="text-sm hidden sm:table-cell">
-                    <div className="flex items-center gap-1.5">
-                      <User className="h-3.5 w-3.5 text-muted-foreground" />
-                      <select
-                        value={w.assignee_id ?? ""}
+                  <TableCell className="hidden p-2 align-top sm:table-cell">
+                    <select
+                      value={w.assignee_id ?? ""}
+                      onChange={(e) => {
+                        const id = e.target.value || null;
+                        const emp = employees.find((x) => x.id === id);
+                        updateWorkOrderInline(w.id, {
+                          assignee_id: id,
+                          assignee_name: emp?.name ?? null,
+                        });
+                      }}
+                      title={w.assignee_name ?? undefined}
+                      aria-label="負責人"
+                      className="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="">未指派</option>
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name}
+                        </option>
+                      ))}
+                    </select>
+                  </TableCell>
+                  <TableCell className="hidden p-2 align-top text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:table-cell">
+                    {w.expected_delivery_date
+                      ? formatDateYyMmDd(w.expected_delivery_date)
+                      : "—"}
+                  </TableCell>
+                  <TableCell className="hidden p-2 align-top sm:table-cell">
+                    <div className="flex min-w-0 items-center gap-1">
+                      <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                      <input
+                        type="date"
+                        value={dateInputValue(w.planned_end_date)}
                         onChange={(e) => {
-                          const id = e.target.value || null;
-                          const emp = employees.find((x) => x.id === id);
+                          const v = e.target.value;
                           updateWorkOrderInline(w.id, {
-                            assignee_id: id,
-                            assignee_name: emp?.name ?? null,
+                            planned_end_date: v ? v : null,
                           });
                         }}
-                        className="h-8 w-32 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">未指派</option>
-                        {employees.map((emp) => (
-                          <option key={emp.id} value={emp.id}>
-                            {emp.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground hidden sm:table-cell w-[4.5rem] min-w-0 tabular-nums whitespace-nowrap p-1.5">
-                    <div className="flex items-center gap-1">
-                      <CalendarDays className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      <span className="truncate">
-                        {w.planned_end_date
-                          ? formatDateYyMmDd(w.planned_end_date)
-                          : w.expected_delivery_date
-                          ? formatDateYyMmDd(w.expected_delivery_date)
-                          : "—"}
-                      </span>
+                        className="h-8 min-h-8 w-full min-w-0 rounded-md border border-input bg-background px-1.5 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                        aria-label="預計完成日"
+                      />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -743,7 +764,20 @@ export function WorkOrdersPage() {
           : orderStatusFilter === "生產中"
             ? "（訂單：生產中～已出貨；工序已出貨者改列於「非生產中」）"
             : "（訂單：生產前段，或工序已出貨）"}
+        。交期為訂單對客戶之承諾；預計完成日為生產排程用，可與交期不同並隨時調整。
       </p>
+
+      <OrderOverviewDialog
+        open={overviewOrderId != null}
+        onOpenChange={(open) => {
+          if (!open) setOverviewOrderId(null);
+        }}
+        orderId={overviewOrderId}
+        onEditOrder={(id) => {
+          setOverviewOrderId(null);
+          router.replace(`/?page=orders#orders:${encodeURIComponent(id)}`);
+        }}
+      />
     </div>
   );
 }
