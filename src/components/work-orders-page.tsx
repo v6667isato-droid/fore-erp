@@ -33,12 +33,19 @@ import {
   stageStyleClassName,
   workOrderStageSortIndex,
 } from "@/lib/work-order-stages";
+import {
+  formatSeatHeightCmLabel,
+  isChairCh03FamilyProductCode,
+  resolveSeatHeightCmForDisplay,
+} from "@/lib/chair-product-code";
 import { toast } from "sonner";
 
 interface WorkOrderRow {
   id: string;
   order_item_id: string;
   order_id: string | null;
+  /** 訂單主檔 customers.id，供客戶篩選與通路排序 */
+  customer_id: string | null;
   order_number: string;
   customer_name: string;
   customer_alias?: string | null;
@@ -96,6 +103,13 @@ function dateInputValue(iso: string | null | undefined): string {
 interface EmployeeOption {
   id: string;
   name: string;
+}
+
+/** 與訂單管理客戶篩選相同：主檔含 channel_id 供 [通路] 置頂排序 */
+interface WorkOrderCustomerOption {
+  id: string;
+  name: string;
+  channel_id: string | null;
 }
 
 /** 與訂單管理相同之狀態順序；用於「生產中」前／後篩選 */
@@ -157,8 +171,10 @@ export function WorkOrdersPage() {
   const [orderStatusFilter, setOrderStatusFilter] =
     useState<ProductionOrderStatusFilter>("生產中");
   const [categoryFilter, setCategoryFilter] = useState<"全部" | string>("全部");
+  const [customerFilter, setCustomerFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [customers, setCustomers] = useState<WorkOrderCustomerOption[]>([]);
   type WorkSortKey =
     | "order_number"
     | "customer_name"
@@ -174,6 +190,24 @@ export function WorkOrdersPage() {
     bootstrap();
   }, []);
 
+  async function fetchCustomersForFilter() {
+    const { data: customerData, error: customerError } = await supabase
+      .from("customers")
+      .select("id, name, channel_id")
+      .order("name", { ascending: true });
+    if (!customerError && customerData) {
+      setCustomers(
+        (customerData as any[]).map((c) => ({
+          id: String(c.id),
+          name: String(c.name ?? ""),
+          channel_id: c.channel_id != null ? String(c.channel_id) : null,
+        })),
+      );
+    } else {
+      setCustomers([]);
+    }
+  }
+
   async function bootstrap() {
     setLoading(true);
     // 讀取員工名單（只用來提供下拉選單）
@@ -187,7 +221,7 @@ export function WorkOrdersPage() {
         name: String(e.name ?? ""),
       }))
     );
-    await fetchWorkOrders();
+    await Promise.all([fetchCustomersForFilter(), fetchWorkOrders()]);
     setLoading(false);
   }
 
@@ -213,8 +247,10 @@ export function WorkOrdersPage() {
           custom_dimension_d,
           custom_dimension_h,
           quantity,
+          seat_height_cm,
           orders(
             id,
+            customer_id,
             order_number,
             status,
             expected_delivery_date,
@@ -226,7 +262,8 @@ export function WorkOrdersPage() {
             wood_type,
             dimension_w,
             dimension_d,
-            dimension_h
+            dimension_h,
+            seat_height_cm
           )
         )
       `
@@ -280,6 +317,15 @@ export function WorkOrdersPage() {
         (s) => typeof s === "string" && s.trim()
       ) as string[];
 
+      const productCode =
+        variant?.product_code != null ? String(variant.product_code).trim() : "";
+      const seatCm = resolveSeatHeightCmForDisplay(oi?.seat_height_cm, variant?.seat_height_cm);
+      let itemDisplay = fullNameParts.join(" / ");
+      if (isChairCh03FamilyProductCode(productCode) && seatCm != null) {
+        const sh = formatSeatHeightCmLabel(seatCm);
+        itemDisplay = itemDisplay.trim() ? `${itemDisplay} · ${sh}` : sh;
+      }
+
       const empRel = (r as any).employees;
       const empOne = Array.isArray(empRel) ? empRel[0] : empRel;
       const assigneeName =
@@ -291,6 +337,10 @@ export function WorkOrdersPage() {
         id: String(r.id),
         order_item_id: oi?.id ? String(oi.id) : "",
         order_id: order?.id ? String(order.id) : null,
+        customer_id:
+          order?.customer_id != null && String(order.customer_id).trim()
+            ? String(order.customer_id)
+            : null,
         order_number: order?.order_number
           ? String(order.order_number)
           : "",
@@ -300,7 +350,7 @@ export function WorkOrdersPage() {
           order?.shipping_contact_name != null
             ? String(order.shipping_contact_name)
             : null,
-        item_name: fullNameParts.join(" / "),
+        item_name: itemDisplay,
         quantity: Number(oi?.quantity ?? 0),
         category: cat,
         stage: normalizeWorkOrderStage(r.stage),
@@ -330,6 +380,40 @@ export function WorkOrdersPage() {
       a.localeCompare(b, "zh-Hant", { numeric: true })
     );
   }, [rows]);
+
+  /** 與訂單管理相同：主檔客戶 + 列表曾出現之 customer_id；通路客戶置頂並標示 [通路] */
+  const customerFilterOptions = useMemo(() => {
+    const byId = new Map<string, { name: string; channelId: string | null }>();
+    customers.forEach((c) => {
+      const ch =
+        c.channel_id != null && String(c.channel_id).trim()
+          ? String(c.channel_id)
+          : null;
+      byId.set(c.id, { name: c.name, channelId: ch });
+    });
+    rows.forEach((w) => {
+      if (w.customer_id && !byId.has(w.customer_id)) {
+        byId.set(w.customer_id, {
+          name: w.customer_name?.trim() || "—",
+          channelId: null,
+        });
+      }
+    });
+    return Array.from(byId.entries())
+      .map(([id, { name, channelId }]) => {
+        const isChannel = channelId != null;
+        return {
+          id,
+          name,
+          isChannel,
+          label: isChannel ? `[通路] ${name}` : name,
+        };
+      })
+      .sort((a, b) => {
+        if (a.isChannel !== b.isChannel) return a.isChannel ? -1 : 1;
+        return a.name.localeCompare(b.name, "zh-Hant", { numeric: true });
+      });
+  }, [customers, rows]);
 
   useEffect(() => {
     if (categoryFilter === "全部") return;
@@ -394,13 +478,21 @@ export function WorkOrdersPage() {
       const matchCategory =
         categoryFilter === "全部" ||
         workOrderCategoryLabel(w) === categoryFilter;
+      const matchCustomer =
+        !customerFilter || w.customer_id === customerFilter;
       const q = assigneeFilter.trim().toLowerCase();
       const matchAssignee =
         !q ||
         (w.assignee_name ?? "").toLowerCase().includes(q) ||
         w.customer_name.toLowerCase().includes(q) ||
         w.order_number.toLowerCase().includes(q);
-      return matchStage && matchOrderStatus && matchCategory && matchAssignee;
+      return (
+        matchStage &&
+        matchOrderStatus &&
+        matchCategory &&
+        matchCustomer &&
+        matchAssignee
+      );
     });
 
     // 排序：工序站別依 `WORK_ORDER_STAGES` 順序（見 work-order-stages.ts）
@@ -448,6 +540,7 @@ export function WorkOrdersPage() {
     stageFilter,
     orderStatusFilter,
     categoryFilter,
+    customerFilter,
     assigneeFilter,
     sortBy,
     sortAsc,
@@ -508,91 +601,120 @@ export function WorkOrdersPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Wrench className="h-4 w-4" />
-          <span>工單列表 · 依品項追蹤生產進度</span>
+      <div
+        className={cn(
+          "flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto rounded-lg border border-border/70 bg-card/80 px-2 py-1.5 shadow-sm",
+          "[scrollbar-width:thin] [-ms-overflow-style:auto]",
+        )}
+      >
+        <div className="flex shrink-0 items-center gap-1.5 pr-1 text-xs text-muted-foreground">
+          <Wrench className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="whitespace-nowrap">工單列表 · 依品項追蹤生產進度</span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1.5">
-            {PRODUCTION_ORDER_STATUS_FILTERS.map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setOrderStatusFilter(f)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                  orderStatusFilter === f
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-accent/40"
-                }`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
+        <span
+          className="hidden h-4 w-px shrink-0 bg-border sm:block"
+          aria-hidden
+        />
+        <div className="flex shrink-0 flex-nowrap items-center gap-1">
+          {PRODUCTION_ORDER_STATUS_FILTERS.map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setOrderStatusFilter(f)}
+              className={cn(
+                "whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium leading-tight transition-all sm:text-xs",
+                orderStatusFilter === f
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground hover:bg-accent/50",
+              )}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+        <select
+          value={stageFilter}
+          onChange={(e) =>
+            setStageFilter(
+              e.target.value === "全部"
+                ? "全部"
+                : (e.target.value as WorkOrderStage),
+            )
+          }
+          className="h-8 w-[7.5rem] shrink-0 rounded-md border border-input bg-background px-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[8.25rem]"
+        >
+          <option value="全部">工序：全部</option>
+          {STAGE_OPTIONS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <select
+          value={categoryFilter}
+          onChange={(e) =>
+            setCategoryFilter(
+              e.target.value === "全部" ? "全部" : e.target.value,
+            )
+          }
+          className="h-8 w-[6.75rem] max-w-[10rem] shrink-0 rounded-md border border-input bg-background px-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[8.5rem]"
+          aria-label="依品項類別篩選"
+        >
+          <option value="全部">類別：全部</option>
+          {categoryOptions.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="hidden whitespace-nowrap text-xs text-muted-foreground sm:inline">
+            客戶
+          </span>
           <select
-            value={stageFilter}
-            onChange={(e) =>
-              setStageFilter(
-                e.target.value === "全部"
-                  ? "全部"
-                  : (e.target.value as WorkOrderStage)
-              )
-            }
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+            className="h-8 w-[7.5rem] max-w-[12rem] shrink-0 rounded-md border border-input bg-background px-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[9.5rem]"
+            aria-label="依客戶篩選"
           >
-            <option value="全部">工序：全部</option>
-            {STAGE_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s}
+            <option value="">全部客戶</option>
+            {customerFilterOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
               </option>
             ))}
           </select>
-          <select
-            value={categoryFilter}
-            onChange={(e) =>
-              setCategoryFilter(
-                e.target.value === "全部" ? "全部" : e.target.value
-              )
-            }
-            className="h-8 max-w-[12rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-label="依品項類別篩選"
-          >
-            <option value="全部">類別：全部</option>
-            {categoryOptions.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <input
-            type="text"
-            value={assigneeFilter}
-            onChange={(e) => setAssigneeFilter(e.target.value)}
-            placeholder="搜尋客戶 / 訂單 / 負責人…"
-            className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-          <a
-            href="/print/chair-production"
-            className={cn(
-              buttonVariants({ variant: "outline", size: "default" }),
-              "h-8 gap-1.5 px-2.5 text-xs font-medium no-underline"
-            )}
-          >
-            <Printer className="h-3.5 w-3.5" />
-            椅子清單
-          </a>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-8 w-8"
-            onClick={fetchWorkOrders}
-            aria-label="重新整理工單"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
         </div>
+        <input
+          type="text"
+          value={assigneeFilter}
+          onChange={(e) => setAssigneeFilter(e.target.value)}
+          placeholder="搜尋…"
+          title="搜尋客戶 / 訂單 / 負責人"
+          className="h-8 w-[7rem] min-w-[7rem] shrink-0 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-40 md:w-48"
+        />
+        <a
+          href="/print/chair-production"
+          className={cn(
+            buttonVariants({ variant: "outline", size: "default" }),
+            "h-8 shrink-0 gap-1 px-2 text-xs font-medium no-underline sm:px-2.5",
+          )}
+        >
+          <Printer className="h-3.5 w-3.5 shrink-0" />
+          <span className="whitespace-nowrap">椅子清單</span>
+        </a>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => {
+            void Promise.all([fetchCustomersForFilter(), fetchWorkOrders()]);
+          }}
+          aria-label="重新整理工單"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-hidden min-w-0 max-w-full">
@@ -775,7 +897,10 @@ export function WorkOrdersPage() {
         orderId={overviewOrderId}
         onEditOrder={(id) => {
           setOverviewOrderId(null);
-          router.replace(`/?page=orders#orders:${encodeURIComponent(id)}`);
+          router.replace(
+            `/?page=orders&openOrder=${encodeURIComponent(id)}`,
+            { scroll: false },
+          );
         }}
       />
     </div>

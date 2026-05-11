@@ -674,7 +674,9 @@ export default function ChannelOrdersPage() {
         onEditOrder={(id) => {
           setOverviewOrderId(null);
           if (typeof window !== "undefined") {
-            window.location.assign(`/?page=orders#orders:${encodeURIComponent(id)}`);
+            window.location.assign(
+              `/?page=orders&openOrder=${encodeURIComponent(id)}`,
+            );
           }
         }}
       />

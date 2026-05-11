@@ -323,6 +323,13 @@ export default function DashboardShell() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [externalOrderId, setExternalOrderId] = useState<string | null>(null);
 
+  /** 訂單編輯深連結：優先使用 ?openOrder=（App Router 對 #hash 的 client 導向不可靠） */
+  const openOrderParam = searchParams.get("openOrder");
+  const resolvedInitialOpenOrderId =
+    openOrderParam && openOrderParam.trim() !== ""
+      ? decodeURIComponent(openOrderParam.trim())
+      : externalOrderId;
+
   // 從 URL 同步頁面（例如瀏覽器上一頁 / 開新視窗後重繪時維持在當前頁）
   useEffect(() => {
     const p = searchParams.get("page");
@@ -352,6 +359,18 @@ export default function DashboardShell() {
       return;
     }
     if (p && PAGE_IDS.has(p as Page)) setActivePage(p as Page);
+  }, [searchParams, router]);
+
+  // ?openOrder=uuid：記住訂單 id 並自網址移除參數（避免重整重複開窗）
+  useEffect(() => {
+    const raw = searchParams.get("openOrder");
+    if (!raw?.trim()) return;
+    const id = decodeURIComponent(raw.trim());
+    setExternalOrderId(id);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("openOrder");
+    const q = next.toString();
+    router.replace(q ? `/?${q}` : "/", { scroll: false });
   }, [searchParams, router]);
 
   // 監聽網址 hash，如為 orders:<id>，則切換到訂單頁並記住要自動打開的訂單
@@ -539,7 +558,7 @@ export default function DashboardShell() {
             <OrdersPage
               mode="order"
               isAdmin={isErpEditorRole(userRole)}
-              initialOpenOrderId={externalOrderId ?? undefined}
+              initialOpenOrderId={resolvedInitialOpenOrderId ?? undefined}
             />
           )}
           {activePage === "kanban" && <WorkOrdersPage />}

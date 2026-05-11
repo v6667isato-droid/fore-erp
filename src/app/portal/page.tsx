@@ -16,6 +16,7 @@ import {
   LogOut,
   ClipboardList,
   Pencil,
+  Eye,
   X,
   ArrowUp,
   ArrowDown,
@@ -91,6 +92,8 @@ interface PortalSession {
 
 interface VariantOption {
   id: string;
+  /** product_variants.series_id，供通路折扣計算（與訂單新增一致） */
+  series_id: string | null;
   label: string;
   base_price: number | null;
   spec1?: string | null;
@@ -98,6 +101,17 @@ interface VariantOption {
   seat_height_cm?: number | null;
   /** 示意圖：product_variants.image_url 優先，否則 product_series.image_url */
   series_image_url?: string | null;
+}
+
+/** 與訂單新增 resolveChannelUnitPrice：系列通路折扣 %＞0 時之成交單價 */
+function portalChannelUnitPrice(
+  v: VariantOption | undefined,
+  discountPctBySeriesId: Map<string, number>
+): number | null {
+  if (!v?.series_id || v.base_price == null || !Number.isFinite(Number(v.base_price))) return null;
+  const pct = discountPctBySeriesId.get(v.series_id) ?? 0;
+  if (!(pct > 0)) return null;
+  return Math.round(Number(v.base_price) * (1 - pct / 100));
 }
 
 interface PortalItem {
@@ -121,6 +135,9 @@ interface MyOrderRow {
   status: string;
   /** 通路端僅 已結清／未結清 */
   payment_status: "已結清" | "未結清";
+  /** 明細原價加總 + 運費（無 base_price 之明細以成交單價替代） */
+  list_grand: number;
+  /** 訂單應收總額（通路成交後之總額，含運） */
   total_amount: number;
 }
 
@@ -146,6 +163,7 @@ type MyOrderSortKey =
   | "planned_end_max"
   | "status"
   | "payment_status"
+  | "list_grand"
   | "total_amount";
 
 function compareNullableDate(a: string | null, b: string | null): number {
@@ -221,6 +239,10 @@ export default function PortalPage() {
   const [myOrders, setMyOrders] = useState<MyOrderRow[]>([]);
   const [myOrdersLoading, setMyOrdersLoading] = useState(false);
   const [myOrdersScopeTab, setMyOrdersScopeTab] = useState<MyOrdersScopeTab>("ongoing");
+  /** 目前登入通路之「系列 → 折扣 %」與訂單新增相同資料來源 */
+  const [portalSeriesDiscountPct, setPortalSeriesDiscountPct] = useState<Map<string, number>>(
+    () => new Map()
+  );
 
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{
@@ -246,19 +268,29 @@ export default function PortalPage() {
   const loadVariants = useCallback(async (channelId: string | null) => {
     if (!channelId) {
       setVariants([]);
+      setPortalSeriesDiscountPct(new Map());
       return;
     }
 
     // 只載入「有為此通路設定折扣」的系列之規格
     const { data: discountRows, error: discountError } = await supabase
       .from("product_series_channel_discounts")
-      .select("series_id")
+      .select("series_id, discount_percent")
       .eq("channel_id", channelId);
 
     if (discountError) {
       setVariants([]);
+      setPortalSeriesDiscountPct(new Map());
       return;
     }
+
+    const pctBySeries = new Map<string, number>();
+    for (const r of (discountRows ?? []) as { series_id?: string; discount_percent?: number }[]) {
+      if (r.series_id != null) {
+        pctBySeries.set(String(r.series_id), Number(r.discount_percent ?? 0));
+      }
+    }
+    setPortalSeriesDiscountPct(pctBySeries);
 
     const seriesIds = Array.from(
       new Set(
@@ -326,6 +358,7 @@ export default function PortalPage() {
         const seriesImg = imageBySeriesId.get(String(v.series_id ?? "")) ?? null;
         return {
           id: String(v.id),
+          series_id: v.series_id != null ? String(v.series_id) : null,
           label: labelParts.join(" / "),
           base_price: v.base_price != null ? Number(v.base_price) : null,
           spec1: v.spec1 ?? null,
@@ -356,7 +389,7 @@ export default function PortalPage() {
     try {
       let rawList: any[] = [];
       const orderSelect =
-        "id, order_number, order_date, shipping_contact_name, expected_delivery_date, status, payment_status, total_amount";
+        "id, order_number, order_date, shipping_contact_name, expected_delivery_date, status, payment_status, total_amount, shipping_fee";
 
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
@@ -373,6 +406,41 @@ export default function PortalPage() {
       }
       rawList = (orderData ?? []) as any[];
       const orderIds = rawList.map((r) => String(r.id));
+
+      const listGrandByOrderId = new Map<string, number>();
+      if (orderIds.length > 0) {
+        const { data: itemRows } = await supabase
+          .from("order_items")
+          .select("order_id, quantity, unit_price, product_variants ( base_price )")
+          .in("order_id", orderIds);
+
+        const lineSumByOrder = new Map<string, number>();
+        for (const row of (itemRows ?? []) as any[]) {
+          const oid = String(row.order_id);
+          const q = Math.max(0, Number(row.quantity) || 0);
+          const pv = row.product_variants;
+          const one = Array.isArray(pv) ? pv[0] : pv;
+          const base =
+            one && typeof one === "object" && one.base_price != null
+              ? Number(one.base_price)
+              : null;
+          const unitFallback = Number(row.unit_price ?? 0);
+          const unitList =
+            base != null && Number.isFinite(base) ? base : unitFallback;
+          const line = Math.round(unitList * q);
+          lineSumByOrder.set(oid, (lineSumByOrder.get(oid) ?? 0) + line);
+        }
+
+        for (const r of rawList) {
+          const oid = String(r.id);
+          const ship = Number(r.shipping_fee ?? 0);
+          const lines = lineSumByOrder.get(oid);
+          const total = Number(r.total_amount ?? 0);
+          const listGrand =
+            lines !== undefined ? lines + ship : total;
+          listGrandByOrderId.set(oid, listGrand);
+        }
+      }
 
       let plannedMap = new Map<string, string | null>();
       if (orderIds.length > 0 && session.portal_token) {
@@ -408,6 +476,7 @@ export default function PortalPage() {
             planned_end_max: plannedMap.get(oid) ?? null,
             status: r.status ?? "—",
             payment_status: normalizeChannelPartnerPaymentStatus(r.payment_status),
+            list_grand: listGrandByOrderId.get(oid) ?? total,
             total_amount: total,
           };
         })
@@ -504,6 +573,9 @@ export default function PortalPage() {
         case "payment_status":
           cmp = a.payment_status.localeCompare(b.payment_status, "zh-Hant");
           break;
+        case "list_grand":
+          cmp = a.list_grand - b.list_grand;
+          break;
         case "total_amount":
           cmp = a.total_amount - b.total_amount;
           break;
@@ -530,11 +602,15 @@ export default function PortalPage() {
     const list = myOrdersFilteredSorted;
     const count = list.length;
     const sum = list.reduce((s, o) => s + o.total_amount, 0);
+    const listSum = list.reduce((s, o) => s + o.list_grand, 0);
+    const profitSum = listSum - sum;
     const settledRows = list.filter((o) => o.payment_status === "已結清");
     const pendingRows = list.filter((o) => o.payment_status !== "已結清");
     return {
       count,
       sum,
+      listSum,
+      profitSum,
       settledCount: settledRows.length,
       settledSum: settledRows.reduce((s, o) => s + o.total_amount, 0),
       pendingCount: pendingRows.length,
@@ -571,8 +647,8 @@ export default function PortalPage() {
         onClick={() => toggleMyOrderSort(sortKey)}
         className={
           align === "right"
-            ? "inline-flex w-full max-w-full flex-nowrap items-center justify-end gap-1 whitespace-nowrap text-right text-sm font-medium leading-none text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
-            : "inline-flex max-w-full flex-nowrap items-center gap-1 whitespace-nowrap text-left text-sm font-medium leading-none text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
+            ? "inline-flex w-full max-w-full flex-nowrap items-center justify-end gap-0.5 whitespace-nowrap text-right text-sm font-medium leading-none text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
+            : "inline-flex max-w-full flex-nowrap items-center gap-0.5 whitespace-nowrap text-left text-sm font-medium leading-none text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
         }
         aria-label={`依${label}排序${active ? (myOrderSortAsc ? "升冪" : "降冪") : ""}`}
       >
@@ -615,7 +691,7 @@ export default function PortalPage() {
     const meta = [
       `# 通路結算匯出（我的訂單）`,
       `# 客戶:${session?.customer_name ?? ""};列表:${scopeLabel};${rangeLabel};付款:${payLabel}`,
-      `# 筆數:${t.count};應收合計(含運):${t.sum}`,
+      `# 筆數:${t.count};牌價合計(含運):${t.listSum};通路價合計(含運):${t.sum};利潤(牌價-通路價):${t.profitSum}`,
       `# 已結清:${t.settledSum}(${t.settledCount}筆);未結清:${t.pendingSum}(${t.pendingCount}筆)`,
     ].join("\n");
 
@@ -627,7 +703,9 @@ export default function PortalPage() {
       "預計完成",
       "狀態",
       "付款狀態",
-      "應收(含運)",
+      "牌價(含運)",
+      "通路價(含運)",
+      "利潤(牌價-通路價)",
     ];
     const rows = myOrdersFilteredSorted.map((o) => [
       o.order_number,
@@ -637,7 +715,9 @@ export default function PortalPage() {
       o.planned_end_max ?? "",
       o.status,
       o.payment_status,
+      String(o.list_grand),
       String(o.total_amount),
+      String(o.list_grand - o.total_amount),
     ]);
     const csv = [meta, "", header, ...rows]
       .map((line) =>
@@ -832,9 +912,11 @@ export default function PortalPage() {
   }
   function onEditVariantChange(itemId: string, variantId: string) {
     const v = variants.find((x) => x.id === variantId);
+    const channelPx = portalChannelUnitPrice(v, portalSeriesDiscountPct);
+    const unit = channelPx ?? v?.base_price ?? 0;
     updateEditItem(itemId, {
       variant_id: variantId,
-      unit_price: v?.base_price ?? 0,
+      unit_price: unit,
       seat_height_cm: v ? resolvePortalSeatHeight(v) : null,
     });
   }
@@ -978,9 +1060,11 @@ export default function PortalPage() {
 
   function onVariantChange(itemId: string, variantId: string) {
     const v = variants.find((x) => x.id === variantId);
+    const channelPx = portalChannelUnitPrice(v, portalSeriesDiscountPct);
+    const unit = channelPx ?? v?.base_price ?? 0;
     updateItem(itemId, {
       variant_id: variantId,
-      unit_price: v?.base_price ?? 0,
+      unit_price: unit,
       seat_height_cm: v ? resolvePortalSeatHeight(v) : null,
     });
   }
@@ -1386,6 +1470,31 @@ export default function PortalPage() {
                           className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                       </div>
+                      {it.variant_id ? (
+                        <div className="grid grid-cols-1 gap-3 sm:col-span-3 sm:grid-cols-2">
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-xs text-muted-foreground">牌價</span>
+                            <div className="flex h-9 items-center justify-end rounded-md border border-input bg-muted/30 px-3 text-sm tabular-nums text-muted-foreground">
+                              {(() => {
+                                const sel = variants.find((vv) => vv.id === it.variant_id);
+                                return sel?.base_price != null && Number.isFinite(Number(sel.base_price))
+                                  ? `$${Number(sel.base_price).toLocaleString()}`
+                                  : "—";
+                              })()}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-xs text-muted-foreground">通路價格</span>
+                            <div className="flex h-9 items-center justify-end rounded-lg border border-dashed border-border bg-muted/40 px-3 text-sm tabular-nums text-muted-foreground">
+                              {(() => {
+                                const sel = variants.find((vv) => vv.id === it.variant_id);
+                                const cp = portalChannelUnitPrice(sel, portalSeriesDiscountPct);
+                                return cp != null ? `$${cp.toLocaleString()}` : "—";
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="flex flex-col gap-1.5 sm:col-span-3">
                         <label className="text-xs text-muted-foreground">備註</label>
                         <input
@@ -1538,17 +1647,34 @@ export default function PortalPage() {
                   </div>
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
-                  與貴司對帳時可依下單日或交貨日篩選本期單據。金額以訂單總額為準。
+                  與貴司對帳時可依下單日或交貨日篩選本期單據。牌價為明細原價加總並含運費；通路價為訂單應收總額（含運）。
                 </p>
               </div>
 
               <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                 <div className="text-sm text-foreground space-y-1">
-                  <div>
-                    <span className="font-medium tabular-nums">{portalSettlementTotals.count}</span>
-                    <span className="text-muted-foreground"> 筆 · 應收（含運） </span>
-                    <span className="font-semibold tabular-nums">
-                      ${portalSettlementTotals.sum.toLocaleString()}
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span>
+                      <span className="font-medium tabular-nums">{portalSettlementTotals.count}</span>
+                      <span className="text-muted-foreground"> 筆</span>
+                    </span>
+                    <span>
+                      <span className="text-muted-foreground">牌價（含運）</span>{" "}
+                      <span className="font-semibold tabular-nums">
+                        ${portalSettlementTotals.listSum.toLocaleString()}
+                      </span>
+                    </span>
+                    <span>
+                      <span className="text-muted-foreground">通路價（含運）</span>{" "}
+                      <span className="font-semibold tabular-nums">
+                        ${portalSettlementTotals.sum.toLocaleString()}
+                      </span>
+                    </span>
+                    <span>
+                      <span className="text-muted-foreground">利潤（牌價−通路價）</span>{" "}
+                      <span className="font-semibold tabular-nums">
+                        ${portalSettlementTotals.profitSum.toLocaleString()}
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -1579,35 +1705,50 @@ export default function PortalPage() {
                   />
                 </div>
               </div>
-              <div className="overflow-x-auto rounded-md border border-border/80">
-                <table className="w-full min-w-[880px] border-collapse text-sm">
+              <div className="rounded-md border border-border/80 overflow-hidden">
+                <table className="w-full table-fixed border-collapse text-sm leading-snug">
+                  <colgroup>
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col className="w-[84px]" />
+                  </colgroup>
                   <thead>
                     <tr className="border-b border-border bg-muted/30 text-left">
-                      <th className="w-[10rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
-                        <MyOrderSortHeader label="訂單編號" sortKey="order_number" />
+                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
+                        <MyOrderSortHeader label="訂單號" sortKey="order_number" />
                       </th>
-                      <th className="w-[5.25rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
                         <MyOrderSortHeader label="下單日" sortKey="order_date" />
                       </th>
-                      <th className="min-w-[6.5rem] max-w-[11rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom min-w-0">
                         <MyOrderSortHeader label="聯絡人" sortKey="contact_name" />
                       </th>
-                      <th className="min-w-[7rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
-                        <MyOrderSortHeader label="預計交貨" sortKey="expected_delivery_date" />
+                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
+                        <MyOrderSortHeader label="交貨" sortKey="expected_delivery_date" />
                       </th>
-                      <th className="min-w-[7rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
-                        <MyOrderSortHeader label="預計完成" sortKey="planned_end_max" />
+                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
+                        <MyOrderSortHeader label="製作完成" sortKey="planned_end_max" />
                       </th>
-                      <th className="min-w-[4.5rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
                         <MyOrderSortHeader label="狀態" sortKey="status" />
                       </th>
-                      <th className="min-w-[4.25rem] whitespace-nowrap px-2 py-2.5 align-bottom sm:px-3">
+                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
                         <MyOrderSortHeader label="付款" sortKey="payment_status" />
                       </th>
-                      <th className="min-w-[6.75rem] whitespace-nowrap px-2 py-2.5 text-right align-bottom sm:px-3">
-                        <MyOrderSortHeader label="折後(運)" sortKey="total_amount" align="right" />
+                      <th className="whitespace-nowrap px-1 py-1.5 text-right align-bottom">
+                        <MyOrderSortHeader label="牌價" sortKey="list_grand" align="right" />
                       </th>
-                      <th className="min-w-[12rem] whitespace-nowrap px-2 py-2.5 pl-3 align-bottom text-sm font-medium text-muted-foreground sm:px-3">
+                      <th className="whitespace-nowrap px-1 py-1.5 text-right align-bottom">
+                        <MyOrderSortHeader label="通路價" sortKey="total_amount" align="right" />
+                      </th>
+                      <th className="w-[84px] whitespace-nowrap px-0.5 py-1.5 text-center align-bottom text-sm font-medium text-muted-foreground">
                         操作
                       </th>
                     </tr>
@@ -1615,82 +1756,97 @@ export default function PortalPage() {
                   <tbody>
                     {myOrdersFilteredSorted.map((o) => (
                       <tr key={o.id} className="border-b border-border/60">
-                        <td className="px-2 py-2.5 align-middle font-mono text-sm text-foreground sm:px-3">
-                          {o.order_number}
+                        <td className="min-w-0 px-1 py-1 align-middle font-mono text-sm text-foreground">
+                          <span className="block truncate" title={o.order_number}>
+                            {o.order_number}
+                          </span>
                         </td>
-                        <td className="px-2 py-2.5 align-middle text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:px-3">
+                        <td className="px-1 py-1 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
                           {o.order_date ? formatDateYyMmDd(o.order_date) : "—"}
                         </td>
                         <td
-                          className="max-w-[11rem] px-2 py-2.5 align-middle text-sm text-foreground sm:px-3"
+                          className="min-w-0 max-w-0 px-1 py-1 align-middle text-sm text-foreground"
                           title={o.shipping_contact_name ?? undefined}
                         >
                           <span className="block truncate">{o.shipping_contact_name?.trim() || "—"}</span>
                         </td>
-                        <td className="px-2 py-2.5 align-middle text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:px-3">
+                        <td className="px-1 py-1 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
                           {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}
                         </td>
-                        <td className="px-2 py-2.5 align-middle text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:px-3">
+                        <td className="min-w-0 px-1 py-1 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
                           {o.planned_end_max ? (
                             formatDateYyMmDd(o.planned_end_max)
                           ) : o.expected_delivery_date ? (
-                            <span className="inline-flex flex-col gap-0.5 leading-snug">
-                              <span>{formatDateYyMmDd(o.expected_delivery_date)}</span>
-                              <span className="text-xs text-muted-foreground/85">（預計交貨）</span>
+                            <span className="block truncate" title={`${formatDateYyMmDd(o.expected_delivery_date)}（預計交貨備援）`}>
+                              {formatDateYyMmDd(o.expected_delivery_date)}
+                              <span className="text-muted-foreground"> ※</span>
                             </span>
                           ) : (
                             "—"
                           )}
                         </td>
-                        <td className="px-2 py-2.5 align-middle text-sm text-muted-foreground sm:px-3">
-                          {o.status}
+                        <td className="min-w-0 px-1 py-1 align-middle text-muted-foreground">
+                          <span className="block truncate" title={o.status}>
+                            {o.status}
+                          </span>
                         </td>
-                        <td className="px-2 py-2.5 align-middle text-sm text-muted-foreground whitespace-nowrap sm:px-3">
-                          {o.payment_status || "—"}
+                        <td className="min-w-0 px-1 py-1 align-middle text-muted-foreground whitespace-nowrap">
+                          <span className="block truncate" title={o.payment_status ?? undefined}>
+                            {o.payment_status || "—"}
+                          </span>
                         </td>
-                        <td className="px-2 py-2.5 align-middle text-right text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:px-3">
+                        <td className="px-1 py-1 align-middle text-right tabular-nums text-muted-foreground whitespace-nowrap">
+                          ${o.list_grand.toLocaleString()}
+                        </td>
+                        <td className="px-1 py-1 align-middle text-right tabular-nums text-muted-foreground whitespace-nowrap">
                           ${o.total_amount.toLocaleString()}
                         </td>
-                        <td className="px-2 py-2.5 pl-3 align-middle sm:px-3">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                        <td className="w-[84px] px-0 py-1 align-middle">
+                          <div className="flex flex-nowrap items-center justify-center gap-0">
                             <Button
                               type="button"
                               variant="ghost"
-                              className="h-8 px-2 text-sm font-normal"
+                              className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                              aria-label="檢視訂單"
+                              title="檢視"
                               onClick={() => openOrderOverview(o.id)}
                             >
-                              檢視訂單
+                              <Eye className="h-3.5 w-3.5 opacity-90" aria-hidden />
                             </Button>
-                            {canEditOrDelete(o.status) ? (
-                              <>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  className="h-8 px-2 text-sm font-normal"
-                                  onClick={() => setEditingOrderId(o.id)}
-                                >
-                                  <Pencil className="h-3.5 w-3.5 mr-1" />
-                                  編輯
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  className="h-8 px-2 text-sm font-normal text-destructive hover:text-destructive"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    requestDeleteOrder(o);
-                                  }}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5 mr-1" />
-                                  刪除
-                                </Button>
-                              </>
-                            ) : (
-                              <span className="max-w-[14rem] text-sm leading-snug text-muted-foreground">
-                                已進入生產或後續階段，無法修改/刪除
-                              </span>
-                            )}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              disabled={!canEditOrDelete(o.status)}
+                              aria-label="編輯訂單"
+                              title={
+                                canEditOrDelete(o.status)
+                                  ? "編輯"
+                                  : "已進入生產或後續階段，無法編輯"
+                              }
+                              className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-foreground disabled:opacity-40"
+                              onClick={() => setEditingOrderId(o.id)}
+                            >
+                              <Pencil className="h-3.5 w-3.5 opacity-90" aria-hidden />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              disabled={!canEditOrDelete(o.status)}
+                              aria-label="刪除訂單"
+                              title={
+                                canEditOrDelete(o.status)
+                                  ? "刪除"
+                                  : "已進入生產或後續階段，無法刪除"
+                              }
+                              className="h-6 w-6 shrink-0 p-0 text-destructive hover:text-destructive disabled:opacity-40"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                requestDeleteOrder(o);
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 opacity-90" aria-hidden />
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -1868,6 +2024,31 @@ export default function PortalPage() {
                                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                               />
                             </div>
+                            {it.variant_id ? (
+                              <div className="grid grid-cols-1 gap-2 sm:col-span-3 sm:grid-cols-2">
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-[11px] text-muted-foreground">牌價</span>
+                                  <div className="flex h-8 items-center justify-end rounded-md border border-input bg-muted/30 px-2 text-sm tabular-nums text-muted-foreground">
+                                    {(() => {
+                                      const sel = variants.find((vv) => vv.id === it.variant_id);
+                                      return sel?.base_price != null && Number.isFinite(Number(sel.base_price))
+                                        ? `$${Number(sel.base_price).toLocaleString()}`
+                                        : "—";
+                                    })()}
+                                  </div>
+                                </div>
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-[11px] text-muted-foreground">通路價格</span>
+                                  <div className="flex h-8 items-center justify-end rounded-lg border border-dashed border-border bg-muted/40 px-2 text-sm tabular-nums text-muted-foreground">
+                                    {(() => {
+                                      const sel = variants.find((vv) => vv.id === it.variant_id);
+                                      const cp = portalChannelUnitPrice(sel, portalSeriesDiscountPct);
+                                      return cp != null ? `$${cp.toLocaleString()}` : "—";
+                                    })()}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
                             <div className="sm:col-span-3">
                               <label className="text-[11px] text-muted-foreground">備註</label>
                               <input

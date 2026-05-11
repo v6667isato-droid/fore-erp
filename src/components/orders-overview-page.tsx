@@ -31,6 +31,11 @@ import {
 import { toast } from "sonner";
 import { VariantSeriesThumb } from "@/components/variant-series-thumb";
 import { maxPlannedEndDate } from "@/lib/planned-end-aggregate";
+import {
+  formatSeatHeightCmLabel,
+  isChairCh03FamilyProductCode,
+  resolveSeatHeightCmForDisplay,
+} from "@/lib/chair-product-code";
 
 /** 與訂單／生產列表一致之訂單狀態排序 */
 const ORDER_STATUS_SEQUENCE = [
@@ -93,6 +98,7 @@ function buildItemLabel(oi: {
   custom_dimension_w?: number | null;
   custom_dimension_d?: number | null;
   custom_dimension_h?: number | null;
+  seat_height_cm?: number | null;
   product_variants?: unknown;
 }): string {
   const variant = oi.product_variants;
@@ -102,6 +108,7 @@ function buildItemLabel(oi: {
         dimension_w?: number | null;
         dimension_d?: number | null;
         dimension_h?: number | null;
+        seat_height_cm?: number | null;
       }
     | undefined;
 
@@ -119,11 +126,21 @@ function buildItemLabel(oi: {
       : `W:${w ?? "—"} × D:${d ?? "—"} × H:${h ?? "—"}`;
 
   const bits = [itemName, dim].filter((s) => typeof s === "string" && s.trim());
-  return bits.join(" / ") || "—";
+  let label = bits.join(" / ") || "—";
+
+  const code = v?.product_code != null ? String(v.product_code).trim() : "";
+  const seatCm = resolveSeatHeightCmForDisplay(oi.seat_height_cm, v?.seat_height_cm);
+  if (isChairCh03FamilyProductCode(code) && seatCm != null) {
+    const sh = formatSeatHeightCmLabel(seatCm);
+    label = label === "—" ? sh : `${label} · ${sh}`;
+  }
+
+  return label;
 }
 
 export type OverviewOrder = {
   id: string;
+  customer_id: string | null;
   order_number: string;
   order_date: string | null;
   expected_delivery_date: string | null;
@@ -152,6 +169,7 @@ export type OverviewLine = {
 
 const ORDER_OVERVIEW_SELECT = `
         id,
+        customer_id,
         order_number,
         order_date,
         expected_delivery_date,
@@ -168,11 +186,13 @@ const ORDER_OVERVIEW_SELECT = `
           custom_dimension_w,
           custom_dimension_d,
           custom_dimension_h,
+          seat_height_cm,
           product_variants(
             product_code,
             dimension_w,
             dimension_d,
             dimension_h,
+            seat_height_cm,
             image_url,
             product_series(image_url)
           ),
@@ -264,6 +284,10 @@ function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
 
     return {
       id: String(row.id),
+      customer_id:
+        row.customer_id != null && String(row.customer_id).trim()
+          ? String(row.customer_id)
+          : null,
       order_number: String(row.order_number ?? ""),
       order_date: row.order_date ?? null,
       expected_delivery_date: row.expected_delivery_date ?? null,
@@ -302,7 +326,7 @@ export async function fetchOrderOverviewById(
 function openOrderInManagement(orderId: string) {
   if (typeof window === "undefined") return;
   const encoded = encodeURIComponent(orderId);
-  window.location.href = `/?page=orders#orders:${encoded}`;
+  window.location.href = `/?page=orders&openOrder=${encoded}`;
 }
 
 export function OrderOverviewCard({
@@ -528,18 +552,40 @@ export function OrderOverviewCard({
   );
 }
 
+type OverviewCustomerRow = {
+  id: string;
+  name: string;
+  channel_id: string | null;
+};
+
 export function OrdersOverviewPage() {
   const [rows, setRows] = useState<OverviewOrder[]>([]);
+  const [customers, setCustomers] = useState<OverviewCustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("");
   const [hideClosed, setHideClosed] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("orders")
-      .select(ORDER_OVERVIEW_SELECT)
-      .order("order_date", { ascending: false });
+    const [ordersRes, customersRes] = await Promise.all([
+      supabase.from("orders").select(ORDER_OVERVIEW_SELECT).order("order_date", { ascending: false }),
+      supabase.from("customers").select("id, name, channel_id").order("name", { ascending: true }),
+    ]);
+
+    const { data, error } = ordersRes;
+    if (!customersRes.error && customersRes.data) {
+      setCustomers(
+        (customersRes.data as any[]).map((c) => ({
+          id: String(c.id),
+          name: String(c.name ?? ""),
+          channel_id:
+            c.channel_id != null && String(c.channel_id).trim() ? String(c.channel_id) : null,
+        }))
+      );
+    } else {
+      setCustomers([]);
+    }
 
     if (error) {
       console.error("[orders-overview]", error);
@@ -554,6 +600,37 @@ export function OrdersOverviewPage() {
     setLoading(false);
   }, []);
 
+  /** 主檔客戶 + 訂單曾出現但主檔可能缺漏的 customer_id；通路客戶置頂並標示 [通路]（與訂單管理一致） */
+  const customerFilterOptions = useMemo(() => {
+    const byId = new Map<string, { name: string; channelId: string | null }>();
+    customers.forEach((c) => {
+      const ch = c.channel_id != null && String(c.channel_id).trim() ? String(c.channel_id) : null;
+      byId.set(c.id, { name: c.name, channelId: ch });
+    });
+    rows.forEach((o) => {
+      if (o.customer_id && !byId.has(o.customer_id)) {
+        byId.set(o.customer_id, {
+          name: o.customer_name?.trim() || "—",
+          channelId: null,
+        });
+      }
+    });
+    return Array.from(byId.entries())
+      .map(([id, { name, channelId }]) => {
+        const isChannel = channelId != null;
+        return {
+          id,
+          name,
+          isChannel,
+          label: isChannel ? `[通路] ${name}` : name,
+        };
+      })
+      .sort((a, b) => {
+        if (a.isChannel !== b.isChannel) return a.isChannel ? -1 : 1;
+        return a.name.localeCompare(b.name, "zh-Hant", { numeric: true });
+      });
+  }, [customers, rows]);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -562,6 +639,7 @@ export function OrdersOverviewPage() {
     const q = search.trim().toLowerCase();
     return rows.filter((o) => {
       if (hideClosed && o.status === "結案") return false;
+      if (customerFilter && o.customer_id !== customerFilter) return false;
       if (!q) return true;
       return (
         o.order_number.toLowerCase().includes(q) ||
@@ -571,7 +649,7 @@ export function OrdersOverviewPage() {
         (o.shipping_contact_name && o.shipping_contact_name.toLowerCase().includes(q))
       );
     });
-  }, [rows, search, hideClosed]);
+  }, [rows, search, hideClosed, customerFilter]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -633,6 +711,22 @@ export function OrdersOverviewPage() {
             )}
             aria-label="搜尋訂單"
           />
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">客戶</span>
+          <select
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+            className="h-9 min-w-[10rem] max-w-[min(100vw-2rem,18rem)] rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="依客戶篩選"
+          >
+            <option value="">全部客戶</option>
+            {customerFilterOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
         </div>
         <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
           <input

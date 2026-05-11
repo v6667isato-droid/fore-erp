@@ -2522,6 +2522,7 @@ export function OrdersPage({
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<OrderRow | null>(null);
   const [overviewOrderId, setOverviewOrderId] = useState<string | null>(null);
   const hasAppliedInitialOpenRef = useRef(false);
+  const lastInitialOpenOrderIdRef = useRef<string | undefined>(undefined);
 
   async function fetchCustomers() {
     const { data: customerData, error: customerError } = await supabase
@@ -2690,6 +2691,14 @@ export function OrdersPage({
 
     bootstrap();
   }, []);
+
+  // 深連結訂單 id 變更時允許再次自動開啟編輯窗
+  useEffect(() => {
+    if (initialOpenOrderId !== lastInitialOpenOrderIdRef.current) {
+      hasAppliedInitialOpenRef.current = false;
+      lastInitialOpenOrderIdRef.current = initialOpenOrderId;
+    }
+  }, [initialOpenOrderId]);
 
   // 若外部有指定要打開的訂單（例如從生產管理點過來），在首次載入完訂單列表後自動開啟編輯窗格
   useEffect(() => {

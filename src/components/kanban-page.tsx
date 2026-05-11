@@ -304,7 +304,10 @@ export function KanbanPage() {
         orderId={overviewOrderId}
         onEditOrder={(id) => {
           setOverviewOrderId(null);
-          router.replace(`/?page=orders#orders:${encodeURIComponent(id)}`);
+          router.replace(
+            `/?page=orders&openOrder=${encodeURIComponent(id)}`,
+            { scroll: false },
+          );
         }}
       />
     </div>

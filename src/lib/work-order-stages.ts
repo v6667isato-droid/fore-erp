@@ -2,13 +2,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * 工單工序站別（與 DB `work_orders.stage` 一致）。
- * 順序：待排程 → … → 塗裝後製程(組配、編織) → 包裝管理 → 待出貨 → 已出貨；「暫停」為特殊狀態。
+ * 順序：待排程 → 備料中 → 零部件製作中 → … → 已出貨；「暫停」為特殊狀態。
  * 兩段組裝／塗裝以 (一)(二) 區分（… → 塗裝中(二) → 塗裝後製程(組配、編織) → 包裝管理）。
  */
 export const WORK_ORDER_STAGES = [
   "待排程",
   "備料中",
-  "製作中",
+  "零部件製作中",
   "砂磨中",
   "組裝中(一)",
   "塗裝中",
@@ -48,6 +48,7 @@ export function isOrderStatusLockedForManualEdit(orderStatus: string): boolean {
 const LEGACY_STAGE_MAP: Record<string, WorkOrderStage> = {
   開料中: "備料中",
   組裝中: "組裝中(一)",
+  製作中: "零部件製作中",
   品檢中: "包裝管理",
   包裝檢查: "包裝管理",
   /** 舊簡稱（migration 可能曾寫入） */
@@ -78,7 +79,7 @@ export function stageStyleClassName(stage: WorkOrderStage): string {
       return "bg-muted text-foreground border-border";
     case "備料中":
       return "bg-amber-100 text-amber-900 border-amber-200";
-    case "製作中":
+    case "零部件製作中":
       return "bg-sky-100 text-sky-900 border-sky-200";
     case "砂磨中":
       return "bg-violet-100 text-violet-900 border-violet-200";
