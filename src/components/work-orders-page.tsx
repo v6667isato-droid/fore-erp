@@ -463,6 +463,27 @@ export function WorkOrdersPage() {
     }
   }
 
+  async function updateDeliveryDate(
+    orderId: string | null,
+    date: string | null,
+    workOrderId: string
+  ) {
+    if (!orderId) return;
+    const { error } = await supabase
+      .from("orders")
+      .update({ expected_delivery_date: date })
+      .eq("id", orderId);
+    if (error) {
+      toast.error(error.message || "更新交期失敗");
+      return;
+    }
+    setRows((prev) =>
+      prev.map((w) =>
+        w.order_id === orderId ? { ...w, expected_delivery_date: date } : w
+      )
+    );
+  }
+
   const filtered = useMemo(() => {
     const list = rows.filter((w) => {
       const matchStage =
@@ -485,7 +506,8 @@ export function WorkOrdersPage() {
         !q ||
         (w.assignee_name ?? "").toLowerCase().includes(q) ||
         w.customer_name.toLowerCase().includes(q) ||
-        w.order_number.toLowerCase().includes(q);
+        w.order_number.toLowerCase().includes(q) ||
+        (w.shipping_contact_name ?? "").toLowerCase().includes(q);
       return (
         matchStage &&
         matchOrderStatus &&
@@ -690,7 +712,7 @@ export function WorkOrdersPage() {
           value={assigneeFilter}
           onChange={(e) => setAssigneeFilter(e.target.value)}
           placeholder="搜尋…"
-          title="搜尋客戶 / 訂單 / 負責人"
+          title="搜尋客戶 / 聯絡人 / 訂單 / 負責人"
           className="h-8 w-[7rem] min-w-[7rem] shrink-0 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-40 md:w-48"
         />
         <a
@@ -742,10 +764,10 @@ export function WorkOrdersPage() {
               <TableHead className="hidden w-[9%] min-w-0 px-2 text-sm font-semibold whitespace-normal sm:table-cell">
                 <SortHeader label="負責人" sortKey="assignee_name" />
               </TableHead>
-              <TableHead className="hidden w-[11%] min-w-0 px-2 text-sm font-semibold whitespace-normal sm:table-cell">
+              <TableHead className="hidden w-[13%] min-w-[120px] px-2 text-sm font-semibold whitespace-normal sm:table-cell">
                 <SortHeader label="交期" sortKey="expected_delivery_date" />
               </TableHead>
-              <TableHead className="hidden w-[12%] min-w-0 px-2 text-sm font-semibold whitespace-normal sm:table-cell">
+              <TableHead className="hidden w-[13%] min-w-[120px] px-2 text-sm font-semibold whitespace-normal sm:table-cell">
                 <SortHeader label="預計完成" sortKey="planned_end_date" />
               </TableHead>
             </TableRow>
@@ -770,27 +792,25 @@ export function WorkOrdersPage() {
                         onClick={() => openOrderOverview(w)}
                         className="text-left text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded px-0.5 py-0.5"
                       >
-                        {w.order_number || "—"}
+                        {w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—"}
                       </button>
                     ) : (
-                      w.order_number || "—"
+                      w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—"
                     )}
                   </TableCell>
                   <TableCell className="p-2 align-top text-sm whitespace-normal break-words">
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <div>
-                        <span className="font-medium text-foreground">
-                          {w.customer_name || "—"}
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
+                      <span className="font-medium text-foreground">
+                        {w.customer_name || "—"}
+                      </span>
+                      {w.customer_alias && String(w.customer_alias).trim() && (
+                        <span className="text-xs text-muted-foreground">
+                          ({w.customer_alias})
                         </span>
-                        {w.customer_alias && String(w.customer_alias).trim() && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            ({w.customer_alias})
-                          </span>
-                        )}
-                      </div>
+                      )}
                       {w.shipping_contact_name?.trim() ? (
-                        <span className="text-xs font-normal text-muted-foreground break-words leading-snug">
-                          {w.shipping_contact_name.trim()}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          ／{w.shipping_contact_name.trim()}
                         </span>
                       ) : null}
                     </div>
@@ -844,10 +864,18 @@ export function WorkOrdersPage() {
                       ))}
                     </select>
                   </TableCell>
-                  <TableCell className="hidden p-2 align-top text-sm tabular-nums text-muted-foreground whitespace-nowrap sm:table-cell">
-                    {w.expected_delivery_date
-                      ? formatDateYyMmDd(w.expected_delivery_date)
-                      : "—"}
+                  <TableCell className="hidden p-2 align-top sm:table-cell">
+                    <input
+                      type="date"
+                      value={dateInputValue(w.expected_delivery_date)}
+                      onChange={(e) => {
+                        const v = e.target.value || null;
+                        updateDeliveryDate(w.order_id, v, w.id);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-8 min-h-8 w-full min-w-0 rounded-md border border-input bg-background px-1.5 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                      aria-label="交期"
+                    />
                   </TableCell>
                   <TableCell className="hidden p-2 align-top sm:table-cell">
                     <div className="flex min-w-0 items-center gap-1">

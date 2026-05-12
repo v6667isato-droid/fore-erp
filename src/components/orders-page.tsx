@@ -25,7 +25,6 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { OrderOverviewDialog } from "@/components/order-overview-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
-import { VariantSeriesThumb } from "@/components/variant-series-thumb";
 import { Search, Plus, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, Layers, ArrowLeft, MoreVertical } from "lucide-react";
 import { toast } from "sonner";
 
@@ -1661,16 +1660,6 @@ function OrderFormDialog({
                                         : v.label;
                                     })()}
                                   </div>
-                                  <div className="flex shrink-0 items-start">
-                                    <VariantSeriesThumb
-                                      imageUrl={
-                                        variants.find((vv) => vv.id === it.variant_id)
-                                          ?.series_image_url
-                                      }
-                                      compactPlaceholder
-                                      sizeClassName="h-10 w-10 sm:h-11 sm:w-11"
-                                    />
-                                  </div>
                                 </div>
                               ) : (
                                 <div className="flex w-full min-w-0 flex-col gap-1.5">
@@ -1726,16 +1715,6 @@ function OrderFormDialog({
                                         </option>
                                       ))}
                                   </select>
-                                  <div className="flex shrink-0 items-start">
-                                    <VariantSeriesThumb
-                                      imageUrl={
-                                        variants.find((vv) => vv.id === it.variant_id)
-                                          ?.series_image_url
-                                      }
-                                      compactPlaceholder
-                                      sizeClassName="h-10 w-10 sm:h-11 sm:w-11"
-                                    />
-                                  </div>
                                 </div>
                               )}
                               {!readOnly &&
@@ -2809,7 +2788,8 @@ export function OrdersPage({
       const matchSearch =
         !q ||
         o.order_number.toLowerCase().includes(q) ||
-        o.customer_name.toLowerCase().includes(q);
+        o.customer_name.toLowerCase().includes(q) ||
+        (o.shipping_contact_name ?? "").toLowerCase().includes(q);
       const matchCustomer =
         !customerFilter || o.customer_id === customerFilter;
       const matchStatus =
@@ -2997,6 +2977,7 @@ export function OrdersPage({
         seat_height_cm,
         product_variants (
           series_id,
+          base_price,
           dimension_w,
           dimension_d,
           dimension_h,
@@ -3016,6 +2997,7 @@ export function OrdersPage({
       const pv = d.product_variants as
         | {
             series_id?: string | null;
+            base_price?: number | null;
             dimension_w?: number | null;
             dimension_d?: number | null;
             dimension_h?: number | null;
@@ -3060,7 +3042,7 @@ export function OrdersPage({
             ? String(pv.series_id)
             : undefined,
         quantity: Number(d.quantity ?? 1),
-        unit_price: Number(d.unit_price ?? 0),
+        unit_price: pv?.base_price != null ? Number(pv.base_price) : Number(d.unit_price ?? 0),
         custom_notes: d.custom_notes ?? "",
         kind: isCustom ? "custom" : "variant",
         custom_category: d.custom_category ?? null,
@@ -3106,7 +3088,7 @@ export function OrdersPage({
 
   async function updateOrderInline(
     id: string,
-    patch: Partial<Pick<OrderRow, "status" | "payment_status" | "deposit_amount">>
+    patch: Partial<Pick<OrderRow, "status" | "payment_status" | "deposit_amount" | "expected_delivery_date">>
   ) {
     const row = orders.find((o) => o.id === id);
     if (row && isOrderAdminReadOnly(row)) {
@@ -3126,6 +3108,9 @@ export function OrdersPage({
     if (patch.payment_status) payload.payment_status = patch.payment_status;
     if (patch.deposit_amount !== undefined) {
       payload.deposit_amount = patch.deposit_amount;
+    }
+    if (patch.expected_delivery_date !== undefined) {
+      payload.expected_delivery_date = patch.expected_delivery_date;
     }
     if (Object.keys(payload).length === 0) return;
     const { error } = await supabase.from("orders").update(payload).eq("id", id);
@@ -3164,7 +3149,7 @@ export function OrdersPage({
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="搜尋訂單編號或客戶..."
+              placeholder="搜尋訂單編號、客戶或聯絡人..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-9 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-72"
@@ -3284,70 +3269,74 @@ export function OrdersPage({
       }
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <Table>
+        <Table className="table-fixed">
+          <colgroup>
+            <col className="w-[8%]" />
+            <col className="hidden sm:table-column w-[10%]" />
+            <col className="w-[20%]" />
+            <col className="hidden sm:table-column w-[13%]" />
+            <col className="hidden sm:table-column w-[10%]" />
+            <col className="hidden sm:table-column w-[10%]" />
+            <col className="hidden sm:table-column w-[8%]" />
+            <col className="w-[9%]" />
+            <col className="w-[12%]" />
+          </colgroup>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors">
-                <OrderSortHeader label="訂單編號" sortKey="order_number" />
+              <TableHead className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors">
+                <OrderSortHeader label="編號" sortKey="order_number" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("order_date")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="下單日" sortKey="order_date" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("customer_name")}
                 title="點擊排序"
               >
-                <OrderSortHeader label="客戶姓名" sortKey="customer_name" />
+                <OrderSortHeader label="客戶" sortKey="customer_name" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
-                onClick={() => toggleOrderSort("shipping_contact_name")}
-                title="點擊排序"
-              >
-                <OrderSortHeader label="聯絡人" sortKey="shipping_contact_name" />
-              </TableHead>
-              <TableHead
-                className="text-xs font-semibold hidden sm:table-cell whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("expected_delivery_date")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="交期" sortKey="expected_delivery_date" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("status")}
                 title="點擊排序"
               >
-                <OrderSortHeader label="訂單狀態" sortKey="status" />
+                <OrderSortHeader label="狀態" sortKey="status" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("payment_status")}
                 title="點擊排序"
               >
-                <OrderSortHeader label="付款狀態" sortKey="payment_status" />
+                <OrderSortHeader label="付款" sortKey="payment_status" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold hidden sm:table-cell text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("deposit_amount")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="訂金" sortKey="deposit_amount" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("total_amount")}
                 title="點擊排序"
               >
-                <OrderSortHeader label="總金額" sortKey="total_amount" />
+                <OrderSortHeader label="金額" sortKey="total_amount" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold text-right w-[1%] whitespace-nowrap"
+                className="px-1 text-xs font-semibold text-right whitespace-nowrap"
                 aria-label="操作"
               >
                 操作
@@ -3358,7 +3347,7 @@ export function OrdersPage({
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={8}
                   className="h-24 text-center text-muted-foreground"
                 >
                   查無符合條件的訂單
@@ -3373,55 +3362,78 @@ export function OrdersPage({
                   className={rowReadOnly ? "group" : "group cursor-pointer"}
                   onClick={rowReadOnly ? undefined : () => handleEdit(order)}
                 >
-                  <TableCell className="text-sm font-mono text-primary">
+                  <TableCell className="px-1.5 text-sm font-mono text-primary truncate">
                     <button
                       type="button"
-                      className="text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded px-1 py-0.5"
+                      className="text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded px-0.5 py-0.5"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         handleEdit(order);
                       }}
                     >
-                      {order.order_number}
+                      {order.order_number ? order.order_number.replace(/^ORD-/i, "") : "—"}
                     </button>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                  <TableCell className="px-1.5 text-sm text-muted-foreground hidden sm:table-cell tabular-nums">
                     {order.order_date ? order.order_date.replace(/-/g, "/") : "—"}
                   </TableCell>
-                  <TableCell className="text-sm">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOverviewOrderId(order.id);
-                      }}
-                      className="text-left font-medium text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                      title="訂單總覽（品項／負責人／工序）"
-                    >
-                      {order.customer_name || "—"}
-                      {order.customer_alias && order.customer_alias.trim() && (
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          ({order.customer_alias})
+                  <TableCell className="px-1.5 text-sm whitespace-normal">
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOverviewOrderId(order.id);
+                        }}
+                        className="text-left font-medium text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                        title="訂單總覽（品項／負責人／工序）"
+                      >
+                        {order.customer_name || "—"}
+                        {order.customer_alias && order.customer_alias.trim() && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            ({order.customer_alias})
+                          </span>
+                        )}
+                      </button>
+                      {order.shipping_contact_name?.trim() ? (
+                        <span className="text-xs text-muted-foreground">
+                          ／{order.shipping_contact_name.trim()}
                         </span>
-                      )}
-                    </button>
+                      ) : null}
+                    </div>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">
-                    {order.shipping_contact_name?.trim() || "—"}
+                  <TableCell className="px-1.5 text-sm hidden sm:table-cell">
+                    {rowReadOnly ? (
+                      <span className="text-muted-foreground tabular-nums">
+                        {order.expected_delivery_date
+                          ? order.expected_delivery_date.replace(/-/g, "/")
+                          : "—"}
+                      </span>
+                    ) : (
+                      <input
+                        type="date"
+                        value={order.expected_delivery_date ?? ""}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          updateOrderInline(order.id, {
+                            expected_delivery_date: e.target.value || null,
+                          });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="h-7 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                        aria-label="預計交貨日"
+                      />
+                    )}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">
-                    {order.expected_delivery_date
-                      ? order.expected_delivery_date.replace(/-/g, "/")
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-sm hidden sm:table-cell">
+                  <TableCell className="px-1.5 text-sm hidden sm:table-cell">
                     {rowReadOnly ||
                     isOrderStatusLockedForManualEdit(order.status) ? (
                       <StatusBadge status={order.status} />
                     ) : (
                       <div
-                        className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${statusStyles[order.status] ?? ""}`}
+                        className={`inline-flex items-center rounded-md border px-1 py-0.5 text-xs ${statusStyles[order.status] ?? ""}`}
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
                       >
@@ -3446,7 +3458,7 @@ export function OrdersPage({
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm hidden sm:table-cell">
+                  <TableCell className="px-1.5 text-sm hidden sm:table-cell">
                     {rowReadOnly ? (
                       <Badge
                         variant="outline"
@@ -3456,7 +3468,7 @@ export function OrdersPage({
                       </Badge>
                     ) : (
                       <div
-                        className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs ${paymentStatusStyles[order.payment_status] ?? ""}`}
+                        className={`inline-flex items-center rounded-md border px-1 py-0.5 text-xs ${paymentStatusStyles[order.payment_status] ?? ""}`}
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
                       >
@@ -3481,21 +3493,21 @@ export function OrdersPage({
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="text-right text-sm hidden sm:table-cell">
+                  <TableCell className="px-1.5 text-right text-sm tabular-nums hidden sm:table-cell">
                     {order.deposit_amount
                       ? order.deposit_amount.toLocaleString()
                       : "—"}
                   </TableCell>
-                  <TableCell className="text-right text-sm font-medium">
+                  <TableCell className="px-1.5 text-right text-sm font-medium tabular-nums">
                     {order.total_amount.toLocaleString()}
                   </TableCell>
-                  <TableCell className="text-right p-1">
-                    <div className="flex justify-end gap-0.5">
+                  <TableCell className="text-right px-1 py-0.5">
+                    <div className="flex justify-end gap-0">
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
                         title="訂單總覽（品項／負責人／工序）"
                         onClick={(e) => {
                           e.preventDefault();
@@ -3503,13 +3515,13 @@ export function OrdersPage({
                           setOverviewOrderId(order.id);
                         }}
                       >
-                        <Layers className="h-3.5 w-3.5" />
+                        <Layers className="h-3 w-3" />
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
                         title={order.status === "報價中" ? "報價列印" : "訂單列印"}
                         onClick={(e) => {
                           e.preventDefault();
@@ -3523,13 +3535,13 @@ export function OrdersPage({
                           window.open(url, "_blank", "noopener,noreferrer");
                         }}
                       >
-                        <Printer className="h-3.5 w-3.5" />
+                        <Printer className="h-3 w-3" />
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
                         title="地址條"
                         onClick={(e) => {
                           e.preventDefault();
@@ -3546,7 +3558,7 @@ export function OrdersPage({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
                         title={rowReadOnly ? "檢視" : "編輯"}
                         onClick={(e) => {
                           e.preventDefault();
@@ -3554,18 +3566,18 @@ export function OrdersPage({
                           handleEdit(order);
                         }}
                       >
-                        <Pencil className="h-3.5 w-3.5" />
+                        <Pencil className="h-3 w-3" />
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive disabled:opacity-40"
+                        className="h-6 w-6 text-muted-foreground hover:text-destructive disabled:opacity-40"
                         title={rowReadOnly ? "已結案無法刪除" : "刪除"}
                         disabled={rowReadOnly}
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(order); }}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
                   </TableCell>

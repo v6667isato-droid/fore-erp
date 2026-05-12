@@ -133,6 +133,8 @@ interface MyOrderRow {
   /** 同訂單多張工單時取 planned_end_date 最晚者 */
   planned_end_max: string | null;
   status: string;
+  /** 訂單內工序最早的一筆 */
+  earliest_stage: string | null;
   /** 通路端僅 已結清／未結清 */
   payment_status: "已結清" | "未結清";
   /** 明細原價加總 + 運費（無 base_price 之明細以成交單價替代） */
@@ -212,6 +214,21 @@ const PORTAL_NO_EDIT_DELETE_STATUSES = new Set([
 
 function canEditOrDelete(status: string) {
   return !PORTAL_NO_EDIT_DELETE_STATUSES.has(String(status ?? "").trim());
+}
+
+function portalStatusColor(status: string): string {
+  switch (status) {
+    case "報價中":    return "text-amber-700";
+    case "繪圖中":    return "text-violet-700";
+    case "排程中":    return "text-amber-600";
+    case "繪製製作圖": return "text-violet-700";
+    case "生產中":    return "text-amber-800";
+    case "暫停":      return "text-orange-700";
+    case "已完工":    return "text-teal-700";
+    case "已出貨":    return "text-emerald-700";
+    case "結案":      return "text-slate-500";
+    default:          return "text-muted-foreground";
+  }
 }
 
 export default function PortalPage() {
@@ -443,6 +460,7 @@ export default function PortalPage() {
       }
 
       let plannedMap = new Map<string, string | null>();
+      let stageMap = new Map<string, string | null>();
       if (orderIds.length > 0 && session.portal_token) {
         try {
           const res = await fetch("/api/portal/planned-end-dates", {
@@ -451,10 +469,16 @@ export default function PortalPage() {
             body: JSON.stringify({ token: session.portal_token, order_ids: orderIds }),
           });
           if (res.ok) {
-            const json = (await res.json()) as { planned_by_order?: Record<string, string | null> };
+            const json = (await res.json()) as {
+              planned_by_order?: Record<string, string | null>;
+              earliest_stage_by_order?: Record<string, string | null>;
+            };
             for (const [k, v] of Object.entries(json.planned_by_order ?? {})) {
               const d = v != null && String(v).trim() ? String(v).slice(0, 10) : null;
               plannedMap.set(k, d);
+            }
+            for (const [k, v] of Object.entries(json.earliest_stage_by_order ?? {})) {
+              stageMap.set(k, v ?? null);
             }
           }
         } catch {
@@ -475,6 +499,7 @@ export default function PortalPage() {
             expected_delivery_date: r.expected_delivery_date ?? null,
             planned_end_max: plannedMap.get(oid) ?? null,
             status: r.status ?? "—",
+            earliest_stage: stageMap.get(oid) ?? null,
             payment_status: normalizeChannelPartnerPaymentStatus(r.payment_status),
             list_grand: listGrandByOrderId.get(oid) ?? total,
             total_amount: total,
@@ -1713,8 +1738,8 @@ export default function PortalPage() {
                     <col />
                     <col />
                     <col />
-                    <col />
-                    <col />
+                    <col className="w-[16%]" />
+                    <col className="w-[56px]" />
                     <col />
                     <col />
                     <col className="w-[84px]" />
@@ -1731,10 +1756,10 @@ export default function PortalPage() {
                         <MyOrderSortHeader label="聯絡人" sortKey="contact_name" />
                       </th>
                       <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
-                        <MyOrderSortHeader label="交貨" sortKey="expected_delivery_date" />
+                        <MyOrderSortHeader label="需求日" sortKey="expected_delivery_date" />
                       </th>
                       <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
-                        <MyOrderSortHeader label="製作完成" sortKey="planned_end_max" />
+                        <MyOrderSortHeader label="製作完成日" sortKey="planned_end_max" />
                       </th>
                       <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
                         <MyOrderSortHeader label="狀態" sortKey="status" />
@@ -1785,10 +1810,15 @@ export default function PortalPage() {
                             "—"
                           )}
                         </td>
-                        <td className="min-w-0 px-1 py-1 align-middle text-muted-foreground">
-                          <span className="block truncate" title={o.status}>
+                        <td className="min-w-0 px-1 py-1 align-middle whitespace-nowrap">
+                          <span className={portalStatusColor(o.status)} title={o.status}>
                             {o.status}
                           </span>
+                          {o.earliest_stage ? (
+                            <span className="ml-1 text-xs text-muted-foreground/60" title={`工序：${o.earliest_stage}`}>
+                              ({o.earliest_stage})
+                            </span>
+                          ) : null}
                         </td>
                         <td className="min-w-0 px-1 py-1 align-middle text-muted-foreground whitespace-nowrap">
                           <span className="block truncate" title={o.payment_status ?? undefined}>

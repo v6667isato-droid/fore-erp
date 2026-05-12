@@ -5,6 +5,7 @@ import {
   plannedEndLatestByOrderIdFromWorkOrderRows,
   type WorkOrderPlannedWithOrderId,
 } from "@/lib/planned-end-aggregate";
+import { workOrderStageSortIndex } from "@/lib/work-order-stages";
 
 /**
  * 通路「我的訂單」預計完成日：瀏覽器為 anon，無法讀取 work_orders（RLS 僅允許員工等）。
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
 
     const { data: wos, error: wErr } = await supabase
       .from("work_orders")
-      .select("planned_end_date, order_items!inner(order_id)")
+      .select("planned_end_date, stage, order_items!inner(order_id)")
       .in("order_items.order_id", allowedList);
 
     if (wErr) {
@@ -69,7 +70,23 @@ export async function POST(request: NextRequest) {
       planned_by_order[id] = acc.get(id) ?? null;
     }
 
-    return NextResponse.json({ planned_by_order });
+    const earliest_stage_by_order: Record<string, string | null> = {};
+    const stageByOrder = new Map<string, string>();
+    for (const row of (wos ?? []) as any[]) {
+      const oi = row.order_items;
+      const orderId = Array.isArray(oi) ? String(oi[0]?.order_id) : String(oi?.order_id);
+      const stage = typeof row.stage === "string" ? row.stage : null;
+      if (!orderId || !stage) continue;
+      const prev = stageByOrder.get(orderId);
+      if (!prev || workOrderStageSortIndex(stage) < workOrderStageSortIndex(prev)) {
+        stageByOrder.set(orderId, stage);
+      }
+    }
+    for (const id of allowedList) {
+      earliest_stage_by_order[id] = stageByOrder.get(id) ?? null;
+    }
+
+    return NextResponse.json({ planned_by_order, earliest_stage_by_order });
   } catch (e) {
     console.error("planned-end-dates:", e);
     return NextResponse.json({ error: "server" }, { status: 500 });
