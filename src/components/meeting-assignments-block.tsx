@@ -167,6 +167,11 @@ export function MeetingAssignmentsBlock({
                   <span className="whitespace-nowrap text-xs text-muted-foreground tabular-nums">
                     開會日 {formatMd(row.meeting_date)}
                   </span>
+                  {row.completed && row.status_updated_at ? (
+                    <span className="whitespace-nowrap text-xs text-emerald-700 tabular-nums">
+                      完成 {formatMd(row.status_updated_at)}
+                    </span>
+                  ) : null}
                   {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" /> : null}
                 </span>
               </span>

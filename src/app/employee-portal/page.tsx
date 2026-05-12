@@ -1280,7 +1280,7 @@ export default function EmployeePortalPage() {
                                 <TableHead className="text-xs font-semibold whitespace-nowrap min-w-[7rem]">
                                   <WoSortHeader label="工序站別" sortKey="stage" />
                                 </TableHead>
-                                <TableHead className="text-xs font-semibold hidden md:table-cell min-w-[5rem]">
+                                <TableHead className="text-xs font-semibold min-w-[5rem]">
                                   <WoSortHeader label="預計完成" sortKey="planned_end_date" />
                                 </TableHead>
                               </TableRow>
@@ -1295,7 +1295,7 @@ export default function EmployeePortalPage() {
                                 return (
                                   <TableRow key={wo.id} className="border-border/60">
                                     <TableCell className="p-2 align-middle font-mono text-xs font-medium whitespace-nowrap">
-                                      {wo.order_number || "—"}
+                                      {wo.order_number ? wo.order_number.replace(/^ORD-/i, "") : "—"}
                                     </TableCell>
                                     <TableCell className="p-2 align-middle text-sm">
                                       <div className="min-w-0 leading-snug">
@@ -1359,7 +1359,7 @@ export default function EmployeePortalPage() {
                                         ))}
                                       </select>
                                     </TableCell>
-                                    <TableCell className="p-2 align-middle text-xs text-muted-foreground tabular-nums whitespace-nowrap hidden md:table-cell">
+                                    <TableCell className="p-2 align-middle text-xs text-muted-foreground tabular-nums whitespace-nowrap">
                                       <div className="flex items-center gap-1">
                                         <CalendarDays className="h-3 w-3 shrink-0" />
                                         <span>

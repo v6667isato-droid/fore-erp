@@ -13,12 +13,13 @@ import {
   groupApprovedLeavesByDateKey,
   groupPublicHolidaysByDateKey,
 } from "@/lib/company-calendar-extra";
-import { isSupabaseConfigured } from "@/lib/supabase";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { fetchMeetingAssignmentsForEmployee, type MeetingAssignmentForEmployeeRow } from "@/lib/meeting-minutes";
 
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
 type DemoKind = "company" | "production" | "memo";
-type DataKind = "holiday" | "workday" | "leave" | "leave_other" | DemoKind;
+type DataKind = "holiday" | "workday" | "leave" | "leave_other" | "assignment" | "work_order" | DemoKind;
 
 interface CalendarEventItem {
   id: string;
@@ -51,6 +52,8 @@ const KIND_DOT: Record<DataKind, string> = {
   workday: "bg-slate-500",
   leave: "bg-violet-500",
   leave_other: "bg-teal-500",
+  assignment: "bg-rose-500",
+  work_order: "bg-blue-500",
   company: "bg-emerald-500",
   production: "bg-amber-500",
   memo: "bg-sky-500",
@@ -61,6 +64,8 @@ const KIND_LABEL: Record<DataKind, string> = {
   workday: "補班日",
   leave: "我的休假",
   leave_other: "同仁休假",
+  assignment: "開會交辦",
+  work_order: "生產交辦",
   company: "公司",
   production: "生產",
   memo: "備忘",
@@ -75,9 +80,21 @@ async function loadRemoteEvents(
   const start = formatDateKey(year, month, 1);
   const end = formatDateKey(year, month, dim);
 
-  const [holidays, leaves] = await Promise.all([
+  const [holidays, leaves, assignmentsResult, woResult] = await Promise.all([
     fetchCalendarPublicHolidaysBetween(start, end),
     fetchCalendarApprovedLeavesOverlapping(start, end),
+    fetchMeetingAssignmentsForEmployee(employeeId),
+    supabase
+      .from("work_orders")
+      .select(`
+        id, stage, planned_end_date,
+        order_items!inner(
+          orders!inner(order_number, customers(name))
+        )
+      `)
+      .eq("assignee_id", employeeId)
+      .gte("planned_end_date", start)
+      .lte("planned_end_date", end),
   ]);
   const selfId = String(employeeId ?? "").trim();
 
@@ -87,6 +104,19 @@ async function loadRemoteEvents(
   const keys = new Set<string>();
   for (const k of byHoliday.keys()) keys.add(k);
   for (const k of byLeave.keys()) keys.add(k);
+
+  const assignments: MeetingAssignmentForEmployeeRow[] =
+    assignmentsResult.ok ? assignmentsResult.rows : [];
+  for (const a of assignments) {
+    const d = a.meeting_date?.slice(0, 10);
+    if (d && d >= start && d <= end) keys.add(d);
+  }
+
+  const workOrders = (woResult.data ?? []) as any[];
+  for (const wo of workOrders) {
+    const d = wo.planned_end_date?.slice(0, 10);
+    if (d) keys.add(d);
+  }
 
   const merged: Record<string, CalendarEventItem[]> = {};
 
@@ -110,6 +140,35 @@ async function loadRemoteEvents(
         sub: isMine
           ? `已核准 · 單筆合計 ${formatTotalDaysLabel(L.totalDays)} 天`
           : `同仁 · 已核准 · 單筆合計 ${formatTotalDaysLabel(L.totalDays)} 天`,
+      });
+    }
+    for (const a of assignments) {
+      const d = a.meeting_date?.slice(0, 10);
+      if (d !== dateKey) continue;
+      items.push({
+        id: `asg-${a.assignment_id}`,
+        title: a.content,
+        kind: "assignment",
+        sub: a.completed ? "已完成" : "待辦",
+      });
+    }
+    for (const wo of workOrders) {
+      const d = wo.planned_end_date?.slice(0, 10);
+      if (d !== dateKey) continue;
+      const oi = Array.isArray(wo.order_items) ? wo.order_items[0] : wo.order_items;
+      const ord = oi?.orders;
+      const orderObj = Array.isArray(ord) ? ord[0] : ord;
+      const custRel = orderObj?.customers;
+      const cust = Array.isArray(custRel) ? custRel[0] : custRel;
+      const orderNum = orderObj?.order_number
+        ? String(orderObj.order_number).replace(/^ORD-/i, "")
+        : "";
+      const custName = cust?.name ? String(cust.name) : "";
+      items.push({
+        id: `wo-${wo.id}`,
+        title: `${custName} #${orderNum}`,
+        kind: "work_order",
+        sub: wo.stage ?? "待排程",
       });
     }
     merged[dateKey] = items;
@@ -353,6 +412,14 @@ export function EmployeePortalMiniCalendar({
                 <span className="inline-flex items-center gap-1.5 text-teal-800 dark:text-teal-200">
                   <span className="h-2 w-2 rounded-full bg-teal-500" />
                   同仁休假
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-rose-500" />
+                  開會交辦
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-blue-500" />
+                  生產交辦
                 </span>
               </>
             ) : (
