@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,8 @@ import {
 } from "@/lib/calendar-month";
 import {
   companyEventBadgePrefix,
+  companyEventCategoryLabel,
+  deleteCompanyEvent,
   fetchCompanyAnnouncementsFromEvents,
   fetchCompanyEventsBetween,
   type CompanyEventCategory,
@@ -163,6 +165,8 @@ export function CompanyCalendarPage() {
   /** Supabase：orders 預計交貨日；未連線時由 useMemo 改為假資料 */
   const [orderDuesFromDb, setOrderDuesFromDb] = useState<CalendarOrderDueItem[]>([]);
   const [version, setVersion] = useState(0);
+  const [deletingListId, setDeletingListId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
@@ -339,6 +343,35 @@ export function CompanyCalendarPage() {
     for (const r of rows) m.set(r.id, r);
     return m;
   }, [rows]);
+
+  const sortedCurrentMonthEvents = useMemo(() => {
+    const monthStart = formatDateKey(viewYear, viewMonth, 1);
+    const lastDay = new Date(viewYear, viewMonth, 0).getDate();
+    const monthEnd = formatDateKey(viewYear, viewMonth, lastDay);
+    return rows
+      .filter((r) => r.event_date >= monthStart && r.event_date <= monthEnd)
+      .sort((a, b) => a.event_date.localeCompare(b.event_date) || a.title.localeCompare(b.title));
+  }, [rows, viewYear, viewMonth]);
+
+  async function handleListDelete(id: string) {
+    if (!isSupabaseConfigured) {
+      toast.error("Supabase 未設定，無法刪除");
+      return;
+    }
+    setDeletingListId(id);
+    try {
+      await deleteCompanyEvent(id);
+      toast.success("已刪除行程");
+      setConfirmDeleteId(null);
+      bump();
+    } catch (err) {
+      console.error(err);
+      const msg = err instanceof Error ? err.message : "刪除失敗";
+      toast.error(msg);
+    } finally {
+      setDeletingListId(null);
+    }
+  }
 
   const titleLabel = `${viewYear}年 ${viewMonth}月`;
 
@@ -631,6 +664,111 @@ export function CompanyCalendarPage() {
           <span className="h-2 w-2 rounded-full bg-teal-500" />
           {isSupabaseConfigured ? "訂單預計完成日（orders）" : "訂單預計完成日（試用假資料）"}
         </span>
+      </div>
+
+      {/* ─── 事件清單 ─── */}
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-3 sm:px-5">
+          <h3 className="font-serif text-base font-semibold tracking-tight text-foreground sm:text-lg">
+            {viewYear}年{viewMonth}月 事件清單
+          </h3>
+          <span className="text-xs tabular-nums text-muted-foreground">
+            共 {sortedCurrentMonthEvents.length} 筆
+          </span>
+        </div>
+
+        {sortedCurrentMonthEvents.length === 0 ? (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+            本月尚無事件
+          </div>
+        ) : (
+          <div className="divide-y divide-border/70">
+            {sortedCurrentMonthEvents.map((ev) => {
+              const catStyle = EVENT_STYLES[ev.category];
+              const isConfirming = confirmDeleteId === ev.id;
+              const isDeleting = deletingListId === ev.id;
+
+              return (
+                <div
+                  key={ev.id}
+                  className="group flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-secondary/30 sm:flex-row sm:items-center sm:gap-4 sm:px-5"
+                >
+                  <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+                    <span className="mt-0.5 shrink-0 whitespace-nowrap text-xs font-medium tabular-nums text-muted-foreground sm:mt-0 sm:text-sm">
+                      {ev.event_date.slice(5).replace("-", "/")}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
+                        catStyle.badge,
+                      )}
+                    >
+                      {companyEventCategoryLabel[ev.category]}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{ev.title}</p>
+                      {ev.description && (
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {ev.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1.5 self-end sm:self-center">
+                    {isConfirming ? (
+                      <>
+                        <span className="mr-1 text-xs text-red-600 dark:text-red-400">確定刪除？</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                          disabled={isDeleting}
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          取消
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-8 px-2.5 text-xs text-red-600 hover:bg-red-100 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+                          disabled={isDeleting}
+                          onClick={() => void handleListDelete(ev.id)}
+                        >
+                          {isDeleting ? "刪除中…" : "確定"}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            setOverviewOrderId(null);
+                            setViewingEvent(ev);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">編輯</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
+                          onClick={() => setConfirmDeleteId(ev.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">刪除</span>
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <CompanyCalendarAddEventDialog

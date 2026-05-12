@@ -24,7 +24,7 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "Fore Furniture | ERP",
+  title: "Føre Furniture | ERP",
   description: "Handcrafted solid wood furniture workshop management system",
 };
 

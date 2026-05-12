@@ -63,6 +63,60 @@ function monthLabel(key: string): string {
 /** 公司貸款預設年度支出：29695×12 + 7441×12 + 28037×6 */
 const DEFAULT_ANNUAL_COMPANY_LOAN = 29695 * 12 + 7441 * 12 + 28037 * 6;
 
+/** 本地 YYYY-MM-DD */
+function formatLocalYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 將「今天」對應到指定曆年的同日，避免無效日期（如 2/29） */
+function sameCalendarDayInYear(statYear: number, ref: Date): Date {
+  const last = new Date(statYear, ref.getMonth() + 1, 0).getDate();
+  const day = Math.min(ref.getDate(), last);
+  return new Date(statYear, ref.getMonth(), day);
+}
+
+/**
+ * 統計截止日：本年度＝今年今日；去年度＝去年與今年相同的月日（可比期間）。
+ * 若檢視曆年與預設不符，則以該年 12/31 為截止。
+ */
+function getYtdCutoff(statYear: number, preset: YearPreset): Date {
+  const today = new Date();
+  const cy = today.getFullYear();
+  if (preset === "this") {
+    if (statYear !== cy) return new Date(statYear, 11, 31);
+    return sameCalendarDayInYear(cy, today);
+  }
+  const expectedLast = cy - 1;
+  if (statYear !== expectedLast) return new Date(statYear, 11, 31);
+  return sameCalendarDayInYear(statYear, today);
+}
+
+function daysInMonth1Based(year: number, month1To12: number): number {
+  return new Date(year, month1To12, 0).getDate();
+}
+
+function rentLoanPortionForMonth(
+  annualRent: number,
+  annualLoan: number,
+  statYear: number,
+  month1To12: number,
+  cutoff: Date,
+): { rent: number; loan: number } | null {
+  const rowYm = `${statYear}-${String(month1To12).padStart(2, "0")}`;
+  const cYm = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}`;
+  if (rowYm > cYm) return null;
+  const baseR = annualRent / 12;
+  const baseL = annualLoan / 12;
+  if (rowYm < cYm) return { rent: baseR, loan: baseL };
+  const dim = daysInMonth1Based(statYear, month1To12);
+  const d = Math.min(Math.max(1, cutoff.getDate()), dim);
+  const frac = d / dim;
+  return { rent: baseR * frac, loan: baseL * frac };
+}
+
 export function CostStatisticsPage() {
   const [preset, setPreset] = useState<YearPreset>("this");
   const [loading, setLoading] = useState(true);
@@ -150,6 +204,17 @@ export function CostStatisticsPage() {
   }, [year]);
 
   const computed = useMemo(() => {
+    const cutoff = getYtdCutoff(year, preset);
+    const cutoffStr = formatLocalYmd(cutoff);
+    const cutoffYm = cutoffStr.slice(0, 7);
+
+    const purchaseRowsYtd = purchaseRows.filter((r) => (r.purchase_date ?? "") <= cutoffStr);
+    const orderRowsYtd = orderRows.filter((r) => (r.order_date ?? "") <= cutoffStr);
+    const payslipRowsYtd = payslipRows.filter((r) => {
+      const pk = r.period_key && r.period_key.length >= 7 ? r.period_key.slice(0, 7) : "";
+      return pk && pk <= cutoffYm;
+    });
+
     const purchaseNonWoodByMonth = new Map<string, number>();
     const purchaseWoodByMonth = new Map<string, number>();
     const salaryByMonth = new Map<string, number>();
@@ -158,7 +223,7 @@ export function CostStatisticsPage() {
 
     let totalPurchaseNonWood = 0;
     let totalPurchaseWood = 0;
-    for (const row of purchaseRows) {
+    for (const row of purchaseRowsYtd) {
       const cost = Number(row.tax_included_amount ?? row.amount_ex_tax ?? 0);
       if (!Number.isFinite(cost)) continue;
       const wood = isWoodMaterialCategory(row.item_category);
@@ -181,7 +246,7 @@ export function CostStatisticsPage() {
     }
 
     let totalSalaryCost = 0;
-    for (const row of payslipRows) {
+    for (const row of payslipRowsYtd) {
       if (row.status && row.status !== "paid") continue;
       const key = row.period_key && row.period_key.length >= 7 ? row.period_key.slice(0, 7) : "";
       if (!key) continue;
@@ -196,8 +261,8 @@ export function CostStatisticsPage() {
       salaryByMonth.set(key, (salaryByMonth.get(key) ?? 0) + salaryCost);
     }
 
-    /** 2026 年 1–2 月系統尚未有發薪紀錄：薪資（含雇主負擔）沿用 3 月試算，並扣除指定員工於 3 月之金額 */
-    if (year === 2026) {
+    /** 2026 年 1–2 月系統尚未有發薪紀錄：薪資（含雇主負擔）沿用 3 月試算，並扣除指定員工於 3 月之金額（僅在 YTD 已含 3 月起始時套用） */
+    if (year === 2026 && cutoffYm >= "2026-03") {
       const k1 = "2026-01";
       const k2 = "2026-02";
       const k3 = "2026-03";
@@ -208,7 +273,7 @@ export function CostStatisticsPage() {
           .map((e) => e.id),
       );
       let excludeMarchSalary = 0;
-      for (const row of payslipRows) {
+      for (const row of payslipRowsYtd) {
         if (row.status && row.status !== "paid") continue;
         const pk = row.period_key && row.period_key.length >= 7 ? row.period_key.slice(0, 7) : "";
         if (pk !== k3) continue;
@@ -229,7 +294,7 @@ export function CostStatisticsPage() {
     }
 
     let totalRevenue = 0;
-    for (const row of orderRows) {
+    for (const row of orderRowsYtd) {
       if ((row.status ?? "").trim() === "報價中") continue;
       const amount = Number(row.total_amount ?? 0);
       if (!Number.isFinite(amount)) continue;
@@ -239,14 +304,31 @@ export function CostStatisticsPage() {
       revenueByMonth.set(key, (revenueByMonth.get(key) ?? 0) + amount);
     }
 
-    const monthKeys = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
-    const monthlyRows = monthKeys.map((key) => {
+    const monthlyRows: {
+      key: string;
+      purchaseNonWood: number;
+      purchaseWood: number;
+      purchaseCost: number;
+      salaryCost: number;
+      rentCost: number;
+      loanCost: number;
+      totalCost: number;
+      revenue: number;
+      grossProfit: number;
+      grossMargin: number;
+      labelSuffix: string;
+    }[] = [];
+
+    for (let m = 1; m <= 12; m++) {
+      const key = `${year}-${String(m).padStart(2, "0")}`;
+      const rl = rentLoanPortionForMonth(annualRent, annualCompanyLoan, year, m, cutoff);
+      if (!rl) break;
       const purchaseNonWood = purchaseNonWoodByMonth.get(key) ?? 0;
       const purchaseWood = purchaseWoodByMonth.get(key) ?? 0;
       const purchaseCost = purchaseNonWood + purchaseWood;
       const salaryCost = salaryByMonth.get(key) ?? 0;
-      const rentCost = annualRent / 12;
-      const loanCost = annualCompanyLoan / 12;
+      const rentCost = rl.rent;
+      const loanCost = rl.loan;
       const totalCost = purchaseCost + salaryCost + rentCost + loanCost;
       const revenue = revenueByMonth.get(key) ?? 0;
       const grossProfit = revenue - totalCost;
@@ -255,7 +337,7 @@ export function CostStatisticsPage() {
         year === 2026 && (key === "2026-01" || key === "2026-02")
           ? " (用3月試算，不含鍾語桐)"
           : "";
-      return {
+      monthlyRows.push({
         key,
         purchaseNonWood,
         purchaseWood,
@@ -268,8 +350,8 @@ export function CostStatisticsPage() {
         grossProfit,
         grossMargin,
         labelSuffix,
-      };
-    });
+      });
+    }
 
     type MonthRow = (typeof monthlyRows)[number];
     type TableRow =
@@ -291,8 +373,12 @@ export function CostStatisticsPage() {
 
     const tableRows: TableRow[] = [];
     for (let q = 0; q < 4; q++) {
-      const start = q * 3;
-      const slice = monthlyRows.slice(start, start + 3);
+      const mStart = q * 3 + 1;
+      const mEnd = q * 3 + 3;
+      const slice = monthlyRows.filter((row) => {
+        const mm = Number(row.key.slice(5, 7));
+        return mm >= mStart && mm <= mEnd;
+      });
       const qNum = (q + 1) as 1 | 2 | 3 | 4;
       for (const row of slice) {
         tableRows.push({ kind: "month", quarter: qNum, row });
@@ -332,13 +418,19 @@ export function CostStatisticsPage() {
       });
     }
 
-    const totalRentCost = annualRent;
-    const totalCompanyLoanCost = annualCompanyLoan;
+    let totalRentCost = 0;
+    let totalCompanyLoanCost = 0;
+    for (const row of monthlyRows) {
+      totalRentCost += row.rentCost;
+      totalCompanyLoanCost += row.loanCost;
+    }
+
     const totalCost = totalPurchaseCost + totalSalaryCost + totalRentCost + totalCompanyLoanCost;
     const grossProfit = totalRevenue - totalCost;
     const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
     return {
+      ytdCutoffLabel: cutoffStr,
       totalPurchaseCost,
       totalPurchaseNonWood,
       totalPurchaseWood,
@@ -351,17 +443,17 @@ export function CostStatisticsPage() {
       grossMargin,
       monthlyRows,
       tableRows,
-      orderCount: orderRows.length,
-      purchaseCount: purchaseRows.length,
-      payslipCount: payslipRows.length,
+      orderCount: orderRowsYtd.length,
+      purchaseCount: purchaseRowsYtd.length,
+      payslipCount: payslipRowsYtd.length,
     };
-  }, [orderRows, payslipRows, purchaseRows, annualRent, annualCompanyLoan, year, employeeBurdens]);
+  }, [orderRows, payslipRows, purchaseRows, annualRent, annualCompanyLoan, year, employeeBurdens, preset]);
 
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          以 `{year}` 年資料統計（營收排除「報價中」訂單）
+          `{year}` 年年初至今（截至 {computed.ytdCutoffLabel}）；採購／薪資／訂單依實際日期或發薪月份，房租與公司貸款依年額按月分攤（當月按日比例）。營收排除「報價中」訂單。
         </p>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <label className="text-xs text-muted-foreground" htmlFor="cost-annual-rent">
@@ -484,9 +576,9 @@ export function CostStatisticsPage() {
           <div className="rounded-xl border border-border bg-card">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
               <div>
-                <h2 className="text-sm font-semibold text-foreground">每月與季度結算</h2>
+                <h2 className="text-sm font-semibold text-foreground">每月與季度結算（年初至今）</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  點季度小計列可收合或展開該季月份明細
+                  僅顯示截至 {computed.ytdCutoffLabel} 之月份；點季度小計列可收合或展開該季月份明細
                 </p>
               </div>
               <p className="text-xs text-muted-foreground">

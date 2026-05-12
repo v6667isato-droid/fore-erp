@@ -1219,8 +1219,8 @@ export default function EmployeePortalPage() {
                 {showAdminFieldHints ? (
                   <p className={cn("mt-0.5", epSection.subtitle)}>
                     {dataSource === "supabase"
-                      ? "開會紀錄交辦 · 生產交辦（work_orders · production_tasks）"
-                      : "Mock · meeting_assignments · work_orders · work_progress_seed"}
+                      ? "交辦事項（開會 · 行事曆） · 生產交辦（work_orders · production_tasks）"
+                      : "Mock · meeting_assignments · company_event_assignees · work_orders · work_progress_seed"}
                   </p>
                 ) : null}
               </div>
@@ -1228,9 +1228,9 @@ export default function EmployeePortalPage() {
             <div className="space-y-6">
               <div>
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  開會紀錄交辦
+                  交辦事項
                 </p>
-                <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
+                <div className="max-h-80 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
                   <MeetingAssignmentsBlock
                     employeeId={employee.id}
                     meetingDataTick={meetingDataTick}

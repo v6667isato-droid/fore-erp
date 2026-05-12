@@ -15,11 +15,15 @@ import {
 } from "@/lib/company-calendar-extra";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { fetchMeetingAssignmentsForEmployee, type MeetingAssignmentForEmployeeRow } from "@/lib/meeting-minutes";
+import {
+  fetchCompanyEventAssignmentsForEmployee,
+  type CompanyEventAssigneeRow,
+} from "@/lib/company-events";
 
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
 type DemoKind = "company" | "production" | "memo";
-type DataKind = "holiday" | "workday" | "leave" | "leave_other" | "assignment" | "work_order" | DemoKind;
+type DataKind = "holiday" | "workday" | "leave" | "leave_other" | "assignment" | "calendar_event" | "work_order" | DemoKind;
 
 interface CalendarEventItem {
   id: string;
@@ -53,6 +57,7 @@ const KIND_DOT: Record<DataKind, string> = {
   leave: "bg-violet-500",
   leave_other: "bg-teal-500",
   assignment: "bg-rose-500",
+  calendar_event: "bg-sky-500",
   work_order: "bg-blue-500",
   company: "bg-emerald-500",
   production: "bg-amber-500",
@@ -65,6 +70,7 @@ const KIND_LABEL: Record<DataKind, string> = {
   leave: "我的休假",
   leave_other: "同仁休假",
   assignment: "開會交辦",
+  calendar_event: "行事曆交辦",
   work_order: "生產交辦",
   company: "公司",
   production: "生產",
@@ -80,10 +86,11 @@ async function loadRemoteEvents(
   const start = formatDateKey(year, month, 1);
   const end = formatDateKey(year, month, dim);
 
-  const [holidays, leaves, assignmentsResult, woResult] = await Promise.all([
+  const [holidays, leaves, assignmentsResult, calendarAssignResult, woResult] = await Promise.all([
     fetchCalendarPublicHolidaysBetween(start, end),
     fetchCalendarApprovedLeavesOverlapping(start, end),
     fetchMeetingAssignmentsForEmployee(employeeId),
+    fetchCompanyEventAssignmentsForEmployee(employeeId),
     supabase
       .from("work_orders")
       .select(`
@@ -98,6 +105,9 @@ async function loadRemoteEvents(
   ]);
   const selfId = String(employeeId ?? "").trim();
 
+  const calendarAssignments: CompanyEventAssigneeRow[] =
+    calendarAssignResult.ok ? calendarAssignResult.rows : [];
+
   const byHoliday = groupPublicHolidaysByDateKey(holidays);
   const byLeave = groupApprovedLeavesByDateKey(leaves, start, end);
 
@@ -109,6 +119,11 @@ async function loadRemoteEvents(
     assignmentsResult.ok ? assignmentsResult.rows : [];
   for (const a of assignments) {
     const d = a.meeting_date?.slice(0, 10);
+    if (d && d >= start && d <= end) keys.add(d);
+  }
+
+  for (const ca of calendarAssignments) {
+    const d = ca.event_date?.slice(0, 10);
     if (d && d >= start && d <= end) keys.add(d);
   }
 
@@ -150,6 +165,16 @@ async function loadRemoteEvents(
         title: a.content,
         kind: "assignment",
         sub: a.completed ? "已完成" : "待辦",
+      });
+    }
+    for (const ca of calendarAssignments) {
+      const d = ca.event_date?.slice(0, 10);
+      if (d !== dateKey) continue;
+      items.push({
+        id: `cea-${ca.id}`,
+        title: ca.event_title,
+        kind: "calendar_event",
+        sub: ca.completed ? "已完成" : "待辦",
       });
     }
     for (const wo of workOrders) {
@@ -416,6 +441,10 @@ export function EmployeePortalMiniCalendar({
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-rose-500" />
                   開會交辦
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-sky-500" />
+                  行事曆交辦
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-blue-500" />
