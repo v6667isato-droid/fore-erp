@@ -57,7 +57,7 @@ function relName(rel: NameRel) {
 
 function StatusBadge({ status }: { status: string }) {
   return (
-    <Badge variant="outline" className={statusStyles[status] ?? "border-transparent bg-muted text-muted-foreground"}>
+    <Badge variant="outline" className={`px-1.5 py-0 text-[10px] ${statusStyles[status] ?? "border-transparent bg-muted text-muted-foreground"}`}>
       {status}
     </Badge>
   );
@@ -65,7 +65,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function PaymentStatusBadge({ paymentStatus }: { paymentStatus: string }) {
   return (
-    <Badge variant="outline" className={paymentStatusStyles[paymentStatus] ?? "border-transparent bg-muted text-muted-foreground"}>
+    <Badge variant="outline" className={`px-1.5 py-0 text-[10px] ${paymentStatusStyles[paymentStatus] ?? "border-transparent bg-muted text-muted-foreground"}`}>
       {paymentStatus}
     </Badge>
   );
@@ -87,28 +87,26 @@ function DashboardStatsRow({
   ];
 
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {stats.map((s) => {
-          const Icon = s.icon;
-          const display = s.value === null ? "—" : s.value;
-          return (
-            <div key={s.label} className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary">
-                <Icon className="h-5 w-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
-                <p className="text-xl font-semibold text-foreground">
-                  {display}
-                  <span className="ml-1 text-sm font-normal text-muted-foreground">{s.unit}</span>
-                </p>
-                <p className="text-[10px] text-muted-foreground/90 mt-1 leading-snug break-words">{s.sub}</p>
-              </div>
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      {stats.map((s) => {
+        const Icon = s.icon;
+        const display = s.value === null ? "—" : s.value;
+        return (
+          <div key={s.label} className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-secondary">
+              <Icon className="h-3.5 w-3.5 text-primary" />
             </div>
-          );
-        })}
-      </div>
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
+              <p className="text-base font-semibold leading-tight text-foreground">
+                {display}
+                <span className="ml-0.5 text-xs font-normal text-muted-foreground">{s.unit}</span>
+              </p>
+              <p className="text-[9px] text-muted-foreground/90 leading-snug break-words">{s.sub}</p>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -116,9 +114,6 @@ function DashboardStatsRow({
 export function DashboardOverview() {
   const [recentOrders, setRecentOrders] = useState<
     Array<{ id: string; order_number: string; customer_name: string; total_amount: number; status: string; payment_status: string }>
-  >([]);
-  const [recentPurchases, setRecentPurchases] = useState<
-    Array<{ id: string; item_name: string; vendor_name: string; purchase_date: string; tax_included_amount: number }>
   >([]);
   const [workOrderCounts, setWorkOrderCounts] = useState({ scheduled: 0, running: 0, shipped: 0 });
   const [portalOrdersToday, setPortalOrdersToday] = useState<number>(0);
@@ -137,7 +132,7 @@ export function DashboardOverview() {
       from.setDate(from.getDate() - 13);
       const twoWeeksStartStr = localDateString(from);
 
-      const [ordersRes, purchasesRes, workOrdersRes, portalRes, producingRes, inProgressOrdersRes, paymentPendingRes] =
+      const [ordersRes, workOrdersRes, portalRes, producingRes, inProgressOrdersRes, paymentPendingRes] =
         await Promise.all([
           supabase
             .from("orders")
@@ -145,11 +140,6 @@ export function DashboardOverview() {
             .gte("order_date", twoWeeksStartStr)
             .lte("order_date", todayStr)
             .order("order_date", { ascending: false }),
-          supabase
-            .from("purchases")
-            .select("id, item_name, purchase_date, tax_included_amount, vendors(name)")
-            .order("purchase_date", { ascending: false })
-            .limit(4),
           supabase.from("work_orders").select(`
           id,
           stage,
@@ -184,24 +174,6 @@ export function DashboardOverview() {
         );
       } else {
         setRecentOrders([]);
-      }
-      if (!purchasesRes.error && purchasesRes.data) {
-        const rows = purchasesRes.data as Array<{
-          id: string;
-          item_name: string | null;
-          purchase_date: string | null;
-          tax_included_amount: number;
-          vendors: NameRel;
-        }>;
-        setRecentPurchases(
-          rows.map((r) => ({
-            id: r.id,
-            item_name: r.item_name ?? "—",
-            vendor_name: relName(r.vendors) || "—",
-            purchase_date: String(r.purchase_date ?? ""),
-            tax_included_amount: Number(r.tax_included_amount) ?? 0,
-          }))
-        );
       }
       if (!workOrdersRes.error && workOrdersRes.data) {
         const rows = workOrdersRes.data as Array<{
@@ -263,9 +235,9 @@ export function DashboardOverview() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-3">
         <DashboardStatsRow activeOrders={null} inProgressOrders={null} pendingPayments={null} />
-        <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
+        <div className="rounded-lg border border-border bg-card p-4 text-center text-sm text-muted-foreground">
           載入總覽中…
         </div>
       </div>
@@ -273,106 +245,83 @@ export function DashboardOverview() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DashboardStatsRow
         activeOrders={kpi.activeOrders}
         inProgressOrders={kpi.inProgressOrders}
         pendingPayments={kpi.pendingPayments}
       />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      {portalOrdersToday > 0 && (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between">
-          <span className="text-sm font-medium text-foreground">今日通路下單</span>
-          <span className="text-lg font-semibold text-primary">{portalOrdersToday} 筆</span>
-        </div>
-      )}
-      <div className="rounded-xl border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4 gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <ClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-card-foreground">近期訂單</h3>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr]">
+        {portalOrdersToday > 0 && (
+          <div className="col-span-full flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 lg:col-span-2">
+            <span className="text-xs font-medium text-foreground">今日通路下單</span>
+            <span className="text-sm font-semibold text-primary">{portalOrdersToday} 筆</span>
           </div>
-          <span className="text-xs text-muted-foreground text-right shrink-0">
-            近 2 週內（依訂單日期）· 共 {recentOrders.length} 筆
-          </span>
-        </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs">訂單編號</TableHead>
-              <TableHead className="text-xs">客戶</TableHead>
-              <TableHead className="text-xs text-right">金額</TableHead>
-              <TableHead className="text-xs text-right">訂單狀態</TableHead>
-              <TableHead className="text-xs text-right">付款狀態</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {recentOrders.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground text-sm py-4">尚無訂單</TableCell>
-              </TableRow>
-            ) : (
-              recentOrders.map((order) => (
-                <TableRow key={order.id}>
-                  <TableCell className="font-mono text-xs">{order.order_number}</TableCell>
-                  <TableCell className="text-sm">{order.customer_name}</TableCell>
-                  <TableCell className="text-right text-sm">${order.total_amount.toLocaleString()}</TableCell>
-                  <TableCell className="text-right">
-                    <StatusBadge status={order.status} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <PaymentStatusBadge paymentStatus={order.payment_status} />
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-      <div className="flex flex-col gap-6">
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-4 flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-card-foreground">生產進度</h3>
+        )}
+        <div className="rounded-lg border border-border bg-card">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <ClipboardList className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <h3 className="text-xs font-semibold text-card-foreground">近期訂單</h3>
             </div>
-            <span className="text-xs text-muted-foreground text-right shrink-0 max-w-[min(100%,16rem)] leading-snug">
-              依生產工單站別；不含報價中／結案訂單（進行中＝備料中～待出貨含暫停）
+            <span className="shrink-0 text-right text-[10px] text-muted-foreground">
+              近 2 週內 · 共 {recentOrders.length} 筆
             </span>
           </div>
-          <div className="flex flex-col gap-3">
+          <div className="max-h-[9.5rem] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="h-7 px-2 py-1 text-[10px]">訂單編號</TableHead>
+                  <TableHead className="h-7 px-2 py-1 text-[10px]">客戶</TableHead>
+                  <TableHead className="h-7 px-2 py-1 text-right text-[10px]">金額</TableHead>
+                  <TableHead className="h-7 px-2 py-1 text-right text-[10px]">訂單狀態</TableHead>
+                  <TableHead className="h-7 px-2 py-1 text-right text-[10px]">付款狀態</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentOrders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-2 text-center text-xs text-muted-foreground">
+                      尚無訂單
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  recentOrders.map((order) => (
+                    <TableRow key={order.id} className="hover:bg-muted/40">
+                      <TableCell className="px-2 py-1 font-mono text-[10px]">{order.order_number}</TableCell>
+                      <TableCell className="px-2 py-1 text-xs">{order.customer_name}</TableCell>
+                      <TableCell className="px-2 py-1 text-right text-xs">${order.total_amount.toLocaleString()}</TableCell>
+                      <TableCell className="px-2 py-1 text-right">
+                        <StatusBadge status={order.status} />
+                      </TableCell>
+                      <TableCell className="px-2 py-1 text-right">
+                        <PaymentStatusBadge paymentStatus={order.payment_status} />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="mb-2 flex items-start justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <h3 className="text-xs font-semibold text-card-foreground">生產進度</h3>
+            </div>
+            <span className="max-w-[min(100%,12rem)] shrink-0 text-right text-[9px] leading-snug text-muted-foreground">
+              依工單站別；不含報價中／結案
+            </span>
+          </div>
+          <div className="flex flex-col gap-1.5">
             <ProgressRow label="待排程" count={workOrderCounts.scheduled} total={totalWorkOrders} color="bg-[var(--badge-pending)]" />
             <ProgressRow label="進行中" count={workOrderCounts.running} total={totalWorkOrders} color="bg-[var(--badge-progress)]" />
             <ProgressRow label="已出貨" count={workOrderCounts.shipped} total={totalWorkOrders} color="bg-[var(--badge-done)]" />
           </div>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-card-foreground">近期採購</h3>
-          </div>
-          <div className="flex flex-col gap-3">
-            {recentPurchases.length === 0 ? (
-              <p className="text-sm text-muted-foreground">尚無採購紀錄</p>
-            ) : (
-              recentPurchases.map((r) => (
-                <div key={r.id} className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="text-sm text-foreground">{r.item_name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      <span className="tabular-nums">{formatDateYyMmDd(r.purchase_date)}</span>
-                      <span className="mx-1.5 text-border">·</span>
-                      <span>{r.vendor_name}</span>
-                    </span>
-                  </div>
-                  <span className="shrink-0 text-sm font-medium text-foreground">${r.tax_included_amount.toLocaleString()}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
       </div>
-    </div>
     </div>
   );
 }
@@ -390,12 +339,12 @@ function ProgressRow({
 }) {
   const pct = total > 0 ? (count / total) * 100 : 0;
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-0.5">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-foreground">{label}</span>
-        <span className="text-sm font-semibold text-foreground">{count}</span>
+        <span className="text-xs text-foreground">{label}</span>
+        <span className="text-xs font-semibold text-foreground">{count}</span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
