@@ -113,6 +113,7 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [channels, setChannels] = useState<ChannelOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterSource, setFilterSource] = useState("");
+  const [filterCustomerType, setFilterCustomerType] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortKey, setSortKey] = useState<"name" | "contact_method" | "source" | "customer_type" | "city">("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
@@ -134,10 +135,21 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     return uniq.sort((a, b) => a.localeCompare(b));
   }, [customers]);
 
+  const customerTypes = useMemo(() => {
+    const vals = customers
+      .map((c) => c.customer_type ?? "")
+      .filter((v) => v && v.trim().length > 0);
+    const uniq = [...new Set(vals)] as string[];
+    return uniq.sort((a, b) => a.localeCompare(b));
+  }, [customers]);
+
   const filteredCustomers = useMemo(() => {
     let list = customers;
     if (filterSource) {
       list = list.filter((c) => c.source === filterSource);
+    }
+    if (filterCustomerType) {
+      list = list.filter((c) => c.customer_type === filterCustomerType);
     }
     if (searchTerm.trim()) {
       const q = searchTerm.trim().toLowerCase();
@@ -155,7 +167,7 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       });
     }
     return list;
-  }, [customers, filterSource, searchTerm]);
+  }, [customers, filterSource, filterCustomerType, searchTerm]);
 
   const sortedCustomers = useMemo(() => {
     const list = [...filteredCustomers];
@@ -409,10 +421,24 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-          {filterSource && (
+          <select
+            value={filterCustomerType}
+            onChange={(e) => setFilterCustomerType(e.target.value)}
+            className="h-8 min-w-[7rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="依客戶種類篩選"
+          >
+            <option value="">客戶種類：全部</option>
+            {customerTypes.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          {(filterSource || filterCustomerType) && (
             <button
               type="button"
-              onClick={() => setFilterSource("")}
+              onClick={() => {
+                setFilterSource("");
+                setFilterCustomerType("");
+              }}
               className="text-xs text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded px-2 py-1"
             >
               清除篩選
@@ -427,7 +453,7 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
               className="h-8 w-52 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
             <span className="text-xs text-muted-foreground">
-              共 {filteredCustomers.length} 筆{filterSource || searchTerm ? "（已篩選）" : ""}
+              共 {filteredCustomers.length} 筆{filterSource || filterCustomerType || searchTerm ? "（已篩選）" : ""}
             </span>
           </div>
         </div>

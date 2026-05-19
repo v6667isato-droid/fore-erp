@@ -17,9 +17,15 @@ export default function PrintIndexPage() {
       </Link>
       <Link
         href="/print/chair-production"
-        className="mb-4 inline-flex text-sm font-medium text-primary hover:underline"
+        className="mb-3 inline-flex text-sm font-medium text-primary hover:underline"
       >
         椅子生產管理表（CH03／CH03A・未出貨・A4 直式）
+      </Link>
+      <Link
+        href="/print/price-list"
+        className="mb-4 inline-flex text-sm font-medium text-primary hover:underline"
+      >
+        產品價目表（建議售價・可選類別・含圖列印）
       </Link>
       <Link
         href="/"

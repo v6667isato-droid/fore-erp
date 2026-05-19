@@ -23,8 +23,10 @@ import {
 } from "@/components/ui/table";
 import * as Dialog from "@radix-ui/react-dialog";
 import { OrderOverviewDialog } from "@/components/order-overview-dialog";
+import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
+import type { CustomerRow } from "@/types/crm";
 import { Search, Plus, Image as ImageIcon, Loader2, UserPlus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, Layers, ArrowLeft, MoreVertical } from "lucide-react";
 import { toast } from "sonner";
 
@@ -59,6 +61,29 @@ interface OrderRow {
   shipping_has_elevator?: boolean | null;
   internal_notes?: string | null;
   explanation_image_url?: string | null;
+}
+
+const CUSTOMER_VIEW_SELECT =
+  "id, name, alias, contact_person, phone, line_id, ig_account, delivery_address, has_elevator, notes, source, customer_type, channel_id, contact_method";
+
+function mapCustomerViewRow(r: Record<string, unknown>): CustomerRow {
+  const addr = r.delivery_address ?? r.address;
+  return {
+    id: String(r.id),
+    name: String(r.name ?? ""),
+    alias: r.alias != null ? String(r.alias) : null,
+    contact_person: r.contact_person != null ? String(r.contact_person) : null,
+    phone: r.phone != null ? String(r.phone) : null,
+    line_id: r.line_id != null ? String(r.line_id) : null,
+    ig_account: r.ig_account != null ? String(r.ig_account) : null,
+    delivery_address: addr != null ? String(addr) : null,
+    has_elevator: typeof r.has_elevator === "boolean" ? r.has_elevator : null,
+    notes: r.notes != null ? String(r.notes) : null,
+    source: r.source != null ? String(r.source) : null,
+    customer_type: r.customer_type != null ? String(r.customer_type) : null,
+    channel_id: r.channel_id != null ? String(r.channel_id) : null,
+    contact_method: r.contact_method != null ? String(r.contact_method) : null,
+  };
 }
 
 /** DB total_amount 為應收總額（折扣後小計+運費）→ 表單「折扣後總金額」欄位 */
@@ -2500,6 +2525,7 @@ export function OrdersPage({
   const [formOpen, setFormOpen] = useState(false);
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<OrderRow | null>(null);
   const [overviewOrderId, setOverviewOrderId] = useState<string | null>(null);
+  const [viewCustomer, setViewCustomer] = useState<CustomerRow | null>(null);
   const hasAppliedInitialOpenRef = useRef(false);
   const lastInitialOpenOrderIdRef = useRef<string | undefined>(undefined);
 
@@ -2955,6 +2981,24 @@ export function OrdersPage({
     toast.success("已匯出訂單 CSV");
   }
 
+  async function openCustomerOverview(order: OrderRow) {
+    const customerId = order.customer_id?.trim();
+    if (!customerId) {
+      toast.error("此訂單無綁定客戶");
+      return;
+    }
+    const { data, error } = await supabase
+      .from("customers")
+      .select(CUSTOMER_VIEW_SELECT)
+      .eq("id", customerId)
+      .maybeSingle();
+    if (error || !data) {
+      toast.error(error?.message || "找不到客戶資料");
+      return;
+    }
+    setViewCustomer(mapCustomerViewRow(data as Record<string, unknown>));
+  }
+
   async function handleEdit(order: OrderRow) {
     // 讀取該訂單的明細
     const { data, error } = await supabase
@@ -3271,14 +3315,14 @@ export function OrdersPage({
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <Table className="table-fixed">
           <colgroup>
-            <col className="w-[8%]" />
+            <col className="w-[9.6%]" />
             <col className="hidden sm:table-column w-[10%]" />
-            <col className="w-[20%]" />
+            <col className="w-[18%]" />
             <col className="hidden sm:table-column w-[13%]" />
             <col className="hidden sm:table-column w-[10%]" />
             <col className="hidden sm:table-column w-[10%]" />
-            <col className="hidden sm:table-column w-[8%]" />
-            <col className="w-[9%]" />
+            <col className="hidden sm:table-column w-[6.4%]" />
+            <col className="w-[8.1%]" />
             <col className="w-[12%]" />
           </colgroup>
           <TableHeader>
@@ -3384,10 +3428,10 @@ export function OrdersPage({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setOverviewOrderId(order.id);
+                          void openCustomerOverview(order);
                         }}
                         className="text-left font-medium text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                        title="訂單總覽（品項／負責人／工序）"
+                        title="客戶總覽"
                       >
                         {order.customer_name || "—"}
                         {order.customer_alias && order.customer_alias.trim() && (
@@ -3604,6 +3648,14 @@ export function OrdersPage({
           setOverviewOrderId(null);
           if (row) void handleEdit(row);
         }}
+      />
+
+      <ViewCustomerDialog
+        open={viewCustomer != null}
+        onOpenChange={(open) => {
+          if (!open) setViewCustomer(null);
+        }}
+        row={viewCustomer}
       />
 
       <OrderFormDialog

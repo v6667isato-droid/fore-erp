@@ -13,7 +13,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { normalizeWorkOrderStage } from "@/lib/work-order-stages";
-import { formatDateYyMmDd } from "@/lib/utils";
 
 const statusStyles: Record<string, string> = {
   生產中: "bg-[var(--badge-progress)] text-[var(--badge-progress-fg)] border-transparent",

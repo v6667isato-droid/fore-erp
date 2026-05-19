@@ -66,6 +66,9 @@ function endOfMonth(d: Date): Date {
 
 type PortalDateBasis = "order_date" | "expected_delivery";
 
+/** 結算管理：訂單狀態篩選（通路端常用） */
+type PortalOrderStatusFilter = "全部" | "生產中" | "已出貨";
+
 /** 「我的訂單」列表：進行中（非結案）／已結案 */
 type MyOrdersScopeTab = "ongoing" | "closed";
 
@@ -281,6 +284,8 @@ export default function PortalPage() {
   const [settleDateFrom, setSettleDateFrom] = useState("");
   const [settleDateTo, setSettleDateTo] = useState("");
   const [settlePayFilter, setSettlePayFilter] = useState<string>("全部");
+  const [settleStatusFilter, setSettleStatusFilter] =
+    useState<PortalOrderStatusFilter>("全部");
 
   const loadVariants = useCallback(async (channelId: string | null) => {
     if (!channelId) {
@@ -524,6 +529,16 @@ export default function PortalPage() {
     []
   );
 
+  const settleStatusOptions = useMemo(
+    () =>
+      [
+        { value: "全部" as const, label: "全部" },
+        { value: "生產中" as const, label: "生產中" },
+        { value: "已出貨" as const, label: "已出貨" },
+      ] satisfies { value: PortalOrderStatusFilter; label: string }[],
+    []
+  );
+
   const myOrdersScopeCounts = useMemo(() => {
     let ongoing = 0;
     let closed = 0;
@@ -544,6 +559,10 @@ export default function PortalPage() {
       }
 
       if (settlePayFilter !== "全部" && o.payment_status !== settlePayFilter) {
+        return false;
+      }
+
+      if (settleStatusFilter !== "全部" && o.status !== settleStatusFilter) {
         return false;
       }
 
@@ -618,6 +637,7 @@ export default function PortalPage() {
     myOrderSortBy,
     myOrderSortAsc,
     settlePayFilter,
+    settleStatusFilter,
     settleDateBasis,
     settleDateFrom,
     settleDateTo,
@@ -711,11 +731,12 @@ export default function PortalPage() {
         ? `${basisLabel} ${settleDateFrom || "…"}～${settleDateTo || "…"}`
         : "未限定日期";
     const payLabel = settlePayFilter === "全部" ? "全部" : settlePayFilter;
+    const statusLabel = settleStatusFilter === "全部" ? "全部" : settleStatusFilter;
     const t = portalSettlementTotals;
     const scopeLabel = myOrdersScopeTab === "closed" ? "已結案" : "進行中";
     const meta = [
       `# 通路結算匯出（我的訂單）`,
-      `# 客戶:${session?.customer_name ?? ""};列表:${scopeLabel};${rangeLabel};付款:${payLabel}`,
+      `# 客戶:${session?.customer_name ?? ""};列表:${scopeLabel};${rangeLabel};付款:${payLabel};狀態:${statusLabel}`,
       `# 筆數:${t.count};牌價合計(含運):${t.listSum};通路價合計(含運):${t.sum};利潤(牌價-通路價):${t.profitSum}`,
       `# 已結清:${t.settledSum}(${t.settledCount}筆);未結清:${t.pendingSum}(${t.pendingCount}筆)`,
     ].join("\n");
@@ -1664,6 +1685,25 @@ export default function PortalPage() {
                       className="h-9 min-w-[11rem] rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     >
                       {settlePaymentOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="portal-settle-status">
+                      狀態
+                    </label>
+                    <select
+                      id="portal-settle-status"
+                      value={settleStatusFilter}
+                      onChange={(e) =>
+                        setSettleStatusFilter(e.target.value as PortalOrderStatusFilter)
+                      }
+                      className="h-9 min-w-[11rem] rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {settleStatusOptions.map((opt) => (
                         <option key={opt.value} value={opt.value}>
                           {opt.label}
                         </option>

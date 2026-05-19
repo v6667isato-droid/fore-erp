@@ -22,7 +22,7 @@ import {
   VARIANT_SELECT_MINIMAL,
   SERIES_CONTENT_COLUMNS,
 } from "@/lib/products-db";
-import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download } from "lucide-react";
+import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download, Copy } from "lucide-react";
 import { AddSeriesDialog } from "@/components/products/add-series-dialog";
 import { AddVariantDialog } from "@/components/products/add-variant-dialog";
 import { EditSeriesDialog } from "@/components/products/edit-series-dialog";
@@ -35,6 +35,7 @@ import type { ChannelOption } from "@/components/products/edit-series-channel-di
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { exportProductsCsv } from "@/components/products/export-products-csv";
+import { PriceListExportDialog } from "@/components/products/price-list-export-dialog";
 
 /** 支援 name 或 series_name 欄位（Supabase 表可能用其中一種） */
 function mapSeries(r: Record<string, unknown>): SeriesRow {
@@ -112,6 +113,7 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [editVariant, setEditVariant] = useState<VariantRow | null>(null);
   const [deleteConfirmSeries, setDeleteConfirmSeries] = useState<SeriesRow | null>(null);
   const [deleteConfirmVariant, setDeleteConfirmVariant] = useState<VariantRow | null>(null);
+  const [copyConfirmVariant, setCopyConfirmVariant] = useState<VariantRow | null>(null);
   const [seriesSort, setSeriesSort] = useState<{ key: SeriesSortKey; asc: boolean }>({
     key: "name",
     asc: true,
@@ -189,7 +191,7 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       // 若完整欄位失敗，先嘗試只取基本欄位（仍包含 code_rule），避免因為文案欄位不存在而看不到編碼原則
       const basicRes = await supabase
         .from(TABLE_PRODUCT_SERIES)
-        .select("id, series_name as name, category, notes, production_time, code_rule, website, image_url")
+        .select("id, name:series_name, category, notes, production_time, code_rule, website, image_url")
         .order("id", { ascending: true });
       if (!basicRes.error) {
         seriesData = (basicRes.data ?? []) as unknown as Record<string, unknown>[];
@@ -212,7 +214,7 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         } else {
           const minimal = await supabase
             .from(TABLE_PRODUCT_SERIES)
-            .select("id, series_name as name, category")
+            .select("id, name:series_name, category")
             .order("id", { ascending: true });
           if (!minimal.error) {
             seriesData = (minimal.data ?? []) as unknown as Record<string, unknown>[];
@@ -365,6 +367,68 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     setEditVariant(null);
   }
 
+  async function performCopyVariant() {
+    if (!copyConfirmVariant) return;
+    const source = copyConfirmVariant;
+    setCopyConfirmVariant(null);
+    const base = (source.product_code || "規格").trim();
+    const payloadBase: Record<string, unknown> = {
+      series_id: source.series_id,
+      wood_type: source.wood_type?.trim() || null,
+      dimension_w: source.dimension_w ?? null,
+      dimension_d: source.dimension_d ?? null,
+      dimension_h: source.dimension_h ?? null,
+      seat_height_cm: source.seat_height_cm ?? null,
+      base_price: source.base_price ?? null,
+      spec1: source.spec1?.trim() || null,
+      image_url: source.image_url?.trim() || null,
+    };
+
+    let newId: string | null = null;
+    let newCode: string | null = null;
+    for (let n = 0; n < 25; n++) {
+      const product_code = n === 0 ? `${base} (複製)` : `${base} (複製 ${n + 1})`;
+      const { data, error } = await supabase
+        .from(TABLE_PRODUCT_VARIANTS)
+        .insert({ ...payloadBase, product_code })
+        .select("id")
+        .single();
+      if (!error && data) {
+        newId = String((data as { id: string }).id);
+        newCode = product_code;
+        break;
+      }
+      if (!/duplicate|23505|unique/i.test(String(error?.message))) {
+        toast.error(error?.message || "複製失敗");
+        return;
+      }
+    }
+    if (!newId) {
+      toast.error("無法產生不重複的產品代碼，請稍後再試或手動新增");
+      return;
+    }
+
+    const { data: channelPrices } = await supabase
+      .from("product_variant_channel_prices")
+      .select("channel_id, price")
+      .eq("variant_id", source.id);
+    if (channelPrices?.length) {
+      const rows = (channelPrices as { channel_id: string; price: number }[]).map((p) => ({
+        variant_id: newId,
+        channel_id: p.channel_id,
+        price: p.price,
+      }));
+      const { error: priceErr } = await supabase.from("product_variant_channel_prices").insert(rows);
+      if (priceErr) {
+        toast.warning("規格已複製，但部分通路售價未能一併複製");
+      }
+    }
+
+    toast.success(newCode ? `已複製規格（${newCode}）` : "已複製規格");
+    setExpandedIds((prev) => new Set(prev).add(source.series_id));
+    fetchData();
+  }
+
   function handleExport() {
     if (!seriesList.length || !variantsList.length) {
       toast.info("目前沒有可匯出的產品規格資料");
@@ -432,16 +496,23 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         <div className="flex items-center gap-2">
           <AddSeriesDialog onSuccess={fetchData} />
           {isAdmin && (
-            <Button
-              variant="outline"
-              className="h-8 shrink-0 px-3 text-xs"
-              onClick={handleExport}
-              disabled={!seriesList.length || !variantsList.length}
-              aria-label="匯出產品規格 CSV"
-            >
-              <Download className="h-4 w-4" />
-              匯出 CSV
-            </Button>
+            <>
+              <PriceListExportDialog
+                seriesList={seriesList}
+                variantsList={variantsList}
+                categories={categories}
+              />
+              <Button
+                variant="outline"
+                className="h-8 shrink-0 px-3 text-xs"
+                onClick={handleExport}
+                disabled={!seriesList.length || !variantsList.length}
+                aria-label="匯出產品規格 CSV"
+              >
+                <Download className="h-4 w-4" />
+                匯出 CSV
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -870,6 +941,20 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditVariant(v)} aria-label={`修改 ${v.product_code}`}>
                                               <Pencil className="h-3.5 w-3.5" />
                                             </Button>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-7 w-7"
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                setCopyConfirmVariant(v);
+                                              }}
+                                              aria-label={`複製 ${v.product_code}`}
+                                            >
+                                              <Copy className="h-3.5 w-3.5" />
+                                            </Button>
                                             <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteVariant(v); }} aria-label={`刪除 ${v.product_code}`}>
                                               <Trash2 className="h-3.5 w-3.5" />
                                             </Button>
@@ -935,6 +1020,23 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         confirmLabel="確定刪除"
         onConfirm={performDeleteSeries}
         destructive
+      />
+      <ConfirmDialog
+        open={copyConfirmVariant != null}
+        onOpenChange={(open) => !open && setCopyConfirmVariant(null)}
+        title="是否複製此筆規格？"
+        description={
+          copyConfirmVariant ? (
+            <>
+              <p className="font-medium text-foreground">規格：「{copyConfirmVariant.product_code || "未命名"}」</p>
+              <p className="mt-2 text-muted-foreground">
+                將新增一筆內容相同的規格，產品代碼會自動加上「(複製)」後綴（若已存在則改為「(複製 2)」等），並一併複製已設定的通路售價。不影響原資料。
+              </p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定複製"
+        onConfirm={performCopyVariant}
       />
       <ConfirmDialog
         open={deleteConfirmVariant != null}
