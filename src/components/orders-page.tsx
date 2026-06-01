@@ -146,6 +146,8 @@ interface OrderItemInput {
   seat_height_cm?: number | null;
   image_url?: string | null;
   wood_type?: string | null;
+  /** 編輯訂單時：本次表單新增的明細列（可調價）；既有列僅能透過重選規格更新價格 */
+  isNewLine?: boolean;
 }
 
 type OrdersPageMode = "all" | "quotation" | "order";
@@ -657,18 +659,66 @@ function OrderFormDialog({
     [variants, customers, customerId, seriesDiscounts]
   );
 
+  /** 依目前產品／通路規則計算牌價（新增明細或重選規格時帶入） */
+  const resolveCatalogUnitPrice = useCallback(
+    (variantId: string, seriesId: string | null | undefined): number => {
+      const channelPrice = resolveChannelUnitPrice(variantId, seriesId);
+      if (channelPrice != null) return channelPrice;
+      const variant = variants.find((v) => v.id === variantId);
+      const base = variant?.base_price;
+      return base != null && Number.isFinite(Number(base)) ? Number(base) : 0;
+    },
+    [resolveChannelUnitPrice, variants]
+  );
+
+  function handleVariantSelect(it: OrderItemInput, variantId: string) {
+    if (variantId === it.variant_id) return;
+    const selected = variants.find((v) => v.id === variantId);
+    const wt = selected?.wood_type?.trim();
+    const dimW = selected?.dimension_w ?? null;
+    const dimD = selected?.dimension_d ?? null;
+    const dimH = selected?.dimension_h ?? null;
+    const seatResolved =
+      selected?.seat_height_cm != null
+        ? Number(selected.seat_height_cm)
+        : selected?.series_category === "椅" || selected?.series_category === "凳"
+          ? DEFAULT_SEAT_HEIGHT_CM
+          : null;
+    const nextUnitPrice = isEdit
+      ? resolveCatalogUnitPrice(variantId, selected?.series_id ?? it.series_id ?? null)
+      : (selected?.base_price ?? it.unit_price ?? 0);
+    updateItem(it.id, {
+      variant_id: variantId,
+      series_id: selected?.series_id ?? it.series_id ?? null,
+      unit_price: nextUnitPrice,
+      wood_type: wt ? wt : null,
+      custom_dimension_w: dimW,
+      custom_dimension_d: dimD,
+      custom_dimension_h: dimH,
+      seat_height_cm: seatResolved,
+    });
+  }
+
+  /** 編輯訂單：既有規格品項成交單價僅能透過重選規格更新，不可手動改價 */
+  function isVariantUnitPriceLocked(it: OrderItemInput): boolean {
+    return isEdit && it.kind === "variant" && !it.isNewLine;
+  }
+
   /**
    * 結算單價：有通路價格優先採用通路價格，否則採用品項成交單價（unit_price，預設為 base_price）。
    * 用於品項小計、訂單合計、列印金額等結算用途。
    */
   const resolveItemSettlementPrice = useCallback(
     (it: OrderItemInput): number => {
+      // 已建立訂單：以明細當時寫入的成交單價為準，不因產品／通路牌價調整而重算
+      if (initialOrder?.id) {
+        return Number(it.unit_price) || 0;
+      }
       const channelPrice = resolveChannelUnitPrice(it.variant_id, it.series_id ?? null);
       if (channelPrice != null) return channelPrice;
-      const fallback = Number(it.unit_price) || 0;
-      return fallback;
+      return Number(it.unit_price) || 0;
     },
-    [resolveChannelUnitPrice]
+    [resolveChannelUnitPrice, initialOrder?.id]
   );
 
 
@@ -840,6 +890,7 @@ function OrderFormDialog({
         kind: "variant",
         wood_type: null,
         seat_height_cm: null,
+        isNewLine: isEdit,
       },
       ...prev,
     ]);
@@ -1691,37 +1742,9 @@ function OrderFormDialog({
                                   <select
                                     id={`item-variant-${it.id}`}
                                     value={it.variant_id}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      const selected = variants.find(
-                                        (v) => v.id === value
-                                      );
-                                      const wt = selected?.wood_type?.trim();
-                                      const dimW = selected?.dimension_w ?? null;
-                                      const dimD = selected?.dimension_d ?? null;
-                                      const dimH = selected?.dimension_h ?? null;
-                                      const seatResolved =
-                                        selected?.seat_height_cm != null
-                                          ? Number(selected.seat_height_cm)
-                                          : selected?.series_category === "椅" ||
-                                              selected?.series_category === "凳"
-                                            ? DEFAULT_SEAT_HEIGHT_CM
-                                            : null;
-                                      updateItem(it.id, {
-                                        variant_id: value,
-                                        series_id: selected?.series_id ?? it.series_id ?? null,
-                                        // 成交單價顯示原價（base_price）；結算金額另由通路價格優先決定
-                                        unit_price:
-                                          selected?.base_price ??
-                                          it.unit_price ??
-                                          0,
-                                        wood_type: wt ? wt : null,
-                                        custom_dimension_w: dimW,
-                                        custom_dimension_d: dimD,
-                                        custom_dimension_h: dimH,
-                                        seat_height_cm: seatResolved,
-                                      });
-                                    }}
+                                    onChange={(e) =>
+                                      handleVariantSelect(it, e.target.value)
+                                    }
                                     className="h-9 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                                     required
                                   >
@@ -1793,7 +1816,7 @@ function OrderFormDialog({
                                       Number(e.target.value) || 0,
                                   })
                                 }
-                                readOnly={readOnly}
+                                readOnly={readOnly || isVariantUnitPriceLocked(it)}
                                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
@@ -2491,12 +2514,13 @@ function OrderFormDialog({
   );
 }
 
-type StatusFilterValue = OrderStatus | "全部" | "非報價中";
+type StatusFilterValue = OrderStatus | "全部" | "非報價中" | "已結案";
 
 const STATUS_FILTER_OPTIONS: StatusFilterValue[] = [
   "全部",
   "報價中",
   "非報價中",
+  "已結案",
 ];
 
 export function OrdersPage({
@@ -2822,7 +2846,9 @@ export function OrdersPage({
         statusFilter === "全部"
           ? true
           : statusFilter === "非報價中"
-          ? o.status !== "報價中"
+          ? o.status !== "報價中" && o.status !== "結案"
+          : statusFilter === "已結案"
+          ? o.status === "結案"
           : o.status === statusFilter;
       const matchMonth =
         !monthFilter || !o.order_date
@@ -3086,7 +3112,8 @@ export function OrdersPage({
             ? String(pv.series_id)
             : undefined,
         quantity: Number(d.quantity ?? 1),
-        unit_price: pv?.base_price != null ? Number(pv.base_price) : Number(d.unit_price ?? 0),
+        unit_price: Number(d.unit_price ?? 0),
+        isNewLine: false,
         custom_notes: d.custom_notes ?? "",
         kind: isCustom ? "custom" : "variant",
         custom_category: d.custom_category ?? null,
@@ -3277,6 +3304,8 @@ export function OrdersPage({
               ? "狀態：全部"
               : statusFilter === "非報價中"
               ? "狀態：非報價中"
+              : statusFilter === "已結案"
+              ? "狀態：已結案"
               : `狀態：${statusFilter}`}
           </div>
           <div className="flex flex-wrap items-center gap-3">

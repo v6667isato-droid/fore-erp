@@ -433,23 +433,15 @@ export default function PortalPage() {
       if (orderIds.length > 0) {
         const { data: itemRows } = await supabase
           .from("order_items")
-          .select("order_id, quantity, unit_price, product_variants ( base_price )")
+          .select("order_id, quantity, unit_price")
           .in("order_id", orderIds);
 
         const lineSumByOrder = new Map<string, number>();
         for (const row of (itemRows ?? []) as any[]) {
           const oid = String(row.order_id);
           const q = Math.max(0, Number(row.quantity) || 0);
-          const pv = row.product_variants;
-          const one = Array.isArray(pv) ? pv[0] : pv;
-          const base =
-            one && typeof one === "object" && one.base_price != null
-              ? Number(one.base_price)
-              : null;
-          const unitFallback = Number(row.unit_price ?? 0);
-          const unitList =
-            base != null && Number.isFinite(base) ? base : unitFallback;
-          const line = Math.round(unitList * q);
+          const unit = Number(row.unit_price ?? 0);
+          const line = Math.round(unit * q);
           lineSumByOrder.set(oid, (lineSumByOrder.get(oid) ?? 0) + line);
         }
 

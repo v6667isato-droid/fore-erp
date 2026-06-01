@@ -26,6 +26,8 @@ type ChairRow = {
   completionDateMd: string;
   walnut: [string, string, string];
   oak: [string, string, string];
+  /** 木種／規格／備註含「煙燻」時，於有內容的規格格標灰字 */
+  hasSmokedMark: boolean;
 };
 
 /** 未出貨：與生產工單相同，排除尚未確認與已結／已出貨 */
@@ -163,6 +165,22 @@ function formatSpecTimesQty(label: string, qty: number): string {
   return `${t}*${qty}`;
 }
 
+/** 品項任一欄位含「煙燻」 */
+function itemHasSmokedMark(
+  woodType: string | null | undefined,
+  spec1: string | null | undefined,
+  notes: string | null | undefined
+): boolean {
+  const parts = [(woodType ?? "").trim(), (spec1 ?? "").trim(), (notes ?? "").trim()];
+  return parts.some((p) => /煙燻/.test(p));
+}
+
+/** 煙燻橡木與白橡木同列「白橡」三欄（編織／實木／布墊） */
+function isOakWoodBlock(woodType: string): boolean {
+  const w = woodType.trim();
+  return w.includes("白橡") || w.includes("煙燻");
+}
+
 /** 紙繩、藤編等 → 編織(0)；布墊類 → 布墊(2)；其餘 → 實木(1) */
 function specColumnIndex(text: string): 0 | 1 | 2 {
   const t = text;
@@ -184,7 +202,7 @@ function pickSpecBaseLabel(
   const s = stripSpecSuffixCodes((spec1 ?? "").trim());
   if (s) return s;
   const w = stripSpecSuffixCodes((woodType ?? "").trim());
-  if (w && !/^(胡桃木|白橡木|胡桃|白橡)$/.test(w)) return w;
+  if (w && !/^(胡桃木|白橡木|胡桃|白橡|煙燻橡木|煙燻)$/.test(w)) return w;
   return stripSpecSuffixCodes((customNotes ?? "").trim());
 }
 
@@ -210,7 +228,7 @@ function woodSpecColumns(
   const baseLabel = pickSpecBaseLabel(spec1, woodType, customNotes);
   if (!classifyText && !baseLabel) {
     const cell = formatSpecTimesQty("", qty);
-    if (w.includes("白橡")) oak[1] = cell;
+    if (isOakWoodBlock(w)) oak[1] = cell;
     else walnut[1] = cell;
     return { walnut, oak };
   }
@@ -220,7 +238,7 @@ function woodSpecColumns(
 
   if (w.includes("胡桃")) {
     walnut[col] = cell;
-  } else if (w.includes("白橡")) {
+  } else if (isOakWoodBlock(w)) {
     oak[col] = cell;
   } else {
     walnut[col] = cell;
@@ -382,6 +400,7 @@ export default function ChairProductionPrintPage() {
           seriesNameFromVariant(raw.product_variants) ||
           (code ? String(code) : "");
         const chairFamily = chairFamilyFromCode(code);
+        const hasSmokedMark = itemHasSmokedMark(woodMerged || varWood, spec1Stripped, notesStripped);
 
         out.push({
           id: String(raw.id),
@@ -396,6 +415,7 @@ export default function ChairProductionPrintPage() {
           ),
           walnut,
           oak,
+          hasSmokedMark,
         });
       }
 
@@ -732,22 +752,40 @@ export default function ChairProductionPrintPage() {
                           <CheckCell />
                           <CheckCell />
                           <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell text={row.walnut[0]} />
+                            <ChairSpecCell
+                              text={row.walnut[0]}
+                              showSmokedLabel={row.hasSmokedMark && !!row.walnut[0].trim()}
+                            />
                           </td>
                           <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell text={row.walnut[1]} />
+                            <ChairSpecCell
+                              text={row.walnut[1]}
+                              showSmokedLabel={row.hasSmokedMark && !!row.walnut[1].trim()}
+                            />
                           </td>
                           <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell text={row.walnut[2]} />
+                            <ChairSpecCell
+                              text={row.walnut[2]}
+                              showSmokedLabel={row.hasSmokedMark && !!row.walnut[2].trim()}
+                            />
                           </td>
                           <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell text={row.oak[0]} />
+                            <ChairSpecCell
+                              text={row.oak[0]}
+                              showSmokedLabel={row.hasSmokedMark && !!row.oak[0].trim()}
+                            />
                           </td>
                           <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell text={row.oak[1]} />
+                            <ChairSpecCell
+                              text={row.oak[1]}
+                              showSmokedLabel={row.hasSmokedMark && !!row.oak[1].trim()}
+                            />
                           </td>
                           <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell text={row.oak[2]} />
+                            <ChairSpecCell
+                              text={row.oak[2]}
+                              showSmokedLabel={row.hasSmokedMark && !!row.oak[2].trim()}
+                            />
                           </td>
                         </tr>
                         );
@@ -760,7 +798,7 @@ export default function ChairProductionPrintPage() {
               <p className="chair-print-data-note relative z-10 mt-3 rounded-sm bg-zinc-100 px-0.5 pb-1 text-[15px] text-zinc-500 print:hidden">
                 資料來源：訂單狀態非「已出貨／結案／報價中」，產品代碼為 CH03／CH03A／CH03-A
                 系列；工單工序為「塗裝後製程(組配、編織)／包裝管理／待出貨／已出貨／暫停」（舊站別正規化後同樣適用，例如「成品」→待出貨、「品檢中」→包裝管理）者不列入。「完成日」優先為工單預計完成日，無則為訂單預計交期。第一欄依 CH03／CH03A
-                合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。胡桃／白橡欄之座高取自訂單明細座高（無則產品變體預設）。組立與噴漆請現場勾選。
+                合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。胡桃木列胡桃三欄；白橡木與煙燻橡木列白橡三欄（編織／實木／布墊依規格關鍵字分欄）。座高取自訂單明細座高（無則產品變體預設）。組立與噴漆請現場勾選。
               </p>
             </>
           )}
@@ -770,22 +808,38 @@ export default function ChairProductionPrintPage() {
   );
 }
 
-/** 規格主文 + 座高（第二行較小、灰字） */
-function ChairSpecCell({ text }: { text: string }) {
+const CHAIR_SPEC_SUBTEXT_CLASS =
+  "text-[0.85em] font-normal leading-tight text-zinc-500 print:text-zinc-600";
+
+/** 規格主文；含煙燻品項頂行灰字「煙燻」；座高為末行灰字 */
+function ChairSpecCell({
+  text,
+  showSmokedLabel = false,
+}: {
+  text: string;
+  showSmokedLabel?: boolean;
+}) {
   if (!text.trim()) return null;
+
   const nl = text.indexOf("\n");
-  if (nl === -1) return <>{text}</>;
-  const main = text.slice(0, nl).trimEnd();
-  const sub = text.slice(nl + 1).trim();
-  if (!sub.startsWith("座高")) {
-    return <span className="whitespace-pre-line">{text}</span>;
+  const main = nl === -1 ? text.trim() : text.slice(0, nl).trimEnd();
+  const sub = nl === -1 ? "" : text.slice(nl + 1).trim();
+  const seatLine = sub.startsWith("座高") ? sub : null;
+
+  if (nl !== -1 && !seatLine) {
+    return (
+      <span className="inline-flex flex-col items-center justify-center gap-0 text-center leading-tight">
+        {showSmokedLabel ? <span className={CHAIR_SPEC_SUBTEXT_CLASS}>煙燻</span> : null}
+        <span className="whitespace-pre-line">{text}</span>
+      </span>
+    );
   }
+
   return (
     <span className="inline-flex flex-col items-center justify-center gap-0 text-center leading-tight">
-      <span>{main}</span>
-      <span className="text-[0.85em] font-normal leading-tight text-zinc-500 print:text-zinc-600">
-        {sub}
-      </span>
+      {showSmokedLabel ? <span className={CHAIR_SPEC_SUBTEXT_CLASS}>煙燻</span> : null}
+      {main ? <span>{main}</span> : null}
+      {seatLine ? <span className={CHAIR_SPEC_SUBTEXT_CLASS}>{seatLine}</span> : null}
     </span>
   );
 }
