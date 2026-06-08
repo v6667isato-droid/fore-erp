@@ -7,6 +7,11 @@ import { X, XCircle } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { PurchaseRow, ProcurementMaterialRow } from "@/types/procurement";
+import {
+  normalizeAmortizationMonths,
+  PURCHASE_AMORTIZATION_OPTIONS,
+  resolveDefaultAmortizationMonths,
+} from "@/lib/purchase-amortization";
 import { computePurchaseLinePrices } from "@/lib/purchase-tax";
 import { purchaseSpecFromMaterialParts, purchaseSpecPartsForDisplay } from "@/lib/procurement-material";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
@@ -42,6 +47,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
   const [materialId, setMaterialId] = useState<string | null>(null);
   const [materialCategoryFilter, setMaterialCategoryFilter] = useState("");
   const [materialDialogOpen, setMaterialDialogOpen] = useState(false);
+  const [amortizationMonths, setAmortizationMonths] = useState(1);
 
   useEffect(() => {
     if (open && row) {
@@ -58,6 +64,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       setPriceInputIsTaxInclusive(Boolean(row.unit_price_is_tax_inclusive));
       setMaterialId(row.material_id ?? null);
       setMaterialCategoryFilter("");
+      setAmortizationMonths(normalizeAmortizationMonths(row.amortization_months));
       setError(null);
     }
   }, [open, row]);
@@ -85,7 +92,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       });
     supabase
       .from("procurement_materials")
-      .select("id, name, item_category, spec, spec2, unit, notes, created_at")
+      .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
       .order("name")
       .then(({ data }) => {
         setMaterials((data as ProcurementMaterialRow[]) ?? []);
@@ -209,12 +216,14 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       unit_price_ex_tax: tax.unit_price_ex_tax,
       unit_price_inc_tax: tax.unit_price_inc_tax,
       amount_ex_tax: tax.amount_ex_tax,
+      amortization_months: normalizeAmortizationMonths(amortizationMonths),
     };
     let { error: err } = await supabase.from("purchases").update(payload).eq("id", row.id);
     if (err && /column .* does not exist/i.test(err.message)) {
       const reduced = { ...payload };
       delete reduced.vendor_name;
       delete reduced.material_id;
+      delete reduced.amortization_months;
       err = (await supabase.from("purchases").update(reduced).eq("id", row.id)).error;
     }
     setSaving(false);
@@ -365,6 +374,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
                     setSpec(m.spec ?? "");
                     setSpec2(m.spec2 ?? "");
                     setUnit(m.unit ?? "");
+                    setAmortizationMonths(resolveDefaultAmortizationMonths(m));
                   }}
                   className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   aria-label="選擇採購物料主檔"
@@ -424,7 +434,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
                 單價為<strong className="font-medium">已稅</strong>金額（未勾選則為未稅）
               </label>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-purchase-qty" className="text-xs text-muted-foreground">數量</label>
                 <input id="edit-purchase-qty" type="number" min={0} step="any" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
@@ -432,6 +442,22 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-purchase-price" className="text-xs text-muted-foreground">單價（{priceInputIsTaxInclusive ? "已稅" : "未稅"}）</label>
                 <input id="edit-purchase-price" type="number" min={0} step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="edit-purchase-amort" className="text-xs text-muted-foreground">成本攤提</label>
+                <select
+                  id="edit-purchase-amort"
+                  value={amortizationMonths}
+                  onChange={(e) => setAmortizationMonths(Number(e.target.value) || 1)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  aria-label="成本攤提月數"
+                >
+                  {PURCHASE_AMORTIZATION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
             {pricePreview && (

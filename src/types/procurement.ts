@@ -11,6 +11,8 @@ export interface ProcurementMaterialRow {
   spec2?: string | null;
   unit: string;
   notes?: string | null;
+  /** 預設成本攤提月數；null 時依類別推斷 */
+  amortization_months?: number | null;
   created_at?: string | null;
 }
 
@@ -47,6 +49,8 @@ export interface PurchaseRow {
   amount_ex_tax: number;
   /** 含稅總價 */
   tax_included_amount: number;
+  /** 成本攤提月數；null/1=當月認列 */
+  amortization_months?: number | null;
 }
 
 /** 廠商資料（vendors 表） */

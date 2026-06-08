@@ -16,13 +16,14 @@ import { AddMaterialDialog } from "@/components/procurement/add-material-dialog"
 import { EditMaterialDialog } from "@/components/procurement/edit-material-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Plus, Pencil, Trash2, Search, Copy, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { formatAmortizationLabel, resolveDefaultAmortizationMonths } from "@/lib/purchase-amortization";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
 /** 下拉選單：僅「未填類別」的列 */
 const FILTER_UNCATEGORIZED = "__uncategorized__";
 
-type MaterialSortKey = "name" | "item_category" | "spec" | "spec2" | "unit" | "created_at";
+type MaterialSortKey = "name" | "item_category" | "spec" | "spec2" | "unit" | "amortization_months" | "created_at";
 
 export function ProcurementMaterialsTab() {
   const [records, setRecords] = useState<ProcurementMaterialRow[]>([]);
@@ -42,7 +43,7 @@ export function ProcurementMaterialsTab() {
     setLoading(true);
     const { data, error } = await supabase
       .from("procurement_materials")
-      .select("id, name, item_category, spec, spec2, unit, notes, created_at")
+      .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
       .order("name");
     setLoading(false);
     if (error) {
@@ -100,6 +101,11 @@ export function ProcurementMaterialsTab() {
         const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
         if (at === bt) return 0;
         return dir === "asc" ? at - bt : bt - at;
+      }
+      if (key === "amortization_months") {
+        const an = Number(a.amortization_months ?? 0);
+        const bn = Number(b.amortization_months ?? 0);
+        return dir === "asc" ? an - bn : bn - an;
       }
       const av = a[key];
       const bv = b[key];
@@ -170,6 +176,7 @@ export function ProcurementMaterialsTab() {
       spec2: row.spec2?.trim() || null,
       unit: row.unit?.trim() || null,
       notes: row.notes?.trim() || null,
+      amortization_months: row.amortization_months ?? null,
     };
     for (let n = 0; n < 25; n++) {
       const name = n === 0 ? `${base} (複製)` : `${base} (複製 ${n + 1})`;
@@ -268,6 +275,9 @@ export function ProcurementMaterialsTab() {
                 <SortHeader label="預設單位" colKey="unit" />
               </TableHead>
               <TableHead className="p-2 align-middle">
+                <SortHeader label="預設攤提" colKey="amortization_months" />
+              </TableHead>
+              <TableHead className="p-2 align-middle">
                 <SortHeader label="建立" colKey="created_at" />
               </TableHead>
               <TableHead className="text-xs font-semibold p-2 w-[132px]" aria-label="操作">操作</TableHead>
@@ -276,7 +286,7 @@ export function ProcurementMaterialsTab() {
           <TableBody>
             {sortedRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground text-sm">
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground text-sm">
                   {emptyMessage}
                 </TableCell>
               </TableRow>
@@ -288,6 +298,9 @@ export function ProcurementMaterialsTab() {
                   <TableCell className="text-sm p-2 text-muted-foreground">{r.spec || "—"}</TableCell>
                   <TableCell className="text-sm p-2 text-muted-foreground">{r.spec2 || "—"}</TableCell>
                   <TableCell className="text-sm p-2">{r.unit || "—"}</TableCell>
+                  <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap">
+                    {formatAmortizationLabel(resolveDefaultAmortizationMonths(r))}
+                  </TableCell>
                   <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap">
                     {r.created_at ? formatDate(r.created_at) : "—"}
                   </TableCell>

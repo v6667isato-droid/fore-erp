@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
+import {
+  defaultAmortizationMonthsForCategory,
+  normalizeAmortizationMonths,
+  PURCHASE_AMORTIZATION_OPTIONS,
+} from "@/lib/purchase-amortization";
 import type { ProcurementMaterialRow } from "@/types/procurement";
 
 export interface EditMaterialDialogProps {
@@ -22,6 +27,7 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
   const [spec, setSpec] = useState("");
   const [spec2, setSpec2] = useState("");
   const [unit, setUnit] = useState("");
+  const [amortizationMonths, setAmortizationMonths] = useState(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existingCategories, setExistingCategories] = useState<string[]>([]);
@@ -58,6 +64,11 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
       setSpec(row.spec ?? "");
       setSpec2(row.spec2 ?? "");
       setUnit(row.unit ?? "");
+      setAmortizationMonths(
+        row.amortization_months != null
+          ? normalizeAmortizationMonths(row.amortization_months)
+          : defaultAmortizationMonthsForCategory(row.item_category),
+      );
       setError(null);
     }
   }, [open, row]);
@@ -79,14 +90,21 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
     const catT = itemCategory.trim();
     const specT = spec.trim();
     const spec2T = spec2.trim();
-    const payload = {
+    const payloadBase = {
       name: nameT,
       item_category: catT || null,
       spec: specT || null,
       spec2: spec2T || null,
       unit: unit.trim() || null,
     };
-    const { error: err } = await supabase.from("procurement_materials").update(payload).eq("id", row.id);
+    const payload: Record<string, unknown> = {
+      ...payloadBase,
+      amortization_months: normalizeAmortizationMonths(amortizationMonths),
+    };
+    let { error: err } = await supabase.from("procurement_materials").update(payload).eq("id", row.id);
+    if (err && /column .* does not exist/i.test(err.message)) {
+      err = (await supabase.from("procurement_materials").update(payloadBase).eq("id", row.id)).error;
+    }
     setSaving(false);
     if (err) {
       if (/duplicate key|unique constraint|23505/i.test(err.message)) {
@@ -151,7 +169,13 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
                 list="edit-material-category-suggestions"
                 type="text"
                 value={itemCategory}
-                onChange={(e) => setItemCategory(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setItemCategory(val);
+                  setAmortizationMonths((prev) =>
+                    prev <= 1 ? defaultAmortizationMonthsForCategory(val) : prev,
+                  );
+                }}
                 onBlur={() => setItemCategory((s) => s.trim())}
                 autoComplete="off"
                 title="可由清單選既有的類別，或直接輸入新類別"
@@ -175,6 +199,22 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-material-unit" className="text-xs text-muted-foreground">預設單位</label>
               <input id="edit-material-unit" type="text" value={unit} onChange={(e) => setUnit(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-material-amort" className="text-xs text-muted-foreground">預設成本攤提</label>
+              <select
+                id="edit-material-amort"
+                value={amortizationMonths}
+                onChange={(e) => setAmortizationMonths(Number(e.target.value) || 1)}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-label="預設成本攤提月數"
+              >
+                {PURCHASE_AMORTIZATION_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
             {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
             <div className="flex justify-end gap-2 pt-1">

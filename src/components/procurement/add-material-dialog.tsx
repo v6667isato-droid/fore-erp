@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
+import {
+  defaultAmortizationMonthsForCategory,
+  normalizeAmortizationMonths,
+  PURCHASE_AMORTIZATION_OPTIONS,
+} from "@/lib/purchase-amortization";
 import type { ProcurementMaterialRow } from "@/types/procurement";
 
 export interface AddMaterialDialogProps {
@@ -22,6 +27,7 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
   const [spec, setSpec] = useState("");
   const [spec2, setSpec2] = useState("");
   const [unit, setUnit] = useState("");
+  const [amortizationMonths, setAmortizationMonths] = useState(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,6 +40,7 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
       setSpec("");
       setSpec2("");
       setUnit("");
+      setAmortizationMonths(1);
       setError(null);
     }
   }, [open]);
@@ -74,14 +81,31 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
       return;
     }
     setSaving(true);
-    const payload = {
+    const payloadBase = {
       name: nameT,
       item_category: catT || null,
       spec: specT || null,
       spec2: spec2T || null,
       unit: unit.trim() || null,
     };
-    const { data, error: err } = await supabase.from("procurement_materials").insert(payload).select("id, name, item_category, spec, spec2, unit, notes, created_at").single();
+    const payload: Record<string, unknown> = {
+      ...payloadBase,
+      amortization_months: normalizeAmortizationMonths(amortizationMonths),
+    };
+    let { data, error: err } = await supabase
+      .from("procurement_materials")
+      .insert(payload)
+      .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
+      .single();
+    if (err && /column .* does not exist/i.test(err.message)) {
+      const retry = await supabase
+        .from("procurement_materials")
+        .insert(payloadBase)
+        .select("id, name, item_category, spec, spec2, unit, notes, created_at")
+        .single();
+      data = retry.data as typeof data;
+      err = retry.error;
+    }
     setSaving(false);
     if (err) {
       if (/duplicate key|unique constraint|23505/i.test(err.message)) {
@@ -113,7 +137,7 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">新增採購物料</Dialog.Title>
               <p id="add-material-desc" className="mt-1 text-sm text-muted-foreground">
-                建立後可於採購時選取，自動帶入類別、規格、規格2、單位；相同品名＋規格＋規格2 不可重複。
+                建立後可於採購時選取，自動帶入類別、規格、規格2、單位與預設攤提；相同品名＋規格＋規格2 不可重複。
               </p>
             </div>
             <Dialog.Close asChild>
@@ -144,7 +168,13 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
                 list="add-material-category-suggestions"
                 type="text"
                 value={itemCategory}
-                onChange={(e) => setItemCategory(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setItemCategory(val);
+                  setAmortizationMonths((prev) =>
+                    prev <= 1 ? defaultAmortizationMonthsForCategory(val) : prev,
+                  );
+                }}
                 onBlur={() => setItemCategory((s) => s.trim())}
                 autoComplete="off"
                 title="可由清單選既有的類別，或直接輸入新類別"
@@ -169,6 +199,23 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-unit" className="text-xs text-muted-foreground">預設單位</label>
               <input id="add-material-unit" type="text" value={unit} onChange={(e) => setUnit(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="例如：kg、張" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="add-material-amort" className="text-xs text-muted-foreground">預設成本攤提</label>
+              <select
+                id="add-material-amort"
+                value={amortizationMonths}
+                onChange={(e) => setAmortizationMonths(Number(e.target.value) || 1)}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-label="預設成本攤提月數"
+              >
+                {PURCHASE_AMORTIZATION_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground">採購選取此物料時自動帶入；木料類別預設 12 個月。</p>
             </div>
             {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
             <div className="flex justify-end gap-2 pt-1">

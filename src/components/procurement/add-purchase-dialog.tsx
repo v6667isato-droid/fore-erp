@@ -7,6 +7,11 @@ import { Plus, X, XCircle, Trash2 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { ProcurementMaterialRow } from "@/types/procurement";
+import {
+  normalizeAmortizationMonths,
+  PURCHASE_AMORTIZATION_OPTIONS,
+  resolveDefaultAmortizationMonths,
+} from "@/lib/purchase-amortization";
 import { computePurchaseLinePrices } from "@/lib/purchase-tax";
 import { purchaseSpecFromMaterialParts } from "@/lib/procurement-material";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
@@ -31,6 +36,7 @@ type LineDraft = {
   quantity: string;
   unit: string;
   unitPrice: string;
+  amortizationMonths: number;
 };
 
 function newLineId(): string {
@@ -49,6 +55,7 @@ function emptyLine(): LineDraft {
     quantity: "",
     unit: "",
     unitPrice: "",
+    amortizationMonths: 1,
   };
 }
 
@@ -162,7 +169,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
       });
       supabase
         .from("procurement_materials")
-        .select("id, name, item_category, spec, spec2, unit, notes, created_at")
+        .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
         .order("name")
         .then(({ data }) => {
           setMaterials((data as ProcurementMaterialRow[]) ?? []);
@@ -227,6 +234,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
         unit_price_ex_tax: tax.unit_price_ex_tax,
         unit_price_inc_tax: tax.unit_price_inc_tax,
         amount_ex_tax: tax.amount_ex_tax,
+        amortization_months: normalizeAmortizationMonths(line.amortizationMonths),
       };
     });
 
@@ -237,6 +245,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
         const r = { ...p };
         delete r.vendor_name;
         delete r.material_id;
+        delete r.amortization_months;
         return r;
       });
       err = (await supabase.from("purchases").insert(reduced)).error;
@@ -464,6 +473,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                               spec: m.spec ?? "",
                               spec2: m.spec2 ?? "",
                               unit: m.unit ?? "",
+                              amortizationMonths: resolveDefaultAmortizationMonths(m),
                             });
                           }}
                           className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -508,7 +518,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
                       <div className="flex flex-col gap-1.5">
                         <label htmlFor={`add-purchase-qty-${line.id}`} className="text-xs text-muted-foreground">
                           數量
@@ -538,6 +548,29 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                           className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           placeholder="0"
                         />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label htmlFor={`add-purchase-amort-${line.id}`} className="text-xs text-muted-foreground">
+                          成本攤提
+                        </label>
+                        <select
+                          id={`add-purchase-amort-${line.id}`}
+                          value={line.amortizationMonths}
+                          onChange={(e) =>
+                            updateLine(line.id, { amortizationMonths: Number(e.target.value) || 1 })
+                          }
+                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          aria-label="成本攤提月數"
+                        >
+                          {PURCHASE_AMORTIZATION_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] text-muted-foreground">
+                          依物料主檔預設帶入，可於此筆採購覆寫。
+                        </p>
                       </div>
                     </div>
 

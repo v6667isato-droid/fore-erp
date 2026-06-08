@@ -1,3 +1,4 @@
+import { formatAmortizationLabel } from "@/lib/purchase-amortization";
 import type { PurchaseRow } from "@/types/procurement";
 
 export function exportProcurementCsv(records: PurchaseRow[]) {
@@ -16,6 +17,7 @@ export function exportProcurementCsv(records: PurchaseRow[]) {
     "輸入為已稅",
     "已稅單價",
     "含稅總價",
+    "成本攤提",
   ];
   const rows = records.map((r) => [
     r.purchase_date,
@@ -32,6 +34,7 @@ export function exportProcurementCsv(records: PurchaseRow[]) {
     r.unit_price_is_tax_inclusive ? "是" : "否",
     String(r.unit_price_inc_tax),
     String(r.tax_included_amount),
+    formatAmortizationLabel(r.amortization_months),
   ]);
   const csv = [headers.join(","), ...rows.map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))].join("\n");
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });

@@ -18,6 +18,10 @@ import {
   saveYearSnapshot,
   type CostStatisticsYearSnapshot,
 } from "@/lib/cost-statistics-settings";
+import {
+  purchaseCostLookbackStartYear,
+  spreadPurchaseCostByMonth,
+} from "@/lib/purchase-amortization";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight, ChevronUp, Download, Save } from "lucide-react";
@@ -29,13 +33,8 @@ type PurchaseCostRow = {
   item_category?: string | null;
   tax_included_amount?: number | null;
   amount_ex_tax?: number | null;
+  amortization_months?: number | null;
 };
-
-/** 採購類別以「木料」開頭者歸入木料成本，其餘為非木料 */
-function isWoodMaterialCategory(category: string | null | undefined): boolean {
-  const c = (category ?? "").trim();
-  return c.startsWith("木料");
-}
 
 type OrderRevenueRow = {
   order_date: string;
@@ -131,6 +130,15 @@ function rentLoanPortionForMonth(
   return { rent: baseR * frac, loan: baseL * frac };
 }
 
+function rentLoanForFullMonth(annualRent: number, annualLoan: number): { rent: number; loan: number } {
+  return { rent: annualRent / 12, loan: annualLoan / 12 };
+}
+
+/** 第三、四季度月份（7–12 月） */
+function isQ3OrQ4Month(month1To12: number): boolean {
+  return month1To12 >= 7;
+}
+
 export function CostStatisticsPage() {
   const [preset, setPreset] = useState<YearPreset>("this");
   const [loading, setLoading] = useState(true);
@@ -195,13 +203,14 @@ export function CostStatisticsPage() {
       setError(null);
 
       const start = `${year}-01-01`;
+      const lookbackStart = `${purchaseCostLookbackStartYear(year)}-01-01`;
       const end = `${year}-12-31`;
 
       const [purchaseRes, orderRes, payslipRes, employeeRes] = await Promise.all([
         supabase
           .from("purchases")
-          .select("purchase_date,item_category,tax_included_amount,amount_ex_tax")
-          .gte("purchase_date", start)
+          .select("purchase_date,item_category,tax_included_amount,amount_ex_tax,amortization_months")
+          .gte("purchase_date", lookbackStart)
           .lte("purchase_date", end),
         supabase
           .from("orders")
@@ -255,31 +264,44 @@ export function CostStatisticsPage() {
     const cutoffStr = formatLocalYmd(cutoff);
     const cutoffYm = cutoffStr.slice(0, 7);
 
-    const purchaseRowsYtd = purchaseRows.filter((r) => (r.purchase_date ?? "") <= cutoffStr);
+    const purchaseRowsInYearYtd = purchaseRows.filter(
+      (r) =>
+        (r.purchase_date ?? "").startsWith(`${year}-`) && (r.purchase_date ?? "") <= cutoffStr,
+    );
     const orderRowsYtd = orderRows.filter((r) => (r.order_date ?? "") <= cutoffStr);
     const payslipRowsYtd = payslipRows.filter((r) => {
       const pk = r.period_key && r.period_key.length >= 7 ? r.period_key.slice(0, 7) : "";
       return pk && pk <= cutoffYm;
     });
 
+    const yearEndYm = `${year}-12`;
     const purchaseNonWoodByMonth = new Map<string, number>();
     const purchaseWoodByMonth = new Map<string, number>();
+    const purchaseNonWoodFullByMonth = new Map<string, number>();
+    const purchaseWoodFullByMonth = new Map<string, number>();
     const salaryByMonth = new Map<string, number>();
     const revenueByMonth = new Map<string, number>();
     const burdenByEmployeeId = new Map<string, number>();
 
     let totalPurchaseNonWood = 0;
     let totalPurchaseWood = 0;
-    for (const row of purchaseRowsYtd) {
-      const cost = Number(row.tax_included_amount ?? row.amount_ex_tax ?? 0);
-      if (!Number.isFinite(cost)) continue;
-      const wood = isWoodMaterialCategory(row.item_category);
-      if (wood) totalPurchaseWood += cost;
-      else totalPurchaseNonWood += cost;
-      const key = monthKey(row.purchase_date);
-      if (!key) continue;
-      const map = wood ? purchaseWoodByMonth : purchaseNonWoodByMonth;
-      map.set(key, (map.get(key) ?? 0) + cost);
+    for (const row of purchaseRows) {
+      const spreadsYtd = spreadPurchaseCostByMonth(row, { cutoffYm, statYear: year });
+      for (const { monthKey: key, amount, isWood } of spreadsYtd) {
+        if (isWood) totalPurchaseWood += amount;
+        else totalPurchaseNonWood += amount;
+        const map = isWood ? purchaseWoodByMonth : purchaseNonWoodByMonth;
+        map.set(key, (map.get(key) ?? 0) + amount);
+      }
+      const spreadsFull = spreadPurchaseCostByMonth(row, {
+        cutoffYm,
+        statYear: year,
+        throughYm: yearEndYm,
+      });
+      for (const { monthKey: key, amount, isWood } of spreadsFull) {
+        const map = isWood ? purchaseWoodFullByMonth : purchaseNonWoodFullByMonth;
+        map.set(key, (map.get(key) ?? 0) + amount);
+      }
     }
     const totalPurchaseCost = totalPurchaseNonWood + totalPurchaseWood;
 
@@ -364,26 +386,49 @@ export function CostStatisticsPage() {
       grossProfit: number;
       grossMargin: number;
       labelSuffix: string;
+      isProjected: boolean;
     }[] = [];
 
     for (let m = 1; m <= 12; m++) {
       const key = `${year}-${String(m).padStart(2, "0")}`;
-      const rl = rentLoanPortionForMonth(annualRent, annualCompanyLoan, year, m, cutoff);
-      if (!rl) break;
-      const purchaseNonWood = purchaseNonWoodByMonth.get(key) ?? 0;
-      const purchaseWood = purchaseWoodByMonth.get(key) ?? 0;
+      const isActual = key <= cutoffYm;
+      const isProjected = key > cutoffYm && isQ3OrQ4Month(m);
+      if (!isActual && !isProjected) continue;
+
+      let purchaseNonWood = 0;
+      let purchaseWood = 0;
+      let salaryCost = 0;
+      let rentCost = 0;
+      let loanCost = 0;
+      let revenue = 0;
+      let labelSuffix = "";
+
+      if (isProjected) {
+        purchaseNonWood = purchaseNonWoodFullByMonth.get(key) ?? 0;
+        purchaseWood = purchaseWoodFullByMonth.get(key) ?? 0;
+        const rl = rentLoanForFullMonth(annualRent, annualCompanyLoan);
+        rentCost = rl.rent;
+        loanCost = rl.loan;
+        labelSuffix = " (預估攤提)";
+      } else {
+        const rl = rentLoanPortionForMonth(annualRent, annualCompanyLoan, year, m, cutoff);
+        if (!rl) continue;
+        purchaseNonWood = purchaseNonWoodByMonth.get(key) ?? 0;
+        purchaseWood = purchaseWoodByMonth.get(key) ?? 0;
+        salaryCost = salaryByMonth.get(key) ?? 0;
+        rentCost = rl.rent;
+        loanCost = rl.loan;
+        revenue = revenueByMonth.get(key) ?? 0;
+        if (year === 2026 && (key === "2026-01" || key === "2026-02")) {
+          labelSuffix = " (用3月試算，不含鍾語桐)";
+        }
+      }
+
       const purchaseCost = purchaseNonWood + purchaseWood;
-      const salaryCost = salaryByMonth.get(key) ?? 0;
-      const rentCost = rl.rent;
-      const loanCost = rl.loan;
       const totalCost = purchaseCost + salaryCost + rentCost + loanCost;
-      const revenue = revenueByMonth.get(key) ?? 0;
       const grossProfit = revenue - totalCost;
       const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-      const labelSuffix =
-        year === 2026 && (key === "2026-01" || key === "2026-02")
-          ? " (用3月試算，不含鍾語桐)"
-          : "";
+
       monthlyRows.push({
         key,
         purchaseNonWood,
@@ -397,26 +442,63 @@ export function CostStatisticsPage() {
         grossProfit,
         grossMargin,
         labelSuffix,
+        isProjected,
       });
     }
 
     type MonthRow = (typeof monthlyRows)[number];
+    type AggregateTotals = {
+      purchaseNonWood: number;
+      purchaseWood: number;
+      salaryCost: number;
+      rentCost: number;
+      loanCost: number;
+      totalCost: number;
+      revenue: number;
+      grossProfit: number;
+      grossMargin: number;
+      hasProjected: boolean;
+    };
+    type AggregateRow = { label: string } & AggregateTotals;
     type TableRow =
       | { kind: "month"; quarter: 1 | 2 | 3 | 4; row: MonthRow }
-      | {
-          kind: "quarter";
-          quarter: 1 | 2 | 3 | 4;
-          label: string;
-          purchaseNonWood: number;
-          purchaseWood: number;
-          salaryCost: number;
-          rentCost: number;
-          loanCost: number;
-          totalCost: number;
-          revenue: number;
-          grossProfit: number;
-          grossMargin: number;
-        };
+      | ({ kind: "quarter"; quarter: 1 | 2 | 3 | 4 } & AggregateRow);
+
+    function sumMonthSlice(slice: MonthRow[]): AggregateTotals {
+      let purchaseNonWood = 0;
+      let purchaseWood = 0;
+      let salaryCost = 0;
+      let rentCost = 0;
+      let loanCost = 0;
+      let totalCost = 0;
+      let revenue = 0;
+      let grossProfit = 0;
+      let hasProjected = false;
+      for (const row of slice) {
+        purchaseNonWood += row.purchaseNonWood;
+        purchaseWood += row.purchaseWood;
+        salaryCost += row.salaryCost;
+        rentCost += row.rentCost;
+        loanCost += row.loanCost;
+        totalCost += row.totalCost;
+        revenue += row.revenue;
+        grossProfit += row.grossProfit;
+        if (row.isProjected) hasProjected = true;
+      }
+      const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+      return {
+        purchaseNonWood,
+        purchaseWood,
+        salaryCost,
+        rentCost,
+        loanCost,
+        totalCost,
+        revenue,
+        grossProfit,
+        grossMargin,
+        hasProjected,
+      };
+    }
 
     const tableRows: TableRow[] = [];
     for (let q = 0; q < 4; q++) {
@@ -430,44 +512,23 @@ export function CostStatisticsPage() {
       for (const row of slice) {
         tableRows.push({ kind: "month", quarter: qNum, row });
       }
-      let purchaseNonWood = 0;
-      let purchaseWood = 0;
-      let salaryCost = 0;
-      let rentCost = 0;
-      let loanCost = 0;
-      let totalCost = 0;
-      let revenue = 0;
-      let grossProfit = 0;
-      for (const row of slice) {
-        purchaseNonWood += row.purchaseNonWood;
-        purchaseWood += row.purchaseWood;
-        salaryCost += row.salaryCost;
-        rentCost += row.rentCost;
-        loanCost += row.loanCost;
-        totalCost += row.totalCost;
-        revenue += row.revenue;
-        grossProfit += row.grossProfit;
-      }
-      const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+      const qSum = sumMonthSlice(slice);
+      const qLabel =
+        qSum.hasProjected && qNum >= 3
+          ? `${year} 第 ${q + 1} 季 小計（含預估攤提）`
+          : `${year} 第 ${q + 1} 季 小計`;
       tableRows.push({
         kind: "quarter",
         quarter: qNum,
-        label: `${year} 第 ${q + 1} 季 小計`,
-        purchaseNonWood,
-        purchaseWood,
-        salaryCost,
-        rentCost,
-        loanCost,
-        totalCost,
-        revenue,
-        grossProfit,
-        grossMargin,
+        label: qLabel,
+        ...qSum,
       });
     }
 
     let totalRentCost = 0;
     let totalCompanyLoanCost = 0;
     for (const row of monthlyRows) {
+      if (row.isProjected) continue;
       totalRentCost += row.rentCost;
       totalCompanyLoanCost += row.loanCost;
     }
@@ -491,7 +552,7 @@ export function CostStatisticsPage() {
       monthlyRows,
       tableRows,
       orderCount: orderRowsYtd.length,
-      purchaseCount: purchaseRowsYtd.length,
+      purchaseCount: purchaseRowsInYearYtd.length,
       payslipCount: payslipRowsYtd.length,
     };
   }, [orderRows, payslipRows, purchaseRows, annualRent, annualCompanyLoan, year, employeeBurdens, preset]);
@@ -843,7 +904,7 @@ export function CostStatisticsPage() {
               <div>
                 <h2 className="text-sm font-semibold text-foreground">每月與季度結算（年初至今）</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  僅顯示截至 {computed.ytdCutoffLabel} 之月份；點季度小計列可收合或展開該季月份明細
+                  截至 {computed.ytdCutoffLabel} 為實際數；第三、四季度納入尚末發生之攤提預估（標示「預估攤提」）。點季度小計列可收合或展開月份明細。
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -904,10 +965,14 @@ export function CostStatisticsPage() {
                       </td>
                     </tr>
                   ) : (
-                    computed.tableRows.map((item) =>
-                      item.kind === "month" ? (
-                        quarterMonthOpen[item.quarter] ? (
-                          <tr key={item.row.key} className="border-b border-border/70">
+                    computed.tableRows.map((item) => {
+                      if (item.kind === "month") {
+                        if (!quarterMonthOpen[item.quarter]) return null;
+                        return (
+                          <tr
+                            key={item.row.key}
+                            className={`border-b border-border/70 ${item.row.isProjected ? "text-muted-foreground" : ""}`}
+                          >
                             <td className="px-4 py-2 pl-10">
                               {monthLabel(item.row.key)}
                               {item.row.labelSuffix ? (
@@ -924,49 +989,53 @@ export function CostStatisticsPage() {
                             <td className="px-4 py-2">{formatMoney(item.row.grossProfit)}</td>
                             <td className="px-4 py-2">{item.row.grossMargin.toFixed(1)}%</td>
                           </tr>
-                        ) : null
-                      ) : (
-                        <tr
-                          key={`quarter-${item.quarter}`}
-                          className="border-b border-border bg-muted/40 font-medium text-foreground"
-                        >
-                          <td className="px-4 py-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setQuarterMonthOpen((prev) => ({
-                                  ...prev,
-                                  [item.quarter]: !prev[item.quarter],
-                                }))
-                              }
-                              className="inline-flex w-full max-w-full items-center gap-2 rounded-md text-left hover:bg-muted/60 sm:max-w-none"
-                              aria-expanded={quarterMonthOpen[item.quarter]}
-                              aria-label={
-                                quarterMonthOpen[item.quarter]
-                                  ? `收合第 ${item.quarter} 季月份明細`
-                                  : `展開第 ${item.quarter} 季月份明細`
-                              }
-                            >
-                              {quarterMonthOpen[item.quarter] ? (
-                                <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                              )}
-                              <span>{item.label}</span>
-                            </button>
-                          </td>
-                          <td className="px-4 py-2">{formatMoney(item.purchaseNonWood)}</td>
-                          <td className="px-4 py-2">{formatMoney(item.purchaseWood)}</td>
-                          <td className="px-4 py-2">{formatMoney(item.salaryCost)}</td>
-                          <td className="px-4 py-2">{formatMoney(item.rentCost)}</td>
-                          <td className="px-4 py-2">{formatMoney(item.loanCost)}</td>
-                          <td className="px-4 py-2">{formatMoney(item.totalCost)}</td>
-                          <td className="px-4 py-2">{formatMoney(item.revenue)}</td>
-                          <td className="px-4 py-2">{formatMoney(item.grossProfit)}</td>
-                          <td className="px-4 py-2">{item.grossMargin.toFixed(1)}%</td>
-                        </tr>
-                      ),
-                    )
+                        );
+                      }
+                      if (item.kind === "quarter") {
+                        return (
+                          <tr
+                            key={`quarter-${item.quarter}`}
+                            className="border-b border-border bg-muted/40 font-medium text-foreground"
+                          >
+                            <td className="px-4 py-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setQuarterMonthOpen((prev) => ({
+                                    ...prev,
+                                    [item.quarter]: !prev[item.quarter],
+                                  }))
+                                }
+                                className="inline-flex w-full max-w-full items-center gap-2 rounded-md text-left hover:bg-muted/60 sm:max-w-none"
+                                aria-expanded={quarterMonthOpen[item.quarter]}
+                                aria-label={
+                                  quarterMonthOpen[item.quarter]
+                                    ? `收合第 ${item.quarter} 季月份明細`
+                                    : `展開第 ${item.quarter} 季月份明細`
+                                }
+                              >
+                                {quarterMonthOpen[item.quarter] ? (
+                                  <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                )}
+                                <span>{item.label}</span>
+                              </button>
+                            </td>
+                            <td className="px-4 py-2">{formatMoney(item.purchaseNonWood)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.purchaseWood)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.salaryCost)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.rentCost)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.loanCost)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.totalCost)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.revenue)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.grossProfit)}</td>
+                            <td className="px-4 py-2">{item.grossMargin.toFixed(1)}%</td>
+                          </tr>
+                        );
+                      }
+                      return null;
+                    })
                   )}
                 </tbody>
               </table>

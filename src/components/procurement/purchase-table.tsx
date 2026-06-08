@@ -10,13 +10,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatAmortizationLabel } from "@/lib/purchase-amortization";
 import type { PurchaseRow } from "@/types/procurement";
 import { Pencil, Trash2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 20;
 
-const COL_SPAN_BASE = 10;
+const COL_SPAN_BASE = 11;
 
 export interface PurchaseTableProps {
   records: PurchaseRow[];
@@ -147,6 +148,9 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
             <TableHead className="p-2 text-right align-middle">
               <SortHeader label="含稅總價" sortKey="tax_included_amount" align="right" />
             </TableHead>
+            <TableHead className="p-2 align-middle">
+              <SortHeader label="攤提" sortKey="amortization_months" />
+            </TableHead>
             {(onEdit || onDelete) && (
               <TableHead className="text-xs font-semibold p-2" aria-label="操作">操作</TableHead>
             )}
@@ -188,6 +192,9 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
                 <TableCell className="text-sm p-2">{record.unit || "—"}</TableCell>
                 <TableCell className="text-sm text-right p-2 tabular-nums">{record.unit_price_inc_tax.toLocaleString()}</TableCell>
                 <TableCell className="text-sm text-right p-2 font-medium tabular-nums">{record.tax_included_amount.toLocaleString()}</TableCell>
+                <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap">
+                  {formatAmortizationLabel(record.amortization_months)}
+                </TableCell>
                 {(onEdit || onDelete) && (
                   <TableCell className="p-2">
                     <div className="flex items-center gap-1">

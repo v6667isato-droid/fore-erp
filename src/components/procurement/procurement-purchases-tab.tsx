@@ -21,7 +21,7 @@ const PURCHASE_TAX_FIELDS =
   "unit_price, unit_price_is_tax_inclusive, unit_price_ex_tax, unit_price_inc_tax, amount_ex_tax, tax_included_amount";
 
 const PURCHASE_LINE_FIELDS =
-  `item_name, item_category, spec, spec2, quantity, unit, material_id, ${PURCHASE_TAX_FIELDS}`;
+  `item_name, item_category, spec, spec2, quantity, unit, material_id, amortization_months, ${PURCHASE_TAX_FIELDS}`;
 
 const SELECT_WITH_VENDOR_REL =
   `id, purchase_date, ${PURCHASE_LINE_FIELDS}, vendor(id, name, notes), procurement_materials(notes)`;
@@ -45,6 +45,7 @@ type SupabaseRowVendorRel = {
   unit_price_inc_tax?: number | null;
   amount_ex_tax?: number | null;
   tax_included_amount: number;
+  amortization_months?: number | null;
   vendor?: NameRel | string | { id?: string; name?: string; notes?: string | null } | null;
   procurement_materials?: { notes?: string | null } | null;
 };
@@ -66,6 +67,7 @@ type SupabaseRowWithVendor = {
   unit_price_inc_tax?: number | null;
   amount_ex_tax?: number | null;
   tax_included_amount: number;
+  amortization_months?: number | null;
   vendors: NameRel | { name?: string | null; notes?: string | null };
   procurement_materials?: { notes?: string | null } | null;
 };
@@ -86,6 +88,7 @@ type SupabaseRowNoVendor = {
   unit_price_inc_tax?: number | null;
   amount_ex_tax?: number | null;
   tax_included_amount: number;
+  amortization_months?: number | null;
   vendor_name?: string | null;
   /** 由 purchases.vendor_name FK 內嵌之 vendors（僅載入 notes） */
   vendors?: { notes?: string | null } | { notes?: string | null }[] | null;
@@ -210,6 +213,7 @@ function mapRowVendorRel(row: SupabaseRowVendorRel): PurchaseRow {
     ...specFieldsForPurchaseRow(row.spec ?? "", row.spec2 ?? null, row.procurement_materials),
     quantity: row.quantity ?? "—",
     unit: row.unit ?? "",
+    amortization_months: row.amortization_months ?? null,
     ...mapPurchaseTaxFields(row),
   };
 }
@@ -227,6 +231,7 @@ function mapRowWithVendor(row: SupabaseRowWithVendor): PurchaseRow {
     ...specFieldsForPurchaseRow(row.spec ?? "", row.spec2 ?? null, row.procurement_materials),
     quantity: row.quantity ?? "—",
     unit: row.unit ?? "",
+    amortization_months: row.amortization_months ?? null,
     ...mapPurchaseTaxFields(row),
   };
 }
@@ -244,6 +249,7 @@ function mapRowNoVendor(row: SupabaseRowNoVendor): PurchaseRow {
     ...specFieldsForPurchaseRow(row.spec ?? "", row.spec2 ?? null, row.procurement_materials),
     quantity: row.quantity ?? "—",
     unit: row.unit ?? "",
+    amortization_months: row.amortization_months ?? null,
     ...mapPurchaseTaxFields(row),
   };
 }
