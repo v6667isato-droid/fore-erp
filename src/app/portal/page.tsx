@@ -106,7 +106,7 @@ interface VariantOption {
   series_image_url?: string | null;
 }
 
-/** 與訂單新增 resolveChannelUnitPrice：系列通路折扣 %＞0 時之成交單價 */
+/** 系列通路折扣 %＞0 時之通路結算價 */
 function portalChannelUnitPrice(
   v: VariantOption | undefined,
   discountPctBySeriesId: Map<string, number>
@@ -115,6 +115,19 @@ function portalChannelUnitPrice(
   const pct = discountPctBySeriesId.get(v.series_id) ?? 0;
   if (!(pct > 0)) return null;
   return Math.round(Number(v.base_price) * (1 - pct / 100));
+}
+
+function portalListUnitPrice(v: VariantOption | undefined): number {
+  if (v?.base_price == null || !Number.isFinite(Number(v.base_price))) return 0;
+  return Number(v.base_price);
+}
+
+/** 通路下單小計／訂單應收：通路價優先，否則牌價 */
+function portalSettlementUnitPrice(
+  v: VariantOption | undefined,
+  discountPctBySeriesId: Map<string, number>
+): number {
+  return portalChannelUnitPrice(v, discountPctBySeriesId) ?? portalListUnitPrice(v);
 }
 
 interface PortalItem {
@@ -140,7 +153,7 @@ interface MyOrderRow {
   earliest_stage: string | null;
   /** 通路端僅 已結清／未結清 */
   payment_status: "已結清" | "未結清";
-  /** 明細原價加總 + 運費（無 base_price 之明細以成交單價替代） */
+  /** 訂單明細牌價（unit_price）加總 + 運費 */
   list_grand: number;
   /** 訂單應收總額（通路成交後之總額，含運） */
   total_amount: number;
@@ -440,18 +453,15 @@ export default function PortalPage() {
         for (const row of (itemRows ?? []) as any[]) {
           const oid = String(row.order_id);
           const q = Math.max(0, Number(row.quantity) || 0);
-          const unit = Number(row.unit_price ?? 0);
-          const line = Math.round(unit * q);
+          const listUnit = Number(row.unit_price ?? 0);
+          const line = Math.round(listUnit * q);
           lineSumByOrder.set(oid, (lineSumByOrder.get(oid) ?? 0) + line);
         }
 
         for (const r of rawList) {
           const oid = String(r.id);
           const ship = Number(r.shipping_fee ?? 0);
-          const lines = lineSumByOrder.get(oid);
-          const total = Number(r.total_amount ?? 0);
-          const listGrand =
-            lines !== undefined ? lines + ship : total;
+          const listGrand = (lineSumByOrder.get(oid) ?? 0) + ship;
           listGrandByOrderId.set(oid, listGrand);
         }
       }
@@ -498,7 +508,9 @@ export default function PortalPage() {
             status: r.status ?? "—",
             earliest_stage: stageMap.get(oid) ?? null,
             payment_status: normalizeChannelPartnerPaymentStatus(r.payment_status),
-            list_grand: listGrandByOrderId.get(oid) ?? total,
+            list_grand:
+              listGrandByOrderId.get(oid) ??
+              Number(r.shipping_fee ?? 0),
             total_amount: total,
           };
         })
@@ -858,7 +870,7 @@ export default function PortalPage() {
       supabase.from("orders").select("id, order_date, expected_delivery_date, shipping_address, internal_notes, status").eq("id", editingOrderId).eq("customer_id", session.customer_id).single(),
       supabase
         .from("order_items")
-        .select("id, variant_id, quantity, unit_price, custom_notes, seat_height_cm")
+        .select("id, variant_id, quantity, unit_price, custom_notes, seat_height_cm, product_variants(base_price)")
         .eq("order_id", editingOrderId)
         .order("line_order", { ascending: true })
         .order("id", { ascending: true }),
@@ -876,17 +888,24 @@ export default function PortalPage() {
         setEditFormLoading(false);
         return;
       }
-      const itemRows = ((itemsRes.data ?? []) as any[]).map((d, idx) => ({
+      const itemRows = ((itemsRes.data ?? []) as any[]).map((d, idx) => {
+        const pv = d.product_variants as { base_price?: number | null } | null;
+        const listPx =
+          d.variant_id && pv?.base_price != null && Number.isFinite(Number(pv.base_price))
+            ? Number(pv.base_price)
+            : Number(d.unit_price ?? 0);
+        return {
         id: `edit-item-${idx}-${d.id}`,
         variant_id: d.variant_id ? String(d.variant_id) : "",
         quantity: Number(d.quantity ?? 1),
-        unit_price: Number(d.unit_price ?? 0),
+        unit_price: listPx,
         notes: d.custom_notes ?? "",
         seat_height_cm:
           d.seat_height_cm != null && Number.isFinite(Number(d.seat_height_cm))
             ? Number(d.seat_height_cm)
             : null,
-      }));
+      };
+      });
       setEditForm({
         order_date: o.order_date ? String(o.order_date).slice(0, 10) : "",
         expected_delivery_date: o.expected_delivery_date ? String(o.expected_delivery_date).slice(0, 10) : "",
@@ -950,11 +969,9 @@ export default function PortalPage() {
   }
   function onEditVariantChange(itemId: string, variantId: string) {
     const v = variants.find((x) => x.id === variantId);
-    const channelPx = portalChannelUnitPrice(v, portalSeriesDiscountPct);
-    const unit = channelPx ?? v?.base_price ?? 0;
     updateEditItem(itemId, {
       variant_id: variantId,
-      unit_price: unit,
+      unit_price: portalListUnitPrice(v),
       seat_height_cm: v ? resolvePortalSeatHeight(v) : null,
     });
   }
@@ -988,7 +1005,10 @@ export default function PortalPage() {
       fetchMyOrders();
       return;
     }
-    const totalAmount = validItems.reduce((s, it) => s + it.quantity * (it.unit_price || 0), 0);
+    const totalAmount = validItems.reduce((s, it) => {
+      const v = variants.find((x) => x.id === it.variant_id);
+      return s + it.quantity * portalSettlementUnitPrice(v, portalSeriesDiscountPct);
+    }, 0);
     setEditSaving(true);
     try {
       const { error: updateErr } = await supabase
@@ -1017,7 +1037,7 @@ export default function PortalPage() {
         line_order: lineIndex,
         variant_id: it.variant_id,
         quantity: it.quantity,
-        unit_price: it.unit_price,
+        unit_price: portalListUnitPrice(variants.find((x) => x.id === it.variant_id)),
         custom_notes: it.notes || null,
         custom_category: null,
         custom_name: null,
@@ -1098,20 +1118,18 @@ export default function PortalPage() {
 
   function onVariantChange(itemId: string, variantId: string) {
     const v = variants.find((x) => x.id === variantId);
-    const channelPx = portalChannelUnitPrice(v, portalSeriesDiscountPct);
-    const unit = channelPx ?? v?.base_price ?? 0;
     updateItem(itemId, {
       variant_id: variantId,
-      unit_price: unit,
+      unit_price: portalListUnitPrice(v),
       seat_height_cm: v ? resolvePortalSeatHeight(v) : null,
     });
   }
 
   const validItems = items.filter((it) => it.variant_id && it.quantity > 0);
-  const totalAmount = validItems.reduce(
-    (sum, it) => sum + it.quantity * (it.unit_price || 0),
-    0
-  );
+  const totalAmount = validItems.reduce((sum, it) => {
+    const v = variants.find((x) => x.id === it.variant_id);
+    return sum + it.quantity * portalSettlementUnitPrice(v, portalSeriesDiscountPct);
+  }, 0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1184,7 +1202,7 @@ export default function PortalPage() {
         line_order: lineIndex,
         variant_id: it.variant_id,
         quantity: it.quantity,
-        unit_price: it.unit_price,
+        unit_price: portalListUnitPrice(variants.find((x) => x.id === it.variant_id)),
         custom_notes: it.notes || null,
         custom_category: null,
         custom_name: null,
@@ -1704,7 +1722,7 @@ export default function PortalPage() {
                   </div>
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
-                  與貴司對帳時可依下單日或交貨日篩選本期單據。牌價為明細原價加總並含運費；通路價為訂單應收總額（含運）。
+                  與貴司對帳時可依下單日或交貨日篩選本期單據。牌價為訂單明細牌價加總並含運費；通路價為訂單應收總額（含運）。
                 </p>
               </div>
 

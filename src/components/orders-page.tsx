@@ -133,7 +133,10 @@ interface OrderItemInput {
   variant_id: string;
   series_id?: string | null;
   quantity: number;
+  /** 牌價 */
   unit_price: number;
+  /** 客製品項通路價（手動）；有值時結算優先採用 */
+  channel_unit_price?: number | null;
   custom_notes: string;
   kind: "variant" | "custom";
   custom_category?: string | null;
@@ -454,6 +457,7 @@ function OrderFormDialog({
             variant_id: "",
             quantity: 1,
             unit_price: 0,
+            channel_unit_price: null,
             custom_notes: "",
             kind: "variant",
             wood_type: null,
@@ -547,6 +551,7 @@ function OrderFormDialog({
         variant_id: "",
         quantity: 1,
         unit_price: 0,
+        channel_unit_price: null,
         custom_notes: "",
         kind: "variant",
         wood_type: null,
@@ -659,16 +664,15 @@ function OrderFormDialog({
     [variants, customers, customerId, seriesDiscounts]
   );
 
-  /** 依目前產品／通路規則計算牌價（新增明細或重選規格時帶入） */
-  const resolveCatalogUnitPrice = useCallback(
-    (variantId: string, seriesId: string | null | undefined): number => {
-      const channelPrice = resolveChannelUnitPrice(variantId, seriesId);
-      if (channelPrice != null) return channelPrice;
+  /** 產品規格牌價（base_price）；明細 unit_price 一律以此為準 */
+  const resolveListUnitPrice = useCallback(
+    (variantId: string | null | undefined): number => {
+      if (!variantId) return 0;
       const variant = variants.find((v) => v.id === variantId);
       const base = variant?.base_price;
       return base != null && Number.isFinite(Number(base)) ? Number(base) : 0;
     },
-    [resolveChannelUnitPrice, variants]
+    [variants]
   );
 
   function handleVariantSelect(it: OrderItemInput, variantId: string) {
@@ -684,9 +688,7 @@ function OrderFormDialog({
         : selected?.series_category === "椅" || selected?.series_category === "凳"
           ? DEFAULT_SEAT_HEIGHT_CM
           : null;
-    const nextUnitPrice = isEdit
-      ? resolveCatalogUnitPrice(variantId, selected?.series_id ?? it.series_id ?? null)
-      : (selected?.base_price ?? it.unit_price ?? 0);
+    const nextUnitPrice = resolveListUnitPrice(variantId);
     updateItem(it.id, {
       variant_id: variantId,
       series_id: selected?.series_id ?? it.series_id ?? null,
@@ -699,26 +701,36 @@ function OrderFormDialog({
     });
   }
 
-  /** 編輯訂單：既有規格品項成交單價僅能透過重選規格更新，不可手動改價 */
+  /** 規格品項牌價由產品主檔帶入，不可手動改價 */
   function isVariantUnitPriceLocked(it: OrderItemInput): boolean {
-    return isEdit && it.kind === "variant" && !it.isNewLine;
+    return it.kind === "variant" && Boolean(it.variant_id);
   }
 
   /**
-   * 結算單價：有通路價格優先採用通路價格，否則採用品項成交單價（unit_price，預設為 base_price）。
-   * 用於品項小計、訂單合計、列印金額等結算用途。
+   * 結算單價：有通路價格優先採用通路價格，否則採用牌價（unit_price）。
+   * 用於品項小計、訂單合計等結算用途；與明細欄位「牌價」分開。
    */
   const resolveItemSettlementPrice = useCallback(
     (it: OrderItemInput): number => {
-      // 已建立訂單：以明細當時寫入的成交單價為準，不因產品／通路牌價調整而重算
-      if (initialOrder?.id) {
+      if (it.kind === "custom") {
+        const manualChannel = it.channel_unit_price;
+        if (
+          manualChannel != null &&
+          Number.isFinite(Number(manualChannel)) &&
+          Number(manualChannel) > 0
+        ) {
+          return Number(manualChannel);
+        }
         return Number(it.unit_price) || 0;
       }
       const channelPrice = resolveChannelUnitPrice(it.variant_id, it.series_id ?? null);
       if (channelPrice != null) return channelPrice;
+      if (it.variant_id) {
+        return resolveListUnitPrice(it.variant_id) || Number(it.unit_price) || 0;
+      }
       return Number(it.unit_price) || 0;
     },
-    [resolveChannelUnitPrice, initialOrder?.id]
+    [resolveChannelUnitPrice, resolveListUnitPrice]
   );
 
 
@@ -747,7 +759,7 @@ function OrderFormDialog({
     };
   }
 
-  // 每項小計：通路價格優先（有設定折扣 % 時）、其次採用「成交單價」(unit_price)
+  // 每項小計：通路價格優先（有設定折扣 % 時）、其次採用牌價
   const itemSubtotals = itemRows.map(
     (it) => (Number(it.quantity) || 0) * resolveItemSettlementPrice(it)
   );
@@ -886,6 +898,7 @@ function OrderFormDialog({
         variant_id: "",
         quantity: 1,
         unit_price: 0,
+        channel_unit_price: null,
         custom_notes: "",
         kind: "variant",
         wood_type: null,
@@ -1004,7 +1017,17 @@ function OrderFormDialog({
           line_order: lineIndex,
           variant_id: it.kind === "variant" ? it.variant_id || null : null,
           quantity: it.quantity,
-          unit_price: it.unit_price,
+          unit_price:
+            it.kind === "variant" && it.variant_id
+              ? resolveListUnitPrice(it.variant_id)
+              : it.unit_price,
+          channel_unit_price:
+            it.kind === "custom" &&
+            it.channel_unit_price != null &&
+            Number.isFinite(Number(it.channel_unit_price)) &&
+            Number(it.channel_unit_price) > 0
+              ? Number(it.channel_unit_price)
+              : null,
           custom_notes: it.custom_notes || null,
           custom_category:
             it.kind === "custom" ? it.custom_category || null : resolvedCategory,
@@ -1026,10 +1049,20 @@ function OrderFormDialog({
         };
       });
 
-      const { data: insertedItems, error: itemsError } = await supabase
+      let { data: insertedItems, error: itemsError } = await supabase
         .from("order_items")
         .insert(itemsPayload)
         .select("id");
+      if (itemsError && /column .* does not exist/i.test(itemsError.message)) {
+        const reduced = itemsPayload.map((p) => {
+          const row: Record<string, unknown> = { ...p };
+          delete row.channel_unit_price;
+          return row;
+        });
+        const retry = await supabase.from("order_items").insert(reduced).select("id");
+        insertedItems = retry.data;
+        itemsError = retry.error;
+      }
       if (itemsError) {
         toast.error(itemsError.message || "寫入訂單明細失敗");
         return;
@@ -1597,7 +1630,12 @@ function OrderFormDialog({
                             {summary.title}
                           </p>
                           <p className="mt-1 text-xs tabular-nums text-[#7D7767]">
-                            NTD {resolveItemSettlementPrice(it).toLocaleString()} ×{" "}
+                            NTD{" "}
+                            {(it.kind === "variant" && it.variant_id
+                              ? resolveListUnitPrice(it.variant_id)
+                              : Number(it.unit_price) || 0
+                            ).toLocaleString()}{" "}
+                            ×{" "}
                             {it.quantity}
                           </p>
                         </div>
@@ -1665,6 +1703,7 @@ function OrderFormDialog({
                               updateItem(it.id, {
                                 kind: "custom",
                                 variant_id: "",
+                                channel_unit_price: null,
                               })
                             }
                             className={`rounded-full px-2 py-0.5 border text-[11px] ${
@@ -1803,13 +1842,17 @@ function OrderFormDialog({
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`item-price-${it.id}`}
                               >
-                                成交單價
+                                牌價
                               </label>
                               <input
                                 id={`item-price-${it.id}`}
                                 type="number"
                                 min={0}
-                                value={it.unit_price}
+                                value={
+                                  it.variant_id
+                                    ? resolveListUnitPrice(it.variant_id)
+                                    : it.unit_price
+                                }
                                 onChange={(e) =>
                                   updateItem(it.id, {
                                     unit_price:
@@ -2155,8 +2198,8 @@ function OrderFormDialog({
                               className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                             />
                           </div>
-                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 mt-1.5">
-                            <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 mt-1.5 lg:items-end">
+                            <div className="flex flex-col gap-1.5">
                               <label
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`item-wood-custom-${it.id}`}
@@ -2192,22 +2235,59 @@ function OrderFormDialog({
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
-                              <label className="text-xs text-muted-foreground">
-                                成交單價
+                              <label
+                                className="text-xs text-muted-foreground"
+                                htmlFor={`item-list-price-custom-${it.id}`}
+                              >
+                                牌價
                               </label>
                               <input
+                                id={`item-list-price-custom-${it.id}`}
                                 type="number"
                                 min={0}
                                 value={it.unit_price}
                                 onChange={(e) =>
                                   updateItem(it.id, {
-                                    unit_price:
-                                      Number(e.target.value) || 0,
+                                    unit_price: Number(e.target.value) || 0,
                                   })
                                 }
                                 readOnly={readOnly}
                                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <label
+                                className="text-xs text-muted-foreground"
+                                htmlFor={`item-channel-price-custom-${it.id}`}
+                              >
+                                通路價格
+                              </label>
+                              <input
+                                id={`item-channel-price-custom-${it.id}`}
+                                type="number"
+                                min={0}
+                                step={1}
+                                value={
+                                  it.channel_unit_price != null &&
+                                  Number.isFinite(Number(it.channel_unit_price)) &&
+                                  Number(it.channel_unit_price) > 0
+                                    ? it.channel_unit_price
+                                    : ""
+                                }
+                                onChange={(e) => {
+                                  const raw = e.target.value.trim();
+                                  updateItem(it.id, {
+                                    channel_unit_price:
+                                      raw === "" ? null : Math.max(0, Number(raw) || 0),
+                                  });
+                                }}
+                                readOnly={readOnly}
+                                placeholder="選填"
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                              />
+                              <p className="text-[11px] text-muted-foreground">
+                                有填通路價時，小計與訂單總額依通路價計算。
+                              </p>
                             </div>
                           </div>
                           <div className="flex flex-col gap-1.5">
@@ -3026,11 +3106,7 @@ export function OrdersPage({
   }
 
   async function handleEdit(order: OrderRow) {
-    // 讀取該訂單的明細
-    const { data, error } = await supabase
-      .from("order_items")
-      .select(
-        `
+    const itemSelectBase = `
         id,
         variant_id,
         quantity,
@@ -3053,11 +3129,31 @@ export function OrdersPage({
           dimension_h,
           seat_height_cm
         )
-      `
-      )
+      `;
+    const itemSelectWithChannel = itemSelectBase.replace(
+      "unit_price,",
+      "unit_price, channel_unit_price,",
+    );
+    let data: unknown[] | null = null;
+    let error: { message?: string } | null = null;
+    const withChannel = await supabase
+      .from("order_items")
+      .select(itemSelectWithChannel)
       .eq("order_id", order.id)
       .order("line_order", { ascending: true })
       .order("id", { ascending: true });
+    data = withChannel.data;
+    error = withChannel.error;
+    if (error && /column .* does not exist/i.test(error.message ?? "")) {
+      const retry = await supabase
+        .from("order_items")
+        .select(itemSelectBase)
+        .eq("order_id", order.id)
+        .order("line_order", { ascending: true })
+        .order("id", { ascending: true });
+      data = retry.data;
+      error = retry.error;
+    }
     if (error) {
       toast.error(error.message || "讀取訂單明細失敗");
       return;
@@ -3112,7 +3208,14 @@ export function OrdersPage({
             ? String(pv.series_id)
             : undefined,
         quantity: Number(d.quantity ?? 1),
-        unit_price: Number(d.unit_price ?? 0),
+        unit_price:
+          d.variant_id && pv?.base_price != null && Number.isFinite(Number(pv.base_price))
+            ? Number(pv.base_price)
+            : Number(d.unit_price ?? 0),
+        channel_unit_price:
+          isCustom && d.channel_unit_price != null && Number.isFinite(Number(d.channel_unit_price))
+            ? Number(d.channel_unit_price)
+            : null,
         isNewLine: false,
         custom_notes: d.custom_notes ?? "",
         kind: isCustom ? "custom" : "variant",
