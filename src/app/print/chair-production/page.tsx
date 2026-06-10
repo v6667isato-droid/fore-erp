@@ -114,6 +114,18 @@ function seriesFirstColumnMergeInfo(
   return infos;
 }
 
+/** A4 直式：扣除表頭、製表日期、頁碼後約可容納的資料列數 */
+const CHAIR_PRINT_ROWS_PER_PAGE = 14;
+
+function chunkChairRows(rows: ChairRow[], pageSize: number): ChairRow[][] {
+  if (rows.length === 0) return [];
+  const pages: ChairRow[][] = [];
+  for (let i = 0; i < rows.length; i += pageSize) {
+    pages.push(rows.slice(i, i + pageSize));
+  }
+  return pages;
+}
+
 function formatEtaMd(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -302,6 +314,245 @@ function seriesNameFromVariant(variant: unknown): string {
   return String(rel.series_name ?? "").trim();
 }
 
+function ChairPrintTableColgroup() {
+  return (
+    <colgroup>
+      <col style={{ width: "4.4%" }} />
+      <col style={{ width: "13.2%" }} />
+      <col style={{ width: "4.8%" }} />
+      <col style={{ width: "3.82%" }} />
+      <col style={{ width: "3.82%" }} />
+      <col style={{ width: "3.82%" }} />
+      <col style={{ width: "3.82%" }} />
+      <col style={{ width: "5.52%" }} />
+      <col style={{ width: "5.52%" }} />
+      <col style={{ width: "5.52%" }} />
+      <col style={{ width: "5.52%" }} />
+      <col style={{ width: "5.52%" }} />
+      <col style={{ width: "5.52%" }} />
+    </colgroup>
+  );
+}
+
+function ChairPrintTableHead() {
+  return (
+    <thead>
+      <tr>
+        <th
+          colSpan={2}
+          className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
+        >
+          木材／坐墊
+        </th>
+        <th
+          rowSpan={2}
+          className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
+        >
+          完成日
+        </th>
+        <th
+          colSpan={2}
+          className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
+        >
+          組立
+        </th>
+        <th
+          rowSpan={2}
+          className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
+        >
+          噴漆階段
+        </th>
+        <th
+          rowSpan={2}
+          className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
+        >
+          完成日期
+        </th>
+        <th
+          colSpan={3}
+          className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
+        >
+          胡桃
+        </th>
+        <th
+          colSpan={3}
+          className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
+        >
+          白橡
+        </th>
+      </tr>
+      <tr>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
+          系列
+        </th>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0 whitespace-normal break-words text-left">
+          客戶／聯絡人
+        </th>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
+          側邊
+        </th>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
+          整張
+        </th>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
+          編織
+        </th>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
+          實木
+        </th>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
+          布墊
+        </th>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
+          編織
+        </th>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
+          實木
+        </th>
+        <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
+          布墊
+        </th>
+      </tr>
+    </thead>
+  );
+}
+
+function ChairPrintDataRows({ rows }: { rows: ChairRow[] }) {
+  const seriesMerge = useMemo(() => seriesFirstColumnMergeInfo(rows), [rows]);
+
+  if (rows.length === 0) {
+    return (
+      <tr>
+        <td
+          colSpan={13}
+          className="border border-black bg-white px-2 py-6 text-center text-[16.5px] text-zinc-600"
+        >
+          目前沒有符合條件的品項（未出貨訂單、規格品 CH03／CH03A 系列）。
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <>
+      {rows.map((row, idx) => {
+        const merge = seriesMerge[idx];
+        const span = merge?.rowSpan ?? 1;
+        const showCol = merge?.showSeriesCol ?? true;
+        return (
+          <tr key={row.id} className="chair-data-row">
+            {showCol ? (
+              <td
+                rowSpan={span}
+                className={`chair-body-td chair-series-merge-cell border border-black bg-amber-50 px-0.5 py-0.5 text-center font-semibold print:bg-amber-50 break-words min-w-0 max-w-[15.4mm] ${
+                  span > 1 ? "chair-series-merge-span" : ""
+                }`}
+              >
+                {row.chairFamily}
+              </td>
+            ) : null}
+            <td className="chair-customer-cell chair-body-td border border-black bg-amber-50 px-0.5 py-0.5 print:bg-amber-50 min-w-0 text-left whitespace-normal break-words [overflow-wrap:anywhere]">
+              <div className="flex max-w-full flex-col gap-0.5 leading-snug">
+                <span className="font-medium text-zinc-900 print:text-black break-words">
+                  {row.customerName || "—"}
+                </span>
+                {row.isChannelOrder && row.contactName ? (
+                  <span className="text-[0.92em] font-normal text-zinc-400 print:text-zinc-600 break-words">
+                    {row.contactName}
+                  </span>
+                ) : null}
+                {row.itemNotesLine ? (
+                  <span className="text-[0.95em] text-zinc-800 print:text-black break-words">
+                    {row.itemNotesLine}
+                  </span>
+                ) : null}
+              </div>
+            </td>
+            <td className="chair-body-td border border-black bg-amber-50 text-center px-0.5 py-0.5 print:bg-amber-50">
+              {row.completionDateMd}
+            </td>
+            <CheckCell />
+            <CheckCell />
+            <CheckCell />
+            <CheckCell />
+            <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+              <ChairSpecCell
+                text={row.walnut[0]}
+                showSmokedLabel={row.hasSmokedMark && !!row.walnut[0].trim()}
+              />
+            </td>
+            <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+              <ChairSpecCell
+                text={row.walnut[1]}
+                showSmokedLabel={row.hasSmokedMark && !!row.walnut[1].trim()}
+              />
+            </td>
+            <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+              <ChairSpecCell
+                text={row.walnut[2]}
+                showSmokedLabel={row.hasSmokedMark && !!row.walnut[2].trim()}
+              />
+            </td>
+            <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+              <ChairSpecCell
+                text={row.oak[0]}
+                showSmokedLabel={row.hasSmokedMark && !!row.oak[0].trim()}
+              />
+            </td>
+            <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+              <ChairSpecCell
+                text={row.oak[1]}
+                showSmokedLabel={row.hasSmokedMark && !!row.oak[1].trim()}
+              />
+            </td>
+            <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
+              <ChairSpecCell
+                text={row.oak[2]}
+                showSmokedLabel={row.hasSmokedMark && !!row.oak[2].trim()}
+              />
+            </td>
+          </tr>
+        );
+      })}
+    </>
+  );
+}
+
+function ChairPrintSheet({
+  rows,
+  sheetDate,
+  pageNumber,
+  totalPages,
+  showPageFooter,
+}: {
+  rows: ChairRow[];
+  sheetDate: string;
+  pageNumber: number;
+  totalPages: number;
+  showPageFooter: boolean;
+}) {
+  return (
+    <section className="chair-print-page">
+      <div className="chair-print-page-header">
+        <span className="font-medium">製表日期：</span>
+        <span>{sheetDate || "　　　　"}</span>
+      </div>
+      <table className="chair-print-table w-full min-w-[190mm] table-fixed border-collapse border border-black text-[15px] leading-snug print:leading-snug">
+        <ChairPrintTableColgroup />
+        <ChairPrintTableHead />
+        <tbody>
+          <ChairPrintDataRows rows={rows} />
+        </tbody>
+      </table>
+      {showPageFooter ? (
+        <div className="chair-print-page-footer">
+          第 {pageNumber} / {totalPages} 頁
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function ChairProductionPrintPage() {
   const [sheetDate, setSheetDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -451,14 +702,37 @@ export default function ChairProductionPrintPage() {
     document.title = `椅子生產管理表_${sheetDate || todayYmd()}`;
   }, [sheetDate]);
 
-  const seriesMerge = useMemo(() => seriesFirstColumnMergeInfo(flatRows), [flatRows]);
+  const rowPages = useMemo(
+    () => chunkChairRows(flatRows, CHAIR_PRINT_ROWS_PER_PAGE),
+    [flatRows],
+  );
+  const totalPages = rowPages.length || 1;
 
   return (
     <>
       <style>{`
         @page {
           size: A4 portrait;
-          margin: 8mm 10mm;
+          margin: 10mm;
+        }
+        .chair-print-pages {
+          display: flex;
+          flex-direction: column;
+          gap: 2rem;
+        }
+        .chair-print-page-header {
+          margin-bottom: 1.5mm;
+          font-size: 10px;
+          line-height: 1.2;
+          color: #000;
+        }
+        .chair-print-page-footer {
+          margin-top: 2mm;
+          padding-bottom: 1mm;
+          text-align: center;
+          font-size: 10px;
+          line-height: 1.2;
+          color: #000;
         }
         .chair-customer-cell {
           word-break: break-word;
@@ -501,9 +775,16 @@ export default function ChairProductionPrintPage() {
           .chair-print-toolbar {
             display: none !important;
           }
+          .chair-print-pages {
+            gap: 0 !important;
+          }
           .chair-print-preview {
             transform: none !important;
             margin-bottom: 0 !important;
+          }
+          .chair-print-page:not(:last-child) {
+            break-after: page;
+            page-break-after: always;
           }
           .chair-print-root {
             background: #fff !important;
@@ -512,21 +793,27 @@ export default function ChairProductionPrintPage() {
             min-height: auto !important;
           }
           .chair-print-table {
-            font-size: 13.5px !important;
-            line-height: 1.4 !important;
+            font-size: 12px !important;
+            line-height: 1.25 !important;
+          }
+          .chair-print-table thead th {
+            padding: 0.3mm 0.4mm !important;
+            font-size: 12px !important;
+            line-height: 1.2 !important;
           }
           .chair-spec-cell {
-            font-size: 13.5px !important;
-            line-height: 1.35 !important;
+            font-size: 12px !important;
+            line-height: 1.2 !important;
           }
           .chair-print-table tbody tr.chair-data-row {
-            min-height: 13.2mm !important;
-            height: 13.2mm !important;
+            min-height: 11.5mm !important;
+            height: 11.5mm !important;
           }
           .chair-print-table tbody tr.chair-data-row > td.chair-body-td {
-            height: 13.2mm !important;
-            max-height: 13.2mm !important;
+            height: 11.5mm !important;
+            max-height: 11.5mm !important;
             overflow: hidden !important;
+            padding: 0.3mm 0.4mm !important;
           }
           .chair-print-table tbody tr.chair-data-row > td.chair-body-td.chair-series-merge-cell {
             height: auto !important;
@@ -537,6 +824,9 @@ export default function ChairProductionPrintPage() {
             height: auto !important;
             max-height: none !important;
             overflow: visible !important;
+          }
+          .chair-print-data-note {
+            display: none !important;
           }
         }
       `}</style>
@@ -588,13 +878,6 @@ export default function ChairProductionPrintPage() {
         </div>
 
         <div className="mx-auto max-w-[210mm] px-3 py-5 pb-16 print:max-w-none print:px-0 print:py-0 print:pb-0">
-          <div className="mb-2 flex items-baseline gap-2 text-sm print:mb-1">
-            <span className="font-medium">製表日期：</span>
-            <span className="min-w-[8em] border-b border-zinc-800 print:border-black">
-              {sheetDate || "　　　　"}
-            </span>
-          </div>
-
           {loading ? (
             <div className="flex items-center gap-2 py-12 text-sm text-zinc-600">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -604,195 +887,17 @@ export default function ChairProductionPrintPage() {
             <p className="py-8 text-sm text-red-600">{loadError}</p>
           ) : (
             <>
-              <div className="chair-print-preview overflow-x-auto print:overflow-visible">
-                <table className="chair-print-table w-full min-w-[190mm] table-fixed border-collapse border border-black text-[15px] leading-snug print:leading-snug">
-                  <colgroup>
-                    <col style={{ width: "4.4%" }} />
-                    <col style={{ width: "13.2%" }} />
-                    <col style={{ width: "4.8%" }} />
-                    {/* 側邊、整張、噴漆、完成 — 等寬 */}
-                    <col style={{ width: "3.82%" }} />
-                    <col style={{ width: "3.82%" }} />
-                    <col style={{ width: "3.82%" }} />
-                    <col style={{ width: "3.82%" }} />
-                    <col style={{ width: "5.52%" }} />
-                    <col style={{ width: "5.52%" }} />
-                    <col style={{ width: "5.52%" }} />
-                    <col style={{ width: "5.52%" }} />
-                    <col style={{ width: "5.52%" }} />
-                    <col style={{ width: "5.52%" }} />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th
-                        colSpan={2}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
-                      >
-                        木材／坐墊
-                      </th>
-                      <th
-                        rowSpan={2}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
-                      >
-                        完成日
-                      </th>
-                      <th
-                        colSpan={2}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
-                      >
-                        組立
-                      </th>
-                      <th
-                        rowSpan={2}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
-                      >
-                        噴漆階段
-                      </th>
-                      <th
-                        rowSpan={2}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
-                      >
-                        完成日期
-                      </th>
-                      <th
-                        colSpan={3}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
-                      >
-                        胡桃
-                      </th>
-                      <th
-                        colSpan={3}
-                        className="border border-black bg-emerald-100 px-0.5 py-0.5 font-semibold print:bg-emerald-100"
-                      >
-                        白橡
-                      </th>
-                    </tr>
-                    <tr>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
-                        系列
-                      </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0 whitespace-normal break-words text-left">
-                        客戶／聯絡人
-                      </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
-                        側邊
-                      </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
-                        整張
-                      </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
-                        編織
-                      </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
-                        實木
-                      </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
-                        布墊
-                      </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
-                        編織
-                      </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
-                        實木
-                      </th>
-                      <th className="border border-black bg-emerald-100 px-0.5 py-0.5 font-medium print:bg-emerald-100 min-w-0">
-                        布墊
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {flatRows.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={13}
-                          className="border border-black bg-white px-2 py-6 text-center text-[16.5px] text-zinc-600"
-                        >
-                          目前沒有符合條件的品項（未出貨訂單、規格品 CH03／CH03A 系列）。
-                        </td>
-                      </tr>
-                    ) : (
-                      flatRows.map((row, idx) => {
-                        const merge = seriesMerge[idx];
-                        const span = merge?.rowSpan ?? 1;
-                        const showCol = merge?.showSeriesCol ?? true;
-                        return (
-                        <tr key={row.id} className="chair-data-row">
-                          {showCol ? (
-                            <td
-                              rowSpan={span}
-                              className={`chair-body-td chair-series-merge-cell border border-black bg-amber-50 px-0.5 py-0.5 text-center font-semibold print:bg-amber-50 break-words min-w-0 max-w-[15.4mm] ${
-                                span > 1 ? "chair-series-merge-span" : ""
-                              }`}
-                            >
-                              {row.chairFamily}
-                            </td>
-                          ) : null}
-                          <td className="chair-customer-cell chair-body-td border border-black bg-amber-50 px-0.5 py-0.5 print:bg-amber-50 min-w-0 text-left whitespace-normal break-words [overflow-wrap:anywhere]">
-                            <div className="flex max-w-full flex-col gap-0.5 leading-snug">
-                              <span className="font-medium text-zinc-900 print:text-black break-words">
-                                {row.customerName || "—"}
-                              </span>
-                              {row.isChannelOrder && row.contactName ? (
-                                <span className="text-[0.92em] font-normal text-zinc-400 print:text-zinc-600 break-words">
-                                  {row.contactName}
-                                </span>
-                              ) : null}
-                              {row.itemNotesLine ? (
-                                <span className="text-[0.95em] text-zinc-800 print:text-black break-words">
-                                  {row.itemNotesLine}
-                                </span>
-                              ) : null}
-                            </div>
-                          </td>
-                          <td className="chair-body-td border border-black bg-amber-50 text-center px-0.5 py-0.5 print:bg-amber-50">
-                            {row.completionDateMd}
-                          </td>
-                          <CheckCell />
-                          <CheckCell />
-                          <CheckCell />
-                          <CheckCell />
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell
-                              text={row.walnut[0]}
-                              showSmokedLabel={row.hasSmokedMark && !!row.walnut[0].trim()}
-                            />
-                          </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell
-                              text={row.walnut[1]}
-                              showSmokedLabel={row.hasSmokedMark && !!row.walnut[1].trim()}
-                            />
-                          </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell
-                              text={row.walnut[2]}
-                              showSmokedLabel={row.hasSmokedMark && !!row.walnut[2].trim()}
-                            />
-                          </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell
-                              text={row.oak[0]}
-                              showSmokedLabel={row.hasSmokedMark && !!row.oak[0].trim()}
-                            />
-                          </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell
-                              text={row.oak[1]}
-                              showSmokedLabel={row.hasSmokedMark && !!row.oak[1].trim()}
-                            />
-                          </td>
-                          <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
-                            <ChairSpecCell
-                              text={row.oak[2]}
-                              showSmokedLabel={row.hasSmokedMark && !!row.oak[2].trim()}
-                            />
-                          </td>
-                        </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+              <div className="chair-print-preview chair-print-pages overflow-x-auto print:overflow-visible">
+                {(rowPages.length === 0 ? [[] as ChairRow[]] : rowPages).map((pageRows, pageIdx) => (
+                  <ChairPrintSheet
+                    key={pageIdx}
+                    rows={pageRows}
+                    sheetDate={sheetDate}
+                    pageNumber={pageIdx + 1}
+                    totalPages={totalPages}
+                    showPageFooter={flatRows.length > 0}
+                  />
+                ))}
               </div>
 
               <p className="chair-print-data-note relative z-10 mt-3 rounded-sm bg-zinc-100 px-0.5 pb-1 text-[15px] text-zinc-500 print:hidden">

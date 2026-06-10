@@ -21,6 +21,8 @@ export function OrderOverviewDialog({
   showEditButton = true,
   /** 通路訂單等：米色摘要區、較寬浮層 */
   visualTone = "default",
+  /** 完整訂單：明細、設計圖、金額與配送資訊 */
+  detailLevel = "summary",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -28,6 +30,7 @@ export function OrderOverviewDialog({
   onEditOrder?: (orderId: string) => void;
   showEditButton?: boolean;
   visualTone?: "default" | "warm";
+  detailLevel?: "summary" | "full";
 }) {
   const [data, setData] = useState<OverviewOrder | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,7 +64,11 @@ export function OrderOverviewDialog({
         <Dialog.Content
           className={cn(
             "fixed left-1/2 top-1/2 z-[60] max-h-[90vh] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-0 shadow-lg focus:outline-none",
-            visualTone === "warm" ? "max-w-5xl" : "max-w-4xl"
+            detailLevel === "full"
+              ? "max-w-6xl"
+              : visualTone === "warm"
+                ? "max-w-5xl"
+                : "max-w-4xl"
           )}
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
@@ -71,7 +78,9 @@ export function OrderOverviewDialog({
                 訂單總覽
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-muted-foreground">
-                品項負責人與生產工序進度
+                {detailLevel === "full"
+                  ? "訂單明細、設計圖面與生產工序進度"
+                  : "品項負責人與生產工序進度"}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -88,6 +97,7 @@ export function OrderOverviewDialog({
                 order={data}
                 variant="dialog"
                 visualTone={visualTone}
+                detailLevel={detailLevel}
                 showEditButton={showEditButton}
                 onEditOrder={
                   showEditButton && orderId && onEditOrder

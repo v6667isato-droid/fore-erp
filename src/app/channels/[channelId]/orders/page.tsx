@@ -671,6 +671,7 @@ export default function ChannelOrdersPage() {
         }}
         orderId={overviewOrderId}
         visualTone="warm"
+        detailLevel="full"
         onEditOrder={(id) => {
           setOverviewOrderId(null);
           if (typeof window !== "undefined") {

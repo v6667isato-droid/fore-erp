@@ -509,7 +509,8 @@ export function WorkOrdersPage() {
         (w.assignee_name ?? "").toLowerCase().includes(q) ||
         w.customer_name.toLowerCase().includes(q) ||
         w.order_number.toLowerCase().includes(q) ||
-        (w.shipping_contact_name ?? "").toLowerCase().includes(q);
+        (w.shipping_contact_name ?? "").toLowerCase().includes(q) ||
+        (w.item_name ?? "").toLowerCase().includes(q);
       return (
         matchStage &&
         matchOrderStatus &&
@@ -713,8 +714,8 @@ export function WorkOrdersPage() {
           type="text"
           value={assigneeFilter}
           onChange={(e) => setAssigneeFilter(e.target.value)}
-          placeholder="搜尋…"
-          title="搜尋客戶 / 聯絡人 / 訂單 / 負責人"
+          placeholder="搜尋品項、客戶、訂單…"
+          title="搜尋品項 / 客戶 / 聯絡人 / 訂單 / 負責人"
           className="h-8 w-[7rem] min-w-[7rem] shrink-0 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-40 md:w-48"
         />
         <a

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,8 @@ import {
   isChairCh03FamilyProductCode,
   resolveSeatHeightCmForDisplay,
 } from "@/lib/chair-product-code";
+import { parseExplanationImages, type ExplanationImage } from "@/lib/explanation-images";
+import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
 
 /** 與訂單／生產列表一致之訂單狀態排序 */
 const ORDER_STATUS_SEQUENCE = [
@@ -149,6 +151,14 @@ export type OverviewOrder = {
   customer_name: string;
   customer_alias: string | null;
   shipping_contact_name: string | null;
+  shipping_contact_phone: string | null;
+  shipping_address: string | null;
+  shipping_has_elevator: boolean | null;
+  internal_notes: string | null;
+  total_amount: number;
+  deposit_amount: number;
+  shipping_fee: number;
+  explanation_images: ExplanationImage[];
   /** 訂單內所有工單 planned_end_date 之最晚日；皆無則遞補為訂單預計交貨日（見 parse） */
   planned_end_order_max: string | null;
   lines: OverviewLine[];
@@ -160,6 +170,15 @@ export type OverviewLine = {
   item_label: string;
   /** 規格圖優先，否則系列主視覺 */
   thumbnail_url: string | null;
+  /** 明細設計圖：order_items.image_url 優先，否則規格／系列圖 */
+  image_url: string | null;
+  item_name: string;
+  wood_type: string | null;
+  dimension_text: string | null;
+  spec_text: string | null;
+  unit_price: number;
+  custom_notes: string | null;
+  description: string | null;
   stage: WorkOrderStage;
   assignee: string | null;
   planned_end_date: string | null;
@@ -175,26 +194,42 @@ const ORDER_OVERVIEW_SELECT = `
         expected_delivery_date,
         status,
         payment_status,
+        total_amount,
+        deposit_amount,
+        shipping_fee,
+        shipping_address,
         shipping_contact_name,
+        shipping_contact_phone,
+        shipping_has_elevator,
+        internal_notes,
+        explanation_image_url,
         customers(name, alias),
         order_items(
           id,
+          variant_id,
           quantity,
+          unit_price,
           custom_name,
           custom_category,
           custom_description,
+          custom_notes,
           custom_dimension_w,
           custom_dimension_d,
           custom_dimension_h,
           seat_height_cm,
+          image_url,
+          wood_type,
           product_variants(
             product_code,
+            spec1,
+            wood_type,
+            series_id,
             dimension_w,
             dimension_d,
             dimension_h,
             seat_height_cm,
             image_url,
-            product_series(image_url)
+            product_series(series_name, image_url)
           ),
           work_orders(
             id,
@@ -206,6 +241,118 @@ const ORDER_OVERVIEW_SELECT = `
           )
         )
       `;
+
+function itemWoodType(r: { wood_type?: unknown }): string | null {
+  const w = r.wood_type;
+  if (w == null || String(w).trim() === "") return null;
+  return String(w).trim();
+}
+
+function buildLineDetail(oi: any): {
+  item_name: string;
+  image_url: string | null;
+  wood_type: string | null;
+  dimension_text: string | null;
+  spec_text: string | null;
+  unit_price: number;
+  custom_notes: string | null;
+  description: string | null;
+} {
+  const variant = asArray(oi.product_variants)[0] as
+    | {
+        product_code?: string | null;
+        spec1?: string | null;
+        wood_type?: string | null;
+        dimension_w?: number | null;
+        dimension_d?: number | null;
+        dimension_h?: number | null;
+        seat_height_cm?: number | null;
+        image_url?: string | null;
+        product_series?:
+          | { series_name?: string | null; image_url?: string | null }
+          | { series_name?: string | null; image_url?: string | null }[]
+          | null;
+      }
+    | undefined;
+
+  const seriesRaw = variant?.product_series;
+  const series = Array.isArray(seriesRaw) ? seriesRaw[0] : seriesRaw;
+
+  const variantImg =
+    variant?.image_url != null && String(variant.image_url).trim()
+      ? String(variant.image_url).trim()
+      : null;
+  const seriesImg =
+    series?.image_url != null && String(series.image_url).trim()
+      ? String(series.image_url).trim()
+      : null;
+  const itemImg =
+    oi.image_url != null && String(oi.image_url).trim() ? String(oi.image_url).trim() : null;
+  const image_url = itemImg ?? variantImg ?? seriesImg ?? null;
+
+  const lineSeat = oi.seat_height_cm != null ? Number(oi.seat_height_cm) : NaN;
+  const hasDims =
+    oi.custom_dimension_w != null ||
+    oi.custom_dimension_d != null ||
+    oi.custom_dimension_h != null;
+  let dimText: string | null = hasDims
+    ? `${oi.custom_dimension_w ?? "—"} × ${oi.custom_dimension_d ?? "—"} × ${oi.custom_dimension_h ?? "—"}`
+    : null;
+
+  const isCustom = !oi.variant_id;
+  let item_name = "—";
+  let description: string | null = null;
+  let spec_text: string | null = null;
+
+  if (isCustom) {
+    if (oi.custom_name) item_name = String(oi.custom_name);
+    else if (oi.custom_category) item_name = String(oi.custom_category);
+    else item_name = "客製品項";
+    if (oi.custom_description) description = String(oi.custom_description);
+  } else {
+    item_name =
+      (series?.series_name != null && String(series.series_name).trim()
+        ? String(series.series_name).trim()
+        : null) ||
+      (variant?.product_code != null ? String(variant.product_code) : null) ||
+      "產品項目";
+    if (!dimText && variant) {
+      const hasVariantDims =
+        variant.dimension_w != null ||
+        variant.dimension_d != null ||
+        variant.dimension_h != null;
+      dimText = hasVariantDims
+        ? `${variant.dimension_w ?? "—"} × ${variant.dimension_d ?? "—"} × ${variant.dimension_h ?? "—"}`
+        : null;
+    }
+    const rawSpec = variant?.spec1 != null ? String(variant.spec1) : "";
+    spec_text = stripSpecSuffixCodes(rawSpec) || null;
+  }
+
+  if (dimText && Number.isFinite(lineSeat)) {
+    dimText = `${dimText} · 座高 ${lineSeat} cm`;
+  } else if (!dimText && Number.isFinite(lineSeat)) {
+    dimText = `座高 ${lineSeat} cm`;
+  } else if (
+    dimText &&
+    !Number.isFinite(lineSeat) &&
+    variant?.seat_height_cm != null &&
+    Number.isFinite(Number(variant.seat_height_cm))
+  ) {
+    dimText = `${dimText} · 座高 ${Number(variant.seat_height_cm)} cm`;
+  }
+
+  return {
+    item_name,
+    image_url,
+    wood_type: itemWoodType(oi) ?? (variant?.wood_type != null ? String(variant.wood_type).trim() : null),
+    dimension_text: dimText,
+    spec_text,
+    unit_price: Number(oi.unit_price ?? 0),
+    custom_notes: oi.custom_notes != null ? String(oi.custom_notes) : null,
+    description,
+  };
+}
 
 function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
   return (data as any[]).map((row) => {
@@ -260,11 +407,21 @@ function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
         thumbnail_url = vi ?? si ?? null;
       }
 
+      const detail = buildLineDetail(oi);
+
       return {
         order_item_id: String(oi.id ?? ""),
         quantity: Number(oi.quantity ?? 0),
         item_label: buildItemLabel(oi),
         thumbnail_url,
+        image_url: detail.image_url,
+        item_name: detail.item_name,
+        wood_type: detail.wood_type,
+        dimension_text: detail.dimension_text,
+        spec_text: detail.spec_text,
+        unit_price: detail.unit_price,
+        custom_notes: detail.custom_notes,
+        description: detail.description,
         stage,
         assignee: assigneeName,
         planned_end_date: linePlannedEnd,
@@ -299,6 +456,28 @@ function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
         row.shipping_contact_name != null && String(row.shipping_contact_name).trim()
           ? String(row.shipping_contact_name)
           : null,
+      shipping_contact_phone:
+        row.shipping_contact_phone != null && String(row.shipping_contact_phone).trim()
+          ? String(row.shipping_contact_phone)
+          : null,
+      shipping_address:
+        row.shipping_address != null && String(row.shipping_address).trim()
+          ? String(row.shipping_address)
+          : null,
+      shipping_has_elevator:
+        row.shipping_has_elevator === true
+          ? true
+          : row.shipping_has_elevator === false
+            ? false
+            : null,
+      internal_notes:
+        row.internal_notes != null && String(row.internal_notes).trim()
+          ? String(row.internal_notes)
+          : null,
+      total_amount: Number(row.total_amount ?? 0),
+      deposit_amount: Number(row.deposit_amount ?? 0),
+      shipping_fee: Number(row.shipping_fee ?? 0),
+      explanation_images: parseExplanationImages(row.explanation_image_url),
       planned_end_order_max,
       lines,
     };
@@ -329,6 +508,206 @@ function openOrderInManagement(orderId: string) {
   window.location.href = `/?page=orders&openOrder=${encoded}`;
 }
 
+function formatCurrency(n: number): string {
+  return `$${Math.round(n).toLocaleString()}`;
+}
+
+function OrderFullDetailSections({
+  order,
+  warm,
+}: {
+  order: OverviewOrder;
+  warm: boolean;
+}) {
+  const itemsSubtotal = order.lines.reduce(
+    (sum, l) => sum + l.quantity * l.unit_price,
+    0
+  );
+  const balance = Math.max(0, order.total_amount - order.deposit_amount);
+  const hasShipping =
+    order.shipping_address?.trim() ||
+    order.shipping_contact_phone?.trim() ||
+    order.shipping_has_elevator != null;
+  const borderCls = warm ? "border-[#E6DFD3]" : "border-border";
+  const mutedBg = warm ? "bg-[#FAF8F4]" : "bg-muted/30";
+
+  return (
+    <div className={cn("flex flex-col gap-4 border-t px-4 py-4 sm:px-5", borderCls)}>
+      {(hasShipping || order.internal_notes?.trim()) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {hasShipping ? (
+            <div className={cn("rounded-lg border p-3 text-xs", borderCls, mutedBg)}>
+              <p className="mb-2 font-semibold text-foreground">配送資訊</p>
+              <dl className="space-y-1.5 text-muted-foreground">
+                {order.shipping_contact_name?.trim() ? (
+                  <div className="flex gap-2">
+                    <dt className="shrink-0">收貨人</dt>
+                    <dd className="text-foreground">{order.shipping_contact_name.trim()}</dd>
+                  </div>
+                ) : null}
+                {order.shipping_contact_phone?.trim() ? (
+                  <div className="flex gap-2">
+                    <dt className="shrink-0">電話</dt>
+                    <dd className="text-foreground tabular-nums">{order.shipping_contact_phone.trim()}</dd>
+                  </div>
+                ) : null}
+                {order.shipping_address?.trim() ? (
+                  <div className="flex gap-2">
+                    <dt className="shrink-0">地址</dt>
+                    <dd className="text-foreground whitespace-pre-line break-words">{order.shipping_address.trim()}</dd>
+                  </div>
+                ) : null}
+                {order.shipping_has_elevator != null ? (
+                  <div className="flex gap-2">
+                    <dt className="shrink-0">電梯</dt>
+                    <dd className="text-foreground">{order.shipping_has_elevator ? "有" : "無"}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </div>
+          ) : null}
+          {order.internal_notes?.trim() ? (
+            <div className={cn("rounded-lg border p-3 text-xs", borderCls, mutedBg)}>
+              <p className="mb-2 font-semibold text-foreground">訂單備註</p>
+              <p className="text-muted-foreground whitespace-pre-line break-words">{order.internal_notes.trim()}</p>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      <div>
+        <p className="mb-2 text-xs font-semibold text-foreground">訂單明細</p>
+        <div className={cn("overflow-x-auto rounded-lg border", borderCls)}>
+          <table className="w-full min-w-[640px] text-xs">
+            <thead>
+              <tr className={cn("border-b text-left", borderCls, mutedBg)}>
+                <th className="w-16 px-2 py-2 font-semibold">設計圖</th>
+                <th className="min-w-[7rem] px-2 py-2 font-semibold">品項</th>
+                <th className="w-14 px-2 py-2 font-semibold">木種</th>
+                <th className="min-w-[8rem] px-2 py-2 font-semibold">尺寸(cm)</th>
+                <th className="min-w-[5rem] px-2 py-2 font-semibold">規格</th>
+                <th className="w-10 px-2 py-2 text-right font-semibold">數量</th>
+                <th className="w-16 px-2 py-2 text-right font-semibold">單價</th>
+                <th className="w-16 px-2 py-2 text-right font-semibold">小計</th>
+              </tr>
+            </thead>
+            <tbody>
+              {order.lines.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
+                    此訂單尚無品項。
+                  </td>
+                </tr>
+              ) : (
+                order.lines.map((line) => {
+                  const notes = [line.description, line.custom_notes]
+                    .map((t) => t?.trim())
+                    .filter(Boolean)
+                    .join("\n");
+                  const lineTotal = line.quantity * line.unit_price;
+                  return (
+                    <Fragment key={line.order_item_id}>
+                      <tr className={cn("border-b align-top", warm ? "border-[#EEE8DE]" : "border-border")}>
+                        <td className="p-2">
+                          {line.image_url ? (
+                            <div className="h-14 w-14 overflow-hidden rounded border border-border bg-muted/40">
+                              <img
+                                src={line.image_url}
+                                alt={line.item_name}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <VariantSeriesThumb
+                              imageUrl={line.thumbnail_url}
+                              sizeClassName="h-14 w-14"
+                              compactPlaceholder
+                              className={warm ? "border-[#E0D8CC] bg-white/80" : undefined}
+                            />
+                          )}
+                        </td>
+                        <td className="p-2 font-medium text-foreground break-words">{line.item_name}</td>
+                        <td className="p-2 text-muted-foreground break-words">{line.wood_type ?? "—"}</td>
+                        <td className="p-2 text-muted-foreground whitespace-nowrap">{line.dimension_text ?? "—"}</td>
+                        <td className="p-2 font-mono text-muted-foreground break-words">{line.spec_text ?? "—"}</td>
+                        <td className="p-2 text-right tabular-nums text-muted-foreground">{line.quantity}</td>
+                        <td className="p-2 text-right tabular-nums text-muted-foreground">
+                          {line.unit_price.toLocaleString()}
+                        </td>
+                        <td className="p-2 text-right tabular-nums font-medium text-foreground">
+                          {lineTotal.toLocaleString()}
+                        </td>
+                      </tr>
+                      {notes ? (
+                        <tr className={cn("border-b", warm ? "border-[#EEE8DE]" : "border-border")}>
+                          <td className="px-2 py-1.5 text-muted-foreground align-top">備註</td>
+                          <td colSpan={7} className="px-2 py-1.5 text-muted-foreground whitespace-pre-line break-words">
+                            {notes}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <div className={cn("w-full max-w-xs rounded-lg border p-3 text-xs", borderCls, mutedBg)}>
+          <p className="mb-2 font-semibold text-foreground">金額摘要</p>
+          <dl className="space-y-1.5">
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">商品小計</dt>
+              <dd className="tabular-nums text-foreground">{itemsSubtotal.toLocaleString()}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">運費</dt>
+              <dd className="tabular-nums text-foreground">{order.shipping_fee.toLocaleString()}</dd>
+            </div>
+            <div className="flex justify-between gap-3 border-t border-border/60 pt-1.5 font-semibold">
+              <dt className="text-foreground">訂單總額</dt>
+              <dd className="tabular-nums text-foreground">{formatCurrency(order.total_amount)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">已收訂金</dt>
+              <dd className="tabular-nums text-foreground">{order.deposit_amount.toLocaleString()}</dd>
+            </div>
+            <div className="flex justify-between gap-3 font-medium">
+              <dt className="text-foreground">尾款</dt>
+              <dd className="tabular-nums text-foreground">{balance.toLocaleString()}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      {order.explanation_images.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs font-semibold text-foreground">設計圖面／訂單說明</p>
+          <div className="space-y-4">
+            {order.explanation_images.map((img, idx) => (
+              <div key={idx} className="space-y-1.5">
+                <p className="text-xs font-medium text-foreground">
+                  {img.title?.trim() ? img.title : `說明圖 ${idx + 1}`}
+                </p>
+                <div className={cn("overflow-hidden rounded-lg border bg-muted/20", borderCls)}>
+                  <img
+                    src={img.url}
+                    alt={img.title?.trim() ? img.title : `說明圖 ${idx + 1}`}
+                    className="w-full max-h-[480px] object-contain"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function OrderOverviewCard({
   order,
   variant = "page",
@@ -336,6 +715,8 @@ export function OrderOverviewCard({
   showEditButton = true,
   /** 通路／精簡檢視：米色摘要區，贴近訂單總覽示意 */
   visualTone = "default",
+  /** 完整訂單：明細、設計圖、金額與配送資訊 */
+  detailLevel = "summary",
 }: {
   order: OverviewOrder;
   variant?: "page" | "dialog";
@@ -343,8 +724,10 @@ export function OrderOverviewCard({
   /** dialog 時是否顯示「編輯訂單」（通路客戶端可關閉） */
   showEditButton?: boolean;
   visualTone?: "default" | "warm";
+  detailLevel?: "summary" | "full";
 }) {
   const warm = visualTone === "warm";
+  const full = detailLevel === "full";
   return (
     <div
       className={cn(
@@ -445,6 +828,14 @@ export function OrderOverviewCard({
         </div>
       </div>
 
+      {full ? <OrderFullDetailSections order={order} warm={warm} /> : null}
+
+      {full ? (
+        <div className={cn("border-t px-4 pt-3 sm:px-5", warm ? "border-[#E6DFD3]" : "border-border")}>
+          <p className="mb-2 text-xs font-semibold text-foreground">生產進度</p>
+        </div>
+      ) : null}
+
       <Table
         className="table-fixed w-full min-w-0 text-xs"
         wrapperClassName="overflow-x-visible"
@@ -499,12 +890,22 @@ export function OrderOverviewCard({
                 >
                   <TableCell className="p-2 align-top text-xs whitespace-normal break-words">
                     <div className="flex gap-2 items-start min-w-0">
+                      {full && line.image_url ? (
+                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border bg-muted/40">
+                          <img
+                            src={line.image_url}
+                            alt={line.item_name}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                      ) : (
                       <VariantSeriesThumb
                         imageUrl={line.thumbnail_url}
                         sizeClassName="h-10 w-10"
                         compactPlaceholder
                         className={warm ? "border-[#E0D8CC] bg-white/80" : undefined}
                       />
+                      )}
                       <span className="line-clamp-4 text-foreground min-w-0">{line.item_label}</span>
                     </div>
                   </TableCell>
