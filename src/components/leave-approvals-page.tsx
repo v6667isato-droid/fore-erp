@@ -25,6 +25,7 @@ import {
 import { cn, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import {
+  Award,
   Banknote,
   CalendarDays,
   ClipboardList,
@@ -42,6 +43,7 @@ import {
   type AttendanceManagementTabKey,
 } from "@/components/attendance-management-tabs";
 import { EmployeesPage } from "@/components/employees-page";
+import { PerformanceBonusPage } from "@/components/performance-bonus-page";
 import {
   formatLeaveUpdatedAtDisplay,
   leaveRequestRowWasUpdated,
@@ -178,6 +180,7 @@ type MainSection =
   | "leave"
   | "payroll"
   | "paid_history"
+  | "bonus"
   | "employees";
 
 type HeaderIcon =
@@ -186,6 +189,7 @@ type HeaderIcon =
   | typeof ClipboardList
   | typeof Banknote
   | typeof Receipt
+  | typeof Award
   | typeof Users;
 
 export function LeaveApprovalsPage() {
@@ -463,6 +467,14 @@ export function LeaveApprovalsPage() {
           Icon: Receipt,
           showLeaveRefresh: false,
         };
+      case "bonus":
+        return {
+          title: "考績獎金分配",
+          description:
+            "每半年依考績、年資、薪資加權計算分潤獎金；利潤為該半年兩季毛利合計，分潤比例可自訂。",
+          Icon: Award,
+          showLeaveRefresh: false,
+        };
       case "employees":
         return {
           title: "員工資料",
@@ -559,6 +571,19 @@ export function LeaveApprovalsPage() {
         </button>
         <button
           type="button"
+          onClick={() => setMainSection("bonus")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "bonus"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <Award className="h-4 w-4 shrink-0 opacity-90" />
+          考績獎金
+        </button>
+        <button
+          type="button"
           onClick={() => setMainSection("employees")}
           className={cn(
             "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
@@ -582,6 +607,8 @@ export function LeaveApprovalsPage() {
       {mainSection === "payroll" && <SalarySettlementCenter />}
 
       {mainSection === "paid_history" && <PayslipPaidHistoryPanel />}
+
+      {mainSection === "bonus" && <PerformanceBonusPage />}
 
       {mainSection === "employees" && <EmployeesPage />}
 

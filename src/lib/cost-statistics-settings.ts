@@ -6,6 +6,14 @@ export const DEFAULT_ANNUAL_COMPANY_LOAN = 29695 * 12 + 7441 * 12 + 28037 * 6;
 
 export const DEFAULT_ANNUAL_RENT = 650_000;
 
+/** 稅金＝訂單營收 × 此比例（目前 5%） */
+export const REVENUE_TAX_RATE = 0.05;
+
+export function computeRevenueTax(revenue: number): number {
+  const base = Number.isFinite(revenue) && revenue > 0 ? revenue : 0;
+  return Math.round(base * REVENUE_TAX_RATE);
+}
+
 export type CostStatisticsFixedOverhead = {
   annualRent: number;
   annualCompanyLoanInterest: number;
@@ -22,6 +30,7 @@ export type CostStatisticsMonthlySnapshotRow = {
   salaryCost: number;
   rentCost: number;
   loanCost: number;
+  taxCost: number;
   totalCost: number;
   revenue: number;
   grossProfit: number;
@@ -38,6 +47,7 @@ export type CostStatisticsYearSnapshot = {
   totalSalaryCost: number;
   totalRentCost: number;
   totalCompanyLoanCost: number;
+  totalTaxCost: number;
   totalCost: number;
   totalRevenue: number;
   grossProfit: number;

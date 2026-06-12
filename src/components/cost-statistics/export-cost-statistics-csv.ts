@@ -37,6 +37,7 @@ export type ExportCurrentView = {
   totalSalaryCost: number;
   totalRentCost: number;
   totalCompanyLoanCost: number;
+  totalTaxCost: number;
   totalCost: number;
   totalRevenue: number;
   grossProfit: number;
@@ -48,6 +49,7 @@ export type ExportCurrentView = {
     salaryCost: number;
     rentCost: number;
     loanCost: number;
+    taxCost: number;
     totalCost: number;
     revenue: number;
     grossProfit: number;
@@ -81,9 +83,10 @@ export function exportCostStatisticsCsv(args: {
     csvRow(["項目", "金額"]),
     csvRow(["非木料成本", Math.round(current.totalPurchaseNonWood)]),
     csvRow(["木料成本", Math.round(current.totalPurchaseWood)]),
-    csvRow(["薪資成本(含雇主負擔)", Math.round(current.totalSalaryCost)]),
+    csvRow(["薪資成本", Math.round(current.totalSalaryCost)]),
     csvRow(["租金", Math.round(current.totalRentCost)]),
     csvRow(["公司貸款利息", Math.round(current.totalCompanyLoanCost)]),
+    csvRow(["稅金(營收5%)", Math.round(current.totalTaxCost)]),
     csvRow(["總成本", Math.round(current.totalCost)]),
     csvRow(["訂單營收", Math.round(current.totalRevenue)]),
     csvRow(["毛利", Math.round(current.grossProfit)]),
@@ -101,6 +104,7 @@ export function exportCostStatisticsCsv(args: {
       "薪資成本",
       "租金",
       "公司貸款利息",
+      "稅金(營收5%)",
       "總成本",
       "訂單營收",
       "毛利",
@@ -114,6 +118,7 @@ export function exportCostStatisticsCsv(args: {
         Math.round(row.salaryCost),
         Math.round(row.rentCost),
         Math.round(row.loanCost),
+        Math.round(row.taxCost),
         Math.round(row.totalCost),
         Math.round(row.revenue),
         Math.round(row.grossProfit),
@@ -132,6 +137,10 @@ export function exportCostStatisticsCsv(args: {
       csvRow(["薪資成本", Math.round(snapshot.totalSalaryCost)]),
       csvRow(["租金", Math.round(snapshot.totalRentCost)]),
       csvRow(["公司貸款利息", Math.round(snapshot.totalCompanyLoanCost)]),
+      csvRow([
+        "稅金(營收5%)",
+        Math.round(snapshot.totalTaxCost ?? snapshot.totalRevenue * 0.05),
+      ]),
       csvRow(["總成本", Math.round(snapshot.totalCost)]),
       csvRow(["訂單營收", Math.round(snapshot.totalRevenue)]),
       csvRow(["毛利", Math.round(snapshot.grossProfit)]),

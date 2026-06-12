@@ -24,6 +24,7 @@ import {
   hoursToDayHourParts,
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
+import { seniorityFromHire } from "@/lib/employee-seniority";
 
 type Role = "admin" | "staff" | null;
 
@@ -64,10 +65,53 @@ interface EmployeeRow {
   remittance_account: string | null;
   /** 薪資入帳通知信；空白則用 email */
   payroll_notification_email: string | null;
+  /** 持股數（share_count） */
+  share_count: number | null;
+  /** 留職停薪月份（unpaid_leave_months，YYYY-MM） */
+  unpaid_leave_months: string[] | null;
+}
+
+const YM_RE = /^(\d{4})-(\d{2})$/;
+
+function parseYearMonth(ym: string): { y: number; m: number } | null {
+  const match = YM_RE.exec(ym.trim());
+  if (!match) return null;
+  const y = Number(match[1]);
+  const mo = Number(match[2]);
+  if (mo < 1 || mo > 12) return null;
+  return { y, m: mo };
+}
+
+function formatYearMonthLabel(ym: string): string {
+  const parsed = parseYearMonth(ym);
+  if (!parsed) return ym;
+  return `${parsed.y}年${parsed.m}月`;
+}
+
+function sortYearMonths(months: string[]): string[] {
+  return [...months].sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeUnpaidLeaveMonths(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: string[] = [];
+  for (const item of raw) {
+    const ym = String(item).trim();
+    if (parseYearMonth(ym)) out.push(ym);
+  }
+  return sortYearMonths([...new Set(out)]);
 }
 
 // 對應資料庫 employees 表實際欄位
 const EMP_SELECT_ADMIN =
+  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, personal_leave_days, sick_leave_days, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate, remittance_bank, remittance_account, payroll_notification_email, share_count, unpaid_leave_months";
+
+/** 尚未套用 unpaid_leave_months migration 時退回 */
+const EMP_SELECT_ADMIN_NO_UNPAID_LEAVE =
+  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, personal_leave_days, sick_leave_days, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate, remittance_bank, remittance_account, payroll_notification_email, share_count";
+
+/** 尚未套用 share_count migration 時退回 */
+const EMP_SELECT_ADMIN_NO_SHARE =
   "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, personal_leave_days, sick_leave_days, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate, remittance_bank, remittance_account, payroll_notification_email";
 
 /** 尚未套用 remittance／payroll_notification_email migration 時退回 */
@@ -166,6 +210,13 @@ function mapEmployee(r: Record<string, unknown>): EmployeeRow {
       (r as Record<string, unknown>).payroll_notification_email != null
         ? String((r as Record<string, unknown>).payroll_notification_email)
         : null,
+    share_count:
+      (r as Record<string, unknown>).share_count != null
+        ? Number((r as Record<string, unknown>).share_count as number)
+        : null,
+    unpaid_leave_months: normalizeUnpaidLeaveMonths(
+      (r as Record<string, unknown>).unpaid_leave_months,
+    ),
   };
 }
 
@@ -269,6 +320,7 @@ function EmployeeForm({
   const [annualLeaveHoursInput, setAnnualLeaveHoursInput] = useState("");
   const [compLeaveDaysInput, setCompLeaveDaysInput] = useState("");
   const [compLeaveHoursInput, setCompLeaveHoursInput] = useState("");
+  const [unpaidLeaveMonthPicker, setUnpaidLeaveMonthPicker] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement | null>(null);
@@ -277,6 +329,7 @@ function EmployeeForm({
     setValues(initial);
     setError(null);
     setTab("basic");
+    setUnpaidLeaveMonthPicker("");
     const r = initial.annual_leave_remaining;
     if (r == null || !Number.isFinite(Number(r))) {
       setAnnualLeaveDaysInput("");
@@ -333,6 +386,12 @@ function EmployeeForm({
       }
       if (clH !== "" && !Number.isFinite(Number(clH))) {
         setError("補休剩餘「小時」請輸入有效數字（可含小數）");
+        return;
+      }
+      const unpaidMonths = values.unpaid_leave_months ?? [];
+      const invalidMonth = unpaidMonths.find((ym) => !parseYearMonth(ym));
+      if (invalidMonth) {
+        setError(`留職停薪月份格式不正確：${invalidMonth}`);
         return;
       }
     }
@@ -402,6 +461,11 @@ function EmployeeForm({
         payload.remittance_account = values.remittance_account?.trim() || null;
         payload.payroll_notification_email =
           values.payroll_notification_email?.trim() || null;
+        payload.share_count =
+          values.share_count != null ? Math.max(0, Number(values.share_count)) : 0;
+        payload.unpaid_leave_months = sortYearMonths(
+          values.unpaid_leave_months ?? [],
+        );
       }
       await onSubmit(payload);
     } finally {
@@ -594,6 +658,92 @@ function EmployeeForm({
                 </p>
               </div>
             </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">
+                年資（依到職日計算，並扣除留職停薪月份）
+              </span>
+              <output className="flex h-9 items-center rounded-lg border border-dashed border-border bg-muted/30 px-3 text-sm tabular-nums text-foreground">
+                {seniorityFromHire(
+                  values.start_date ?? null,
+                  new Date(),
+                  values.unpaid_leave_months,
+                ).label}
+              </output>
+            </div>
+            {isAdmin && (
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="emp-unpaid-leave-month"
+                  className="text-xs text-muted-foreground"
+                >
+                  留職停薪月份
+                </label>
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  記錄曾留職停薪之月份，可加入多筆（格式 YYYY-MM）。
+                </p>
+                {(values.unpaid_leave_months?.length ?? 0) > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {values.unpaid_leave_months!.map((ym) => (
+                      <span
+                        key={ym}
+                        className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs tabular-nums"
+                      >
+                        {formatYearMonthLabel(ym)}
+                        <button
+                          type="button"
+                          className="inline-flex h-4 w-4 items-center justify-center rounded hover:bg-accent/60"
+                          aria-label={`移除 ${formatYearMonthLabel(ym)}`}
+                          onClick={() =>
+                            setField(
+                              "unpaid_leave_months",
+                              (values.unpaid_leave_months ?? []).filter(
+                                (item) => item !== ym,
+                              ),
+                            )
+                          }
+                        >
+                          <X className="h-3 w-3 text-muted-foreground" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    id="emp-unpaid-leave-month"
+                    type="month"
+                    value={unpaidLeaveMonthPicker}
+                    onChange={(e) => setUnpaidLeaveMonthPicker(e.target.value)}
+                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!unpaidLeaveMonthPicker}
+                    onClick={() => {
+                      const ym = unpaidLeaveMonthPicker.trim();
+                      if (!parseYearMonth(ym)) {
+                        setError("請選擇有效月份");
+                        return;
+                      }
+                      const current = values.unpaid_leave_months ?? [];
+                      if (current.includes(ym)) {
+                        setError("此月份已加入");
+                        return;
+                      }
+                      setError(null);
+                      setField(
+                        "unpaid_leave_months",
+                        sortYearMonths([...current, ym]),
+                      );
+                      setUnpaidLeaveMonthPicker("");
+                    }}
+                  >
+                    加入月份
+                  </Button>
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -614,6 +764,34 @@ function EmployeeForm({
                   setField("monthly_wage", Number(e.target.value) || 0)
                 }
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="emp-share-count"
+                className="text-xs text-muted-foreground"
+              >
+                股份 (share_count)
+              </label>
+              <input
+                id="emp-share-count"
+                type="number"
+                min={0}
+                step={1}
+                value={values.share_count ?? ""}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    setField("share_count", null);
+                    return;
+                  }
+                  const n = Number(raw);
+                  setField(
+                    "share_count",
+                    Number.isFinite(n) ? Math.max(0, n) : null,
+                  );
+                }}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -1215,6 +1393,30 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                         {row.start_date ? formatDate(row.start_date) : "—"}
                       </span>
                     </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">年資</span>
+                      <span className="text-foreground tabular-nums">
+                        {seniorityFromHire(
+                          row.start_date,
+                          new Date(),
+                          row.unpaid_leave_months,
+                        ).label}
+                      </span>
+                    </div>
+                    {isAdmin && (
+                      <div className="col-span-2 flex justify-between gap-4">
+                        <span className="shrink-0 text-muted-foreground">
+                          留職停薪月份
+                        </span>
+                        <span className="text-right text-foreground">
+                          {row.unpaid_leave_months?.length
+                            ? row.unpaid_leave_months
+                                .map(formatYearMonthLabel)
+                                .join("、")
+                            : "—"}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </section>
 
@@ -1257,6 +1459,14 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                         <span className="text-foreground tabular-nums">
                           {row.monthly_wage != null
                             ? row.monthly_wage.toLocaleString()
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">股份</span>
+                        <span className="text-foreground tabular-nums">
+                          {row.share_count != null
+                            ? row.share_count.toLocaleString("zh-TW")
                             : "—"}
                         </span>
                       </div>
@@ -1412,13 +1622,41 @@ export function EmployeesPage() {
       currentRole === "admin" &&
       isEmployeesMissingColumnError(error.message)
     ) {
-      select = EMP_SELECT_ADMIN_NO_REMITTANCE;
+      select = EMP_SELECT_ADMIN_NO_UNPAID_LEAVE;
       const second = await supabase
         .from("employees")
         .select(select)
         .order("hire_date", { ascending: false });
       data = second.data;
       error = second.error;
+    }
+
+    if (
+      error &&
+      currentRole === "admin" &&
+      isEmployeesMissingColumnError(error.message)
+    ) {
+      select = EMP_SELECT_ADMIN_NO_SHARE;
+      const third = await supabase
+        .from("employees")
+        .select(select)
+        .order("hire_date", { ascending: false });
+      data = third.data;
+      error = third.error;
+    }
+
+    if (
+      error &&
+      currentRole === "admin" &&
+      isEmployeesMissingColumnError(error.message)
+    ) {
+      select = EMP_SELECT_ADMIN_NO_REMITTANCE;
+      const fourth = await supabase
+        .from("employees")
+        .select(select)
+        .order("hire_date", { ascending: false });
+      data = fourth.data;
+      error = fourth.error;
     }
 
     if (error) {
@@ -1567,6 +1805,9 @@ export function EmployeesPage() {
               <TableHead className="text-xs font-semibold p-2 align-middle">
                 到職日
               </TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle whitespace-nowrap">
+                年資
+              </TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">
                 在職狀態
               </TableHead>
@@ -1592,7 +1833,7 @@ export function EmployeesPage() {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 11 : 8}
+                  colSpan={isAdmin ? 12 : 9}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -1629,6 +1870,13 @@ export function EmployeesPage() {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap">
                     {row.start_date ? formatDate(row.start_date) : "—"}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap tabular-nums">
+                    {seniorityFromHire(
+                      row.start_date,
+                      new Date(),
+                      row.unpaid_leave_months,
+                    ).label}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
                     {row.employment_status ?? "—"}

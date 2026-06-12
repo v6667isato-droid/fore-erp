@@ -263,6 +263,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
   const [records, setRecords] = useState<PurchaseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterYear, setFilterYear] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterVendor, setFilterVendor] = useState("");
   const [filterItemName, setFilterItemName] = useState("");
@@ -329,8 +330,26 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     fetchPurchases();
   }, []);
 
+  function handleYearChange(year: string) {
+    setFilterYear(year);
+    if (filterMonth && year && filterMonth.slice(0, 4) !== year) {
+      setFilterMonth("");
+    }
+  }
+
+  function handleMonthChange(month: string) {
+    setFilterMonth(month);
+    if (month) {
+      setFilterYear(month.slice(0, 4));
+    }
+  }
+
   const filteredRecords = records.filter((r) => {
-    if (filterYear && r.purchase_date.slice(0, 4) !== filterYear) return false;
+    if (filterMonth) {
+      if (r.purchase_date.slice(0, 7) !== filterMonth) return false;
+    } else if (filterYear && r.purchase_date.slice(0, 4) !== filterYear) {
+      return false;
+    }
     if (filterCategory && r.item_category !== filterCategory) return false;
     if (filterVendor && r.vendor_id !== filterVendor && r.vendor_name !== filterVendor) return false;
     if (filterItemName && r.item_name !== filterItemName) return false;
@@ -362,11 +381,13 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
   const startRecent = oneYearAgo.toISOString().slice(0, 10);
 
   const recordsForSummary = records.filter((r) => {
-    const inDateRange = filterYear
-      ? r.purchase_date >= `${filterYear}-01-01` && r.purchase_date <= `${filterYear}-12-31`
-      : filterCategory
-        ? r.purchase_date >= `${thisYear}-01-01` && r.purchase_date <= today
-        : r.purchase_date >= startRecent && r.purchase_date <= today;
+    const inDateRange = filterMonth
+      ? r.purchase_date.slice(0, 7) === filterMonth
+      : filterYear
+        ? r.purchase_date >= `${filterYear}-01-01` && r.purchase_date <= `${filterYear}-12-31`
+        : filterCategory
+          ? r.purchase_date >= `${thisYear}-01-01` && r.purchase_date <= today
+          : r.purchase_date >= startRecent && r.purchase_date <= today;
     if (!inDateRange) return false;
     if (filterCategory && r.item_category !== filterCategory) return false;
     if (filterVendor && r.vendor_id !== filterVendor && r.vendor_name !== filterVendor) return false;
@@ -375,13 +396,16 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
   });
   const totalSpent = recordsForSummary.reduce((sum, r) => sum + r.tax_included_amount, 0);
 
-  const summaryLabel = filterCategory
-    ? filterYear
-      ? `${filterCategory} ${filterYear}年採購總計`
-      : `${filterCategory} 今年採購總計`
+  const summaryPeriod = filterMonth
+    ? filterMonth
     : filterYear
-      ? `${filterYear}年採購總計`
-      : "最近一年採購總計";
+      ? `${filterYear}年`
+      : filterCategory
+        ? "今年"
+        : "最近一年";
+  const summaryLabel = filterCategory
+    ? `${filterCategory} ${summaryPeriod}採購總計`
+    : `${summaryPeriod}採購總計`;
 
   function requestDelete(row: PurchaseRow) {
     setDeleteConfirmRow(row);
@@ -462,11 +486,13 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <ProcurementFilters
           filterYear={filterYear}
+          filterMonth={filterMonth}
           filterCategory={filterCategory}
           filterVendor={filterVendor}
           filterItemName={filterItemName}
           filterSearch={filterSearch}
-          onYearChange={setFilterYear}
+          onYearChange={handleYearChange}
+          onMonthChange={handleMonthChange}
           onCategoryChange={setFilterCategory}
           onVendorChange={setFilterVendor}
           onItemNameChange={setFilterItemName}

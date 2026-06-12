@@ -10,13 +10,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Banknote, CalendarRange, Eye } from "lucide-react";
+import { Banknote, CalendarRange, Eye, Sparkles } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   buildPayslipAttendanceRemarks,
   overtimeHoursToHalfDaySteps,
   sumApprovedOvertimeHoursForEmployee,
 } from "@/lib/payslip-attendance-remarks";
+import {
+  computeSemiAnnualBonusesForPayroll,
+  formatSemiAnnualBonusPayrollNote,
+  suggestBonusPeriodForPayMonth,
+  type SemiAnnualBonusDetail,
+} from "@/lib/performance-bonus-payroll";
 
 interface SettlementEmployee {
   id: string;
@@ -36,10 +42,15 @@ interface SettlementEmployee {
   health_insured_persons: number | null;
   overtime_rate: number | null;
   annual_leave_remaining: number | null;
+  hire_date: string | null;
+  share_count: number;
+  unpaid_leave_months: string[];
 }
 
 interface RowInputs {
   overtimeDays: number;
+  /** 考績／分潤／股份等半年獎金（發放時併入 other_adjust） */
+  semiAnnualBonus: number;
   otherAdjust: number;
   /** true：不計加班費（與轉補休一致）；false：以費率 × 天數計入加班費 */
   settleOvertimeAsCompOff: boolean;
@@ -50,6 +61,7 @@ interface RowInputs {
 function defaultRowInputs(): RowInputs {
   return {
     overtimeDays: 0,
+    semiAnnualBonus: 0,
     otherAdjust: 0,
     settleOvertimeAsCompOff: false,
     attendanceNotes: "",
@@ -282,10 +294,22 @@ function mapRowToSettlementEmployee(r: Record<string, unknown>): SettlementEmplo
       r.annual_leave_remaining != null && r.annual_leave_remaining !== ""
         ? num(r.annual_leave_remaining)
         : null,
+    hire_date:
+      r.hire_date != null && String(r.hire_date).trim() !== ""
+        ? String(r.hire_date).slice(0, 10)
+        : null,
+    share_count:
+      r.share_count != null && r.share_count !== ""
+        ? Math.max(0, Math.trunc(num(r.share_count)))
+        : 0,
+    unpaid_leave_months: Array.isArray(r.unpaid_leave_months)
+      ? (r.unpaid_leave_months as unknown[]).map(String)
+      : [],
   };
 }
 
 const EMP_SELECT_ATTEMPTS = [
+  "id, name, email, payroll_notification_email, remittance_bank, remittance_account, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, hire_date, share_count, unpaid_leave_months, employment_status, deleted_at",
   "id, name, email, payroll_notification_email, remittance_bank, remittance_account, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
   "id, name, email, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
   "id, name, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
@@ -323,6 +347,11 @@ export function SalarySettlementCenter() {
     name: string;
     empId: string | null;
   }>({ open: false, name: "", empId: null });
+  const [bonusImportLabel, setBonusImportLabel] = useState<string | null>(null);
+  const [bonusDetailByEmp, setBonusDetailByEmp] = useState<
+    Record<string, SemiAnnualBonusDetail>
+  >({});
+  const [importingBonus, setImportingBonus] = useState(false);
 
   const bounds = useMemo(() => monthBounds(payPeriod), [payPeriod]);
 
@@ -603,6 +632,7 @@ export function SalarySettlementCenter() {
               });
           initInputs[e.id] = {
             overtimeDays: od,
+            semiAnnualBonus: 0,
             otherAdjust: oa,
             settleOvertimeAsCompOff: settleAsComp,
             attendanceNotes,
@@ -625,12 +655,15 @@ export function SalarySettlementCenter() {
             });
         initInputs[e.id] = {
           overtimeDays: days,
+          semiAnnualBonus: 0,
           otherAdjust: 0,
           settleOvertimeAsCompOff: settleAsComp,
           attendanceNotes,
         };
       }
       setInputs(initInputs);
+      setBonusImportLabel(null);
+      setBonusDetailByEmp({});
       return true;
     } finally {
       setLoading(false);
@@ -640,6 +673,86 @@ export function SalarySettlementCenter() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const suggestedBonusPeriod = useMemo(
+    () => suggestBonusPeriodForPayMonth(payPeriod),
+    [payPeriod],
+  );
+
+  async function handleImportSemiAnnualBonus() {
+    if (employees.length === 0) {
+      toast.error("請先載入本月薪資單");
+      return;
+    }
+    const unpaid = employees.filter((e) => paidIds.has(e.id));
+    if (unpaid.length === employees.length) {
+      toast.error("本月薪資皆已發放，無法帶入獎金");
+      return;
+    }
+
+    setImportingBonus(true);
+    try {
+      const result = await computeSemiAnnualBonusesForPayroll(
+        payPeriod,
+        employees.map((e) => ({
+          id: e.id,
+          name: e.name,
+          monthly_wage: e.monthly_wage,
+          hire_date: e.hire_date,
+          share_count: e.share_count,
+          unpaid_leave_months: e.unpaid_leave_months,
+        })),
+      );
+
+      if ("error" in result) {
+        toast.error(result.error, { duration: 10000 });
+        return;
+      }
+
+      const nextDetails: Record<string, SemiAnnualBonusDetail> = {};
+      let importedCount = 0;
+      let totalBonus = 0;
+
+      setInputs((prev) => {
+        const next = { ...prev };
+        for (const emp of employees) {
+          if (paidIds.has(emp.id)) continue;
+          const bonus = result.bonusesByEmployeeId[emp.id] ?? 0;
+          const detail = result.detailByEmployeeId[emp.id] ?? {
+            yearEnd: 0,
+            profitSharing: 0,
+            share: 0,
+            total: bonus,
+          };
+          nextDetails[emp.id] = detail;
+          if (bonus > 0) {
+            importedCount += 1;
+            totalBonus += bonus;
+          }
+          const row = next[emp.id] ?? defaultRowInputs();
+          next[emp.id] = { ...row, semiAnnualBonus: bonus };
+        }
+        return next;
+      });
+
+      setBonusDetailByEmp(nextDetails);
+      setBonusImportLabel(result.period.label);
+
+      const hints: string[] = [
+        `已帶入「${result.period.label}」獎金`,
+        `${importedCount} 人、合計 NT$ ${totalBonus.toLocaleString("zh-TW")}`,
+      ];
+      if (result.profitMeta) hints.push(result.profitMeta);
+      if (result.usedFallbackPeriod) {
+        hints.push("（結算月份非典型發放期，已改用考績獎金頁最近編輯的期別）");
+      } else if (!suggestedBonusPeriod) {
+        hints.push("（建議於 1–2 月或 7–8 月發薪月份使用）");
+      }
+      toast.success(hints.join("；"), { duration: 9000 });
+    } finally {
+      setImportingBonus(false);
+    }
+  }
 
   async function handlePay(emp: SettlementEmployee) {
     if (!bounds) return;
@@ -676,29 +789,45 @@ export function SalarySettlementCenter() {
     const leaveDedTotal = personalDed + sickDed;
     const otRate = emp.overtime_rate != null && emp.overtime_rate > 0 ? emp.overtime_rate : 0;
     const overtimeAmt = inp.settleOvertimeAsCompOff ? 0 : otRate * inp.overtimeDays;
+    const semiBonus = inp.semiAnnualBonus ?? 0;
     const net = Math.round(
       emp.monthly_wage -
         emp.labor_insurance -
         emp.health_insurance -
         leaveDedTotal +
         overtimeAmt +
-        inp.otherAdjust,
+        inp.otherAdjust +
+        semiBonus,
     );
 
     const baseRemaining = emp.annual_leave_remaining ?? 0;
     const settledRemaining = baseRemaining - st.specialThisMonth;
 
-    const ok = window.confirm(
-      [
-        `確定發放「${emp.name}」${bounds.label} 薪資？`,
-        ``,
-        `實發總額：NT$ ${net.toLocaleString("zh-TW")}`,
-        `特休結算後餘額將更新為：${settledRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天（原本 ${baseRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} − 本月建立之特休 ${st.specialThisMonth.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}）`,
-      ].join("\n"),
+    const confirmLines = [
+      `確定發放「${emp.name}」${bounds.label} 薪資？`,
+      ``,
+      `實發總額：NT$ ${net.toLocaleString("zh-TW")}`,
+    ];
+    if (semiBonus > 0) {
+      confirmLines.push(
+        `含半年獎金：NT$ ${semiBonus.toLocaleString("zh-TW")}${bonusImportLabel ? `（${bonusImportLabel}）` : ""}`,
+      );
+    }
+    confirmLines.push(
+      `特休結算後餘額將更新為：${settledRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天（原本 ${baseRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} − 本月建立之特休 ${st.specialThisMonth.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}）`,
     );
+
+    const ok = window.confirm(confirmLines.join("\n"));
     if (!ok) return;
 
-    const notes = inp.attendanceNotes.trim();
+    const bonusDetail = bonusDetailByEmp[emp.id];
+    const bonusNote =
+      semiBonus > 0 && bonusImportLabel && bonusDetail
+        ? formatSemiAnnualBonusPayrollNote(bonusImportLabel, bonusDetail)
+        : semiBonus > 0 && bonusImportLabel
+          ? `【${bonusImportLabel}獎金】合計 NT$ ${semiBonus.toLocaleString("zh-TW")}`
+          : "";
+    const notes = [inp.attendanceNotes.trim(), bonusNote].filter(Boolean).join("\n");
 
     /** 與 payslips 表／migrations 對齊；缺欄時依序略過 notes → 再略過 PAYSLIP_DETAIL_SNAPSHOT_KEYS */
     const insertPayload: Record<string, unknown> = {
@@ -718,7 +847,7 @@ export function SalarySettlementCenter() {
       overtime_days: inp.overtimeDays,
       special_leave_days_settled: st.specialThisMonth,
       leave_days: st.personal + st.sick,
-      other_adjust: inp.otherAdjust,
+      other_adjust: inp.otherAdjust + semiBonus,
       notes,
     };
 
@@ -936,7 +1065,29 @@ export function SalarySettlementCenter() {
             >
               產生本月薪資單
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 gap-1.5 px-3 text-xs"
+              disabled={loading || importingBonus || employees.length === 0}
+              title={
+                suggestedBonusPeriod
+                  ? `帶入 ${suggestedBonusPeriod.label} 考績獎金（依考績獎金頁草稿計算）`
+                  : "帶入考績獎金頁最近期別的半年獎金（建議 7–8 月發上半年、1–2 月發下半年）"
+              }
+              onClick={() => {
+                void handleImportSemiAnnualBonus();
+              }}
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              帶入半年獎金
+            </Button>
           </div>
+          {bonusImportLabel && (
+            <p className="max-w-md text-right text-[11px] text-muted-foreground">
+              已帶入「{bonusImportLabel}」獎金至「半年獎金」欄；發放時併入其他調整並寫入備註。
+            </p>
+          )}
         </div>
       </div>
 
@@ -956,7 +1107,7 @@ export function SalarySettlementCenter() {
             尚無在職員工可結算。
           </p>
         ) : (
-          <table className="w-full min-w-[1480px] border-collapse text-sm">
+          <table className="w-full min-w-[1580px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/20 text-left">
                 <th
@@ -1009,7 +1160,16 @@ export function SalarySettlementCenter() {
                 </th>
                 <th
                   rowSpan={2}
-                  className="whitespace-nowrap border-l border-border py-3 pr-3 text-right text-xs font-semibold text-muted-foreground"
+                  className="whitespace-nowrap border-l border-border py-3 pr-3 text-right text-xs font-semibold text-foreground"
+                >
+                  <span className="block">半年獎金</span>
+                  <span className="text-[10px] font-normal text-muted-foreground">
+                    考績／分潤
+                  </span>
+                </th>
+                <th
+                  rowSpan={2}
+                  className="whitespace-nowrap py-3 pr-3 text-right text-xs font-semibold text-muted-foreground"
                 >
                   其他調整
                 </th>
@@ -1079,13 +1239,15 @@ export function SalarySettlementCenter() {
                 const overtimeAmt = inp.settleOvertimeAsCompOff
                   ? 0
                   : otRate * inp.overtimeDays;
+                const semiBonus = inp.semiAnnualBonus ?? 0;
                 const net = Math.round(
                   emp.monthly_wage -
                     emp.labor_insurance -
                     emp.health_insurance -
                     leaveDedTotal +
                     overtimeAmt +
-                    inp.otherAdjust,
+                    inp.otherAdjust +
+                    semiBonus,
                 );
                 const orig =
                   emp.annual_leave_remaining != null
@@ -1219,6 +1381,33 @@ export function SalarySettlementCenter() {
                       </label>
                     </td>
                     <td className="border-l border-border py-3 pr-3 text-right">
+                      <input
+                        type="number"
+                        step={1}
+                        disabled={paid}
+                        title={
+                          bonusDetailByEmp[emp.id] && semiBonus > 0
+                            ? formatSemiAnnualBonusPayrollNote(
+                                bonusImportLabel ?? "半年",
+                                bonusDetailByEmp[emp.id]!,
+                              )
+                            : undefined
+                        }
+                        value={semiBonus}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setInputs((p) => ({
+                            ...p,
+                            [emp.id]: {
+                              ...inp,
+                              semiAnnualBonus: Number.isFinite(v) ? v : 0,
+                            },
+                          }));
+                        }}
+                        className="w-[5.5rem] rounded-md border border-input bg-background px-2 py-1.5 text-right tabular-nums text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </td>
+                    <td className="py-3 pr-3 text-right">
                       <input
                         type="number"
                         step={1}

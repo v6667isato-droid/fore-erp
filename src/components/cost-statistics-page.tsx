@@ -12,8 +12,10 @@ import {
   listRecordedSnapshotYears,
   loadAllFixedOverheadRecords,
   loadAllYearSnapshots,
+  computeRevenueTax,
   loadFixedOverheadForYear,
   loadYearSnapshot,
+  REVENUE_TAX_RATE,
   saveFixedOverheadForYear,
   saveYearSnapshot,
   type CostStatisticsYearSnapshot,
@@ -381,6 +383,7 @@ export function CostStatisticsPage() {
       salaryCost: number;
       rentCost: number;
       loanCost: number;
+      taxCost: number;
       totalCost: number;
       revenue: number;
       grossProfit: number;
@@ -401,6 +404,7 @@ export function CostStatisticsPage() {
       let rentCost = 0;
       let loanCost = 0;
       let revenue = 0;
+      let taxCost = 0;
       let labelSuffix = "";
 
       if (isProjected) {
@@ -425,7 +429,8 @@ export function CostStatisticsPage() {
       }
 
       const purchaseCost = purchaseNonWood + purchaseWood;
-      const totalCost = purchaseCost + salaryCost + rentCost + loanCost;
+      taxCost = computeRevenueTax(revenue);
+      const totalCost = purchaseCost + salaryCost + rentCost + loanCost + taxCost;
       const grossProfit = revenue - totalCost;
       const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
 
@@ -437,6 +442,7 @@ export function CostStatisticsPage() {
         salaryCost,
         rentCost,
         loanCost,
+        taxCost,
         totalCost,
         revenue,
         grossProfit,
@@ -453,6 +459,7 @@ export function CostStatisticsPage() {
       salaryCost: number;
       rentCost: number;
       loanCost: number;
+      taxCost: number;
       totalCost: number;
       revenue: number;
       grossProfit: number;
@@ -470,6 +477,7 @@ export function CostStatisticsPage() {
       let salaryCost = 0;
       let rentCost = 0;
       let loanCost = 0;
+      let taxCost = 0;
       let totalCost = 0;
       let revenue = 0;
       let grossProfit = 0;
@@ -480,6 +488,7 @@ export function CostStatisticsPage() {
         salaryCost += row.salaryCost;
         rentCost += row.rentCost;
         loanCost += row.loanCost;
+        taxCost += row.taxCost;
         totalCost += row.totalCost;
         revenue += row.revenue;
         grossProfit += row.grossProfit;
@@ -492,6 +501,7 @@ export function CostStatisticsPage() {
         salaryCost,
         rentCost,
         loanCost,
+        taxCost,
         totalCost,
         revenue,
         grossProfit,
@@ -533,7 +543,9 @@ export function CostStatisticsPage() {
       totalCompanyLoanCost += row.loanCost;
     }
 
-    const totalCost = totalPurchaseCost + totalSalaryCost + totalRentCost + totalCompanyLoanCost;
+    const totalTaxCost = computeRevenueTax(totalRevenue);
+    const totalCost =
+      totalPurchaseCost + totalSalaryCost + totalRentCost + totalCompanyLoanCost + totalTaxCost;
     const grossProfit = totalRevenue - totalCost;
     const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
@@ -545,6 +557,7 @@ export function CostStatisticsPage() {
       totalSalaryCost,
       totalRentCost,
       totalCompanyLoanCost,
+      totalTaxCost,
       totalCost,
       totalRevenue,
       grossProfit,
@@ -591,6 +604,7 @@ export function CostStatisticsPage() {
       totalSalaryCost: snapshot.totalSalaryCost,
       totalRentCost: snapshot.totalRentCost,
       totalCompanyLoanCost: snapshot.totalCompanyLoanCost,
+      totalTaxCost: snapshot.totalTaxCost ?? computeRevenueTax(snapshot.totalRevenue),
       totalCost: snapshot.totalCost,
       totalRevenue: snapshot.totalRevenue,
       grossProfit: snapshot.grossProfit,
@@ -602,6 +616,7 @@ export function CostStatisticsPage() {
         salaryCost: row.salaryCost,
         rentCost: row.rentCost,
         loanCost: row.loanCost,
+        taxCost: row.taxCost ?? computeRevenueTax(row.revenue),
         totalCost: row.totalCost,
         revenue: row.revenue,
         grossProfit: row.grossProfit,
@@ -623,6 +638,7 @@ export function CostStatisticsPage() {
       totalSalaryCost: computed.totalSalaryCost,
       totalRentCost: computed.totalRentCost,
       totalCompanyLoanCost: computed.totalCompanyLoanCost,
+      totalTaxCost: computed.totalTaxCost,
       totalCost: computed.totalCost,
       totalRevenue: computed.totalRevenue,
       grossProfit: computed.grossProfit,
@@ -645,6 +661,7 @@ export function CostStatisticsPage() {
       totalSalaryCost: computed.totalSalaryCost,
       totalRentCost: computed.totalRentCost,
       totalCompanyLoanCost: computed.totalCompanyLoanCost,
+      totalTaxCost: computed.totalTaxCost,
       totalCost: computed.totalCost,
       totalRevenue: computed.totalRevenue,
       grossProfit: computed.grossProfit,
@@ -656,6 +673,7 @@ export function CostStatisticsPage() {
         salaryCost: row.salaryCost,
         rentCost: row.rentCost,
         loanCost: row.loanCost,
+        taxCost: row.taxCost,
         totalCost: row.totalCost,
         revenue: row.revenue,
         grossProfit: row.grossProfit,
@@ -700,7 +718,7 @@ export function CostStatisticsPage() {
     <section className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {year} 年年初至今（截至 {computed.ytdCutoffLabel}）；採購／薪資／訂單依實際日期或發薪月份，租金與公司貸款利息依年額按月分攤（當月按日比例）。營收排除「報價中」訂單。
+          {year} 年年初至今（截至 {computed.ytdCutoffLabel}）；採購／薪資／訂單依實際日期或發薪月份，租金與公司貸款利息依年額按月分攤（當月按日比例），稅金為訂單營收之 {REVENUE_TAX_RATE * 100}%。營收排除「報價中」訂單。
         </p>
         <div className="inline-flex rounded-lg border border-border bg-muted/30 p-1">
           <Button
@@ -842,7 +860,7 @@ export function CostStatisticsPage() {
 
       {!loading && !error && (
         <>
-          <div className="flex flex-nowrap gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:min-w-0 sm:grid-cols-9 sm:overflow-visible">
+          <div className="flex flex-nowrap gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:min-w-0 sm:grid-cols-10 sm:overflow-visible">
             <div className="min-w-[5.75rem] shrink-0 rounded-lg border border-border bg-card p-2 sm:min-w-0">
               <p className="text-[10px] leading-tight text-muted-foreground">非木料成本</p>
               <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground sm:text-base">
@@ -856,7 +874,7 @@ export function CostStatisticsPage() {
               </p>
             </div>
             <div className="min-w-[5.75rem] shrink-0 rounded-lg border border-border bg-card p-2 sm:min-w-0">
-              <p className="text-[10px] leading-tight text-muted-foreground">薪資成本(含雇主負擔)</p>
+              <p className="text-[10px] leading-tight text-muted-foreground">薪資成本</p>
               <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground sm:text-base">
                 {formatMoney(computed.totalSalaryCost)}
               </p>
@@ -871,6 +889,14 @@ export function CostStatisticsPage() {
               <p className="text-[10px] leading-tight text-muted-foreground">公司貸款利息</p>
               <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground sm:text-base">
                 {formatMoney(computed.totalCompanyLoanCost)}
+              </p>
+            </div>
+            <div className="min-w-[5.75rem] shrink-0 rounded-lg border border-border bg-card p-2 sm:min-w-0">
+              <p className="text-[10px] leading-tight text-muted-foreground">
+                稅金（營收 {REVENUE_TAX_RATE * 100}%）
+              </p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground sm:text-base">
+                {formatMoney(computed.totalTaxCost)}
               </p>
             </div>
             <div className="min-w-[5.75rem] shrink-0 rounded-lg border border-border bg-card p-2 sm:min-w-0">
@@ -942,15 +968,16 @@ export function CostStatisticsPage() {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-sm">
+              <table className="w-full min-w-[1080px] text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30 text-left text-muted-foreground">
                     <th className="px-4 py-2 font-medium">月份</th>
                     <th className="px-4 py-2 font-medium">非木料成本</th>
                     <th className="px-4 py-2 font-medium">木料成本</th>
-                    <th className="px-4 py-2 font-medium">薪資成本(含雇主負擔)</th>
+                    <th className="px-4 py-2 font-medium">薪資成本</th>
                     <th className="px-4 py-2 font-medium">租金</th>
                     <th className="px-4 py-2 font-medium">公司貸款利息</th>
+                    <th className="px-4 py-2 font-medium">稅金（營收 5%）</th>
                     <th className="px-4 py-2 font-medium">總成本</th>
                     <th className="px-4 py-2 font-medium">訂單營收</th>
                     <th className="px-4 py-2 font-medium">毛利</th>
@@ -960,7 +987,7 @@ export function CostStatisticsPage() {
                 <tbody>
                   {computed.tableRows.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={10}>
+                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={11}>
                         這個年度尚無可統計資料
                       </td>
                     </tr>
@@ -984,6 +1011,7 @@ export function CostStatisticsPage() {
                             <td className="px-4 py-2">{formatMoney(item.row.salaryCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.row.rentCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.row.loanCost)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.row.taxCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.row.totalCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.row.revenue)}</td>
                             <td className="px-4 py-2">{formatMoney(item.row.grossProfit)}</td>
@@ -1027,6 +1055,7 @@ export function CostStatisticsPage() {
                             <td className="px-4 py-2">{formatMoney(item.salaryCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.rentCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.loanCost)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.taxCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.totalCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.revenue)}</td>
                             <td className="px-4 py-2">{formatMoney(item.grossProfit)}</td>

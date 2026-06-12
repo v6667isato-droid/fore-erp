@@ -6,11 +6,13 @@ import type { PurchaseRow } from "@/types/procurement";
 
 export interface ProcurementFiltersProps {
   filterYear: string;
+  filterMonth: string;
   filterCategory: string;
   filterVendor: string;
   filterItemName: string;
   filterSearch: string;
   onYearChange: (v: string) => void;
+  onMonthChange: (v: string) => void;
   onCategoryChange: (v: string) => void;
   onVendorChange: (v: string) => void;
   onItemNameChange: (v: string) => void;
@@ -20,11 +22,13 @@ export interface ProcurementFiltersProps {
 
 export function ProcurementFilters({
   filterYear,
+  filterMonth,
   filterCategory,
   filterVendor,
   filterItemName,
   filterSearch,
   onYearChange,
+  onMonthChange,
   onCategoryChange,
   onVendorChange,
   onItemNameChange,
@@ -32,6 +36,13 @@ export function ProcurementFilters({
   records,
 }: ProcurementFiltersProps) {
   const years = useMemo(() => [...new Set(records.map((r) => r.purchase_date.slice(0, 4)))].sort((a, b) => b.localeCompare(a)), [records]);
+
+  const months = useMemo(() => {
+    const list = filterYear
+      ? records.filter((r) => r.purchase_date.slice(0, 4) === filterYear)
+      : records;
+    return [...new Set(list.map((r) => r.purchase_date.slice(0, 7)).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+  }, [records, filterYear]);
 
   const allCategories = useMemo(() => [...new Set(records.map((r) => r.item_category).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [records]);
   const allVendors = useMemo(() => [...new Set(records.map((r) => r.vendor_name).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [records]);
@@ -65,6 +76,18 @@ export function ProcurementFilters({
         <option value="">年度：全部</option>
         {years.map((y) => (
           <option key={y} value={y}>{y}</option>
+        ))}
+      </select>
+      <select
+        value={filterMonth}
+        onChange={(e) => onMonthChange(e.target.value)}
+        className="h-8 min-w-[7rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        aria-label="月份"
+        title={filterYear ? `僅顯示 ${filterYear} 年內有採購紀錄的月份` : "依採購日期篩選月份"}
+      >
+        <option value="">月份：全部</option>
+        {months.map((m) => (
+          <option key={m} value={m}>{m}</option>
         ))}
       </select>
       <select
