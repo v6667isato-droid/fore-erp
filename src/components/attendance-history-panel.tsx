@@ -323,7 +323,7 @@ export function AttendanceHistoryPanel() {
         </p>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-stone-200/90 bg-white shadow-sm dark:border-border dark:bg-card">
+      <div className="overflow-x-auto rounded-xl border border-stone-200/90 bg-white shadow-sm dark:border-border dark:bg-card">
         <div className="border-b border-stone-100 bg-stone-50/80 px-4 py-3 dark:border-border dark:bg-muted/30">
           <p className="text-sm font-medium text-stone-800 dark:text-foreground">
             查詢結果
@@ -421,7 +421,7 @@ export function AttendanceHistoryPanel() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <Table>
+            <Table className="min-w-[48rem]">
               <TableHeader>
                 <TableRow className="border-stone-200/90 bg-stone-100/60 hover:bg-stone-100/60 dark:border-border dark:bg-muted/40 dark:hover:bg-muted/40">
                   <TableHead className="whitespace-nowrap text-xs font-semibold text-stone-700 dark:text-foreground">

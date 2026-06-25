@@ -20,6 +20,7 @@ import {
 import {
   computeSemiAnnualBonusesForPayroll,
   formatSemiAnnualBonusPayrollNote,
+  parsePayrollBonusFromNotes,
   suggestBonusPeriodForPayMonth,
   type SemiAnnualBonusDetail,
 } from "@/lib/performance-bonus-payroll";
@@ -49,7 +50,7 @@ interface SettlementEmployee {
 
 interface RowInputs {
   overtimeDays: number;
-  /** 考績／分潤／股份等半年獎金（發放時併入 other_adjust） */
+  /** 考績／分潤／股份等獎金（發放寫入 payslips.payroll_bonus） */
   semiAnnualBonus: number;
   otherAdjust: number;
   /** true：不計加班費（與轉補休一致）；false：以費率 × 天數計入加班費 */
@@ -486,7 +487,7 @@ export function SalarySettlementCenter() {
       let slipRes = await supabase
         .from("payslips")
         .select(
-          "employee_id, period_key, status, notes, overtime_days, other_adjust, bonus_and_overtime",
+          "employee_id, period_key, status, notes, overtime_days, other_adjust, payroll_bonus, bonus_and_overtime",
         )
         .eq("period_key", payPeriod)
         .in("employee_id", ids);
@@ -587,6 +588,7 @@ export function SalarySettlementCenter() {
         {
           overtime_days: unknown;
           other_adjust: unknown;
+          payroll_bonus: unknown;
           bonus_and_overtime: unknown;
         }
       >();
@@ -598,14 +600,17 @@ export function SalarySettlementCenter() {
             notes?: string | null;
             overtime_days?: unknown;
             other_adjust?: unknown;
+            payroll_bonus?: unknown;
             bonus_and_overtime?: unknown;
           };
           if (!row.employee_id || !isPaidStatus(row.status)) continue;
           const id = String(row.employee_id);
-          slipNoteByEmp.set(id, row.notes != null ? String(row.notes) : "");
+          const noteText = row.notes != null ? String(row.notes) : "";
+          slipNoteByEmp.set(id, noteText);
           slipPaidSnapshotByEmp.set(id, {
             overtime_days: row.overtime_days,
             other_adjust: row.other_adjust,
+            payroll_bonus: row.payroll_bonus,
             bonus_and_overtime: row.bonus_and_overtime,
           });
         }
@@ -618,10 +623,20 @@ export function SalarySettlementCenter() {
           const od = num(snap.overtime_days, 0);
           const oa = num(snap.other_adjust, 0);
           const bot = num(snap.bonus_and_overtime, 0);
+          const noteText = slipNoteByEmp.get(e.id) ?? "";
+          const pbStored = snap.payroll_bonus;
+          const hasPayrollBonusCol =
+            pbStored != null && pbStored !== "" && Number.isFinite(Number(pbStored));
+          const semiBonus = hasPayrollBonusCol
+            ? num(pbStored, 0)
+            : parsePayrollBonusFromNotes(noteText);
+          const otherAdjust = hasPayrollBonusCol
+            ? oa
+            : Math.max(0, oa - semiBonus);
           /** 發放時寫入：計加班費則 bonus_and_overtime>0；不計（轉補休）則多為 0 且 overtime_days>0 */
           const settleAsComp = od > 0 && bot === 0;
           const attendanceNotes = slipNoteByEmp.has(e.id)
-            ? slipNoteByEmp.get(e.id)!
+            ? noteText
             : buildPayslipAttendanceRemarks(e.id, {
                 bounds: { start: bounds.start, end: bounds.end },
                 payPeriodYm: payPeriod,
@@ -632,8 +647,8 @@ export function SalarySettlementCenter() {
               });
           initInputs[e.id] = {
             overtimeDays: od,
-            semiAnnualBonus: 0,
-            otherAdjust: oa,
+            semiAnnualBonus: semiBonus,
+            otherAdjust,
             settleOvertimeAsCompOff: settleAsComp,
             attendanceNotes,
           };
@@ -810,7 +825,7 @@ export function SalarySettlementCenter() {
     ];
     if (semiBonus > 0) {
       confirmLines.push(
-        `含半年獎金：NT$ ${semiBonus.toLocaleString("zh-TW")}${bonusImportLabel ? `（${bonusImportLabel}）` : ""}`,
+        `含獎金：NT$ ${semiBonus.toLocaleString("zh-TW")}${bonusImportLabel ? `（${bonusImportLabel}）` : ""}`,
       );
     }
     confirmLines.push(
@@ -847,7 +862,8 @@ export function SalarySettlementCenter() {
       overtime_days: inp.overtimeDays,
       special_leave_days_settled: st.specialThisMonth,
       leave_days: st.personal + st.sick,
-      other_adjust: inp.otherAdjust + semiBonus,
+      payroll_bonus: semiBonus,
+      other_adjust: inp.otherAdjust,
       notes,
     };
 
@@ -863,6 +879,11 @@ export function SalarySettlementCenter() {
     if (ins.error && isPayslipMissingColumnError(ins.error.message)) {
       const noNotes: Record<string, unknown> = { ...insertPayload };
       delete noNotes.notes;
+      const pb = num(noNotes.payroll_bonus, 0);
+      if (pb > 0) {
+        delete noNotes.payroll_bonus;
+        noNotes.other_adjust = num(noNotes.other_adjust, 0) + pb;
+      }
       ins = await writePayslip(noNotes);
       notesFallback = !ins.error;
     }
@@ -871,6 +892,9 @@ export function SalarySettlementCenter() {
       const trimmed: Record<string, unknown> = { ...insertPayload };
       for (const k of PAYSLIP_DETAIL_SNAPSHOT_KEYS) delete trimmed[k];
       delete trimmed.notes;
+      const pb = num(trimmed.payroll_bonus, 0);
+      delete trimmed.payroll_bonus;
+      trimmed.other_adjust = num(trimmed.other_adjust, 0) + pb;
       ins = await writePayslip(trimmed);
       payslipDetailFallback = !ins.error;
       notesFallback = payslipDetailFallback;
@@ -1073,19 +1097,19 @@ export function SalarySettlementCenter() {
               title={
                 suggestedBonusPeriod
                   ? `帶入 ${suggestedBonusPeriod.label} 考績獎金（依考績獎金頁草稿計算）`
-                  : "帶入考績獎金頁最近期別的半年獎金（建議 7–8 月發上半年、1–2 月發下半年）"
+                  : "帶入考績獎金頁最近期別的獎金（建議 7–8 月發上半年、1–2 月發下半年）"
               }
               onClick={() => {
                 void handleImportSemiAnnualBonus();
               }}
             >
               <Sparkles className="h-3.5 w-3.5" aria-hidden />
-              帶入半年獎金
+              帶入獎金
             </Button>
           </div>
           {bonusImportLabel && (
             <p className="max-w-md text-right text-[11px] text-muted-foreground">
-              已帶入「{bonusImportLabel}」獎金至「半年獎金」欄；發放時併入其他調整並寫入備註。
+              已帶入「{bonusImportLabel}」獎金至「獎金」欄。
             </p>
           )}
         </div>
@@ -1097,7 +1121,7 @@ export function SalarySettlementCenter() {
         </p>
       )}
 
-      <div className="overflow-x-auto px-2 pb-2 pt-1 sm:px-4 sm:pb-4 sm:pt-2">
+      <div className="px-2 pb-2 pt-1 max-md:overflow-x-auto md:overflow-visible sm:px-4 sm:pb-4 sm:pt-2">
         {loading ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
             載入結算資料中…
@@ -1107,116 +1131,63 @@ export function SalarySettlementCenter() {
             尚無在職員工可結算。
           </p>
         ) : (
-          <table className="w-full min-w-[1580px] border-collapse text-sm">
+          <table className="w-full max-md:min-w-[1180px] border-collapse text-sm md:table-fixed">
+            <colgroup className="hidden md:table-column-group">
+              <col className="w-[3.25rem]" />
+              <col className="w-[3.5rem]" />
+              <col className="w-[2.75rem]" />
+              <col className="w-[3rem]" />
+              <col className="w-[3rem]" />
+              <col className="w-[2.5rem]" />
+              <col className="w-[2.5rem]" />
+              <col className="w-[2.75rem]" />
+              <col className="w-[2.25rem]" />
+              <col className="w-[2.5rem]" />
+              <col className="w-[2.25rem]" />
+              <col className="w-[2.75rem]" />
+              <col className="w-[2.75rem]" />
+              <col className="w-[3.25rem]" />
+              <col className="min-w-[7rem]" />
+              <col className="w-[3.5rem]" />
+            </colgroup>
             <thead>
-              <tr className="border-b border-border bg-muted/20 text-left">
-                <th
-                  rowSpan={2}
-                  className="sticky left-0 z-30 bg-card py-3 pl-3 pr-2 text-xs font-semibold text-foreground shadow-[4px_0_12px_-4px_rgba(0,0,0,0.08)] dark:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.35)]"
-                >
+              <tr className="border-b border-border bg-muted/20 text-left [&_th]:px-1 [&_th]:py-1.5 [&_th]:text-xs [&_th]:font-semibold md:[&_th]:whitespace-normal">
+                <th className="max-md:sticky max-md:left-0 max-md:z-30 max-md:bg-card max-md:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.08)] text-foreground">
                   姓名
                 </th>
+                <th className="text-right text-muted-foreground">本月薪資</th>
+                <th className="text-right text-muted-foreground">勞保</th>
+                <th className="text-right text-muted-foreground">健保</th>
+                <th className="text-right text-muted-foreground">請假扣款</th>
                 <th
-                  rowSpan={2}
-                  className="whitespace-nowrap py-3 pr-3 text-right text-xs font-semibold text-muted-foreground"
+                  title="特休假結算"
+                  className="border-l border-border bg-[var(--secondary)]/40 text-right text-muted-foreground dark:bg-muted/50"
                 >
-                  本月薪資
-                </th>
-                <th
-                  rowSpan={2}
-                  className="whitespace-nowrap py-3 pr-3 text-right text-xs font-semibold text-muted-foreground"
-                >
-                  勞保自付
-                </th>
-                <th
-                  rowSpan={2}
-                  className="whitespace-nowrap py-3 pr-3 text-right text-xs font-semibold text-muted-foreground"
-                >
-                  健保自付
-                </th>
-                <th
-                  rowSpan={2}
-                  className="whitespace-nowrap py-3 pr-3 text-right text-xs font-semibold text-muted-foreground"
-                >
-                  <span className="block">請假扣款</span>
-                  <span className="text-[10px] font-normal text-muted-foreground/90">
-                    （事+病）
-                  </span>
-                </th>
-                <th
-                  colSpan={3}
-                  className="border-l border-border bg-[var(--secondary)]/40 py-2 text-center text-xs font-semibold tracking-wide text-foreground dark:bg-muted/50"
-                >
-                  <span className="block">特休假結算</span>
-                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                    特休以「已核准且假單建立於本月」計
-                  </span>
-                </th>
-                <th
-                  colSpan={3}
-                  className="border-l border-border py-2 text-center text-xs font-semibold text-muted-foreground"
-                >
-                  加班
-                </th>
-                <th
-                  rowSpan={2}
-                  className="whitespace-nowrap border-l border-border py-3 pr-3 text-right text-xs font-semibold text-foreground"
-                >
-                  <span className="block">半年獎金</span>
-                  <span className="text-[10px] font-normal text-muted-foreground">
-                    考績／分潤
-                  </span>
-                </th>
-                <th
-                  rowSpan={2}
-                  className="whitespace-nowrap py-3 pr-3 text-right text-xs font-semibold text-muted-foreground"
-                >
-                  其他調整
-                </th>
-                <th
-                  rowSpan={2}
-                  className="whitespace-nowrap py-3 pr-3 text-right text-xs font-semibold text-foreground"
-                >
-                  實發總額
-                </th>
-                <th
-                  rowSpan={2}
-                  className="whitespace-nowrap border-l border-border py-3 pr-3 text-xs font-semibold text-muted-foreground"
-                >
-                  出勤備註
-                </th>
-                <th
-                  rowSpan={2}
-                  className="whitespace-nowrap py-3 pr-3 text-xs font-semibold text-muted-foreground"
-                >
-                  發放
-                </th>
-              </tr>
-              <tr className="border-b border-border bg-muted/10 text-left">
-                <th className="border-l border-border py-2 pr-2 text-right text-[11px] font-semibold text-muted-foreground">
                   原本特休
                 </th>
-                <th className="py-2 pr-2 text-right text-[11px] font-semibold text-muted-foreground">
-                  <span className="block">本月特休</span>
-                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                    建立日於本月
-                  </span>
+                <th className="bg-[var(--secondary)]/40 text-right text-muted-foreground dark:bg-muted/50">
+                  本月申請
                 </th>
-                <th className="bg-[var(--secondary)]/25 py-2 pr-3 text-right text-[11px] font-semibold text-foreground dark:bg-muted/40">
-                  結算後餘額
+                <th className="bg-[var(--secondary)]/25 text-right text-foreground dark:bg-muted/40">
+                  結算餘額
                 </th>
-                <th className="border-l border-border py-2 pr-2 text-right text-[11px] font-semibold text-muted-foreground">
-                  天數
+                <th className="border-l border-border text-right text-muted-foreground">
+                  加班天
                 </th>
-                <th className="py-2 pr-2 text-right text-[11px] font-semibold text-muted-foreground">
-                  費率／日
+                <th className="text-right text-muted-foreground">費率</th>
+                <th className="text-center text-muted-foreground">補休</th>
+                <th className="border-l border-border text-right text-foreground">
+                  獎金
                 </th>
-                <th className="py-2 pr-3 text-center text-[11px] font-semibold text-muted-foreground">
-                  轉補休
+                <th className="text-right text-muted-foreground">調整</th>
+                <th className="text-right text-foreground">實發</th>
+                <th className="border-l border-border text-muted-foreground">
+                  出勤備註
                 </th>
+                <th className="text-muted-foreground">發放</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="[&_td]:px-1 [&_td]:py-1.5 md:[&_td]:whitespace-normal">
               {employees.map((emp) => {
                 const paid = paidIds.has(emp.id);
                 const st = leaveStatsByEmployee.get(emp.id) ?? {
@@ -1266,69 +1237,70 @@ export function SalarySettlementCenter() {
                     )}
                   >
                     <td
+                      title={emp.name || undefined}
                       className={cn(
-                        "sticky left-0 z-10 py-3 pl-3 pr-2 font-medium text-foreground shadow-[4px_0_12px_-4px_rgba(0,0,0,0.06)] dark:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.35)]",
+                        "max-w-[4.5rem] truncate font-medium text-foreground max-md:sticky max-md:left-0 max-md:z-10 max-md:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.06)] md:max-w-none",
                         paid
-                          ? "bg-muted/25"
-                          : "bg-card group-hover:bg-muted/40",
+                          ? "max-md:bg-muted/25 bg-muted/25"
+                          : "max-md:bg-card bg-card group-hover:bg-muted/40",
                       )}
                     >
                       {emp.name || "—"}
                     </td>
-                    <td className="py-3 pr-3 text-right tabular-nums text-foreground">
-                      NT$ {emp.monthly_wage.toLocaleString("zh-TW")}
+                    <td className="text-right text-xs tabular-nums text-foreground">
+                      {emp.monthly_wage.toLocaleString("zh-TW")}
                     </td>
-                    <td className="py-3 pr-3 text-right tabular-nums text-muted-foreground">
-                      −NT${" "}
-                      {emp.labor_insurance.toLocaleString("zh-TW")}
+                    <td className="text-right text-xs tabular-nums text-muted-foreground">
+                      −{emp.labor_insurance.toLocaleString("zh-TW")}
                     </td>
-                    <td className="py-3 pr-3 text-right tabular-nums text-muted-foreground">
-                      −NT${" "}
-                      {emp.health_insurance.toLocaleString("zh-TW")}
-                      {emp.health_insured_persons != null && emp.health_insured_persons > 1 ? (
-                        <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                          每人 NT${" "}
-                          {emp.health_insurance_per_person.toLocaleString("zh-TW")} ×{" "}
-                          {emp.health_insured_persons} 人
+                    <td
+                      title={
+                        emp.health_insured_persons != null &&
+                        emp.health_insured_persons > 1
+                          ? `每人 ${emp.health_insurance_per_person.toLocaleString("zh-TW")} × ${emp.health_insured_persons} 人`
+                          : undefined
+                      }
+                      className="text-right text-xs tabular-nums text-muted-foreground"
+                    >
+                      −{emp.health_insurance.toLocaleString("zh-TW")}
+                      {emp.health_insured_persons != null &&
+                      emp.health_insured_persons > 1 ? (
+                        <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground md:hidden">
+                          ×{emp.health_insured_persons}人
                         </span>
                       ) : null}
                     </td>
-                    <td className="py-3 pr-3 text-right tabular-nums text-red-600 dark:text-red-400">
-                      −NT${" "}
-                      {leaveDedTotal.toLocaleString("zh-TW")}
-                      <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                        事 {st.personal} 天 · 病 {st.sick} 天
-                      </span>
+                    <td
+                      title={`事 ${st.personal} 天 · 病 ${st.sick} 天`}
+                      className="text-right text-xs tabular-nums text-red-600 dark:text-red-400"
+                    >
+                      −{leaveDedTotal.toLocaleString("zh-TW")}
                     </td>
-                    <td className="border-l border-border py-3 pr-2 text-right tabular-nums text-muted-foreground">
+                    <td className="border-l border-border text-right text-xs tabular-nums text-muted-foreground">
                       {orig != null
-                        ? `${orig.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`
+                        ? `${orig.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}天`
                         : "—"}
                     </td>
-                    <td className="py-3 pr-2 text-right tabular-nums text-foreground">
+                    <td className="text-right text-xs tabular-nums text-foreground">
                       {st.specialThisMonth.toLocaleString("zh-TW", {
                         maximumFractionDigits: 1,
-                      })}{" "}
+                      })}
                       天
                     </td>
                     <td
+                      title={hasSpecialUse ? "已扣本月建立之特休" : undefined}
                       className={cn(
-                        "bg-[var(--secondary)]/15 py-3 pr-3 text-right tabular-nums font-semibold dark:bg-muted/30",
+                        "bg-[var(--secondary)]/15 text-right text-xs tabular-nums font-semibold dark:bg-muted/30",
                         hasSpecialUse
                           ? "text-amber-800 dark:text-amber-400"
                           : "text-foreground",
                       )}
                     >
                       {orig != null || st.specialThisMonth > 0
-                        ? `${settledRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`
+                        ? `${settledRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}天`
                         : "—"}
-                      {hasSpecialUse && (
-                        <span className="mt-0.5 block text-[10px] font-medium text-amber-700/90 dark:text-amber-500/90">
-                          已扣本月建立之特休
-                        </span>
-                      )}
                     </td>
-                    <td className="border-l border-border py-3 pr-2 text-right">
+                    <td className="border-l border-border text-right">
                       <input
                         type="number"
                         min={0}
@@ -1346,27 +1318,28 @@ export function SalarySettlementCenter() {
                             },
                           }));
                         }}
-                        className="w-[4.5rem] rounded-md border border-input bg-background px-2 py-1.5 text-right tabular-nums text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full max-w-[3.25rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
                       />
                     </td>
                     <td
-                      className="py-3 pr-2 text-right tabular-nums text-xs text-muted-foreground"
+                      className="text-right text-[11px] tabular-nums text-muted-foreground"
                       title="employees.overtime_rate"
                     >
                       {emp.overtime_rate != null && emp.overtime_rate > 0 ? (
-                        `NT$ ${Math.round(emp.overtime_rate).toLocaleString("zh-TW")}`
+                        Math.round(emp.overtime_rate).toLocaleString("zh-TW")
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="py-3 pr-3 text-center align-middle">
-                      <label className="inline-flex cursor-pointer flex-col items-center gap-0.5 text-[10px] text-muted-foreground">
+                    <td className="text-center align-middle">
+                      <label className="inline-flex cursor-pointer items-center justify-center">
                         <input
                           type="checkbox"
                           className="h-3.5 w-3.5 rounded border-input"
                           checked={inp.settleOvertimeAsCompOff}
                           disabled={paid}
                           aria-label="加班以轉補休結算不計薪"
+                          title="轉補休（不計加班費）"
                           onChange={(e) => {
                             setInputs((p) => ({
                               ...p,
@@ -1377,10 +1350,9 @@ export function SalarySettlementCenter() {
                             }));
                           }}
                         />
-                        <span className="whitespace-nowrap">不計加班費</span>
                       </label>
                     </td>
-                    <td className="border-l border-border py-3 pr-3 text-right">
+                    <td className="border-l border-border text-right">
                       <input
                         type="number"
                         step={1}
@@ -1388,7 +1360,7 @@ export function SalarySettlementCenter() {
                         title={
                           bonusDetailByEmp[emp.id] && semiBonus > 0
                             ? formatSemiAnnualBonusPayrollNote(
-                                bonusImportLabel ?? "半年",
+                                bonusImportLabel ?? "本期",
                                 bonusDetailByEmp[emp.id]!,
                               )
                             : undefined
@@ -1404,10 +1376,10 @@ export function SalarySettlementCenter() {
                             },
                           }));
                         }}
-                        className="w-[5.5rem] rounded-md border border-input bg-background px-2 py-1.5 text-right tabular-nums text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full max-w-[3.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
                       />
                     </td>
-                    <td className="py-3 pr-3 text-right">
+                    <td className="text-right">
                       <input
                         type="number"
                         step={1}
@@ -1424,22 +1396,22 @@ export function SalarySettlementCenter() {
                             },
                           }));
                         }}
-                        className="w-[5.5rem] rounded-md border border-input bg-background px-2 py-1.5 text-right tabular-nums text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full max-w-[3.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
                       />
                     </td>
-                    <td className="py-3 pr-3 text-right align-middle">
-                      <span className="text-base font-bold tabular-nums text-primary sm:text-lg">
-                        NT$ {net.toLocaleString("zh-TW")}
+                    <td className="text-right align-middle">
+                      <span className="text-sm font-bold tabular-nums text-primary">
+                        {net.toLocaleString("zh-TW")}
                       </span>
                     </td>
-                    <td className="border-l border-border py-3 pr-2 align-middle">
-                      <div className="flex w-[min(100%,14rem)] min-w-[10.5rem] flex-col items-stretch gap-1.5">
+                    <td className="border-l border-border align-middle">
+                      <div className="flex min-w-0 items-start gap-0.5">
                         <label className="sr-only" htmlFor={`attendance-notes-${emp.id}`}>
                           {emp.name || "員工"} 出勤備註
                         </label>
                         <textarea
                           id={`attendance-notes-${emp.id}`}
-                          rows={3}
+                          rows={2}
                           disabled={paid}
                           value={inp.attendanceNotes}
                           onChange={(e) => {
@@ -1449,13 +1421,15 @@ export function SalarySettlementCenter() {
                               [emp.id]: { ...inp, attendanceNotes: t },
                             }));
                           }}
-                          placeholder="系統會預填建議文，可直接修改或補充"
-                          className="resize-y rounded-md border border-input bg-background px-2 py-1.5 text-[11px] leading-snug text-foreground shadow-xs placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60"
+                          placeholder="出勤備註"
+                          className="min-h-[2.25rem] min-w-0 flex-1 resize-y rounded border border-input bg-background px-1.5 py-1 text-[11px] leading-snug text-foreground shadow-xs placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60"
                         />
                         <Button
                           type="button"
                           variant="ghost"
-                          className="h-7 gap-1 px-2 text-[10px] text-muted-foreground"
+                          className="h-7 w-7 shrink-0 p-0 text-muted-foreground"
+                          aria-label={paid ? `查看 ${emp.name} 出勤備註` : `放大編輯 ${emp.name} 出勤備註`}
+                          title={paid ? "查看明細" : "放大編輯"}
                           onClick={() =>
                             setRemarkDialog({
                               open: true,
@@ -1465,23 +1439,22 @@ export function SalarySettlementCenter() {
                           }
                         >
                           <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                          {paid ? "查看明細" : "放大編輯"}
                         </Button>
                       </div>
                     </td>
-                    <td className="py-3 pr-3 align-middle">
+                    <td className="align-middle">
                       {paid ? (
-                        <span className="inline-flex items-center rounded-full border border-emerald-600/20 bg-emerald-600/10 px-2.5 py-1 text-xs font-medium text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300">
-                          ✅ 已發放
+                        <span className="inline-flex items-center rounded-full border border-emerald-600/20 bg-emerald-600/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300">
+                          已發放
                         </span>
                       ) : (
                         <Button
                           type="button"
                           variant="default"
-                          className="h-8 px-3 text-xs"
+                          className="h-7 px-2 text-[11px]"
                           onClick={() => void handlePay(emp)}
                         >
-                          發放薪資
+                          發放
                         </Button>
                       )}
                     </td>

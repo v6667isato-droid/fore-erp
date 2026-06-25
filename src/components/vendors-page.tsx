@@ -222,7 +222,7 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-xl border border-border bg-card overflow-x-auto">
         <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/20 px-4 py-3">
           <span className="text-xs font-medium text-muted-foreground shrink-0">篩選</span>
           <select

@@ -731,7 +731,7 @@ export function OrderOverviewCard({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border bg-card shadow-sm",
+        "overflow-x-auto rounded-xl border bg-card shadow-sm",
         warm ? "border-[#E6DFD3]" : "border-border"
       )}
     >
@@ -836,10 +836,7 @@ export function OrderOverviewCard({
         </div>
       ) : null}
 
-      <Table
-        className="table-fixed w-full min-w-0 text-xs"
-        wrapperClassName="overflow-x-visible"
-      >
+      <Table className="min-w-[36rem] w-full text-xs">
         <TableHeader>
           <TableRow
             className={cn(

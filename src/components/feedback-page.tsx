@@ -569,7 +569,7 @@ export function FeedbackPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-xl border border-border bg-card overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -580,37 +580,37 @@ export function FeedbackPage() {
                 主旨 <SortIcon columnKey="title" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
                 onClick={() => toggleSort("category")}
               >
                 類別 <SortIcon columnKey="category" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
                 onClick={() => toggleSort("status")}
               >
                 狀態 <SortIcon columnKey="status" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
                 onClick={() => toggleSort("priority")}
               >
                 優先級 <SortIcon columnKey="priority" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
                 onClick={() => toggleSort("reporter")}
               >
                 回報人 <SortIcon columnKey="reporter" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
                 onClick={() => toggleSort("completed_at")}
               >
                 完成日期 <SortIcon columnKey="completed_at" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold hidden sm:table-cell cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
                 onClick={() => toggleSort("created_at")}
               >
                 建立時間 <SortIcon columnKey="created_at" />
@@ -644,10 +644,10 @@ export function FeedbackPage() {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                  <TableCell className="text-sm text-muted-foreground">
                     {r.category || "—"}
                   </TableCell>
-                  <TableCell className="text-sm hidden sm:table-cell">
+                  <TableCell className="text-sm">
                     <select
                       value={r.status}
                       onChange={(e) => handleInlineStatusChange(r, e.target.value)}
@@ -662,7 +662,7 @@ export function FeedbackPage() {
                       ))}
                     </select>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                  <TableCell className="text-sm text-muted-foreground">
                     {(() => {
                       const nearDue = isNearDue(r);
                       const displayPriority = nearDue ? "高" : r.priority;
@@ -678,13 +678,13 @@ export function FeedbackPage() {
                       );
                     })()}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                  <TableCell className="text-sm text-muted-foreground">
                     {r.reporter || "—"}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                     {formatDate(r.completed_at ?? "") || "—"}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                     {formatDate(r.created_at)}
                   </TableCell>
                   <TableCell>
@@ -732,7 +732,7 @@ export function FeedbackPage() {
       </p>
 
       {showDeleted && (
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="rounded-xl border border-border bg-card overflow-x-auto">
           <div className="border-b border-border px-4 py-2 text-xs font-medium text-muted-foreground">
             已刪除項目（還原需管理員確認）
           </div>

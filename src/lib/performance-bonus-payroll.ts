@@ -66,6 +66,16 @@ export function suggestBonusPeriodForPayMonth(
   return null;
 }
 
+/** 從薪資單 notes 還原獎金合計（舊資料未寫 payroll_bonus 欄時用） */
+export function parsePayrollBonusFromNotes(notes: string | null | undefined): number {
+  const text = (notes ?? "").trim();
+  if (!text || !/【.+獎金】/.test(text)) return 0;
+  const m = /合計\s*NT\$\s*([\d,]+)/.exec(text);
+  if (!m) return 0;
+  const n = Number(m[1].replace(/,/g, ""));
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+
 export function formatSemiAnnualBonusPayrollNote(
   periodLabel: string,
   detail: SemiAnnualBonusDetail,

@@ -110,7 +110,7 @@ export function ChannelsPage({ embedded = false }: { embedded?: boolean } = {}) 
           <Button onClick={() => setAddOpen(true)}>新增通路</Button>
         </div>
       </div>
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-xl border border-border bg-card overflow-x-auto">
         <div className="relative w-full overflow-x-auto">
           <Table>
             <TableHeader>

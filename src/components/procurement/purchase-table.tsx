@@ -115,7 +115,7 @@ export function PurchaseTable({ records, totalUnfilteredCount, onEdit, onDelete 
 
   return (
     <>
-      <Table>
+      <Table className="min-w-[72rem]">
         <TableHeader>
           <TableRow className="hover:bg-transparent border-b border-border">
             <TableHead className="p-2 align-middle">

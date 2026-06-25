@@ -7,8 +7,11 @@ import { supabase } from "@/lib/supabase";
 import {
   DEFAULT_WORK_ORDER_STAGE,
   isOrderStatusLockedForManualEdit,
+  normalizeWorkOrderStage,
   plannedEndDateFromOrderDelivery,
   syncWorkOrdersToOrderStatus,
+  WORK_ORDER_STAGES,
+  type WorkOrderStage,
 } from "@/lib/work-order-stages";
 import { DEFAULT_SEAT_HEIGHT_CM } from "@/lib/product-seat-height";
 import { Badge } from "@/components/ui/badge";
@@ -151,6 +154,17 @@ interface OrderItemInput {
   wood_type?: string | null;
   /** 編輯訂單時：本次表單新增的明細列（可調價）；既有列僅能透過重選規格更新價格 */
   isNewLine?: boolean;
+  /** 對應 work_orders.stage */
+  work_order_stage?: WorkOrderStage;
+  /** 對應 work_orders.assignee_id（employees.id） */
+  work_order_assignee_id?: string | null;
+  /** 對應 work_orders.planned_end_date */
+  work_order_planned_end_date?: string | null;
+}
+
+interface EmployeeOption {
+  id: string;
+  name: string;
 }
 
 type OrdersPageMode = "all" | "quotation" | "order";
@@ -446,6 +460,7 @@ function OrderFormDialog({
   const [seriesDiscounts, setSeriesDiscounts] = useState<
     Record<string, { channel_id: string; discount_percent: number }[]>
   >({});
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   /** 用於品項總額變動時同步「折扣後總金額」；從 props 載入表單時須重設，否則會沿用上一筆對話的總計造成 delta 錯誤 */
   const prevTotalAmountRef = useRef<number | null>(null);
   const [items, setItems] = useState<OrderItemInput[]>(
@@ -462,9 +477,34 @@ function OrderFormDialog({
             kind: "variant",
             wood_type: null,
             seat_height_cm: null,
+            work_order_stage: DEFAULT_WORK_ORDER_STAGE,
+            work_order_assignee_id: null,
+            work_order_planned_end_date: null,
           },
         ]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadEmployees() {
+      const { data } = await supabase
+        .from("employees")
+        .select("id, name")
+        .order("name", { ascending: true });
+      if (!cancelled) {
+        setEmployees(
+          ((data ?? []) as { id: string; name?: string }[]).map((e) => ({
+            id: String(e.id),
+            name: String(e.name ?? ""),
+          }))
+        );
+      }
+    }
+    void loadEmployees();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 讀取系列 x 通路折扣（表單掛載時載入一次即可）
   useEffect(() => {
@@ -556,6 +596,9 @@ function OrderFormDialog({
         kind: "variant",
         wood_type: null,
         seat_height_cm: null,
+        work_order_stage: DEFAULT_WORK_ORDER_STAGE,
+        work_order_assignee_id: null,
+        work_order_planned_end_date: null,
       },
     ]);
     prevTotalAmountRef.current = null;
@@ -904,6 +947,9 @@ function OrderFormDialog({
         wood_type: null,
         seat_height_cm: null,
         isNewLine: isEdit,
+        work_order_stage: DEFAULT_WORK_ORDER_STAGE,
+        work_order_assignee_id: null,
+        work_order_planned_end_date: null,
       },
       ...prev,
     ]);
@@ -998,7 +1044,15 @@ function OrderFormDialog({
           toast.error(error.message || "更新訂單失敗");
           return;
         }
-        // 先清空舊明細
+        // 先清空舊明細（連帶刪除工單，再以表單內容重建並保留工序／負責人）
+        const { data: existingItems } = await supabase
+          .from("order_items")
+          .select("id")
+          .eq("order_id", orderId);
+        const existingIds = (existingItems ?? []).map((x: { id: string }) => x.id);
+        if (existingIds.length > 0) {
+          await supabase.from("work_orders").delete().in("order_item_id", existingIds);
+        }
         await supabase.from("order_items").delete().eq("order_id", orderId);
       }
 
@@ -1071,12 +1125,21 @@ function OrderFormDialog({
       // 依照 order_items 自動建立工單（work_orders）
       const plannedFromDelivery = plannedEndDateFromOrderDelivery(expectedDate);
       const workOrderPayload =
-        (insertedItems ?? []).map((row: any) => ({
-          order_item_id: row.id,
-          stage: DEFAULT_WORK_ORDER_STAGE,
-          status: "未開始",
-          planned_end_date: plannedFromDelivery,
-        })) ?? [];
+        (insertedItems ?? []).map((row: { id: string }, index: number) => {
+          const it = validItems[index];
+          const stage = it?.work_order_stage
+            ? normalizeWorkOrderStage(it.work_order_stage)
+            : DEFAULT_WORK_ORDER_STAGE;
+          const plannedEnd =
+            it?.work_order_planned_end_date?.trim() || plannedFromDelivery;
+          return {
+            order_item_id: row.id,
+            stage,
+            status: "未開始",
+            planned_end_date: plannedEnd,
+            assignee_id: it?.work_order_assignee_id?.trim() || null,
+          };
+        }) ?? [];
       if (workOrderPayload.length > 0) {
         const { error: woError } = await supabase
           .from("work_orders")
@@ -2379,6 +2442,72 @@ function OrderFormDialog({
                           </div>
                         </>
                       )}
+                      <div className="grid grid-cols-1 gap-3 border-t border-[#625E55]/10 pt-3 sm:grid-cols-2">
+                        <div className="flex flex-col gap-1.5">
+                          <label
+                            className="text-xs text-muted-foreground"
+                            htmlFor={`item-stage-${it.id}`}
+                          >
+                            工序
+                          </label>
+                          {readOnly ? (
+                            <div className={viewFieldClass}>
+                              {it.work_order_stage ?? DEFAULT_WORK_ORDER_STAGE}
+                            </div>
+                          ) : (
+                            <select
+                              id={`item-stage-${it.id}`}
+                              value={it.work_order_stage ?? DEFAULT_WORK_ORDER_STAGE}
+                              onChange={(e) =>
+                                updateItem(it.id, {
+                                  work_order_stage: e.target.value as WorkOrderStage,
+                                })
+                              }
+                              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            >
+                              {WORK_ORDER_STAGES.map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label
+                            className="text-xs text-muted-foreground"
+                            htmlFor={`item-assignee-${it.id}`}
+                          >
+                            負責人
+                          </label>
+                          {readOnly ? (
+                            <div className={viewFieldClass}>
+                              {it.work_order_assignee_id
+                                ? employees.find((e) => e.id === it.work_order_assignee_id)
+                                    ?.name ?? "—"
+                                : "未指派"}
+                            </div>
+                          ) : (
+                            <select
+                              id={`item-assignee-${it.id}`}
+                              value={it.work_order_assignee_id ?? ""}
+                              onChange={(e) =>
+                                updateItem(it.id, {
+                                  work_order_assignee_id: e.target.value || null,
+                                })
+                              }
+                              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            >
+                              <option value="">未指派</option>
+                              {employees.map((emp) => (
+                                <option key={emp.id} value={emp.id}>
+                                  {emp.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      </div>
                       <p className="text-xs text-[#7D7767] text-right">
                         小計：{" "}
                         <span className="font-semibold text-[#625E55]">
@@ -3121,6 +3250,11 @@ export function OrdersPage({
         image_url,
         wood_type,
         seat_height_cm,
+        work_orders (
+          stage,
+          assignee_id,
+          planned_end_date
+        ),
         product_variants (
           series_id,
           base_price,
@@ -3199,6 +3333,13 @@ export function OrdersPage({
           ? Number(pv.seat_height_cm)
           : null;
 
+      const woRaw = d.work_orders as
+        | { stage?: string; assignee_id?: string | null; planned_end_date?: string | null }
+        | { stage?: string; assignee_id?: string | null; planned_end_date?: string | null }[]
+        | null
+        | undefined;
+      const wo = Array.isArray(woRaw) ? woRaw[0] : woRaw;
+
       return {
         id: d.id ? String(d.id) : `item-${idx}`,
         variant_id: d.variant_id ? String(d.variant_id) : "",
@@ -3228,6 +3369,15 @@ export function OrdersPage({
         seat_height_cm: seatH,
         image_url: d.image_url ?? null,
         wood_type: d.wood_type != null && String(d.wood_type).trim() !== "" ? String(d.wood_type) : null,
+        work_order_stage: normalizeWorkOrderStage(wo?.stage),
+        work_order_assignee_id:
+          wo?.assignee_id != null && String(wo.assignee_id).trim()
+            ? String(wo.assignee_id)
+            : null,
+        work_order_planned_end_date:
+          wo?.planned_end_date != null && String(wo.planned_end_date).trim()
+            ? String(wo.planned_end_date).slice(0, 10)
+            : null,
       };
     });
     setEditingOrder(order);
@@ -3444,26 +3594,15 @@ export function OrdersPage({
       )
       }
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <Table className="table-fixed">
-          <colgroup>
-            <col className="w-[9.6%]" />
-            <col className="hidden sm:table-column w-[10%]" />
-            <col className="w-[18%]" />
-            <col className="hidden sm:table-column w-[13%]" />
-            <col className="hidden sm:table-column w-[10%]" />
-            <col className="hidden sm:table-column w-[10%]" />
-            <col className="hidden sm:table-column w-[6.4%]" />
-            <col className="w-[8.1%]" />
-            <col className="w-[12%]" />
-          </colgroup>
+      <div className="rounded-xl border border-border bg-card overflow-x-auto">
+        <Table className="min-w-[52rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors">
                 <OrderSortHeader label="編號" sortKey="order_number" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("order_date")}
                 title="點擊排序"
               >
@@ -3477,28 +3616,28 @@ export function OrdersPage({
                 <OrderSortHeader label="客戶" sortKey="customer_name" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("expected_delivery_date")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="交期" sortKey="expected_delivery_date" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("status")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="狀態" sortKey="status" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold hidden sm:table-cell cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("payment_status")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="付款" sortKey="payment_status" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold hidden sm:table-cell text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="px-1.5 text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("deposit_amount")}
                 title="點擊排序"
               >
@@ -3551,7 +3690,7 @@ export function OrdersPage({
                       {order.order_number ? order.order_number.replace(/^ORD-/i, "") : "—"}
                     </button>
                   </TableCell>
-                  <TableCell className="px-1.5 text-sm text-muted-foreground hidden sm:table-cell tabular-nums">
+                  <TableCell className="px-1.5 text-sm text-muted-foreground tabular-nums">
                     {order.order_date ? order.order_date.replace(/-/g, "/") : "—"}
                   </TableCell>
                   <TableCell className="px-1.5 text-sm whitespace-normal">
@@ -3579,7 +3718,7 @@ export function OrdersPage({
                       ) : null}
                     </div>
                   </TableCell>
-                  <TableCell className="px-1.5 text-sm hidden sm:table-cell">
+                  <TableCell className="px-1.5 text-sm">
                     {rowReadOnly ? (
                       <span className="text-muted-foreground tabular-nums">
                         {order.expected_delivery_date
@@ -3603,7 +3742,7 @@ export function OrdersPage({
                       />
                     )}
                   </TableCell>
-                  <TableCell className="px-1.5 text-sm hidden sm:table-cell">
+                  <TableCell className="px-1.5 text-sm">
                     {rowReadOnly ||
                     isOrderStatusLockedForManualEdit(order.status) ? (
                       <StatusBadge status={order.status} />
@@ -3634,7 +3773,7 @@ export function OrdersPage({
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="px-1.5 text-sm hidden sm:table-cell">
+                  <TableCell className="px-1.5 text-sm">
                     {rowReadOnly ? (
                       <Badge
                         variant="outline"
@@ -3669,7 +3808,7 @@ export function OrdersPage({
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="px-1.5 text-right text-sm tabular-nums hidden sm:table-cell">
+                  <TableCell className="px-1.5 text-right text-sm tabular-nums">
                     {order.deposit_amount
                       ? order.deposit_amount.toLocaleString()
                       : "—"}

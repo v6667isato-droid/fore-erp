@@ -526,21 +526,23 @@ export default function ChannelOrdersPage() {
 
           {!loading && orders.length > 0 && (
             <div className="mt-4 flex flex-col gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
-              <div className="text-sm text-foreground space-y-1">
-                <div>
-                  <span className="font-medium tabular-nums">{settlement.count}</span>
-                  <span className="text-muted-foreground"> 筆 · 應收合計 </span>
-                  <span className="font-semibold tabular-nums">${settlement.sum.toLocaleString()}</span>
-                </div>
-                <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5">
-                  <span>
-                    已結清 <span className="font-medium text-foreground tabular-nums">${settlement.settledSum.toLocaleString()}</span>
-                    <span className="tabular-nums">（{settlement.settledCount} 筆）</span>
-                  </span>
-                  <span>
-                    未結清 <span className="font-medium text-foreground tabular-nums">${settlement.pendingSum.toLocaleString()}</span>
-                    <span className="tabular-nums">（{settlement.pendingCount} 筆）</span>
-                  </span>
+              <div className="min-w-0 overflow-x-auto text-sm text-foreground">
+                <div className="w-max min-w-full space-y-1 pr-1 sm:w-auto">
+                  <div className="shrink-0 whitespace-nowrap">
+                    <span className="font-medium tabular-nums">{settlement.count}</span>
+                    <span className="text-muted-foreground"> 筆 · 應收合計 </span>
+                    <span className="font-semibold tabular-nums">${settlement.sum.toLocaleString()}</span>
+                  </div>
+                  <div className="flex w-max min-w-full gap-x-4 text-xs text-muted-foreground sm:flex-wrap sm:w-auto">
+                    <span className="shrink-0 whitespace-nowrap">
+                      已結清 <span className="font-medium text-foreground tabular-nums">${settlement.settledSum.toLocaleString()}</span>
+                      <span className="tabular-nums">（{settlement.settledCount} 筆）</span>
+                    </span>
+                    <span className="shrink-0 whitespace-nowrap">
+                      未結清 <span className="font-medium text-foreground tabular-nums">${settlement.pendingSum.toLocaleString()}</span>
+                      <span className="tabular-nums">（{settlement.pendingCount} 筆）</span>
+                    </span>
+                  </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground pt-0.5">
                   以上統計依目前列表篩選結果（含搜尋、訂單狀態、結算日期、付款）。
@@ -564,34 +566,34 @@ export default function ChannelOrdersPage() {
           ) : orders.length === 0 ? (
             <p className="text-sm text-muted-foreground mt-4">尚無訂單紀錄</p>
           ) : (
-            <div className="overflow-x-auto mt-4">
-              <table className="w-full text-sm">
+            <div className="overflow-x-auto mt-4 rounded-md border border-border/80">
+              <table className="w-full min-w-[52rem] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="pb-2 pr-3 font-medium">
+                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
                       <SortHeader label="訂單編號" sortKey="order_number" />
                     </th>
-                    <th className="pb-2 pr-3 font-medium">
+                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
                       <SortHeader label="下單日" sortKey="order_date" />
                     </th>
-                    <th className="pb-2 pr-3 font-medium min-w-[7rem]">
+                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
                       <SortHeader label="客戶" sortKey="customer_name" />
                     </th>
-                    <th className="pb-2 pr-3 font-medium">聯絡人</th>
-                    <th className="pb-2 pr-3 font-medium">備註</th>
-                    <th className="pb-2 pr-3 font-medium whitespace-nowrap">
+                    <th className="pb-2 px-2 font-medium whitespace-nowrap">聯絡人</th>
+                    <th className="pb-2 px-2 font-medium whitespace-nowrap">備註</th>
+                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
                       <SortHeader label="預計交貨" sortKey="expected_delivery_date" />
                     </th>
-                    <th className="pb-2 pr-3 font-medium whitespace-nowrap">
+                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
                       <SortHeader label="預計完成" sortKey="planned_end_max" />
                     </th>
-                    <th className="pb-2 pr-3 font-medium">
+                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
                       <SortHeader label="狀態" sortKey="status" />
                     </th>
-                    <th className="pb-2 pr-3 font-medium whitespace-nowrap">
+                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
                       <SortHeader label="付款" sortKey="payment_status" />
                     </th>
-                    <th className="pb-2 pr-2 text-right font-medium whitespace-nowrap">
+                    <th className="pb-2 px-2 text-right font-medium whitespace-nowrap">
                       <SortHeader label="金額" sortKey="total_amount" />
                     </th>
                   </tr>
@@ -599,7 +601,7 @@ export default function ChannelOrdersPage() {
                 <tbody>
                   {filteredSorted.map((o) => (
                     <tr key={o.id} className="border-b border-border/60">
-                      <td className="py-2.5 pr-3 font-mono text-sm">
+                      <td className="py-2.5 px-2 font-mono text-sm whitespace-nowrap">
                         <button
                           type="button"
                           onClick={() => setOverviewOrderId(o.id)}
@@ -608,42 +610,34 @@ export default function ChannelOrdersPage() {
                           {o.order_number}
                         </button>
                       </td>
-                      <td className="py-2.5 pr-3 text-muted-foreground tabular-nums whitespace-nowrap">
+                      <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
                         {o.order_date ? formatDateYyMmDd(o.order_date) : "—"}
                       </td>
-                      <td className="py-2.5 pr-3 text-foreground max-w-[12rem]">
-                        <div className="truncate font-medium" title={o.customer_name || undefined}>
-                          {o.customer_name?.trim() || "—"}
-                        </div>
+                      <td className="py-2.5 px-2 text-foreground whitespace-nowrap">
+                        <span className="font-medium">{o.customer_name?.trim() || "—"}</span>
                         {o.customer_alias?.trim() ? (
-                          <div className="truncate text-xs text-muted-foreground" title={o.customer_alias}>
+                          <span className="ml-1 text-xs text-muted-foreground">
                             ({o.customer_alias})
-                          </div>
+                          </span>
                         ) : null}
                       </td>
-                      <td
-                        className="py-2.5 pr-3 text-muted-foreground max-w-[8rem] truncate"
-                        title={o.contact_person ?? undefined}
-                      >
+                      <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">
                         {o.contact_person?.trim() || "—"}
                       </td>
-                      <td
-                        className="py-2.5 pr-3 text-muted-foreground max-w-[10rem] truncate"
-                        title={o.notes ?? undefined}
-                      >
+                      <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">
                         {o.notes?.trim() || "—"}
                       </td>
-                      <td className="py-2.5 pr-3 text-muted-foreground tabular-nums whitespace-nowrap">
+                      <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
                         {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}
                       </td>
-                      <td className="py-2.5 pr-3 text-muted-foreground tabular-nums whitespace-nowrap">
+                      <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
                         {o.planned_end_max ? formatDateYyMmDd(o.planned_end_max) : "—"}
                       </td>
-                      <td className="py-2.5 pr-3 text-muted-foreground">{o.status}</td>
-                      <td className="py-2.5 pr-3 text-muted-foreground whitespace-nowrap text-xs">
+                      <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">{o.status}</td>
+                      <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap text-xs">
                         {o.payment_status}
                       </td>
-                      <td className="py-2.5 pr-2 text-right font-medium text-foreground tabular-nums whitespace-nowrap">
+                      <td className="py-2.5 px-2 text-right font-medium text-foreground tabular-nums whitespace-nowrap">
                         ${o.total_amount.toLocaleString()}
                       </td>
                     </tr>

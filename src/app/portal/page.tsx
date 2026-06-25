@@ -1727,25 +1727,25 @@ export default function PortalPage() {
               </div>
 
               <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                <div className="text-sm text-foreground space-y-1">
-                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <span>
+                <div className="min-w-0 overflow-x-auto text-sm text-foreground">
+                  <div className="flex w-max min-w-full items-baseline gap-x-4 gap-y-1 pr-1 sm:flex-wrap sm:w-auto">
+                    <span className="shrink-0 whitespace-nowrap">
                       <span className="font-medium tabular-nums">{portalSettlementTotals.count}</span>
                       <span className="text-muted-foreground"> 筆</span>
                     </span>
-                    <span>
+                    <span className="shrink-0 whitespace-nowrap">
                       <span className="text-muted-foreground">牌價（含運）</span>{" "}
                       <span className="font-semibold tabular-nums">
                         ${portalSettlementTotals.listSum.toLocaleString()}
                       </span>
                     </span>
-                    <span>
+                    <span className="shrink-0 whitespace-nowrap">
                       <span className="text-muted-foreground">通路價（含運）</span>{" "}
                       <span className="font-semibold tabular-nums">
                         ${portalSettlementTotals.sum.toLocaleString()}
                       </span>
                     </span>
-                    <span>
+                    <span className="shrink-0 whitespace-nowrap">
                       <span className="text-muted-foreground">利潤（牌價−通路價）</span>{" "}
                       <span className="font-semibold tabular-nums">
                         ${portalSettlementTotals.profitSum.toLocaleString()}
@@ -1780,50 +1780,38 @@ export default function PortalPage() {
                   />
                 </div>
               </div>
-              <div className="rounded-md border border-border/80 overflow-hidden">
-                <table className="w-full table-fixed border-collapse text-sm leading-snug">
-                  <colgroup>
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col />
-                    <col className="w-[16%]" />
-                    <col className="w-[56px]" />
-                    <col />
-                    <col />
-                    <col className="w-[84px]" />
-                  </colgroup>
+              <div className="rounded-md border border-border/80 overflow-x-auto">
+                <table className="w-full min-w-[52rem] border-collapse text-sm leading-snug">
                   <thead>
                     <tr className="border-b border-border bg-muted/30 text-left">
-                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
+                      <th className="whitespace-nowrap px-2 py-2 align-bottom">
                         <MyOrderSortHeader label="訂單號" sortKey="order_number" />
                       </th>
-                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
+                      <th className="whitespace-nowrap px-2 py-2 align-bottom">
                         <MyOrderSortHeader label="下單日" sortKey="order_date" />
                       </th>
-                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom min-w-0">
+                      <th className="whitespace-nowrap px-2 py-2 align-bottom">
                         <MyOrderSortHeader label="聯絡人" sortKey="contact_name" />
                       </th>
-                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
+                      <th className="whitespace-nowrap px-2 py-2 align-bottom">
                         <MyOrderSortHeader label="需求日" sortKey="expected_delivery_date" />
                       </th>
-                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
+                      <th className="whitespace-nowrap px-2 py-2 align-bottom">
                         <MyOrderSortHeader label="製作完成日" sortKey="planned_end_max" />
                       </th>
-                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
+                      <th className="whitespace-nowrap px-2 py-2 align-bottom">
                         <MyOrderSortHeader label="狀態" sortKey="status" />
                       </th>
-                      <th className="whitespace-nowrap px-1 py-1.5 align-bottom">
+                      <th className="whitespace-nowrap px-2 py-2 align-bottom">
                         <MyOrderSortHeader label="付款" sortKey="payment_status" />
                       </th>
-                      <th className="whitespace-nowrap px-1 py-1.5 text-right align-bottom">
+                      <th className="whitespace-nowrap px-2 py-2 text-right align-bottom">
                         <MyOrderSortHeader label="牌價" sortKey="list_grand" align="right" />
                       </th>
-                      <th className="whitespace-nowrap px-1 py-1.5 text-right align-bottom">
+                      <th className="whitespace-nowrap px-2 py-2 text-right align-bottom">
                         <MyOrderSortHeader label="通路價" sortKey="total_amount" align="right" />
                       </th>
-                      <th className="w-[84px] whitespace-nowrap px-0.5 py-1.5 text-center align-bottom text-sm font-medium text-muted-foreground">
+                      <th className="whitespace-nowrap px-2 py-2 text-center align-bottom text-sm font-medium text-muted-foreground">
                         操作
                       </th>
                     </tr>
@@ -1831,28 +1819,26 @@ export default function PortalPage() {
                   <tbody>
                     {myOrdersFilteredSorted.map((o) => (
                       <tr key={o.id} className="border-b border-border/60">
-                        <td className="min-w-0 px-1 py-1 align-middle font-mono text-sm text-foreground">
-                          <span className="block truncate" title={o.order_number}>
-                            {o.order_number}
-                          </span>
+                        <td className="px-2 py-2 align-middle font-mono text-sm text-foreground whitespace-nowrap">
+                          {o.order_number}
                         </td>
-                        <td className="px-1 py-1 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
+                        <td className="px-2 py-2 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
                           {o.order_date ? formatDateYyMmDd(o.order_date) : "—"}
                         </td>
                         <td
-                          className="min-w-0 max-w-0 px-1 py-1 align-middle text-sm text-foreground"
+                          className="px-2 py-2 align-middle text-sm text-foreground whitespace-nowrap"
                           title={o.shipping_contact_name ?? undefined}
                         >
-                          <span className="block truncate">{o.shipping_contact_name?.trim() || "—"}</span>
+                          {o.shipping_contact_name?.trim() || "—"}
                         </td>
-                        <td className="px-1 py-1 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
+                        <td className="px-2 py-2 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
                           {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}
                         </td>
-                        <td className="min-w-0 px-1 py-1 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
+                        <td className="px-2 py-2 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
                           {o.planned_end_max ? (
                             formatDateYyMmDd(o.planned_end_max)
                           ) : o.expected_delivery_date ? (
-                            <span className="block truncate" title={`${formatDateYyMmDd(o.expected_delivery_date)}（預計交貨備援）`}>
+                            <span title={`${formatDateYyMmDd(o.expected_delivery_date)}（預計交貨備援）`}>
                               {formatDateYyMmDd(o.expected_delivery_date)}
                               <span className="text-muted-foreground"> ※</span>
                             </span>
@@ -1860,7 +1846,7 @@ export default function PortalPage() {
                             "—"
                           )}
                         </td>
-                        <td className="min-w-0 px-1 py-1 align-middle whitespace-nowrap">
+                        <td className="px-2 py-2 align-middle whitespace-nowrap">
                           <span className={portalStatusColor(o.status)} title={o.status}>
                             {o.status}
                           </span>
@@ -1870,18 +1856,16 @@ export default function PortalPage() {
                             </span>
                           ) : null}
                         </td>
-                        <td className="min-w-0 px-1 py-1 align-middle text-muted-foreground whitespace-nowrap">
-                          <span className="block truncate" title={o.payment_status ?? undefined}>
-                            {o.payment_status || "—"}
-                          </span>
+                        <td className="px-2 py-2 align-middle text-muted-foreground whitespace-nowrap">
+                          {o.payment_status || "—"}
                         </td>
-                        <td className="px-1 py-1 align-middle text-right tabular-nums text-muted-foreground whitespace-nowrap">
+                        <td className="px-2 py-2 align-middle text-right tabular-nums text-muted-foreground whitespace-nowrap">
                           ${o.list_grand.toLocaleString()}
                         </td>
-                        <td className="px-1 py-1 align-middle text-right tabular-nums text-muted-foreground whitespace-nowrap">
+                        <td className="px-2 py-2 align-middle text-right tabular-nums text-muted-foreground whitespace-nowrap">
                           ${o.total_amount.toLocaleString()}
                         </td>
-                        <td className="w-[84px] px-0 py-1 align-middle">
+                        <td className="px-1 py-2 align-middle whitespace-nowrap">
                           <div className="flex flex-nowrap items-center justify-center gap-0">
                             <Button
                               type="button"

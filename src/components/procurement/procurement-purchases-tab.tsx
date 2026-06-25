@@ -483,7 +483,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
         </div>
       </ProcurementSummaryCard>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-xl border border-border bg-card overflow-x-auto">
         <ProcurementFilters
           filterYear={filterYear}
           filterMonth={filterMonth}

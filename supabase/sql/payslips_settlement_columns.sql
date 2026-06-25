@@ -32,6 +32,7 @@ ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS overtime_days numeric NOT N
 ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS special_leave_days_settled numeric NOT NULL DEFAULT 0;
 ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS leave_days numeric NOT NULL DEFAULT 0;
 ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS other_adjust numeric NOT NULL DEFAULT 0;
+ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS payroll_bonus numeric NOT NULL DEFAULT 0;
 
 ALTER TABLE public.payslips ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
 
@@ -51,5 +52,6 @@ COMMENT ON COLUMN public.payslips.health_insured_persons IS '健保加保人數�
 COMMENT ON COLUMN public.payslips.overtime_days IS '加班天數';
 COMMENT ON COLUMN public.payslips.special_leave_days_settled IS '本月核准特休天數（自餘額扣）';
 COMMENT ON COLUMN public.payslips.leave_days IS '結算月內事假／病假等計薪天數（扣款依據）';
-COMMENT ON COLUMN public.payslips.other_adjust IS '其他加減項（可正可負）';
+COMMENT ON COLUMN public.payslips.other_adjust IS '其他加減項（可正可負；不含考績獎金）';
+COMMENT ON COLUMN public.payslips.payroll_bonus IS '考績／分潤／股份等獎金（發放快照）';
 COMMENT ON COLUMN public.payslips.created_at IS '建立時間';

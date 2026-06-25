@@ -10,7 +10,10 @@ function Table({
 }: React.ComponentProps<"table"> & { wrapperClassName?: string }) {
   return (
     <div className={cn("relative w-full overflow-x-auto", wrapperClassName)}>
-      <table className={cn("w-full caption-bottom text-sm", className)} {...props} />
+      <table
+        className={cn("w-full min-w-max caption-bottom text-sm", className)}
+        {...props}
+      />
     </div>
   );
 }

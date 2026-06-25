@@ -1258,8 +1258,8 @@ export default function EmployeePortalPage() {
                       {assignee_work_orders.length === 0 ? (
                         <p className="text-sm text-muted-foreground">目前沒有以您為負責人的工單。</p>
                       ) : (
-                        <div className="rounded-xl border border-border/70 bg-card/40 overflow-hidden">
-                          <Table>
+                        <div className="overflow-x-auto rounded-xl border border-border/70 bg-card/40">
+                          <Table className="min-w-[44rem]">
                             <TableHeader>
                               <TableRow className="hover:bg-transparent border-border/60">
                                 <TableHead className="text-xs font-semibold whitespace-nowrap min-w-[7rem]">
@@ -1274,7 +1274,7 @@ export default function EmployeePortalPage() {
                                 <TableHead className="text-xs font-semibold text-right whitespace-nowrap w-[3.5rem]">
                                   數量
                                 </TableHead>
-                                <TableHead className="text-xs font-semibold hidden sm:table-cell min-w-[3.5rem]">
+                                <TableHead className="text-xs font-semibold whitespace-nowrap min-w-[3.5rem]">
                                   <WoSortHeader label="類別" sortKey="category" />
                                 </TableHead>
                                 <TableHead className="text-xs font-semibold whitespace-nowrap min-w-[7rem]">
@@ -1315,7 +1315,7 @@ export default function EmployeePortalPage() {
                                     <TableCell className="p-2 align-middle text-sm text-right tabular-nums">
                                       {Number.isFinite(wo.quantity) && wo.quantity > 0 ? wo.quantity : "—"}
                                     </TableCell>
-                                    <TableCell className="p-2 align-middle text-sm text-muted-foreground hidden sm:table-cell">
+                                    <TableCell className="p-2 align-middle text-sm text-muted-foreground whitespace-nowrap">
                                       {wo.category?.trim() || "—"}
                                     </TableCell>
                                     <TableCell className="p-2 align-middle">
@@ -1605,8 +1605,8 @@ export default function EmployeePortalPage() {
                   尚無薪資單紀錄
                 </p>
               ) : (
-                <div className="overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm">
-                  <table className="w-full min-w-0 text-xs sm:text-sm">
+                <div className="overflow-x-auto rounded-lg border border-border/80 bg-card shadow-sm">
+                  <table className="w-full min-w-[20rem] text-xs sm:text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/30 text-left text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
                         <th className="min-w-0 px-2 py-1.5 font-medium normal-case sm:px-2.5 sm:py-2">

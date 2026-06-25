@@ -808,7 +808,7 @@ export function LeaveApprovalsPage() {
                   : "尚無已核准或已退回的假單紀錄。"}
               </p>
             ) : (
-              <Table>
+              <Table className="min-w-[42rem]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
                     <TableHead className="text-xs font-semibold">員工</TableHead>

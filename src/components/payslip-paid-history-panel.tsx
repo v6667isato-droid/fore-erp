@@ -16,8 +16,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { Eye, Receipt, RefreshCw } from "lucide-react";
+import { Eye, Loader2, Receipt, RefreshCw, Trash2 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { parsePayrollBonusFromNotes } from "@/lib/performance-bonus-payroll";
+import { toast } from "sonner";
 
 function ymNow(): string {
   const d = new Date();
@@ -51,6 +53,8 @@ interface PaidSlipRow {
   overtime_days: number;
   /** 發放時寫入之加班費（含費率×天數；轉補休時為 0） */
   bonus_and_overtime: number;
+  /** 考績／分潤／股份獎金 */
+  payroll_bonus: number;
   other_adjust: number;
   net_pay: number;
   status: string;
@@ -80,6 +84,21 @@ function mapRawToPaidSlipRow(
       ? Math.max(0, Math.trunc(num(healthInsuredRaw)))
       : null;
 
+  const notesStr =
+    typeof r.notes === "string" && r.notes.trim() ? r.notes.trim() : null;
+  const payrollBonusRaw = r.payroll_bonus;
+  const hasPayrollBonusCol =
+    payrollBonusRaw != null &&
+    payrollBonusRaw !== "" &&
+    Number.isFinite(Number(payrollBonusRaw));
+  const payroll_bonus = hasPayrollBonusCol
+    ? num(payrollBonusRaw, 0)
+    : parsePayrollBonusFromNotes(notesStr);
+  const otherAdjustStored = num(r.other_adjust, 0);
+  const other_adjust = hasPayrollBonusCol
+    ? otherAdjustStored
+    : Math.max(0, otherAdjustStored - payroll_bonus);
+
   return {
     id: String(r.id ?? ""),
     employee_id: String(r.employee_id ?? ""),
@@ -98,13 +117,18 @@ function mapRawToPaidSlipRow(
     special_leave_days_settled: num(r.special_leave_days_settled, 0),
     overtime_days: num(r.overtime_days, 0),
     bonus_and_overtime: num(r.bonus_and_overtime, 0),
-    other_adjust: num(r.other_adjust, 0),
+    payroll_bonus,
+    other_adjust,
     net_pay: num(r.net_pay ?? r.net_salary, 0),
     status: String(r.status ?? ""),
     created_at: r.created_at != null ? String(r.created_at) : null,
-    notes:
-      typeof r.notes === "string" && r.notes.trim() ? r.notes.trim() : null,
+    notes: notesStr,
   };
+}
+
+function formatBonus(amount: number, compact: boolean): string {
+  if (amount === 0) return "—";
+  return formatMoney(amount, compact);
 }
 
 function formatMoney(amount: number, compact: boolean): string {
@@ -196,6 +220,7 @@ export function PayslipPaidHistoryPanel() {
     name: string;
     text: string;
   }>({ open: false, name: "", text: "" });
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const monthLabel = useMemo(() => {
     const [y, m] = filterMonth.split("-").map((x) => Number(x));
@@ -222,6 +247,7 @@ export function PayslipPaidHistoryPanel() {
         net_pay,
         net_salary,
         bonus_and_overtime,
+        payroll_bonus,
         other_adjust,
         ${PAYSLIP_DETAIL_SELECT},
         status,
@@ -248,7 +274,7 @@ export function PayslipPaidHistoryPanel() {
         let q2 = supabase
           .from("payslips")
           .select(
-            `id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, bonus_and_overtime, other_adjust, ${PAYSLIP_DETAIL_SELECT}, status, created_at, notes`,
+            `id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, bonus_and_overtime, payroll_bonus, other_adjust, ${PAYSLIP_DETAIL_SELECT}, status, created_at, notes`,
           )
           .order("created_at", { ascending: false });
         if (!showAllMonths) {
@@ -258,20 +284,38 @@ export function PayslipPaidHistoryPanel() {
 
         if (r2.error) {
           if (/column|does not exist/i.test(r2.error.message ?? "")) {
-            let q3 = supabase
+            let q2b = supabase
               .from("payslips")
               .select(
-                "id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, status, created_at, notes",
+                `id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, bonus_and_overtime, other_adjust, ${PAYSLIP_DETAIL_SELECT}, status, created_at, notes`,
               )
               .order("created_at", { ascending: false });
             if (!showAllMonths) {
-              q3 = q3.eq("period_key", filterMonth);
+              q2b = q2b.eq("period_key", filterMonth);
             }
-            const r3 = await q3;
-            if (r3.error) {
-              err = r3.error;
+            const r2b = await q2b;
+
+            if (!r2b.error) {
+              data = r2b.data as Record<string, unknown>[];
             } else {
-              data = r3.data as Record<string, unknown>[];
+              let q3 = supabase
+                .from("payslips")
+                .select(
+                  "id, employee_id, period_key, month_label, base_salary, net_pay, net_salary, status, created_at, notes",
+                )
+                .order("created_at", { ascending: false });
+              if (!showAllMonths) {
+                q3 = q3.eq("period_key", filterMonth);
+              }
+              const r3 = await q3;
+              if (r3.error) {
+                err = r3.error;
+              } else {
+                data = r3.data as Record<string, unknown>[];
+              }
+            }
+
+            if (data) {
               const ids = [
                 ...new Set(
                   (data ?? [])
@@ -364,6 +408,90 @@ export function PayslipPaidHistoryPanel() {
     void load();
   }, [load]);
 
+  async function handleDeletePaid(row: PaidSlipRow) {
+    const periodLabel = row.month_label || row.period_key;
+    const confirmLines = [
+      `確定刪除「${row.employee_name}」${periodLabel} 的已發放薪資？`,
+      ``,
+      `實發總額：NT$ ${row.net_pay.toLocaleString("zh-TW")}`,
+    ];
+    if (row.special_leave_days_settled > 0) {
+      confirmLines.push(
+        `將還原特休餘額 +${row.special_leave_days_settled.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`,
+      );
+    }
+    confirmLines.push(``, `刪除後可至「薪資結算」重新發放該月份薪資。`);
+    if (!window.confirm(confirmLines.join("\n"))) return;
+
+    setDeletingId(row.id);
+    try {
+      const specialRestore = row.special_leave_days_settled;
+      let previousRemaining: number | null = null;
+
+      if (specialRestore > 0 && row.employee_id.trim()) {
+        const { data: emp, error: empErr } = await supabase
+          .from("employees")
+          .select("annual_leave_remaining")
+          .eq("id", row.employee_id)
+          .maybeSingle();
+
+        if (empErr) {
+          toast.error(empErr.message || "無法讀取員工特休餘額");
+          return;
+        }
+
+        const cur = (emp as { annual_leave_remaining?: unknown } | null)
+          ?.annual_leave_remaining;
+        previousRemaining =
+          cur != null && cur !== "" && Number.isFinite(Number(cur))
+            ? Number(cur)
+            : 0;
+        const restored = previousRemaining + specialRestore;
+
+        const { error: updErr } = await supabase
+          .from("employees")
+          .update({ annual_leave_remaining: restored })
+          .eq("id", row.employee_id);
+
+        if (updErr) {
+          toast.error(updErr.message || "還原特休餘額失敗，未刪除薪資紀錄");
+          return;
+        }
+      }
+
+      const { error: delErr } = await supabase
+        .from("payslips")
+        .delete()
+        .eq("id", row.id);
+
+      if (delErr) {
+        if (
+          specialRestore > 0 &&
+          previousRemaining != null &&
+          row.employee_id.trim()
+        ) {
+          const { error: rollbackErr } = await supabase
+            .from("employees")
+            .update({ annual_leave_remaining: previousRemaining })
+            .eq("id", row.employee_id);
+          if (rollbackErr) {
+            console.error(
+              "[payslip-paid-history] rollback annual_leave_remaining failed:",
+              rollbackErr,
+            );
+          }
+        }
+        toast.error(delErr.message || "刪除薪資紀錄失敗");
+        return;
+      }
+
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+      toast.success(`已刪除「${row.employee_name}」${periodLabel} 薪資紀錄`);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   function formatDateTime(iso: string | null, compact = false): string {
     if (!iso) return "—";
     const d = new Date(iso);
@@ -393,7 +521,7 @@ export function PayslipPaidHistoryPanel() {
   }
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+    <section className="overflow-x-auto rounded-xl border border-border bg-card text-card-foreground shadow-sm">
       <div className="flex flex-col gap-4 border-b border-border bg-card px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
         <div className="flex min-w-0 gap-3">
           <div
@@ -474,10 +602,7 @@ export function PayslipPaidHistoryPanel() {
             </p>
           </div>
         ) : (
-          <Table
-            wrapperClassName="overflow-visible"
-            className="max-md:min-w-[920px] md:min-w-0 md:table-fixed md:w-full"
-          >
+          <Table className="max-md:min-w-[1040px] md:min-w-0 md:table-fixed md:w-full">
             <colgroup className="hidden md:table-column-group">
               <col className="w-[4.5rem]" />
               <col className="w-[2.75rem]" />
@@ -489,9 +614,11 @@ export function PayslipPaidHistoryPanel() {
               <col className="w-[2.5rem]" />
               <col className="w-[4.25rem]" />
               <col className="w-[3rem]" />
+              <col className="w-[3rem]" />
               <col className="w-[3.75rem]" />
               <col className="w-[4.25rem]" />
               <col className="w-[2.25rem]" />
+              <col className="w-[2.5rem]" />
             </colgroup>
             <TableHeader>
               <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30 md:[&_th]:px-1.5 md:[&_th]:py-1.5 md:[&_th]:whitespace-normal">
@@ -541,6 +668,9 @@ export function PayslipPaidHistoryPanel() {
                 >
                   加班
                 </TableHead>
+                <TableHead title="考績／分潤／股份獎金" className="text-right text-xs font-semibold">
+                  獎金
+                </TableHead>
                 <TableHead title="其他調整" className="text-right text-xs font-semibold">
                   <span className="md:hidden">其他調整</span>
                   <span className="hidden md:inline">調整</span>
@@ -555,6 +685,9 @@ export function PayslipPaidHistoryPanel() {
                 </TableHead>
                 <TableHead title="出勤備註" className="text-xs font-semibold">
                   備註
+                </TableHead>
+                <TableHead title="刪除已發放紀錄" className="text-center text-xs font-semibold">
+                  操作
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -670,6 +803,14 @@ export function PayslipPaidHistoryPanel() {
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
                       <span className="md:hidden">
+                        {formatBonus(row.payroll_bonus, false)}
+                      </span>
+                      <span className="hidden md:inline">
+                        {formatBonus(row.payroll_bonus, true)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">
+                      <span className="md:hidden">
                         {formatOtherAdjust(row.other_adjust, false)}
                       </span>
                       <span className="hidden md:inline">
@@ -716,6 +857,24 @@ export function PayslipPaidHistoryPanel() {
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-8 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive md:h-7 md:w-7 md:gap-0 md:p-0"
+                        disabled={deletingId === row.id}
+                        aria-label={`刪除 ${row.employee_name} ${row.month_label || row.period_key} 已發放薪資`}
+                        title="刪除已發放紀錄"
+                        onClick={() => void handleDeletePaid(row)}
+                      >
+                        {deletingId === row.id ? (
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        )}
+                        <span className="md:hidden">刪除</span>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );
