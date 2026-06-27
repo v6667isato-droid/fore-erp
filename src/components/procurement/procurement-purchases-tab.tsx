@@ -277,6 +277,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     const resVendorName = await supabase
       .from("purchases")
       .select(`id, purchase_date, ${PURCHASE_LINE_FIELDS}, vendor_name, procurement_materials(notes), vendors(notes)`)
+      .is("deleted_at", null)
       .order("purchase_date", { ascending: false });
 
     if (!resVendorName.error && resVendorName.data) {
@@ -288,6 +289,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     const resRel = await supabase
       .from("purchases")
       .select(SELECT_WITH_VENDOR_REL)
+      .is("deleted_at", null)
       .order("purchase_date", { ascending: false });
     if (!resRel.error && resRel.data) {
       setRecords(((resRel.data ?? []) as SupabaseRowVendorRel[]).map(mapRowVendorRel));
@@ -298,6 +300,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     const res2 = await supabase
       .from("purchases")
       .select(SELECT_WITH_VENDOR_ID)
+      .is("deleted_at", null)
       .order("purchase_date", { ascending: false });
     if (!res2.error && res2.data) {
       setRecords(((res2.data ?? []) as SupabaseRowWithVendor[]).map(mapRowWithVendor));
@@ -308,6 +311,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     const fallback = await supabase
       .from("purchases")
       .select(`id, purchase_date, ${PURCHASE_LINE_FIELDS}, procurement_materials(notes)`)
+      .is("deleted_at", null)
       .order("purchase_date", { ascending: false });
 
     if (fallback.error) {
@@ -415,7 +419,10 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     if (!deleteConfirmRow) return;
     const row = deleteConfirmRow;
     setDeleteConfirmRow(null);
-    const { error } = await supabase.from("purchases").delete().eq("id", row.id);
+    const { error } = await supabase
+      .from("purchases")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", row.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
       return;

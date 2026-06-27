@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
 import { normalizeWorkOrderStage } from "@/lib/work-order-stages";
+import { useRequireAuth } from "@/lib/use-require-auth";
 import { Loader2 } from "lucide-react";
 
 /** 單一訂單明細列 */
@@ -554,6 +555,7 @@ function ChairPrintSheet({
 }
 
 export default function ChairProductionPrintPage() {
+  const { ready: authReady } = useRequireAuth();
   const [sheetDate, setSheetDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -695,8 +697,9 @@ export default function ChairProductionPrintPage() {
   }, []);
 
   useEffect(() => {
+    if (!authReady) return;
     void load();
-  }, [load]);
+  }, [authReady, load]);
 
   useEffect(() => {
     document.title = `椅子生產管理表_${sheetDate || todayYmd()}`;

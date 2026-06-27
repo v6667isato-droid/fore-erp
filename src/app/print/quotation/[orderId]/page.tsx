@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { stripSpecSuffixCodes } from '@/lib/strip-spec-suffix';
+import { useRequireAuth } from '@/lib/use-require-auth';
 
 interface PrintOrder {
   id: string;
@@ -113,6 +114,7 @@ export default function PrintQuotationPage() {
 
   const orderId =
     typeof rawOrderId === 'string' ? decodeURIComponent(rawOrderId) : undefined;
+  const { ready: authReady } = useRequireAuth();
 
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<PrintOrder | null>(null);
@@ -120,7 +122,7 @@ export default function PrintQuotationPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!orderId) return;
+    if (!orderId || !authReady) return;
 
     async function fetchData() {
       setLoading(true);
@@ -410,7 +412,7 @@ export default function PrintQuotationPage() {
     }
 
     void fetchData();
-  }, [orderId]);
+  }, [orderId, authReady]);
 
   const totals = useMemo(() => {
     if (!order) {

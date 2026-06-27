@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { AlertTriangle, ArrowBigUp, Hand } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useRequireAuth } from "@/lib/use-require-auth";
 
 interface AddressLabelOrder {
   id: string;
@@ -83,6 +84,7 @@ export default function AddressLabelPage() {
   const params = useParams<{ orderId: string }>();
   const rawOrderId = params?.orderId;
   const orderId = typeof rawOrderId === "string" ? decodeURIComponent(rawOrderId) : undefined;
+  const { ready: authReady } = useRequireAuth();
 
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<AddressLabelOrder | null>(null);
@@ -97,7 +99,7 @@ export default function AddressLabelPage() {
   const [markThisSideUp, setMarkThisSideUp] = useState(false);
 
   useEffect(() => {
-    if (!orderId) return;
+    if (!orderId || !authReady) return;
 
     async function fetchData() {
       setLoading(true);
@@ -180,7 +182,7 @@ export default function AddressLabelPage() {
     }
 
     void fetchData();
-  }, [orderId]);
+  }, [orderId, authReady]);
 
   const labels = useMemo(() => {
     if (!order || labelCount <= 0) return [];

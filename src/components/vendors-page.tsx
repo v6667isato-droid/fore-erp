@@ -117,16 +117,17 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     let { data, error } = await supabase
       .from("vendors")
       .select(VENDOR_SELECT)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     if (error) {
-      const noWebsite = await supabase.from("vendors").select(VENDOR_SELECT_NO_WEBSITE).order("created_at", { ascending: false });
+      const noWebsite = await supabase.from("vendors").select(VENDOR_SELECT_NO_WEBSITE).is("deleted_at", null).order("created_at", { ascending: false });
       if (!noWebsite.error) {
         data = (noWebsite.data ?? []) as any;
       } else {
-        const fallback: any = await supabase.from("vendors").select("id, name, main_category, contact_person, address, phone").order("id", { ascending: false });
+        const fallback: any = await supabase.from("vendors").select("id, name, main_category, contact_person, address, phone").is("deleted_at", null).order("id", { ascending: false });
         if (fallback.error) {
-          const minimal: any = await supabase.from("vendors").select("id, name, main_category").order("id", { ascending: false });
+          const minimal: any = await supabase.from("vendors").select("id, name, main_category").is("deleted_at", null).order("id", { ascending: false });
           if (minimal.error) {
             setRecords([]);
             setLoading(false);
@@ -155,7 +156,10 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     if (!deleteConfirmRow) return;
     const row = deleteConfirmRow;
     setDeleteConfirmRow(null);
-    const { error } = await supabase.from("vendors").delete().eq("id", row.id);
+    const { error } = await supabase
+      .from("vendors")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", row.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
       return;

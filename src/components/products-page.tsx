@@ -186,20 +186,20 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     let seriesData: Record<string, unknown>[] | null = null;
     let variantsData: Record<string, unknown>[] = [];
 
-    const seriesRes = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT).order("id", { ascending: true });
+    const seriesRes = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT).is("deleted_at", null).order("id", { ascending: true });
     if (seriesRes.error) {
       // 若完整欄位失敗，先嘗試只取基本欄位（仍包含 code_rule），避免因為文案欄位不存在而看不到編碼原則
       const basicRes = await supabase
         .from(TABLE_PRODUCT_SERIES)
         .select("id, name:series_name, category, notes, production_time, code_rule, website, image_url")
-        .order("id", { ascending: true });
+        .is("deleted_at", null).order("id", { ascending: true });
       if (!basicRes.error) {
         seriesData = (basicRes.data ?? []) as unknown as Record<string, unknown>[];
       } else {
         const noWebsite = await supabase
           .from(TABLE_PRODUCT_SERIES)
           .select(SERIES_SELECT_NO_WEBSITE)
-          .order("id", { ascending: true });
+          .is("deleted_at", null).order("id", { ascending: true });
         if (!noWebsite.error) {
           seriesData = (noWebsite.data ?? []) as unknown as Record<string, unknown>[];
         }
@@ -208,14 +208,14 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         const fallback = await supabase
           .from(TABLE_PRODUCT_SERIES)
           .select(SERIES_SELECT_MINIMAL)
-          .order("id", { ascending: true });
+          .is("deleted_at", null).order("id", { ascending: true });
         if (!fallback.error) {
           seriesData = (fallback.data ?? []) as unknown as Record<string, unknown>[];
         } else {
           const minimal = await supabase
             .from(TABLE_PRODUCT_SERIES)
             .select("id, name:series_name, category")
-            .order("id", { ascending: true });
+            .is("deleted_at", null).order("id", { ascending: true });
           if (!minimal.error) {
             seriesData = (minimal.data ?? []) as unknown as Record<string, unknown>[];
           } else if (/name/i.test(seriesRes.error.message ?? "")) {
@@ -223,21 +223,21 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
             const bySeriesNameFull = await supabase
               .from(TABLE_PRODUCT_SERIES)
               .select(`id, series_name, category, notes, production_time, code_rule, ${contentCols}, website, image_url`)
-              .order("id", { ascending: true });
+              .is("deleted_at", null).order("id", { ascending: true });
             if (!bySeriesNameFull.error) {
               seriesData = (bySeriesNameFull.data ?? []) as unknown as Record<string, unknown>[];
             } else {
               const bySeriesName = await supabase
                 .from(TABLE_PRODUCT_SERIES)
                 .select("id, series_name, category")
-                .order("id", { ascending: true });
+                .is("deleted_at", null).order("id", { ascending: true });
               if (!bySeriesName.error) {
                 seriesData = bySeriesName.data as Record<string, unknown>[];
               } else {
                 const altMin = await supabase
                   .from(TABLE_PRODUCT_SERIES)
                   .select("id, series_name")
-                  .order("id", { ascending: true });
+                  .is("deleted_at", null).order("id", { ascending: true });
                 if (!altMin.error) {
                   seriesData = altMin.data as Record<string, unknown>[];
                 } else {
@@ -254,9 +254,9 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       seriesData = (seriesRes.data ?? []) as unknown as Record<string, unknown>[];
     }
 
-    const variantsRes = await supabase.from(TABLE_PRODUCT_VARIANTS).select(VARIANT_SELECT);
+    const variantsRes = await supabase.from(TABLE_PRODUCT_VARIANTS).select(VARIANT_SELECT).is("deleted_at", null);
     if (variantsRes.error) {
-      const fallback = await supabase.from(TABLE_PRODUCT_VARIANTS).select(VARIANT_SELECT_MINIMAL);
+      const fallback = await supabase.from(TABLE_PRODUCT_VARIANTS).select(VARIANT_SELECT_MINIMAL).is("deleted_at", null);
       variantsData = (fallback.data ?? variantsRes.data ?? []) as Record<string, unknown>[];
     } else {
       variantsData = (variantsRes.data ?? []) as Record<string, unknown>[];
@@ -330,13 +330,19 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     setDeleteConfirmSeries(null);
     const seriesVariants = variantsBySeries[series.id] ?? [];
     for (const v of seriesVariants) {
-      const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).delete().eq("id", v.id);
+      const { error: err } = await supabase
+        .from(TABLE_PRODUCT_VARIANTS)
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", v.id);
       if (err) {
         toast.error(err.message || "刪除規格時失敗");
         return;
       }
     }
-    const { error } = await supabase.from(TABLE_PRODUCT_SERIES).delete().eq("id", series.id);
+    const { error } = await supabase
+      .from(TABLE_PRODUCT_SERIES)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", series.id);
     if (error) {
       toast.error(error.message || "刪除系列失敗");
       return;
@@ -356,7 +362,10 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     if (!deleteConfirmVariant) return;
     const v = deleteConfirmVariant;
     setDeleteConfirmVariant(null);
-    const { error } = await supabase.from(TABLE_PRODUCT_VARIANTS).delete().eq("id", v.id);
+    const { error } = await supabase
+      .from(TABLE_PRODUCT_VARIANTS)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", v.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
       return;

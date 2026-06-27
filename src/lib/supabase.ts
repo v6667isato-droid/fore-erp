@@ -1,4 +1,5 @@
 import { createClient, type AuthError, type Session } from "@supabase/supabase-js";
+import type { Database } from "@/types/database.types";
 
 const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
 const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
@@ -59,7 +60,7 @@ function consoleArgsIncludeInvalidRefresh(args: unknown[]): boolean {
 const CONSOLE_PATCH_KEY = "__foreErpSupabaseAuthConsolePatch__";
 
 /** 未設定時仍建立 client，避免 import 時崩潰；請先以 isSupabaseConfigured 判斷再發請求 */
-export const supabase = createClient(resolvedSupabaseUrl, resolvedAnonKey, {
+export const supabase = createClient<Database>(resolvedSupabaseUrl, resolvedAnonKey, {
   auth: {
     ...(authStorageKey ? { storageKey: authStorageKey } : {}),
   },

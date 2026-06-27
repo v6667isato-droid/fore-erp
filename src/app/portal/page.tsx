@@ -430,6 +430,7 @@ export default function PortalPage() {
         .from("orders")
         .select(orderSelect)
         .eq("customer_id", session.customer_id)
+        .is("deleted_at", null)
         .order("order_date", { ascending: false })
         .limit(100);
 
@@ -851,7 +852,10 @@ export default function PortalPage() {
     if (!deleteConfirmOrder) return;
     const order = deleteConfirmOrder;
     setDeleteConfirmOrder(null);
-    const { error } = await supabase.from("orders").delete().eq("id", order.id);
+    const { error } = await supabase
+      .from("orders")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", order.id);
     if (error) {
       toast.error(error.message || "刪除訂單失敗");
       return;

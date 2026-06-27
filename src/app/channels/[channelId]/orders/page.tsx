@@ -12,6 +12,7 @@ import {
   type WorkOrderPlannedWithOrderId,
 } from "@/lib/planned-end-aggregate";
 import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-payment-status";
+import { useRequireAuth } from "@/lib/use-require-auth";
 
 interface ChannelInfo {
   id: string;
@@ -79,6 +80,7 @@ function orderDateForBasis(o: ChannelOrderRow, basis: DateBasis): string | null 
 export default function ChannelOrdersPage() {
   const params = useParams<{ channelId: string }>();
   const channelId = params?.channelId ?? "";
+  const { ready: authReady } = useRequireAuth();
 
   const [channel, setChannel] = useState<ChannelInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -184,8 +186,9 @@ export default function ChannelOrdersPage() {
   }, [channelId]);
 
   useEffect(() => {
+    if (!authReady) return;
     fetchData();
-  }, [fetchData]);
+  }, [authReady, fetchData]);
 
   const filteredSorted = useMemo(() => {
     const q = search.trim().toLowerCase();

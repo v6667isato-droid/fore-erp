@@ -228,29 +228,34 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     let { data, error }: any = await supabase
       .from("customers")
       .select(CUSTOMER_SELECT)
+      .is("deleted_at", null)
       .order("id", { ascending: false });
 
     if (error) {
       let fallback: any = await supabase
         .from("customers")
         .select("id, name, phone, line_id, ig_account, address, notes, source, customer_type")
+        .is("deleted_at", null)
         .order("id", { ascending: false });
       if (fallback.error) {
         fallback = await supabase
           .from("customers")
           .select("id, name, phone, line_id, ig_account, address, notes, source")
+          .is("deleted_at", null)
           .order("id", { ascending: false });
       }
       if (fallback.error) {
         fallback = await supabase
           .from("customers")
           .select("id, name, phone, line_id, ig_account, address, notes")
+          .is("deleted_at", null)
           .order("id", { ascending: false });
       }
       if (fallback.error) {
         const minimal: any = await supabase
           .from("customers")
           .select("id, name")
+          .is("deleted_at", null)
           .order("id", { ascending: false });
         if (minimal.error) {
           setCustomers([]);
@@ -288,7 +293,10 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     if (!deleteConfirmRow) return;
     const row = deleteConfirmRow;
     setDeleteConfirmRow(null);
-    const { error } = await supabase.from("customers").delete().eq("id", row.id);
+    const { error } = await supabase
+      .from("customers")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", row.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
       return;

@@ -1615,6 +1615,7 @@ export function EmployeesPage() {
     let { data, error } = await supabase
       .from("employees")
       .select(select)
+      .is("deleted_at", null)
       .order("hire_date", { ascending: false });
 
     if (
@@ -1626,6 +1627,7 @@ export function EmployeesPage() {
       const second = await supabase
         .from("employees")
         .select(select)
+        .is("deleted_at", null)
         .order("hire_date", { ascending: false });
       data = second.data;
       error = second.error;
@@ -1640,6 +1642,7 @@ export function EmployeesPage() {
       const third = await supabase
         .from("employees")
         .select(select)
+        .is("deleted_at", null)
         .order("hire_date", { ascending: false });
       data = third.data;
       error = third.error;
@@ -1654,6 +1657,7 @@ export function EmployeesPage() {
       const fourth = await supabase
         .from("employees")
         .select(select)
+        .is("deleted_at", null)
         .order("hire_date", { ascending: false });
       data = fourth.data;
       error = fourth.error;
@@ -1692,7 +1696,10 @@ export function EmployeesPage() {
     if (!deleteConfirmRow) return;
     const row = deleteConfirmRow;
     setDeleteConfirmRow(null);
-    const { error } = await supabase.from("employees").delete().eq("id", row.id);
+    const { error } = await supabase
+      .from("employees")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", row.id);
     if (error) {
       toast.error(error.message || "刪除失敗");
       return;
