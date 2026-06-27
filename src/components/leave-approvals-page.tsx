@@ -120,12 +120,39 @@ function embedEmployeeName(rel: unknown): string | null {
   return null;
 }
 
-function normalizeStatus(raw: string | null | undefined): "pending" | "approved" | "rejected" {
+function normalizeStatus(
+  raw: string | null | undefined,
+): "pending" | "approved" | "rejected" | "revoked" {
   const s = (raw ?? "").trim().toLowerCase();
   if (s === "approved" || s === "已核准" || s === "核准") return "approved";
   if (s === "rejected" || s === "退回" || s === "拒絕") return "rejected";
+  if (s === "revoked" || s === "已撤銷" || s === "撤銷") return "revoked";
   if (s === "pending" || s === "待審核" || s === "") return "pending";
   return "pending";
+}
+
+/** 假單區間內，是否與「非工作日」的臨時假日（public_holidays，is_workday !== true）重疊 */
+function holidayConflictDates(
+  startDate: string,
+  endDate: string,
+  holidayDates: Set<string>,
+): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    return [];
+  }
+  const hits: string[] = [];
+  const cur = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(cur.getTime()) || Number.isNaN(end.getTime())) return [];
+  // 區間過長（資料異常）時避免無上限迴圈
+  let guard = 0;
+  while (cur <= end && guard < 730) {
+    const iso = cur.toISOString().slice(0, 10);
+    if (holidayDates.has(iso)) hits.push(iso);
+    cur.setDate(cur.getDate() + 1);
+    guard += 1;
+  }
+  return hits;
 }
 
 function mapRowToAdminRow(
@@ -205,6 +232,22 @@ export function LeaveApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("public_holidays")
+        .select("holiday_date, is_workday")
+        .order("holiday_date", { ascending: true });
+      const set = new Set<string>();
+      for (const r of (data ?? []) as { holiday_date?: string; is_workday?: boolean | null }[]) {
+        if (r.is_workday === true) continue;
+        if (r.holiday_date) set.add(String(r.holiday_date).slice(0, 10));
+      }
+      setHolidayDates(set);
+    })();
+  }, []);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -338,7 +381,7 @@ export function LeaveApprovalsPage() {
   const historyList = useMemo(() => {
     const list = rows.filter((r) => {
       const st = normalizeStatus(r.status_raw);
-      return st === "approved" || st === "rejected";
+      return st === "approved" || st === "rejected" || st === "revoked";
     });
     if (!historyMonth) return list;
     return list.filter((r) =>
@@ -378,6 +421,30 @@ export function LeaveApprovalsPage() {
         return;
       }
       toast.success("已退回假單");
+      await load();
+    } finally {
+      setActingId(null);
+    }
+  }
+
+  async function revoke(id: string) {
+    if (
+      !window.confirm(
+        "確定撤銷此已核准假單？撤銷後該假單不會再計入請假天數與薪資結算。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
+      )
+    )
+      return;
+    setActingId(id);
+    try {
+      const { error: uErr } = await supabase
+        .from("leave_requests")
+        .update({ status: "revoked" })
+        .eq("id", id);
+      if (uErr) {
+        toast.error(uErr.message || "更新失敗");
+        return;
+      }
+      toast.success("已撤銷假單");
       await load();
     } finally {
       setActingId(null);
@@ -447,7 +514,7 @@ export function LeaveApprovalsPage() {
         }
         return {
           title: "假單審核 · 歷史紀錄",
-          description: "依月份檢視與請假區間重疊之已核准或已退回紀錄。",
+          description: "依月份檢視與請假區間重疊之已核准、已退回或已撤銷紀錄。",
           Icon: ClipboardList,
           showLeaveRefresh: true,
         };
@@ -703,6 +770,11 @@ export function LeaveApprovalsPage() {
                           <span className="text-muted-foreground">～</span>{" "}
                           {row.end_date !== "—" ? formatDate(row.end_date) : "—"}
                         </span>
+                        {holidayConflictDates(row.start_date, row.end_date, holidayDates).length > 0 ? (
+                          <span className="ml-2 inline-flex items-center rounded-full border border-amber-700/30 bg-amber-100/90 px-2 py-0.5 text-[11px] font-medium text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
+                            ⚠️ 與臨時假日重疊
+                          </span>
+                        ) : null}
                       </p>
                       <p>
                         <span className="text-xs uppercase tracking-wide">
@@ -804,8 +876,8 @@ export function LeaveApprovalsPage() {
             ) : historyList.length === 0 ? (
               <p className="py-12 text-center text-sm text-muted-foreground">
                 {historyMonth
-                  ? "此月份尚無已核准或已退回的紀錄。"
-                  : "尚無已核准或已退回的假單紀錄。"}
+                  ? "此月份尚無已核准、已退回或已撤銷的紀錄。"
+                  : "尚無已核准、已退回或已撤銷的假單紀錄。"}
               </p>
             ) : (
               <Table className="min-w-[42rem]">
@@ -826,6 +898,9 @@ export function LeaveApprovalsPage() {
                     <TableHead className="text-xs font-semibold whitespace-nowrap">
                       最後異動
                     </TableHead>
+                    <TableHead className="text-xs font-semibold whitespace-nowrap">
+                      操作
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -835,6 +910,11 @@ export function LeaveApprovalsPage() {
                       created_at: row.created_at,
                       updated_at: row.updated_at,
                     });
+                    const conflicts = holidayConflictDates(
+                      row.start_date,
+                      row.end_date,
+                      holidayDates,
+                    );
                     return (
                       <TableRow
                         key={row.id}
@@ -857,6 +937,11 @@ export function LeaveApprovalsPage() {
                           {row.start_date !== "—" ? formatDate(row.start_date) : "—"}{" "}
                           ～{" "}
                           {row.end_date !== "—" ? formatDate(row.end_date) : "—"}
+                          {conflicts.length > 0 ? (
+                            <span className="ml-2 inline-flex items-center rounded-full border border-amber-700/30 bg-amber-100/90 px-2 py-0.5 text-[11px] font-medium text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
+                              ⚠️ 與臨時假日重疊
+                            </span>
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-sm font-medium">
                           {row.days.toLocaleString("zh-TW", {
@@ -867,6 +952,10 @@ export function LeaveApprovalsPage() {
                           {st === "approved" ? (
                             <span className="text-emerald-700 dark:text-emerald-400">
                               已核准
+                            </span>
+                          ) : st === "revoked" ? (
+                            <span className="text-amber-700 dark:text-amber-400">
+                              已撤銷
                             </span>
                           ) : (
                             <span className="text-red-700 dark:text-red-400">
@@ -879,6 +968,21 @@ export function LeaveApprovalsPage() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                           {showUpdated ? formatLeaveUpdatedAtDisplay(row.updated_at) : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {st === "approved" ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
+                              disabled={actingId === row.id}
+                              onClick={() => void revoke(row.id)}
+                            >
+                              撤銷
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
