@@ -19,6 +19,10 @@ import {
 } from "@/lib/employee-portal-mock";
 import { insertEmployeeLeaveRequest } from "@/lib/employee-leave-requests";
 import {
+  computeLeaveHolidayConflict,
+  type HolidayLookupRow,
+} from "@/lib/leave-holiday-conflict";
+import {
   LEAVE_LUNCH_END_HOUR,
   LEAVE_LUNCH_START_HOUR,
   LEAVE_WORK_DAY_HOURS,
@@ -557,6 +561,8 @@ export default function EmployeePortalPage() {
   const [leaveHolidayLookup, setLeaveHolidayLookup] = useState<
     Map<string, { is_workday: boolean }> | undefined
   >(undefined);
+  /** 與管理端假單審核頁同一套邏輯：顯示「已扣除／尚未扣除」臨時假日提示用 */
+  const [holidayRows, setHolidayRows] = useState<HolidayLookupRow[]>([]);
   /** Mock 無法辨識角色時保留捷徑；Supabase 僅 admin / manager 可看返回 ERP 連結 */
   const [showErpHomeLink, setShowErpHomeLink] = useState(() => !isSupabaseConfigured);
   /** Supabase 連線時由 user_profiles 填入；Mock 時為空字串 */
@@ -682,10 +688,25 @@ export default function EmployeePortalPage() {
       if (error) {
         console.warn("[employee-portal] public_holidays:", error.message);
         setLeaveHolidayLookup(new Map());
+        setHolidayRows([]);
         return;
       }
-      const norm = normalizePublicHolidayRows((data ?? []) as Record<string, unknown>[]);
+      const rawRows = (data ?? []) as Record<string, unknown>[];
+      const norm = normalizePublicHolidayRows(rawRows);
       setLeaveHolidayLookup(buildLeaveHolidayLookup(norm));
+      const holidayList: HolidayLookupRow[] = [];
+      for (const r of rawRows) {
+        if (r.is_workday === true) continue;
+        const d = r.holiday_date;
+        if (!d) continue;
+        holidayList.push({
+          date: String(d).slice(0, 10),
+          name: (typeof r.name === "string" ? r.name : "").trim() || "臨時假日",
+          createdAt:
+            typeof r.created_at === "string" ? r.created_at : new Date().toISOString(),
+        });
+      }
+      setHolidayRows(holidayList);
     })();
     return () => {
       cancelled = true;
@@ -1522,6 +1543,30 @@ export default function EmployeePortalPage() {
                         <span className="text-foreground">
                           {row.start_date} — {row.end_date}
                         </span>
+                        {(() => {
+                          const conflict = computeLeaveHolidayConflict(
+                            row.start_date,
+                            row.end_date,
+                            row.created_at ?? null,
+                            holidayRows,
+                          );
+                          if (!conflict) return null;
+                          const { alreadyDeducted, notDeducted } = conflict;
+                          return (
+                            <span className="mt-0.5 block text-xs font-normal leading-snug">
+                              {notDeducted.length > 0 ? (
+                                <span className="text-amber-700 dark:text-amber-400">
+                                  ⚠️ 與「{notDeducted.map((h) => h.name).join("、")}」重疊（尚未扣除 {notDeducted.length} 日，請洽管理者確認）
+                                </span>
+                              ) : null}
+                              {alreadyDeducted.length > 0 ? (
+                                <span className="block text-muted-foreground">
+                                  ℹ️ 已扣除臨時假日「{alreadyDeducted.map((h) => h.name).join("、")}」{alreadyDeducted.length} 日
+                                </span>
+                              ) : null}
+                            </span>
+                          );
+                        })()}
                         {row.start_hour != null && row.end_hour != null ? (
                           <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
                             起始日 {row.start_hour}–{row.end_hour} 時

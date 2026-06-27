@@ -48,6 +48,10 @@ import {
   formatLeaveUpdatedAtDisplay,
   leaveRequestRowWasUpdated,
 } from "@/lib/leave-request-updated";
+import {
+  computeLeaveHolidayConflict,
+  type HolidayLookupRow,
+} from "@/lib/leave-holiday-conflict";
 
 interface LeaveRequestAdminRow {
   id: string;
@@ -131,28 +135,39 @@ function normalizeStatus(
   return "pending";
 }
 
-/** 假單區間內，是否與「非工作日」的臨時假日（public_holidays，is_workday !== true）重疊 */
-function holidayConflictDates(
-  startDate: string,
-  endDate: string,
-  holidayDates: Set<string>,
-): string[] {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-    return [];
-  }
-  const hits: string[] = [];
-  const cur = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  if (Number.isNaN(cur.getTime()) || Number.isNaN(end.getTime())) return [];
-  // 區間過長（資料異常）時避免無上限迴圈
-  let guard = 0;
-  while (cur <= end && guard < 730) {
-    const iso = cur.toISOString().slice(0, 10);
-    if (holidayDates.has(iso)) hits.push(iso);
-    cur.setDate(cur.getDate() + 1);
-    guard += 1;
-  }
-  return hits;
+/**
+ * 顯示假單與臨時假日重疊狀況：
+ * - 假日在假單建立「之前」就存在 → 申請當下已自動扣除，純粹提示
+ * - 假日在假單建立「之後」才新增 → 既有天數未排除該日，需要管理者確認
+ */
+function HolidayConflictNote({
+  startDate,
+  endDate,
+  createdAt,
+  holidayRows,
+}: {
+  startDate: string;
+  endDate: string;
+  createdAt: string | null;
+  holidayRows: HolidayLookupRow[];
+}) {
+  const conflict = computeLeaveHolidayConflict(startDate, endDate, createdAt, holidayRows);
+  if (!conflict) return null;
+  const { alreadyDeducted, notDeducted } = conflict;
+  return (
+    <>
+      {notDeducted.length > 0 ? (
+        <span className="ml-2 inline-flex items-center rounded-full border border-amber-700/30 bg-amber-100/90 px-2 py-0.5 text-[11px] font-medium text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
+          ⚠️ 與「{notDeducted.map((h) => h.name).join("、")}」重疊（尚未扣除 {notDeducted.length} 日）
+        </span>
+      ) : null}
+      {alreadyDeducted.length > 0 ? (
+        <span className="ml-2 inline-flex items-center rounded-full border border-sky-700/25 bg-sky-100/80 px-2 py-0.5 text-[11px] font-medium text-sky-950 dark:border-sky-500/25 dark:bg-sky-950/35 dark:text-sky-100">
+          ℹ️ 已扣除臨時假日「{alreadyDeducted.map((h) => h.name).join("、")}」{alreadyDeducted.length} 日
+        </span>
+      ) : null}
+    </>
+  );
 }
 
 function mapRowToAdminRow(
@@ -232,20 +247,31 @@ export function LeaveApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
-  const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
+  const [holidayRows, setHolidayRows] = useState<HolidayLookupRow[]>([]);
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase
         .from("public_holidays")
-        .select("holiday_date, is_workday")
+        .select("holiday_date, name, is_workday, created_at")
         .order("holiday_date", { ascending: true });
-      const set = new Set<string>();
-      for (const r of (data ?? []) as { holiday_date?: string; is_workday?: boolean | null }[]) {
+      const list: HolidayLookupRow[] = [];
+      for (const r of (data ?? []) as {
+        holiday_date?: string;
+        name?: string | null;
+        is_workday?: boolean | null;
+        created_at?: string | null;
+      }[]) {
         if (r.is_workday === true) continue;
-        if (r.holiday_date) set.add(String(r.holiday_date).slice(0, 10));
+        if (!r.holiday_date) continue;
+        list.push({
+          date: String(r.holiday_date).slice(0, 10),
+          name: (r.name ?? "").trim() || "臨時假日",
+          // 缺少建立時間時保守視為「剛新增」，避免誤判成已扣除而漏掉警示
+          createdAt: r.created_at ?? new Date().toISOString(),
+        });
       }
-      setHolidayDates(set);
+      setHolidayRows(list);
     })();
   }, []);
 
@@ -770,11 +796,12 @@ export function LeaveApprovalsPage() {
                           <span className="text-muted-foreground">～</span>{" "}
                           {row.end_date !== "—" ? formatDate(row.end_date) : "—"}
                         </span>
-                        {holidayConflictDates(row.start_date, row.end_date, holidayDates).length > 0 ? (
-                          <span className="ml-2 inline-flex items-center rounded-full border border-amber-700/30 bg-amber-100/90 px-2 py-0.5 text-[11px] font-medium text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
-                            ⚠️ 與臨時假日重疊
-                          </span>
-                        ) : null}
+                        <HolidayConflictNote
+                          startDate={row.start_date}
+                          endDate={row.end_date}
+                          createdAt={row.created_at}
+                          holidayRows={holidayRows}
+                        />
                       </p>
                       <p>
                         <span className="text-xs uppercase tracking-wide">
@@ -910,11 +937,6 @@ export function LeaveApprovalsPage() {
                       created_at: row.created_at,
                       updated_at: row.updated_at,
                     });
-                    const conflicts = holidayConflictDates(
-                      row.start_date,
-                      row.end_date,
-                      holidayDates,
-                    );
                     return (
                       <TableRow
                         key={row.id}
@@ -937,11 +959,12 @@ export function LeaveApprovalsPage() {
                           {row.start_date !== "—" ? formatDate(row.start_date) : "—"}{" "}
                           ～{" "}
                           {row.end_date !== "—" ? formatDate(row.end_date) : "—"}
-                          {conflicts.length > 0 ? (
-                            <span className="ml-2 inline-flex items-center rounded-full border border-amber-700/30 bg-amber-100/90 px-2 py-0.5 text-[11px] font-medium text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
-                              ⚠️ 與臨時假日重疊
-                            </span>
-                          ) : null}
+                          <HolidayConflictNote
+                            startDate={row.start_date}
+                            endDate={row.end_date}
+                            createdAt={row.created_at}
+                            holidayRows={holidayRows}
+                          />
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-sm font-medium">
                           {row.days.toLocaleString("zh-TW", {
