@@ -869,8 +869,10 @@ export function SalarySettlementCenter() {
 
     const writePayslip = (payload: Record<string, unknown>) =>
       existingSlipId != null
-        ? supabase.from("payslips").update(payload).eq("id", existingSlipId).select("id")
-        : supabase.from("payslips").insert(payload).select("id");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema
+        ? supabase.from("payslips").update(payload as any).eq("id", existingSlipId).select("id")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        : supabase.from("payslips").insert(payload as any).select("id");
 
     let ins = await writePayslip(insertPayload);
     let payslipDetailFallback = false;

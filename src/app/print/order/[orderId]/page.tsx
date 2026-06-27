@@ -129,6 +129,7 @@ export default function PrintOrderPage() {
 
   useEffect(() => {
     if (!orderId || !authReady) return;
+    const safeOrderId = orderId;
 
     async function fetchData() {
       setLoading(true);
@@ -139,7 +140,7 @@ export default function PrintOrderPage() {
           .select(
             "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, customer_id, customers(name, customer_type)"
           )
-          .eq("id", orderId)
+          .eq("id", safeOrderId)
           .single();
 
         if (orderErr || !orderRow) {
@@ -154,7 +155,7 @@ export default function PrintOrderPage() {
           .select(
             "id, order_id, variant_id, quantity, unit_price, custom_notes, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, seat_height_cm, image_url, wood_type"
           )
-          .eq("order_id", orderId)
+          .eq("order_id", safeOrderId)
           .order("line_order", { ascending: true })
           .order("id", { ascending: true });
 

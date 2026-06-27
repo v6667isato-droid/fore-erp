@@ -100,7 +100,8 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
     payload[SERIES_WEBSITE_COLUMN] = websiteUrl || null;
     payload.image_url = imageUrl?.trim() || null;
 
-    let { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).insert(payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
+    let { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).insert(payload as any);
 
     setAdding(false);
     if (err) {

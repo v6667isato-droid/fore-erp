@@ -75,7 +75,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     if (showSeatHeight) {
       payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
     }
-    const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).insert(payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
+    const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).insert(payload as any);
     setAdding(false);
     if (err) {
       toast.error(err.message || "新增規格失敗");

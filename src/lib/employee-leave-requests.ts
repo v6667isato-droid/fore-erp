@@ -73,10 +73,12 @@ export async function insertEmployeeLeaveRequest(
     end_day_end_hour: input.endDayEndHour,
   };
 
-  let { error } = await supabase.from("leave_requests").insert(withExtendedHours);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進相容舊 schema，欄位組合因環境而異
+  let { error } = await supabase.from("leave_requests").insert(withExtendedHours as any);
 
   if (error && isUnknownColumnError(error.message)) {
-    const r = await supabase.from("leave_requests").insert(withLegacyHours);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await supabase.from("leave_requests").insert(withLegacyHours as any);
     error = r.error;
   }
 
@@ -84,7 +86,8 @@ export async function insertEmployeeLeaveRequest(
     const bare: Record<string, unknown> = {
       ...base,
     };
-    const r = await supabase.from("leave_requests").insert(bare);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await supabase.from("leave_requests").insert(bare as any);
     error = r.error;
   }
 

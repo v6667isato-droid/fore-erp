@@ -144,7 +144,8 @@ export function AddCustomerDialog({
     } else {
       // 新增模式：插入新客戶（保留原有 column fallback 邏輯）
       let insertPayload: Record<string, unknown> = { ...full };
-      let res = await supabase.from("customers").insert(insertPayload);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema，無法靜態保證必填欄位齊全
+      let res = await supabase.from("customers").insert(insertPayload as any);
       err = res.error;
       if (err && isColumnError(err)) {
         const optional = [
@@ -162,7 +163,8 @@ export function AddCustomerDialog({
         for (const key of optional) {
           const next = { ...insertPayload };
           delete next[key];
-          res = await supabase.from("customers").insert(next);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          res = await supabase.from("customers").insert(next as any);
           err = res.error;
           if (!err) break;
           if (!isColumnError(err)) break;
@@ -185,9 +187,11 @@ export function AddCustomerDialog({
       for (const key of optional) {
         const next = { ...payload };
         delete next[key];
+        /* eslint-disable @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema */
         const res = customerId
-          ? await supabase.from("customers").update(next).eq("id", customerId)
-          : await supabase.from("customers").insert(next);
+          ? await supabase.from("customers").update(next as any).eq("id", customerId)
+          : await supabase.from("customers").insert(next as any);
+        /* eslint-enable @typescript-eslint/no-explicit-any */
         err = res.error;
         if (!err) break;
         if (!isColumnError(err)) break;

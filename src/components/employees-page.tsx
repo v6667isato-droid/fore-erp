@@ -1187,7 +1187,8 @@ function AddEmployeeDialog({ onSuccess, isAdmin }: AddEmployeeDialogProps) {
   const [open, setOpen] = useState(false);
 
   async function handleSubmit(payload: Record<string, unknown>) {
-    const { error } = await supabase.from("employees").insert(payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
+    const { error } = await supabase.from("employees").insert(payload as any);
     if (error) {
       toast.error(error.message || "新增員工失敗");
       return;

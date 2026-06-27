@@ -100,6 +100,7 @@ export default function AddressLabelPage() {
 
   useEffect(() => {
     if (!orderId || !authReady) return;
+    const safeOrderId = orderId;
 
     async function fetchData() {
       setLoading(true);
@@ -110,7 +111,7 @@ export default function AddressLabelPage() {
           .select(
             "id, order_number, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, customers(name, contact_person, phone, delivery_address)"
           )
-          .eq("id", orderId)
+          .eq("id", safeOrderId)
           .single();
 
         if (orderErr || !orderRow) {
@@ -145,7 +146,7 @@ export default function AddressLabelPage() {
           .select(
             "id, variant_id, quantity, custom_name, custom_category, custom_dimension_w, custom_dimension_d, custom_dimension_h, product_variants(product_code, spec1, dimension_w, dimension_d, dimension_h, product_series(series_name))"
           )
-          .eq("order_id", orderId)
+          .eq("order_id", safeOrderId)
           .order("line_order", { ascending: true })
           .order("id", { ascending: true });
 

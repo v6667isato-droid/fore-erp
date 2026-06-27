@@ -73,7 +73,8 @@ export function AddVendorDialog({ onSuccess, categoryOptions = DEFAULT_CATEGORIE
       tax_id: taxId.trim() || null,
       notes: notes.trim() || null,
     };
-    const { error: err } = await supabase.from("vendors").insert(payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
+    const { error: err } = await supabase.from("vendors").insert(payload as any);
     setAdding(false);
     if (err) {
       toast.error(err.message || "新增廠商失敗");

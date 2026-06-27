@@ -239,7 +239,8 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
     });
 
     setAdding(true);
-    let { error: err } = await supabase.from("purchases").insert(payloads);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema
+    let { error: err } = await supabase.from("purchases").insert(payloads as any);
     if (err && /column .* does not exist/i.test(err.message)) {
       const reduced = payloads.map((p) => {
         const r = { ...p };
@@ -248,7 +249,8 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
         delete r.amortization_months;
         return r;
       });
-      err = (await supabase.from("purchases").insert(reduced)).error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      err = (await supabase.from("purchases").insert(reduced as any)).error;
     }
     setAdding(false);
     if (err) {

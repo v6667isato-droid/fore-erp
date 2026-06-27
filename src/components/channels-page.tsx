@@ -488,7 +488,7 @@ function ChannelSeriesDiscountDialog({
           return;
         }
       } else {
-        seriesData = (res.data ?? []) as Record<string, unknown>[];
+        seriesData = (res.data ?? []) as unknown as Record<string, unknown>[];
       }
 
       const mapped: MinimalSeries[] = (seriesData ?? []).map((r) => {

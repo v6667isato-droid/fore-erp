@@ -94,7 +94,10 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
     };
     let { data, error: err } = await supabase
       .from("procurement_materials")
-      .insert(payload)
+      .insert(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
+        payload as any
+      )
       .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
       .single();
     if (err && /column .* does not exist/i.test(err.message)) {

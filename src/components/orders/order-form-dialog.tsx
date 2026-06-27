@@ -841,7 +841,8 @@ function OrderFormDialog({
           delete row.channel_unit_price;
           return row;
         });
-        const retry = await supabase.from("order_items").insert(reduced).select("id");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema
+        const retry = await supabase.from("order_items").insert(reduced as any).select("id");
         insertedItems = retry.data;
         itemsError = retry.error;
       }

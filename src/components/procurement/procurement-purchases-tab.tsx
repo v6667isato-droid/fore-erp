@@ -303,7 +303,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
       .is("deleted_at", null)
       .order("purchase_date", { ascending: false });
     if (!res2.error && res2.data) {
-      setRecords(((res2.data ?? []) as SupabaseRowWithVendor[]).map(mapRowWithVendor));
+      setRecords(((res2.data ?? []) as unknown as SupabaseRowWithVendor[]).map(mapRowWithVendor));
       setLoading(false);
       return;
     }

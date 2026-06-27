@@ -346,7 +346,7 @@ export default function PortalPage() {
       .order("product_code", { ascending: true });
 
     const sidList = Array.from(
-      new Set((variantRows ?? []).map((r: { series_id?: string }) => String(r.series_id ?? "")).filter(Boolean))
+      new Set((variantRows ?? []).map((r) => String(r.series_id ?? "")).filter(Boolean))
     );
     let categoryBySeriesId = new Map<string, string>();
     const imageBySeriesId = new Map<string, string | null>();
@@ -1177,12 +1177,12 @@ export default function PortalPage() {
       if (orderError) {
         const isColumnError = /column .* does not exist/i.test(orderError.message ?? "") || /could not find.*column/i.test(orderError.message ?? "");
         if (isColumnError) {
+          const fallbackPayload: Record<string, unknown> = { ...orderPayloadWithSource };
+          delete fallbackPayload.source;
           const { data: fallbackRow, error: fallbackError } = await supabase
             .from("orders")
-            .insert({
-              ...orderPayloadWithSource,
-              source: undefined,
-            } as Record<string, unknown>)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 舊 schema 相容 fallback，欄位組合與型別定義不同
+            .insert(fallbackPayload as any)
             .select("id")
             .single();
           if (fallbackError || !fallbackRow) {

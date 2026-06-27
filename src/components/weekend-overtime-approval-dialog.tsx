@@ -75,7 +75,7 @@ export function WeekendOvertimeApprovalDialog({
         p_employee_id: row.employeeId,
         p_hours: hours,
         p_overtime_date: row.dateIso,
-        p_reason: reason.trim() || null,
+        p_reason: reason.trim(),
       });
 
       if (error) {
