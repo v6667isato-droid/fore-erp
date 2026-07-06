@@ -1139,11 +1139,11 @@ export function SalarySettlementCenter() {
               <col className="w-[3.5rem]" />
               <col className="w-[2.75rem]" />
               <col className="w-[3rem]" />
-              <col className="w-[3rem]" />
+              <col className="w-[4rem]" />
               <col className="w-[2.5rem]" />
               <col className="w-[2.5rem]" />
               <col className="w-[2.75rem]" />
-              <col className="w-[2.25rem]" />
+              <col className="w-[3.25rem]" />
               <col className="w-[2.5rem]" />
               <col className="w-[2.25rem]" />
               <col className="w-[2.75rem]" />
