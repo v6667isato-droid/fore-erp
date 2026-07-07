@@ -25,6 +25,7 @@ const CATEGORIES = [
   "產品資料",
   "通路下單",
   "員工資料",
+  "系統測試",
   "其他",
 ];
 
@@ -484,6 +485,31 @@ export function FeedbackPage() {
     }
   }
 
+  /** 表格「完成」勾選：打勾＝寫入完成時間並將狀態改為已完成；取消勾＝清除完成時間 */
+  async function handleInlineCompletedToggle(row: FeedbackRow, done: boolean) {
+    const nowIso = new Date().toISOString();
+    const patch = done
+      ? { completed_at: nowIso, status: "已完成", updated_at: nowIso }
+      : { completed_at: null, updated_at: nowIso };
+    const prev = { completed_at: row.completed_at, status: row.status };
+    setRows((current) =>
+      current.map((r) => (r.id === row.id ? { ...r, ...patch } : r)),
+    );
+    const { error } = await supabase
+      .from("user_feedback")
+      .update(patch)
+      .eq("id", row.id);
+    if (error) {
+      toast.error(error.message || "更新失敗");
+      setRows((current) =>
+        current.map((r) => (r.id === row.id ? { ...r, ...prev } : r)),
+      );
+    } else {
+      toast.success(done ? "已標記完成" : "已取消完成");
+      fetchFeedback();
+    }
+  }
+
   async function handleInlineStatusChange(row: FeedbackRow, nextStatus: string) {
     if (!nextStatus) return;
     const prevStatus = row.status;
@@ -570,52 +596,54 @@ export function FeedbackPage() {
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
-        <Table>
+        {/* 與訂單管理相同：min-w + 表頭不換行，視窗過窄時整表橫向捲動 */}
+        <Table className="min-w-[52rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
+                className="w-10 text-center text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                onClick={() => toggleSort("completed_at")}
+                title="打勾即完成並記錄時間"
+              >
+                ✓
+              </TableHead>
+              <TableHead
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
                 onClick={() => toggleSort("title")}
               >
                 主旨 <SortIcon columnKey="title" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
                 onClick={() => toggleSort("category")}
               >
                 類別 <SortIcon columnKey="category" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
                 onClick={() => toggleSort("status")}
               >
                 狀態 <SortIcon columnKey="status" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
                 onClick={() => toggleSort("priority")}
               >
                 優先級 <SortIcon columnKey="priority" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
                 onClick={() => toggleSort("reporter")}
               >
                 回報人 <SortIcon columnKey="reporter" />
               </TableHead>
               <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
                 onClick={() => toggleSort("completed_at")}
               >
-                完成日期 <SortIcon columnKey="completed_at" />
+                完成 <SortIcon columnKey="completed_at" />
               </TableHead>
-              <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none"
-                onClick={() => toggleSort("created_at")}
-              >
-                建立時間 <SortIcon columnKey="created_at" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold w-36">操作</TableHead>
+              <TableHead className="text-xs font-semibold w-36 whitespace-nowrap">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -630,6 +658,20 @@ export function FeedbackPage() {
                 const calendarUrl = buildGoogleCalendarUrl(r);
                 return (
                 <TableRow key={r.id} className="border-b border-border">
+                  <TableCell className="text-center align-middle">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer rounded border-input"
+                      checked={r.completed_at != null}
+                      aria-label="標記完成"
+                      title={
+                        r.completed_at != null
+                          ? `完成於 ${formatDate(r.completed_at)}`
+                          : "打勾即完成並記錄時間"
+                      }
+                      onChange={(e) => void handleInlineCompletedToggle(r, e.target.checked)}
+                    />
+                  </TableCell>
                   <TableCell className="text-sm">
                     <button
                       type="button"
@@ -683,9 +725,6 @@ export function FeedbackPage() {
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                     {formatDate(r.completed_at ?? "") || "—"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                    {formatDate(r.created_at)}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1 flex-nowrap">

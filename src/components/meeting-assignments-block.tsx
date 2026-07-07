@@ -89,6 +89,7 @@ export function MeetingAssignmentsBlock({
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"open" | "done">("open");
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured || !employeeId) {
@@ -201,9 +202,55 @@ export function MeetingAssignmentsBlock({
     );
   }
 
+  const openItems = unified.filter((x) => !x.completed);
+  const doneItems = unified.filter((x) => x.completed);
+  const visible = tab === "open" ? openItems : doneItems;
+
   return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setTab("open")}
+          className={cn(
+            "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+            tab === "open"
+              ? "bg-secondary text-secondary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          待辦
+          {openItems.length > 0 ? (
+            <span className="ml-1.5 rounded-full bg-foreground/10 px-1.5 py-0.5 text-[10px] tabular-nums">
+              {openItems.length}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("done")}
+          className={cn(
+            "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+            tab === "done"
+              ? "bg-secondary text-secondary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          已完成
+          {doneItems.length > 0 ? (
+            <span className="ml-1.5 rounded-full bg-foreground/10 px-1.5 py-0.5 text-[10px] tabular-nums">
+              {doneItems.length}
+            </span>
+          ) : null}
+        </button>
+      </div>
+      {visible.length === 0 ? (
+        <p className="py-3 text-sm text-muted-foreground">
+          {tab === "open" ? "沒有待辦的交辦事項。" : "尚無已完成的交辦事項。"}
+        </p>
+      ) : (
     <ul className="space-y-2 pr-2">
-      {unified.map((item) => {
+      {visible.map((item) => {
         const busy = pendingId === item.id;
         const hasDetail = item.source === "calendar" && item.description;
         const isExpanded = expandedId === item.id;
@@ -294,5 +341,7 @@ export function MeetingAssignmentsBlock({
         );
       })}
     </ul>
+      )}
+    </div>
   );
 }

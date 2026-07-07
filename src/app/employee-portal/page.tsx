@@ -9,6 +9,7 @@ import {
   fetchEmployeePortalData,
   workProgressStatusLabels,
   type AnnouncementRow,
+  type AssigneeWorkOrderRow,
   type EmployeePortalPayload,
   type LeaveRequestRow,
   type PayslipDetailBreakdown,
@@ -69,6 +70,7 @@ import {
   supabase,
 } from "@/lib/supabase";
 import { epSection } from "@/lib/employee-portal-section-styles";
+import { SystemTestReportBlock } from "@/components/system-test-report-block";
 import { CompanyAnnouncementsBlock } from "@/components/company-announcements-block";
 import { WorkshopWeeklyRotationBlock } from "@/components/workshop-weekly-rotation-block";
 import { MeetingAssignmentsBlock } from "@/components/meeting-assignments-block";
@@ -551,6 +553,8 @@ export default function EmployeePortalPage() {
   const [woStageById, setWoStageById] = useState<Record<string, string>>({});
   const [woSortBy, setWoSortBy] = useState<AssigneeWoSortKey>("planned_end_date");
   const [woSortAsc, setWoSortAsc] = useState(true);
+  /** 生產交辦分頁：進行中／已出貨（工序為已出貨或訂單已結案者歸入已出貨） */
+  const [woTab, setWoTab] = useState<"active" | "shipped">("active");
   const [savingWorkOrderStageId, setSavingWorkOrderStageId] = useState<string | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
@@ -773,6 +777,24 @@ export default function EmployeePortalPage() {
     });
     return list;
   }, [data?.assignee_work_orders, woSortBy, woSortAsc, woStageById]);
+
+  /** 訂單已結案：僅供檢視，不可再改工序站別 */
+  const isWoOrderClosed = useCallback(
+    (wo: AssigneeWorkOrderRow) => String(wo.order_status ?? "").trim() === "結案",
+    [],
+  );
+  const woPartition = useMemo(() => {
+    const shipped: AssigneeWorkOrderRow[] = [];
+    const active: AssigneeWorkOrderRow[] = [];
+    for (const wo of sortedAssigneeWorkOrders) {
+      const stage = woStageById[wo.id] ?? normalizeWorkOrderStage(wo.stage);
+      if (stage === "已出貨" || isWoOrderClosed(wo)) shipped.push(wo);
+      else active.push(wo);
+    }
+    return { shipped, active };
+  }, [sortedAssigneeWorkOrders, woStageById, isWoOrderClosed]);
+  const visibleAssigneeWorkOrders =
+    woTab === "shipped" ? woPartition.shipped : woPartition.active;
 
   const payslipsSorted = useMemo(() => {
     if (!data?.payslips?.length) return [];
@@ -1191,12 +1213,14 @@ export default function EmployeePortalPage() {
           {/* 公司公告（左）＋ 週五工坊輪替（右，lg 並排） */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
             <CompanyAnnouncementsBlock
-              items={activeAnnouncements(data.announcements).map((a) => ({
-                id: a.id,
-                title: a.title,
-                body: a.body,
-                published_at: a.published_at,
-              }))}
+              items={activeAnnouncements(data.announcements)
+                .slice(0, 3)
+                .map((a) => ({
+                  id: a.id,
+                  title: a.title,
+                  body: a.body,
+                  published_at: a.published_at,
+                }))}
               subtitle={
                 showAdminFieldHints
                   ? isSupabaseConfigured
@@ -1273,11 +1297,48 @@ export default function EmployeePortalPage() {
                 <div className="max-h-[min(70vh,28rem)] overflow-y-auto overflow-x-auto pr-1 [scrollbar-gutter:stable]">
                   <div className="space-y-4">
                     <div>
-                      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        負責工單（work_orders）
-                      </p>
-                      {assignee_work_orders.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">目前沒有以您為負責人的工單。</p>
+                      <div className="mb-2 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setWoTab("active")}
+                          className={cn(
+                            "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                            woTab === "active"
+                              ? "bg-secondary text-secondary-foreground"
+                              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+                          )}
+                        >
+                          進行中
+                          {woPartition.active.length > 0 ? (
+                            <span className="ml-1.5 rounded-full bg-foreground/10 px-1.5 py-0.5 text-[10px] tabular-nums">
+                              {woPartition.active.length}
+                            </span>
+                          ) : null}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWoTab("shipped")}
+                          className={cn(
+                            "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                            woTab === "shipped"
+                              ? "bg-secondary text-secondary-foreground"
+                              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+                          )}
+                        >
+                          已出貨
+                          {woPartition.shipped.length > 0 ? (
+                            <span className="ml-1.5 rounded-full bg-foreground/10 px-1.5 py-0.5 text-[10px] tabular-nums">
+                              {woPartition.shipped.length}
+                            </span>
+                          ) : null}
+                        </button>
+                      </div>
+                      {visibleAssigneeWorkOrders.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          {woTab === "shipped"
+                            ? "尚無已出貨或已結案的負責工單。"
+                            : "目前沒有進行中的負責工單。"}
+                        </p>
                       ) : (
                         <div className="overflow-x-auto rounded-xl border border-border/70 bg-card/40">
                           <Table className="min-w-[44rem]">
@@ -1307,12 +1368,13 @@ export default function EmployeePortalPage() {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {sortedAssigneeWorkOrders.map((wo) => {
+                              {visibleAssigneeWorkOrders.map((wo) => {
                                 const stageVal =
                                   woStageById[wo.id] ?? normalizeWorkOrderStage(wo.stage);
                                 const safeStage = isWorkOrderStage(stageVal)
                                   ? stageVal
                                   : DEFAULT_WORK_ORDER_STAGE;
+                                const orderClosed = isWoOrderClosed(wo);
                                 return (
                                   <TableRow key={wo.id} className="border-border/60">
                                     <TableCell className="p-2 align-middle font-mono text-xs font-medium whitespace-nowrap">
@@ -1340,6 +1402,14 @@ export default function EmployeePortalPage() {
                                       {wo.category?.trim() || "—"}
                                     </TableCell>
                                     <TableCell className="p-2 align-middle">
+                                      {orderClosed ? (
+                                        <span
+                                          className="inline-flex h-8 items-center rounded-md border border-border bg-muted/60 px-2 text-xs font-semibold text-muted-foreground"
+                                          title="訂單已結案，工序不可再修改"
+                                        >
+                                          已結案
+                                        </span>
+                                      ) : (
                                       <select
                                         value={safeStage}
                                         disabled={savingWorkOrderStageId === wo.id}
@@ -1379,6 +1449,7 @@ export default function EmployeePortalPage() {
                                           </option>
                                         ))}
                                       </select>
+                                      )}
                                     </TableCell>
                                     <TableCell className="p-2 align-middle text-xs text-muted-foreground tabular-nums whitespace-nowrap">
                                       <div className="flex items-center gap-1">
@@ -1605,6 +1676,19 @@ export default function EmployeePortalPage() {
               </table>
             </div>
           </section>
+
+          <SystemTestReportBlock
+            employeeName={employee.full_name}
+            sectionClassName={epSection.card}
+            headerRowClassName={epSection.headerRow}
+            iconBoxClassName={epSection.iconBox}
+            titleClassName={epSection.title}
+            subtitle={
+              showAdminFieldHints
+                ? "user_feedback · 類別「系統測試」，於 ERP「使用回饋」頁追蹤"
+                : "使用上遇到問題？填寫後將回報給管理者處理。"
+            }
+          />
         </div>
       </div>
 
