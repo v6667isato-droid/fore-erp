@@ -149,6 +149,23 @@ async function enrichPayslipNotesWithAttendanceRemarks(
       .lte("overtime_date", span.end),
   ]);
 
+  // 與薪資結算中心相同規則：放假日自動寫入備註、抑制請假／放假日的無打卡異常
+  const holidayRes = await supabase
+    .from("public_holidays")
+    .select("holiday_date, name, is_workday")
+    .gte("holiday_date", span.start)
+    .lte("holiday_date", span.end);
+  const spanHolidays = ((holidayRes.data ?? []) as {
+    holiday_date?: string;
+    name?: string | null;
+    is_workday?: boolean | null;
+  }[])
+    .filter((h) => h.is_workday !== true && h.holiday_date)
+    .map((h) => ({
+      date: String(h.holiday_date).slice(0, 10),
+      name: (h.name ?? "").trim() || "臨時假日",
+    }));
+
   let mergedLeave: Record<string, unknown>[] = [];
   if (leaveOverlapRes.error) {
     if (!/does not exist|relation|column/i.test(leaveOverlapRes.error.message)) {
@@ -198,6 +215,7 @@ async function enrichPayslipNotesWithAttendanceRemarks(
       leaveRows: mergedLeave,
       overtimeRows: otFiltered,
       settleOvertimeAsCompOff: otHours > 0,
+      holidays: spanHolidays.filter((h) => h.date >= mb.start && h.date <= mb.end),
     }).trim();
     if (!generated) return r;
     return { ...r, notes: generated };

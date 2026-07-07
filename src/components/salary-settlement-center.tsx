@@ -53,6 +53,8 @@ interface RowInputs {
   /** 考績／分潤／股份等獎金（發放寫入 payslips.payroll_bonus） */
   semiAnnualBonus: number;
   otherAdjust: number;
+  /** 調整欄輸入中的原始字串（允許先打「-」再打數字）；未編輯時以 otherAdjust 顯示 */
+  otherAdjustText?: string;
   /** true：不計加班費（與轉補休一致）；false：以費率 × 天數計入加班費 */
   settleOvertimeAsCompOff: boolean;
   /** 出勤備註（預設系統產生，老闆可改；發放寫入 payslips.notes） */
@@ -484,6 +486,23 @@ export function SalarySettlementCenter() {
           .in("employee_id", ids),
       ]);
 
+      // 結算月內放假日：出勤備註自動寫入、抑制請假／放假日的無打卡異常
+      const holidayRes = await supabase
+        .from("public_holidays")
+        .select("holiday_date, name, is_workday")
+        .gte("holiday_date", bounds.start)
+        .lte("holiday_date", bounds.end);
+      const monthHolidays = ((holidayRes.data ?? []) as {
+        holiday_date?: string;
+        name?: string | null;
+        is_workday?: boolean | null;
+      }[])
+        .filter((h) => h.is_workday !== true && h.holiday_date)
+        .map((h) => ({
+          date: String(h.holiday_date).slice(0, 10),
+          name: (h.name ?? "").trim() || "臨時假日",
+        }));
+
       let slipRes = await supabase
         .from("payslips")
         .select(
@@ -644,6 +663,7 @@ export function SalarySettlementCenter() {
                 leaveRows: leaveList,
                 overtimeRows: otList,
                 settleOvertimeAsCompOff: settleAsComp,
+                holidays: monthHolidays,
               });
           initInputs[e.id] = {
             overtimeDays: od,
@@ -667,6 +687,7 @@ export function SalarySettlementCenter() {
               leaveRows: leaveList,
               overtimeRows: otList,
               settleOvertimeAsCompOff: settleAsComp,
+              holidays: monthHolidays,
             });
         initInputs[e.id] = {
           overtimeDays: days,
@@ -1146,8 +1167,8 @@ export function SalarySettlementCenter() {
               <col className="w-[3.25rem]" />
               <col className="w-[2.5rem]" />
               <col className="w-[2.25rem]" />
-              <col className="w-[2.75rem]" />
-              <col className="w-[2.75rem]" />
+              <col className="w-[4rem]" />
+              <col className="w-[4rem]" />
               <col className="w-[3.25rem]" />
               <col className="min-w-[7rem]" />
               <col className="w-[3.5rem]" />
@@ -1320,7 +1341,7 @@ export function SalarySettlementCenter() {
                             },
                           }));
                         }}
-                        className="w-full max-w-[3.25rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full max-w-[3.25rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </td>
                     <td
@@ -1367,6 +1388,7 @@ export function SalarySettlementCenter() {
                               )
                             : undefined
                         }
+                        min={0}
                         value={semiBonus}
                         onChange={(e) => {
                           const v = Number(e.target.value);
@@ -1374,31 +1396,35 @@ export function SalarySettlementCenter() {
                             ...p,
                             [emp.id]: {
                               ...inp,
-                              semiAnnualBonus: Number.isFinite(v) ? v : 0,
+                              // 獎金不可為負；扣減請使用「調整」欄
+                              semiAnnualBonus: Number.isFinite(v) ? Math.max(0, v) : 0,
                             },
                           }));
                         }}
-                        className="w-full max-w-[3.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </td>
                     <td className="text-right">
                       <input
-                        type="number"
-                        step={1}
+                        type="text"
+                        inputMode="numeric"
                         disabled={paid}
-                        value={inp.otherAdjust}
+                        value={inp.otherAdjustText ?? String(inp.otherAdjust)}
                         onChange={(e) => {
-                          const v = Number(e.target.value);
+                          const raw = e.target.value;
+                          const v = Number(raw);
                           setInputs((p) => ({
                             ...p,
                             [emp.id]: {
                               ...inp,
-                              otherAdjust: Number.isFinite(v) ? v : 0,
+                              otherAdjustText: raw,
+                              // 「-」「」等輸入中狀態暫以 0 計算，輸入完成後即時更新
+                              otherAdjust: raw.trim() !== "" && Number.isFinite(v) ? v : 0,
                               settleOvertimeAsCompOff: inp.settleOvertimeAsCompOff,
                             },
                           }));
                         }}
-                        className="w-full max-w-[3.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </td>
                     <td className="text-right align-middle">

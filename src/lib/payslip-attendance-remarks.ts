@@ -13,6 +13,13 @@ export type PayslipRemarkBounds = {
   end: string;
 };
 
+/** 結算月內的臨時／國定放假日（public_holidays，is_workday=false），供備註自動寫入與異常抑制 */
+export type PayslipRemarkHoliday = {
+  /** YYYY-MM-DD */
+  date: string;
+  name: string;
+};
+
 function num(v: unknown, fallback = 0): number {
   if (v == null || v === "") return fallback;
   const n = Number(v);
@@ -339,6 +346,8 @@ export function buildPayslipAttendanceRemarks(
     leaveRows: Record<string, unknown>[];
     overtimeRows: Record<string, unknown>[];
     settleOvertimeAsCompOff: boolean;
+    /** 結算月內放假日（is_workday=false）：該日不再列出勤異常，並自動寫入「M/D 假日名」 */
+    holidays?: PayslipRemarkHoliday[];
   },
 ): string {
   const {
@@ -348,15 +357,44 @@ export function buildPayslipAttendanceRemarks(
     leaveRows,
     overtimeRows,
     settleOvertimeAsCompOff,
+    holidays,
   } = opts;
   const items: SortableRemark[] = [];
 
+  /** 本員工已核准請假涵蓋的日期：該日打卡異常（無打卡等）不列入備註 */
+  const isOnApprovedLeave = (dateIso: string): boolean => {
+    for (const row of leaveRows) {
+      if (String(row.employee_id ?? "") !== employeeId) continue;
+      if (!isLeaveApproved(String(row.status ?? ""))) continue;
+      const s = String(row.start_date ?? "").slice(0, 10);
+      const e = String(row.end_date ?? s).slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s) && dateIso >= s && dateIso <= e) return true;
+    }
+    return false;
+  };
+
+  const holidayList = (holidays ?? []).filter(
+    (h) => /^\d{4}-\d{2}-\d{2}$/.test(h.date) && h.date >= bounds.start && h.date <= bounds.end,
+  );
+  const holidayDateSet = new Set(holidayList.map((h) => h.date));
+
   for (const row of attendanceRows) {
     if (String(row.employee_id ?? "") !== employeeId) continue;
+    const dateIso = String(row.attendance_date ?? "").slice(0, 10);
+    // 已請假或放假日且當天完全沒有打卡：無打卡是正常的，不列出勤異常。
+    // （仍有打卡者照常判斷，例如請半天假但遲到）
+    const hasAnyPunch =
+      (row.clock_in != null && String(row.clock_in).trim() !== "") ||
+      (row.clock_out != null && String(row.clock_out).trim() !== "");
+    if (!hasAnyPunch && (isOnApprovedLeave(dateIso) || holidayDateSet.has(dateIso))) continue;
     const line = attendanceLineForRow(row);
     if (!line) continue;
-    const sortKey = String(row.attendance_date ?? "").slice(0, 10);
+    const sortKey = dateIso;
     items.push({ sortKey, text: line });
+  }
+
+  for (const h of holidayList) {
+    items.push({ sortKey: h.date, text: `${formatMdFromIso(h.date)} ${h.name}` });
   }
 
   for (const row of leaveRows) {

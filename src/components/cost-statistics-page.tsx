@@ -970,7 +970,7 @@ export function CostStatisticsPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1080px] text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-muted/30 text-left text-muted-foreground">
+                  <tr className="whitespace-nowrap border-b border-border bg-muted/30 text-left text-muted-foreground">
                     <th className="px-4 py-2 font-medium">月份</th>
                     <th className="px-4 py-2 font-medium">非木料成本</th>
                     <th className="px-4 py-2 font-medium">木料成本</th>

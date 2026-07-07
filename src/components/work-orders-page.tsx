@@ -100,6 +100,21 @@ function dateInputValue(iso: string | null | undefined): string {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
+/** 預計完成 vs 交期：晚於交期＝紅、早於交期＝綠、同日或缺日期＝預設色 */
+function plannedVsDeliveryTone(
+  planned: string | null | undefined,
+  delivery: string | null | undefined,
+): string {
+  const p = dateInputValue(planned);
+  const d = dateInputValue(delivery);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p) || !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    return "text-foreground";
+  }
+  if (p > d) return "text-red-600 dark:text-red-400 font-semibold";
+  if (p < d) return "text-emerald-700 dark:text-emerald-400 font-semibold";
+  return "text-foreground";
+}
+
 interface EmployeeOption {
   id: string;
   name: string;
@@ -741,31 +756,32 @@ export function WorkOrdersPage() {
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto min-w-0 max-w-full">
-        <Table className="min-w-[52rem] w-full text-sm md:table-fixed">
+        {/* 與訂單管理頁一致：自動欄寬＋外層橫向捲動；table-fixed 會讓不換行內容溢出蓋到相鄰欄 */}
+        <Table className="min-w-[52rem] text-sm">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[10%] px-2 text-sm font-semibold whitespace-nowrap">
+              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
                 <SortHeader label="訂單" sortKey="order_number" />
               </TableHead>
-              <TableHead className="w-[40%] min-w-[120px] px-2 text-sm font-semibold whitespace-nowrap sm:w-[16%] sm:min-w-0">
+              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
                 <SortHeader label="客戶 / 專案" sortKey="customer_name" />
               </TableHead>
-              <TableHead className="min-w-[8rem] px-2 text-sm font-semibold whitespace-nowrap">
+              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
                 <SortHeader label="品項" sortKey="item_name" />
               </TableHead>
-              <TableHead className="w-11 px-2 text-right text-sm font-semibold whitespace-nowrap">
+              <TableHead className="px-2 text-right text-sm font-semibold whitespace-nowrap">
                 數量
               </TableHead>
-              <TableHead className="w-[9%] min-w-[5.5rem] px-2 text-sm font-semibold whitespace-nowrap">
+              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
                 <SortHeader label="工序" sortKey="stage" />
               </TableHead>
-              <TableHead className="w-[9%] min-w-[5.5rem] px-2 text-sm font-semibold whitespace-nowrap">
+              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
                 <SortHeader label="負責人" sortKey="assignee_name" />
               </TableHead>
-              <TableHead className="w-[13%] min-w-[7.5rem] px-2 text-sm font-semibold whitespace-nowrap">
+              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
                 <SortHeader label="交期" sortKey="expected_delivery_date" />
               </TableHead>
-              <TableHead className="w-[13%] min-w-[7.5rem] px-2 text-sm font-semibold whitespace-nowrap">
+              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
                 <SortHeader label="預計完成" sortKey="planned_end_date" />
               </TableHead>
             </TableRow>
@@ -886,7 +902,10 @@ export function WorkOrdersPage() {
                             planned_end_date: v ? v : null,
                           });
                         }}
-                        className="h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                        className={cn(
+                          "h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-ring",
+                          plannedVsDeliveryTone(w.planned_end_date, w.expected_delivery_date),
+                        )}
                         aria-label="預計完成日"
                       />
                     </div>
