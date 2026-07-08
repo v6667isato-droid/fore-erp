@@ -23,6 +23,7 @@ import {
   Printer,
 } from "lucide-react";
 import { cn, formatDateYyMmDd } from "@/lib/utils";
+import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
 import {
   DEFAULT_WORK_ORDER_STAGE,
   isWorkOrderStage,
@@ -100,20 +101,6 @@ function dateInputValue(iso: string | null | undefined): string {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
-/** 預計完成 vs 交期：晚於交期＝紅、早於交期＝綠、同日或缺日期＝預設色 */
-function plannedVsDeliveryTone(
-  planned: string | null | undefined,
-  delivery: string | null | undefined,
-): string {
-  const p = dateInputValue(planned);
-  const d = dateInputValue(delivery);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(p) || !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
-    return "text-foreground";
-  }
-  if (p > d) return "text-red-600 dark:text-red-400 font-semibold";
-  if (p < d) return "text-emerald-700 dark:text-emerald-400 font-semibold";
-  return "text-foreground";
-}
 
 interface EmployeeOption {
   id: string;

@@ -32,7 +32,8 @@ import {
   DEFAULT_SEAT_HEIGHT_CM,
   SEAT_HEIGHT_UPCHARGE_NTD,
 } from "@/lib/product-seat-height";
-import { formatDateYyMmDd } from "@/lib/utils";
+import { cn, formatDateYyMmDd } from "@/lib/utils";
+import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
 import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-payment-status";
 
 function resolvePortalSeatHeight(v: {
@@ -1838,7 +1839,12 @@ export default function PortalPage() {
                         <td className="px-2 py-2 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
                           {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}
                         </td>
-                        <td className="px-2 py-2 align-middle tabular-nums text-muted-foreground whitespace-nowrap">
+                        <td
+                          className={cn(
+                            "px-2 py-2 align-middle tabular-nums text-muted-foreground whitespace-nowrap",
+                            plannedVsDeliveryTone(o.planned_end_max, o.expected_delivery_date),
+                          )}
+                        >
                           {o.planned_end_max ? (
                             formatDateYyMmDd(o.planned_end_max)
                           ) : o.expected_delivery_date ? (

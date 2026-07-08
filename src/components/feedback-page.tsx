@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { MessageSquare, Plus, X, ArrowUpDown, ArrowUp, ArrowDown, CalendarPlus } from "lucide-react";
+import { MessageSquare, Plus, X, ArrowUpDown, ArrowUp, ArrowDown, CalendarPlus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES = [
@@ -62,6 +62,14 @@ function linkifyDescription(text: string): ReactNode {
   );
 }
 
+/** 建立日期欄：以本地時區顯示 2026/7/8（不補零） */
+function formatCreatedDateSlash(value: string): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 interface FeedbackRow {
   id: string;
   title: string;
@@ -82,7 +90,8 @@ export function FeedbackPage() {
   const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
-  const [filterCompleted, setFilterCompleted] = useState<"" | "yes" | "no">("");
+  /** 進行中／已完成分頁（依 completed_at 有無區分） */
+  const [viewTab, setViewTab] = useState<"open" | "done">("open");
   const [sortKey, setSortKey] = useState<keyof FeedbackRow | "">("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [formOpen, setFormOpen] = useState(false);
@@ -175,18 +184,25 @@ export function FeedbackPage() {
     })();
   }, []);
 
+  const tabCounts = useMemo(() => {
+    let open = 0;
+    let done = 0;
+    for (const r of rows) {
+      if (r.completed_at != null && r.completed_at !== "") done += 1;
+      else open += 1;
+    }
+    return { open, done };
+  }, [rows]);
+
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       const matchCat = !filterCategory || r.category === filterCategory;
       const matchStatus = !filterStatus || r.status === filterStatus;
       const hasCompleted = r.completed_at != null && r.completed_at !== "";
-      const matchCompleted =
-        filterCompleted === "" ||
-        (filterCompleted === "yes" && hasCompleted) ||
-        (filterCompleted === "no" && !hasCompleted);
-      return matchCat && matchStatus && matchCompleted;
+      const matchTab = viewTab === "done" ? hasCompleted : !hasCompleted;
+      return matchCat && matchStatus && matchTab;
     });
-  }, [rows, filterCategory, filterStatus, filterCompleted]);
+  }, [rows, filterCategory, filterStatus, viewTab]);
 
   const sortedRows = useMemo(() => {
     if (sortKey === "deleted_at") return [...filtered];
@@ -571,15 +587,6 @@ export function FeedbackPage() {
               </option>
             ))}
           </select>
-          <select
-            value={filterCompleted}
-            onChange={(e) => setFilterCompleted((e.target.value || "") as "" | "yes" | "no")}
-            className="h-9 rounded-md border border-input bg-background px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="">完成日期：全部</option>
-            <option value="yes">已有完成日期</option>
-            <option value="no">尚無完成日期</option>
-          </select>
           <Button type="button" className="h-9 px-3 text-xs" onClick={openCreate}>
             <Plus className="h-4 w-4 mr-1" />
             新增
@@ -595,11 +602,52 @@ export function FeedbackPage() {
         </div>
       </div>
 
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setViewTab("open")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            viewTab === "open"
+              ? "bg-secondary text-secondary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted"
+          }`}
+        >
+          進行中
+          {tabCounts.open > 0 ? (
+            <span className="ml-2 rounded-full bg-foreground/10 px-2 py-0.5 text-xs tabular-nums">
+              {tabCounts.open}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewTab("done")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            viewTab === "done"
+              ? "bg-secondary text-secondary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted"
+          }`}
+        >
+          已完成
+          {tabCounts.done > 0 ? (
+            <span className="ml-2 rounded-full bg-foreground/10 px-2 py-0.5 text-xs tabular-nums">
+              {tabCounts.done}
+            </span>
+          ) : null}
+        </button>
+      </div>
+
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
-        {/* 與訂單管理相同：min-w + 表頭不換行，視窗過窄時整表橫向捲動 */}
-        <Table className="min-w-[52rem]">
+        {/* 桌面版不出現橫向捲動（操作欄縮為圖示）；視窗縮小（md 以下）時才以 min-w 觸發整表橫向捲動 */}
+        <Table className="w-full max-md:min-w-[48rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
+              <TableHead
+                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                onClick={() => toggleSort("created_at")}
+              >
+                建立日期 <SortIcon columnKey="created_at" />
+              </TableHead>
               <TableHead
                 className="w-10 text-center text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
                 onClick={() => toggleSort("completed_at")}
@@ -643,13 +691,13 @@ export function FeedbackPage() {
               >
                 完成 <SortIcon columnKey="completed_at" />
               </TableHead>
-              <TableHead className="text-xs font-semibold w-36 whitespace-nowrap">操作</TableHead>
+              <TableHead className="text-xs font-semibold w-28 whitespace-nowrap">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                   尚無回饋，或不符合篩選條件。
                 </TableCell>
               </TableRow>
@@ -658,6 +706,9 @@ export function FeedbackPage() {
                 const calendarUrl = buildGoogleCalendarUrl(r);
                 return (
                 <TableRow key={r.id} className="border-b border-border">
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">
+                    {formatCreatedDateSlash(r.created_at)}
+                  </TableCell>
                   <TableCell className="text-center align-middle">
                     <input
                       type="checkbox"
@@ -727,34 +778,38 @@ export function FeedbackPage() {
                     {formatDate(r.completed_at ?? "") || "—"}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1 flex-nowrap">
+                    <div className="flex items-center gap-0.5 flex-nowrap">
                       {calendarUrl && (
                         <a
                           href={calendarUrl}
                           target="_blank"
                           rel="noreferrer"
                           title="加到 Google 行事曆"
-                          className="inline-flex h-8 items-center justify-center rounded-md px-2 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
+                          aria-label="加到 Google 行事曆"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground"
                         >
-                          <CalendarPlus className="h-3.5 w-3.5 mr-1" />
-                          同步
+                          <CalendarPlus className="h-4 w-4" />
                         </a>
                       )}
                       <Button
                         type="button"
                         variant="ghost"
-                        className="h-8 px-2 text-xs"
+                        className="h-8 w-8 p-0"
+                        title="編輯"
+                        aria-label="編輯"
                         onClick={() => openEdit(r)}
                       >
-                        編輯
+                        <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
-                        className="h-8 px-2 text-xs text-destructive hover:text-destructive"
+                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                        title="刪除"
+                        aria-label="刪除"
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(r); }}
                       >
-                        刪除
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </TableCell>

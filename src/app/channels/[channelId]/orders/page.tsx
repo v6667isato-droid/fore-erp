@@ -6,7 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { OrderOverviewDialog } from "@/components/order-overview-dialog";
 import { ClipboardList, ArrowDown, ArrowUp, ArrowUpDown, Search, Download } from "lucide-react";
-import { formatDateYyMmDd } from "@/lib/utils";
+import { cn, formatDateYyMmDd } from "@/lib/utils";
+import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
 import {
   plannedEndLatestByOrderIdFromWorkOrderRows,
   type WorkOrderPlannedWithOrderId,
@@ -633,7 +634,12 @@ export default function ChannelOrdersPage() {
                       <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
                         {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}
                       </td>
-                      <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                      <td
+                        className={cn(
+                          "py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap",
+                          plannedVsDeliveryTone(o.planned_end_max, o.expected_delivery_date),
+                        )}
+                      >
                         {o.planned_end_max ? formatDateYyMmDd(o.planned_end_max) : "—"}
                       </td>
                       <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">{o.status}</td>

@@ -173,6 +173,8 @@ export type OverviewLine = {
   /** 明細設計圖：order_items.image_url 優先，否則規格／系列圖 */
   image_url: string | null;
   item_name: string;
+  /** 產品編號（客製品項為 null） */
+  product_code: string | null;
   wood_type: string | null;
   dimension_text: string | null;
   spec_text: string | null;
@@ -250,6 +252,7 @@ function itemWoodType(r: { wood_type?: unknown }): string | null {
 
 function buildLineDetail(oi: any): {
   item_name: string;
+  product_code: string | null;
   image_url: string | null;
   wood_type: string | null;
   dimension_text: string | null;
@@ -291,12 +294,24 @@ function buildLineDetail(oi: any): {
   const image_url = itemImg ?? variantImg ?? seriesImg ?? null;
 
   const lineSeat = oi.seat_height_cm != null ? Number(oi.seat_height_cm) : NaN;
+  /** 尺寸格式：W58 D55 H75（缺值欄位省略） */
+  const formatDims = (
+    w: number | null | undefined,
+    d: number | null | undefined,
+    h: number | null | undefined,
+  ): string | null => {
+    const parts: string[] = [];
+    if (w != null) parts.push(`W${w}`);
+    if (d != null) parts.push(`D${d}`);
+    if (h != null) parts.push(`H${h}`);
+    return parts.length ? parts.join(" ") : null;
+  };
   const hasDims =
     oi.custom_dimension_w != null ||
     oi.custom_dimension_d != null ||
     oi.custom_dimension_h != null;
   let dimText: string | null = hasDims
-    ? `${oi.custom_dimension_w ?? "—"} × ${oi.custom_dimension_d ?? "—"} × ${oi.custom_dimension_h ?? "—"}`
+    ? formatDims(oi.custom_dimension_w, oi.custom_dimension_d, oi.custom_dimension_h)
     : null;
 
   const isCustom = !oi.variant_id;
@@ -317,33 +332,31 @@ function buildLineDetail(oi: any): {
       (variant?.product_code != null ? String(variant.product_code) : null) ||
       "產品項目";
     if (!dimText && variant) {
-      const hasVariantDims =
-        variant.dimension_w != null ||
-        variant.dimension_d != null ||
-        variant.dimension_h != null;
-      dimText = hasVariantDims
-        ? `${variant.dimension_w ?? "—"} × ${variant.dimension_d ?? "—"} × ${variant.dimension_h ?? "—"}`
-        : null;
+      dimText = formatDims(variant.dimension_w, variant.dimension_d, variant.dimension_h);
     }
     const rawSpec = variant?.spec1 != null ? String(variant.spec1) : "";
     spec_text = stripSpecSuffixCodes(rawSpec) || null;
   }
 
   if (dimText && Number.isFinite(lineSeat)) {
-    dimText = `${dimText} · 座高 ${lineSeat} cm`;
+    dimText = `${dimText} 座高:${lineSeat}cm`;
   } else if (!dimText && Number.isFinite(lineSeat)) {
-    dimText = `座高 ${lineSeat} cm`;
+    dimText = `座高:${lineSeat}cm`;
   } else if (
     dimText &&
     !Number.isFinite(lineSeat) &&
     variant?.seat_height_cm != null &&
     Number.isFinite(Number(variant.seat_height_cm))
   ) {
-    dimText = `${dimText} · 座高 ${Number(variant.seat_height_cm)} cm`;
+    dimText = `${dimText} 座高:${Number(variant.seat_height_cm)}cm`;
   }
 
   return {
     item_name,
+    product_code:
+      variant?.product_code != null && String(variant.product_code).trim()
+        ? String(variant.product_code).trim()
+        : null,
     image_url,
     wood_type: itemWoodType(oi) ?? (variant?.wood_type != null ? String(variant.wood_type).trim() : null),
     dimension_text: dimText,
@@ -416,6 +429,7 @@ function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
         thumbnail_url,
         image_url: detail.image_url,
         item_name: detail.item_name,
+        product_code: detail.product_code,
         wood_type: detail.wood_type,
         dimension_text: detail.dimension_text,
         spec_text: detail.spec_text,
@@ -836,7 +850,8 @@ export function OrderOverviewCard({
         </div>
       ) : null}
 
-      <Table className="min-w-[36rem] w-full text-xs">
+      {/* 欄位皆不換行；容器（ui/table 外層）在寬度不足時整表橫向捲動（含手機） */}
+      <Table className="min-w-[48rem] w-full text-xs">
         <TableHeader>
           <TableRow
             className={cn(
@@ -844,22 +859,31 @@ export function OrderOverviewCard({
               warm ? "border-[#E8E0D4] bg-[#FAF8F4]" : "border-border"
             )}
           >
-            <TableHead className="w-[40%] min-w-0 px-2 text-xs font-semibold whitespace-normal">
+            <TableHead className="px-2 text-xs font-semibold whitespace-nowrap">
               品項
             </TableHead>
-            <TableHead className="w-11 min-w-0 px-1 text-right text-xs font-semibold whitespace-normal">
+            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
+              木種
+            </TableHead>
+            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
+              尺寸
+            </TableHead>
+            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
+              規格
+            </TableHead>
+            <TableHead className="px-1 text-right text-xs font-semibold whitespace-nowrap">
               數量
             </TableHead>
-            <TableHead className="w-[18%] min-w-0 px-1 text-xs font-semibold whitespace-normal">
+            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
               <span className="inline-flex items-center gap-1">
                 <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 {variant === "dialog" ? "負責" : "負責窗口"}
               </span>
             </TableHead>
-            <TableHead className="w-[22%] min-w-0 px-1 text-xs font-semibold whitespace-normal">
+            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
               {variant === "dialog" ? "工序" : "工序／進度"}
             </TableHead>
-            <TableHead className="w-[18%] min-w-0 px-1 text-xs font-semibold whitespace-normal">
+            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
               <span
                 className="inline-flex items-center gap-1"
                 title="同訂單各品項工單中之最晚預計完成日"
@@ -873,20 +897,23 @@ export function OrderOverviewCard({
         <TableBody>
           {order.lines.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="text-sm text-muted-foreground py-6 text-center whitespace-normal">
+              <TableCell colSpan={8} className="text-sm text-muted-foreground py-6 text-center whitespace-normal">
                 此訂單尚無品項。
               </TableCell>
             </TableRow>
           ) : (
             order.lines.map((line) => {
               const stage = line.stage;
+              const itemDisplay = line.product_code
+                ? `${line.product_code} ${line.item_name}`
+                : line.item_name;
               return (
                 <TableRow
                   key={line.order_item_id}
                   className={cn("border-b", warm ? "border-[#EEE8DE]" : "border-border")}
                 >
-                  <TableCell className="p-2 align-top text-xs whitespace-normal break-words">
-                    <div className="flex gap-2 items-start min-w-0">
+                  <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
+                    <div className="flex items-center gap-2">
                       {full && line.image_url ? (
                         <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border bg-muted/40">
                           <img
@@ -903,27 +930,36 @@ export function OrderOverviewCard({
                         className={warm ? "border-[#E0D8CC] bg-white/80" : undefined}
                       />
                       )}
-                      <span className="line-clamp-4 text-foreground min-w-0">{line.item_label}</span>
+                      <span className="text-foreground">{itemDisplay}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="p-2 align-top text-right text-xs tabular-nums text-muted-foreground whitespace-nowrap">
+                  <TableCell className="p-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                    {line.wood_type || "—"}
+                  </TableCell>
+                  <TableCell className="p-2 align-middle text-xs tabular-nums text-muted-foreground whitespace-nowrap">
+                    {line.dimension_text || "—"}
+                  </TableCell>
+                  <TableCell className="p-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                    {line.spec_text || "—"}
+                  </TableCell>
+                  <TableCell className="p-2 align-middle text-right text-xs tabular-nums text-muted-foreground whitespace-nowrap">
                     {Number.isFinite(line.quantity) && line.quantity > 0 ? line.quantity : "—"}
                   </TableCell>
-                  <TableCell className="p-2 align-top text-xs whitespace-normal break-words">
+                  <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
                     {line.assignee ? (
-                      <span className="inline-flex items-start gap-1 text-foreground">
-                        <User className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="inline-flex items-center gap-1 text-foreground">
+                        <User className="h-3 w-3 shrink-0 text-muted-foreground" />
                         {line.assignee}
                       </span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="p-2 align-top text-xs whitespace-normal">
+                  <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
                     {line.has_work_order ? (
                       <span
                         className={cn(
-                          "inline-flex max-w-full rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
+                          "inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
                           stageStyleClassName(stage)
                         )}
                       >
@@ -935,7 +971,7 @@ export function OrderOverviewCard({
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className="p-2 align-top text-[11px] tabular-nums text-muted-foreground whitespace-normal break-words">
+                  <TableCell className="p-2 align-middle text-[11px] tabular-nums text-muted-foreground whitespace-nowrap">
                     {order.planned_end_order_max
                       ? formatDateYyMmDd(order.planned_end_order_max)
                       : "—"}
