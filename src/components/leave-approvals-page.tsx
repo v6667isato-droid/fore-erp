@@ -31,6 +31,7 @@ import {
   ClipboardList,
   Clock,
   Inbox,
+  ListChecks,
   Receipt,
   RefreshCw,
   Upload,
@@ -44,6 +45,7 @@ import {
 } from "@/components/attendance-management-tabs";
 import { EmployeesPage } from "@/components/employees-page";
 import { PerformanceBonusPage } from "@/components/performance-bonus-page";
+import { CompanyAssignmentsAdmin } from "@/components/company-assignments-admin";
 import {
   formatLeaveUpdatedAtDisplay,
   leaveRequestRowWasUpdated,
@@ -220,6 +222,7 @@ type TabKey = "pending" | "history";
 type MainSection =
   | "attendance"
   | "leave"
+  | "assignments"
   | "payroll"
   | "paid_history"
   | "bonus"
@@ -232,7 +235,8 @@ type HeaderIcon =
   | typeof Banknote
   | typeof Receipt
   | typeof Award
-  | typeof Users;
+  | typeof Users
+  | typeof ListChecks;
 
 export function LeaveApprovalsPage() {
   const router = useRouter();
@@ -544,6 +548,14 @@ export function LeaveApprovalsPage() {
           Icon: ClipboardList,
           showLeaveRefresh: true,
         };
+      case "assignments":
+        return {
+          title: "公司交辦事項",
+          description:
+            "彙整全體員工的開會交辦與行事曆交辦及其完成狀態（不含生產交辦）；可依員工與狀態篩選。",
+          Icon: ListChecks,
+          showLeaveRefresh: false,
+        };
       case "payroll":
         return {
           title: "薪資結算中心",
@@ -638,6 +650,19 @@ export function LeaveApprovalsPage() {
         </button>
         <button
           type="button"
+          onClick={() => setMainSection("assignments")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "assignments"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <ListChecks className="h-4 w-4 shrink-0 opacity-90" />
+          公司交辦
+        </button>
+        <button
+          type="button"
           onClick={() => setMainSection("payroll")}
           className={cn(
             "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
@@ -696,6 +721,8 @@ export function LeaveApprovalsPage() {
           onActiveTabChange={setAttendanceSubTab}
         />
       )}
+
+      {mainSection === "assignments" && <CompanyAssignmentsAdmin />}
 
       {mainSection === "payroll" && <SalarySettlementCenter />}
 

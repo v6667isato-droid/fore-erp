@@ -229,6 +229,40 @@ export async function fetchCompanyEventAssignmentsForEmployee(
   return { ok: true, rows };
 }
 
+/** 管理端：所有行事曆交辦（不分員工），含員工與事件資訊。 */
+export async function fetchAllCompanyEventAssignees(): Promise<
+  { ok: true; rows: CompanyEventAssigneeRow[] } | { ok: false; message: string }
+> {
+  if (!isSupabaseConfigured) return { ok: true, rows: [] };
+  const { data, error } = await supabase
+    .from(CEA_TABLE)
+    .select(
+      "id, company_event_id, employee_id, completed, updated_at, company_event(title, event_date, category, description)",
+    )
+    .order("updated_at", { ascending: false });
+
+  if (error) return { ok: false, message: error.message };
+
+  const rows: CompanyEventAssigneeRow[] = (data ?? []).map((r: Record<string, unknown>) => {
+    const ev = (r.company_event ?? {}) as Record<string, unknown>;
+    const cat = typeof ev.category === "string" && isCompanyEventCategory(ev.category)
+      ? ev.category
+      : "company";
+    return {
+      id: String(r.id ?? ""),
+      company_event_id: String(r.company_event_id ?? ""),
+      employee_id: String(r.employee_id ?? ""),
+      completed: r.completed === true,
+      updated_at: typeof r.updated_at === "string" ? r.updated_at : "",
+      event_title: typeof ev.title === "string" ? ev.title : "",
+      event_date: typeof ev.event_date === "string" ? ev.event_date : "",
+      event_category: cat,
+      event_description: typeof ev.description === "string" ? ev.description : null,
+    };
+  });
+  return { ok: true, rows };
+}
+
 export async function fetchCompanyEventAssigneeIds(
   companyEventId: string,
 ): Promise<string[]> {

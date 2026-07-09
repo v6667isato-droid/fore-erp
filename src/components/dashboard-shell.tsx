@@ -55,7 +55,7 @@ type Page =
   | "feedback";
 type AppRole = "admin" | "manager" | "staff" | null;
 
-/** 報價／訂單／產品等：admin 與 manager 可編輯；員工出勤管理（含員工資料分頁）僅 admin */
+/** 報價／訂單／產品等：admin 與 manager 可編輯；員工管理（含員工資料分頁）僅 admin */
 function isErpEditorRole(role: AppRole): boolean {
   return role === "admin" || role === "manager";
 }
@@ -69,7 +69,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "kanban", label: "生產管理", icon: Package },
   { id: "procurement", label: "採購管理", icon: ShoppingCart },
   { id: "cost_statistics", label: "成本統計", icon: BarChart3 },
-  { id: "leave_approvals", label: "員工出勤管理", icon: ClipboardCheck },
+  { id: "leave_approvals", label: "員工管理", icon: ClipboardCheck },
   { id: "feedback", label: "使用回饋", icon: MessageSquare },
 ];
 
@@ -467,7 +467,7 @@ export default function DashboardShell() {
     };
   }, [router]);
 
-  // 非 admin 不可開員工出勤管理（含書籤或手動改 ?page=）
+  // 非 admin 不可開員工管理（含書籤或手動改 ?page=）
   useEffect(() => {
     if (!authChecked || userRole === null) return;
     if (
