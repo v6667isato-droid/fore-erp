@@ -544,6 +544,15 @@ async function fetchProductionTasksByWorkOrderAssigneeId(employeeId: string, sel
   );
 }
 
+/** production_tasks 巢狀列 → 所屬訂單物件（用於排除已軟刪除之訂單） */
+function orderOfProductionTaskRow(r: any): { deleted_at?: string | null } | null {
+  const wo = Array.isArray(r?.work_orders) ? r.work_orders[0] : r?.work_orders;
+  const oi = wo?.order_items?.[0] ?? wo?.order_items;
+  const oiOne = Array.isArray(oi) ? oi[0] : oi;
+  const ord = oiOne?.orders;
+  return (Array.isArray(ord) ? ord[0] : ord) ?? null;
+}
+
 async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRow[]> {
   const select = `
       id,
@@ -553,7 +562,7 @@ async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRo
       work_orders(
         planned_end_date,
         order_items(
-          orders(order_number),
+          orders(order_number, deleted_at),
           product_variants(product_code),
           custom_name
         )
@@ -584,7 +593,7 @@ async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRo
         assignee_id,
         planned_end_date,
         order_items(
-          orders(order_number),
+          orders(order_number, deleted_at),
           product_variants(product_code),
           custom_name
         )
@@ -593,7 +602,9 @@ async function fetchTasksForEmployee(employeeId: string): Promise<EmployeeTaskRo
   const byWoAssignee = await fetchProductionTasksByWorkOrderAssigneeId(employeeId, taskSelectWo);
   const rows = mergeProductionTaskRowsById((byEmp ?? []) as any[], byWoAssignee).slice(0, 40);
 
-  return rows.map((r) => {
+  return rows
+    .filter((r) => !orderOfProductionTaskRow(r)?.deleted_at)
+    .map((r) => {
     const wo = Array.isArray(r.work_orders) ? r.work_orders[0] : r.work_orders;
     const oi = wo?.order_items?.[0] ?? wo?.order_items;
     const oiOne = Array.isArray(oi) ? oi[0] : oi;
@@ -629,7 +640,7 @@ async function fetchWorkProgressFromProductionTasks(employeeId: string): Promise
         assignee_id,
         planned_end_date,
         order_items(
-          orders(order_number, expected_delivery_date),
+          orders(order_number, expected_delivery_date, deleted_at),
           product_variants(product_code),
           custom_name
         )
@@ -654,7 +665,9 @@ async function fetchWorkProgressFromProductionTasks(employeeId: string): Promise
   const byWoAssignee = await fetchProductionTasksByWorkOrderAssigneeId(employeeId, select);
   const rows = mergeProductionTaskRowsById((byEmp ?? []) as any[], byWoAssignee).slice(0, 40);
 
-  return rows.map((r) => {
+  return rows
+    .filter((r) => !orderOfProductionTaskRow(r)?.deleted_at)
+    .map((r) => {
     const wo = Array.isArray(r.work_orders) ? r.work_orders[0] : r.work_orders;
     const oi = wo?.order_items?.[0] ?? wo?.order_items;
     const oiOne = Array.isArray(oi) ? oi[0] : oi;
@@ -947,6 +960,7 @@ async function fetchAssigneeWorkOrders(employeeId: string): Promise<AssigneeWork
           id,
           order_number,
           status,
+          deleted_at,
           expected_delivery_date,
           shipping_contact_name,
           customers(name, alias)
@@ -972,7 +986,13 @@ async function fetchAssigneeWorkOrders(employeeId: string): Promise<AssigneeWork
     return [];
   }
 
-  return (data ?? []).map((row) => mapWorkOrderRowToAssigneePortal(row as Record<string, unknown>));
+  return (data ?? [])
+    .filter((row: any) => {
+      const oi = Array.isArray(row.order_items) ? row.order_items[0] : row.order_items;
+      const ord = Array.isArray(oi?.orders) ? oi.orders[0] : oi?.orders;
+      return !ord?.deleted_at;
+    })
+    .map((row) => mapWorkOrderRowToAssigneePortal(row as Record<string, unknown>));
 }
 
 async function fetchPayslipRows(employeeId: string): Promise<PayslipRow[]> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
@@ -354,7 +354,8 @@ export default function PrintOrderPage() {
             name,
             description: null,
             image_url: imageUrl,
-            wood_type: itemWoodType(r),
+            // 明細未填木種時，回退顯示規格庫（product_variants）的木種
+            wood_type: itemWoodType(r) ?? variant?.wood_type ?? null,
             dimension_text: dimText,
             // 規格欄位顯示 product_variants.spec1（列印時略去 -P/-R/-W/-F 等後綴）
             spec_text: stripSpecSuffixCodes(String(variant?.spec1 ?? "")) || null,
@@ -469,7 +470,7 @@ export default function PrintOrderPage() {
 
   return (
     <div className="min-h-screen bg-white text-black">
-      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:shadow-none print:px-10 print:py-8">
+      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:shadow-none print:px-4 print:py-8">
         <div className="flex justify-end mb-6 print:hidden">
           <button
             type="button"
@@ -483,38 +484,47 @@ export default function PrintOrderPage() {
           </button>
         </div>
 
-        <header className="mb-8 border-b border-gray-200 pb-8">
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <header className="mb-8">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-[2fr_1fr]">
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <div className="flex flex-col items-start gap-3">
-              <img
-                src="/logo.png"
-                alt="Føre Furniture"
-                className="block h-24 w-auto object-contain object-left-top"
-              />
-              <div className="space-y-1 text-xs text-gray-700 leading-relaxed">
-                <p>電話：06-2302861</p>
-                <p>聯絡時間：上班日 9:00 - 17:00</p>
-                <p>地址：台南市歸仁區丁厝街125號</p>
-                <p>
-                  Line：
-                  <a
-                    href="https://line.me/ti/p/~fore.fore"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-gray-900 underline hover:no-underline"
-                  >
-                    @fore.fore
-                  </a>
-                </p>
+              <div className="flex h-full items-center justify-between gap-4">
+                <img
+                  src="/logo.png"
+                  alt="Føre Furniture"
+                  className="block h-24 w-auto shrink-0 object-contain object-left"
+                />
+                <div className="space-y-1 border-l border-gray-200 pl-5 text-xs text-gray-700 leading-relaxed">
+                  <p>電話：06-2302861</p>
+                  <p>聯絡時間：上班日 9:00 - 17:00</p>
+                  <p className="whitespace-nowrap">地址：台南市歸仁區丁厝街125號</p>
+                  <p>
+                    Line：
+                    <a
+                      href="https://line.me/ti/p/~fore.fore"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-900 underline hover:no-underline"
+                    >
+                      @fore.fore
+                    </a>
+                  </p>
+                  <p className="whitespace-nowrap">
+                    Email：
+                    <a
+                      href="mailto:forefurniture.studio@gmail.com"
+                      className="text-gray-900 underline hover:no-underline"
+                    >
+                      forefurniture.studio@gmail.com
+                    </a>
+                  </p>
+                </div>
               </div>
-            </div>
             </div>
             <div className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700 leading-relaxed">
               <p className="mb-2 text-lg font-semibold leading-tight text-gray-900">訂單確認單</p>
-              <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-1.5">
+              <div className="grid grid-cols-[52px_1fr] gap-x-2 gap-y-1.5 text-xs">
                 <span className="text-gray-500">訂單編號</span>
-                <span className="font-mono text-gray-900">{order.order_number}</span>
+                <span className="text-gray-900 whitespace-nowrap">{order.order_number}</span>
                 <span className="text-gray-500">訂單日期</span>
                 <span className="text-gray-900">{formattedDate(order.order_date)}</span>
                 {order.expected_delivery_date && (
@@ -528,9 +538,9 @@ export default function PrintOrderPage() {
           </div>
 
           <div className="mt-6 rounded-lg border border-gray-200 p-4 text-sm leading-relaxed">
-            <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-2 text-gray-800">
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-gray-800 sm:grid-cols-[auto_2fr_auto_1fr] sm:gap-x-8">
               <span className="text-gray-500">客戶名稱</span>
-              <span className="font-medium text-gray-900">{order.customer_name || "—"}</span>
+              <span className="font-medium text-gray-900 sm:col-span-3">{order.customer_name || "—"}</span>
               <span className="text-gray-500">寄送聯絡人</span>
               <span className="font-medium">{order.shipping_contact_name?.trim() || "—"}</span>
               <span className="text-gray-500">電話</span>
@@ -548,19 +558,19 @@ export default function PrintOrderPage() {
         </section>
 
         <section className="mb-8 print-quote-table-wrap">
-          <table className="w-full table-fixed print:table-auto border-collapse text-sm leading-snug">
+          <table className="w-full table-auto border-collapse text-sm leading-snug">
             <thead>
               <tr className="border-b-2 border-gray-300 bg-gray-50">
                 <th className="w-[4rem] px-1.5 py-3 text-left font-semibold text-gray-700">圖片</th>
-                <th className="w-[7.75rem] px-2 py-3 text-left font-semibold text-gray-700">報價品項</th>
-                <th className="w-[5rem] px-1.5 py-3 text-left font-semibold text-gray-700 whitespace-nowrap">木種</th>
-                <th className="print-col-dimension w-[28%] min-w-[11rem] px-2 py-3 text-left font-semibold text-gray-700 whitespace-nowrap print:whitespace-normal">
+                <th className="w-[8.5rem] px-2 py-3 text-left font-semibold text-gray-700 whitespace-nowrap">報價品項</th>
+                <th className="w-[5.5rem] px-1.5 py-3 text-left font-semibold text-gray-700 whitespace-nowrap">木種</th>
+                <th className="print-col-dimension w-[28%] min-w-[11rem] px-2 py-3 text-left font-semibold text-gray-700 whitespace-nowrap">
                   尺寸(cm)
                 </th>
-                <th className="print-col-spec w-[7rem] min-w-[6.5rem] px-2 py-3 text-left font-semibold text-gray-700 whitespace-nowrap print:whitespace-normal">
+                <th className="print-col-spec w-[7rem] min-w-[6.5rem] px-2 py-3 text-left font-semibold text-gray-700 whitespace-nowrap">
                   規格
                 </th>
-                <th className="w-12 px-1.5 py-3 text-right font-semibold text-gray-700">數量</th>
+                <th className="w-[3.5rem] px-1.5 py-3 text-right font-semibold text-gray-700 whitespace-nowrap">數量</th>
                 <th className="w-[4.75rem] px-1.5 py-3 text-right font-semibold text-gray-700">單價</th>
                 <th className="w-[5rem] px-1.5 py-3 text-right font-semibold text-gray-700">小計</th>
               </tr>
@@ -588,65 +598,52 @@ export default function PrintOrderPage() {
                     .filter(Boolean)
                     .join("\n");
 
-                  const mainCellY = hasNotes ? "pt-3 pb-2.5" : "py-3";
                   return (
-                    <Fragment key={item.id}>
-                      <tr className="border-b border-gray-200 align-top">
-                        <td className={`px-2 ${mainCellY}`}>
-                          {item.image_url ? (
-                            <div className="h-14 w-14 overflow-hidden rounded border border-gray-200 bg-gray-100">
-                              <img
-                                src={item.image_url}
-                                alt={item.name}
-                                className="h-full w-full object-cover"
-                              />
-                            </div>
-                          ) : (
-                            <div className="h-14 w-14 rounded border border-dashed border-gray-200 bg-gray-50" />
-                          )}
-                        </td>
-                        <td className={`px-2 min-w-0 ${mainCellY}`}>
-                          <div className="font-medium text-gray-900 break-words">
+                    <tr key={item.id} className="border-b border-gray-200 align-top text-sm">
+                      <td className="px-2 py-2">
+                        {item.image_url ? (
+                          <div className="h-14 w-14 overflow-hidden rounded border border-gray-200 bg-gray-100">
+                            <img
+                              src={item.image_url}
+                              alt={item.name}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-14 w-14 rounded border border-dashed border-gray-200 bg-gray-50" />
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="flex h-14 flex-col justify-between">
+                          <div className="font-medium text-gray-900 whitespace-nowrap">
                             {item.name}
                           </div>
-                        </td>
-                        <td className={`px-2 text-gray-700 break-words min-w-0 ${mainCellY}`}>
-                          {item.wood_type ?? "—"}
-                        </td>
-                        <td
-                          className={`print-col-dimension px-2 text-gray-700 text-xs leading-relaxed whitespace-nowrap print:whitespace-normal print:break-words ${mainCellY}`}
-                        >
-                          {item.dimension_text ?? "—"}
-                        </td>
-                        <td
-                          className={`print-col-spec px-2 text-gray-700 font-mono text-xs break-words min-w-0 print:min-w-[5.5rem] ${mainCellY}`}
-                        >
-                          {item.spec_text ?? "—"}
-                        </td>
-                        <td className={`px-2 text-right text-gray-900 tabular-nums ${mainCellY}`}>
-                          {item.quantity}
-                        </td>
-                        <td className={`px-2 text-right text-gray-900 tabular-nums text-xs ${mainCellY}`}>
-                          {item.unit_price.toLocaleString()}
-                        </td>
-                        <td className={`px-2 text-right text-gray-900 font-medium tabular-nums text-xs ${mainCellY}`}>
-                          {lineTotal.toLocaleString()}
-                        </td>
-                      </tr>
-                      {hasNotes && (
-                        <tr className="border-b border-gray-200">
-                          <td className="px-3 pt-1 pb-8 text-sm font-medium text-gray-600 align-top">
-                            備註
-                          </td>
-                          <td
-                            colSpan={7}
-                            className="px-3 pt-1 pb-8 align-top text-sm text-gray-800 whitespace-pre-line"
-                          >
-                            {notesContent}
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
+                          {hasNotes && (
+                            <div className="whitespace-pre-line text-xs text-gray-500">
+                              備註：{notesContent}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 text-gray-700 whitespace-nowrap">
+                        {item.wood_type ?? "—"}
+                      </td>
+                      <td className="print-col-dimension px-2 py-2 text-gray-700 whitespace-nowrap">
+                        {item.dimension_text ?? "—"}
+                      </td>
+                      <td className="print-col-spec px-2 py-2 text-gray-700 font-mono whitespace-nowrap print:min-w-[5.5rem]">
+                        {item.spec_text ?? "—"}
+                      </td>
+                      <td className="px-2 py-2 text-right text-gray-900 tabular-nums">
+                        {item.quantity}
+                      </td>
+                      <td className="px-2 py-2 text-right text-gray-900 tabular-nums">
+                        {item.unit_price.toLocaleString()}
+                      </td>
+                      <td className="px-2 py-2 text-right text-gray-900 font-medium tabular-nums">
+                        {lineTotal.toLocaleString()}
+                      </td>
+                    </tr>
                   );
                 })
               )}
@@ -654,43 +651,42 @@ export default function PrintOrderPage() {
           </table>
         </section>
 
-        <section className="mb-8 flex justify-end">
-          <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-              金額摘要
-            </p>
-            <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-700">商品總計</span>
-              <span className="text-gray-900 tabular-nums">{totals.original.toLocaleString()}</span>
-            </div>
-            {showDiscountRow && (
+        <section className="mb-8 flex justify-end break-inside-avoid">
+          <div className="w-full max-w-xs break-inside-avoid text-sm leading-relaxed">
+            <dl className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-gray-700">通路 / 專案折扣</span>
-                <span className="text-gray-900 tabular-nums">{totals.discount.toLocaleString()}</span>
+                <dt className="text-gray-600">商品總計</dt>
+                <dd className="text-gray-900 tabular-nums">{totals.original.toLocaleString()}</dd>
               </div>
-            )}
-            <div className="flex items-center justify-between">
-              <span className="text-gray-700">運費</span>
-              <span className="text-gray-900 tabular-nums">{order.shipping_fee.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-              <span className="font-semibold text-gray-900">報價總金額</span>
-              <span className="font-semibold text-gray-900 tabular-nums">{totals.total.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-700">已收訂金</span>
-              <span className="text-gray-900 tabular-nums">
-                {order.deposit_amount.toLocaleString()}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-700">尾款金額</span>
-              <span className="font-semibold text-gray-900 tabular-nums">
-                {remainingAmount.toLocaleString()}
-              </span>
-            </div>
-            </div>
+              <div className="flex items-center justify-between">
+                <dt className="text-gray-600">運費</dt>
+                <dd className="text-gray-900 tabular-nums">{order.shipping_fee.toLocaleString()}</dd>
+              </div>
+              {showDiscountRow && (
+                <div className="flex items-center justify-between">
+                  <dt className="text-gray-600">通路 / 專案折扣</dt>
+                  <dd className="text-gray-900 tabular-nums">{totals.discount.toLocaleString()}</dd>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <dt className="text-gray-600">已收訂金</dt>
+                <dd className="text-gray-900 tabular-nums">
+                  {order.deposit_amount.toLocaleString()}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between border-t border-gray-200 pt-2">
+                <dt className="font-semibold text-gray-900">報價總金額</dt>
+                <dd className="font-semibold text-gray-900 tabular-nums">
+                  {totals.total.toLocaleString()}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt className="font-bold text-gray-900">尾款金額</dt>
+                <dd className="font-bold text-gray-900 tabular-nums">
+                  {remainingAmount.toLocaleString()}
+                </dd>
+              </div>
+            </dl>
           </div>
         </section>
 
@@ -702,7 +698,7 @@ export default function PrintOrderPage() {
           {parseExplanationImages(order.explanation_image_url).length > 0 && (
             <div className="space-y-5">
               {parseExplanationImages(order.explanation_image_url).map((img, idx) => (
-                <div key={idx} className="space-y-2">
+                <div key={idx} className="space-y-2 break-inside-avoid">
                   <div className="text-sm font-semibold text-gray-900">
                     {img.title?.trim() ? img.title : `訂單說明圖 ${idx + 1}`}
                   </div>

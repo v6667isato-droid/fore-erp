@@ -96,7 +96,7 @@ async function loadRemoteEvents(
       .select(`
         id, stage, planned_end_date,
         order_items!inner(
-          orders!inner(order_number, customers(name))
+          orders!inner(order_number, deleted_at, customers(name))
         )
       `)
       .eq("assignee_id", employeeId)
@@ -127,7 +127,12 @@ async function loadRemoteEvents(
     if (d && d >= start && d <= end) keys.add(d);
   }
 
-  const workOrders = (woResult.data ?? []) as any[];
+  // 排除所屬訂單已被軟刪除者
+  const workOrders = ((woResult.data ?? []) as any[]).filter((wo) => {
+    const oi = Array.isArray(wo.order_items) ? wo.order_items[0] : wo.order_items;
+    const ord = Array.isArray(oi?.orders) ? oi.orders[0] : oi?.orders;
+    return !ord?.deleted_at;
+  });
   for (const wo of workOrders) {
     const d = wo.planned_end_date?.slice(0, 10);
     if (d) keys.add(d);

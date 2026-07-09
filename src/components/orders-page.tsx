@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   isOrderStatusLockedForManualEdit,
@@ -18,11 +18,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { OrderOverviewDialog } from "@/components/order-overview-dialog";
+import {
+  OrderOverviewCard,
+  fetchOrderOverviewById,
+  type OverviewOrder,
+} from "@/components/orders-overview-page";
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CustomerRow } from "@/types/crm";
-import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, Layers } from "lucide-react";
+import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import type {
@@ -88,10 +92,29 @@ export function OrdersPage({
   );
   const [formOpen, setFormOpen] = useState(false);
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<OrderRow | null>(null);
-  const [overviewOrderId, setOverviewOrderId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [overviewById, setOverviewById] = useState<
+    Record<string, OverviewOrder | null | "loading">
+  >({});
   const [viewCustomer, setViewCustomer] = useState<CustomerRow | null>(null);
   const hasAppliedInitialOpenRef = useRef(false);
   const lastInitialOpenOrderIdRef = useRef<string | undefined>(undefined);
+
+  function toggleOrderExpand(orderId: string) {
+    const willExpand = !expandedIds.has(orderId);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+    if (willExpand && overviewById[orderId] === undefined) {
+      setOverviewById((prev) => ({ ...prev, [orderId]: "loading" }));
+      void fetchOrderOverviewById(orderId).then((row) => {
+        setOverviewById((prev) => ({ ...prev, [orderId]: row }));
+      });
+    }
+  }
 
   async function fetchCustomers() {
     const { data: customerData, error: customerError } = await supabase
@@ -1008,9 +1031,11 @@ export function OrdersPage({
             ) : (
               sortedOrders.map((order) => {
                 const rowReadOnly = isOrderAdminReadOnly(order);
+                const isExpanded = expandedIds.has(order.id);
+                const overview = overviewById[order.id];
                 return (
+                <Fragment key={order.id}>
                 <TableRow
-                  key={order.id}
                   className={rowReadOnly ? "group" : "group cursor-pointer"}
                   onClick={rowReadOnly ? undefined : () => handleEdit(order)}
                 >
@@ -1160,14 +1185,19 @@ export function OrdersPage({
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                        title="訂單總覽（品項／負責人／工序）"
+                        title={isExpanded ? "收合訂單內容" : "展開訂單內容（品項／明細）"}
+                        aria-expanded={isExpanded}
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          setOverviewOrderId(order.id);
+                          toggleOrderExpand(order.id);
                         }}
                       >
-                        <Layers className="h-3 w-3" />
+                        {isExpanded ? (
+                          <ChevronDown className="h-3 w-3" />
+                        ) : (
+                          <ChevronRight className="h-3 w-3" />
+                        )}
                       </Button>
                       <Button
                         type="button"
@@ -1234,6 +1264,31 @@ export function OrdersPage({
                     </div>
                   </TableCell>
                 </TableRow>
+                {isExpanded ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={9} className="p-0">
+                      <div className="border-t border-border bg-muted/20 p-3 sm:p-4">
+                        {overview === undefined || overview === "loading" ? (
+                          <p className="py-6 text-center text-sm text-muted-foreground">
+                            載入訂單內容中…
+                          </p>
+                        ) : overview ? (
+                          <OrderOverviewCard
+                            order={overview}
+                            variant="dialog"
+                            detailLevel="full"
+                            showEditButton={false}
+                          />
+                        ) : (
+                          <p className="py-6 text-center text-sm text-muted-foreground">
+                            無法載入訂單內容
+                          </p>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                </Fragment>
               );
               })
             )}
@@ -1244,19 +1299,6 @@ export function OrdersPage({
       <p className="text-xs text-muted-foreground">
         顯示 {filtered.length} / {orders.length} 筆訂單
       </p>
-
-      <OrderOverviewDialog
-        open={overviewOrderId != null}
-        onOpenChange={(open) => {
-          if (!open) setOverviewOrderId(null);
-        }}
-        orderId={overviewOrderId}
-        onEditOrder={(id) => {
-          const row = orders.find((o) => o.id === id);
-          setOverviewOrderId(null);
-          if (row) void handleEdit(row);
-        }}
-      />
 
       <ViewCustomerDialog
         open={viewCustomer != null}

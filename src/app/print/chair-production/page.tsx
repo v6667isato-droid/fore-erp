@@ -578,6 +578,7 @@ export default function ChairProductionPrintPage() {
           orders!inner (
             id,
             status,
+            deleted_at,
             shipping_contact_name,
             expected_delivery_date,
             customers (name, alias, channel_id)
@@ -606,6 +607,7 @@ export default function ChairProductionPrintPage() {
       const out: ChairRow[] = [];
 
       for (const raw of list) {
+        if (raw.orders?.deleted_at) continue;
         const status = raw.orders?.status as string | null | undefined;
         if (!status || EXCLUDED_ORDER_STATUSES.has(status)) continue;
 

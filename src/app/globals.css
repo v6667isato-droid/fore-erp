@@ -123,13 +123,10 @@ body {
   }
   .print-quote-table-wrap .print-col-dimension,
   .print-quote-table-wrap .print-col-spec {
-    white-space: normal !important;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    white-space: nowrap !important;
   }
   .print-quote-table-wrap .print-col-dimension {
     min-width: 7rem !important;
-    max-width: 28% !important;
   }
   .print-quote-table-wrap .print-col-spec {
     min-width: 5.5rem !important;

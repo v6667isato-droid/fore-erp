@@ -144,7 +144,7 @@ export function DashboardOverview() {
           id,
           stage,
           order_items(
-            orders( id, status )
+            orders( id, status, deleted_at )
           )
         `),
           supabase.from("orders").select("id", { count: "exact", head: true }).eq("source", "portal").gte("order_date", todayStr).lte("order_date", todayStr),
@@ -182,14 +182,14 @@ export function DashboardOverview() {
           order_items:
             | {
                 orders:
-                  | { id: string; status: string | null }
-                  | { id: string; status: string | null }[]
+                  | { id: string; status: string | null; deleted_at?: string | null }
+                  | { id: string; status: string | null; deleted_at?: string | null }[]
                   | null;
               }
             | Array<{
                 orders:
-                  | { id: string; status: string | null }
-                  | { id: string; status: string | null }[]
+                  | { id: string; status: string | null; deleted_at?: string | null }
+                  | { id: string; status: string | null; deleted_at?: string | null }[]
                   | null;
               }>
             | null;
@@ -201,8 +201,13 @@ export function DashboardOverview() {
           const oi = Array.isArray(row.order_items) ? row.order_items[0] : row.order_items;
           const orderRel = oi?.orders;
           const orderObj = Array.isArray(orderRel) ? orderRel[0] : orderRel;
-          // 與生產管理工單列表慣例：報價中／結案訂單不計入
-          if (!orderObj || orderObj.status === "報價中" || orderObj.status === "結案") {
+          // 與生產管理工單列表慣例：已軟刪除、報價中／結案訂單不計入
+          if (
+            !orderObj ||
+            orderObj.deleted_at ||
+            orderObj.status === "報價中" ||
+            orderObj.status === "結案"
+          ) {
             continue;
           }
           const bucket = bucketWorkOrderStage(row.stage);

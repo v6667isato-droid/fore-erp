@@ -255,6 +255,7 @@ export function WorkOrdersPage() {
             customer_id,
             order_number,
             status,
+            deleted_at,
             expected_delivery_date,
             shipping_contact_name,
             customers(name, alias)
@@ -280,7 +281,10 @@ export function WorkOrdersPage() {
       return;
     }
 
-    const mapped: WorkOrderRow[] = ((data ?? []) as any[]).map((r) => {
+    const mapped: WorkOrderRow[] = ((data ?? []) as any[])
+      // 排除所屬訂單已被軟刪除者，使生產管理與訂單管理一致
+      .filter((r) => !r.order_items?.orders?.deleted_at)
+      .map((r) => {
       const oi = r.order_items;
       const variant = oi?.product_variants;
       const order = oi?.orders;

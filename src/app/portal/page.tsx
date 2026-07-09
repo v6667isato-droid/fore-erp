@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   DEFAULT_WORK_ORDER_STAGE,
@@ -27,7 +27,11 @@ import {
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { VariantSeriesThumb } from "@/components/variant-series-thumb";
-import { OrderOverviewDialog } from "@/components/order-overview-dialog";
+import {
+  OrderOverviewCard,
+  fetchOrderOverviewById,
+  type OverviewOrder,
+} from "@/components/orders-overview-page";
 import {
   DEFAULT_SEAT_HEIGHT_CM,
   SEAT_HEIGHT_UPCHARGE_NTD,
@@ -289,7 +293,12 @@ export default function PortalPage() {
   const [editFormLoading, setEditFormLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<MyOrderRow | null>(null);
-  const [orderOverviewId, setOrderOverviewId] = useState<string | null>(null);
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [orderOverviewById, setOrderOverviewById] = useState<
+    Record<string, OverviewOrder | null | "loading">
+  >({});
   const [myOrderSearch, setMyOrderSearch] = useState("");
   const [myOrderSortBy, setMyOrderSortBy] = useState<MyOrderSortKey>("order_date");
   const [myOrderSortAsc, setMyOrderSortAsc] = useState(false);
@@ -844,9 +853,21 @@ export default function PortalPage() {
     setDeleteConfirmOrder(order);
   }
 
-  function openOrderOverview(orderId: string) {
+  function toggleOrderExpand(orderId: string) {
     if (!orderId) return;
-    setOrderOverviewId(orderId);
+    const willExpand = !expandedOrderIds.has(orderId);
+    setExpandedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+    if (willExpand && orderOverviewById[orderId] === undefined) {
+      setOrderOverviewById((prev) => ({ ...prev, [orderId]: "loading" }));
+      void fetchOrderOverviewById(orderId).then((row) => {
+        setOrderOverviewById((prev) => ({ ...prev, [orderId]: row }));
+      });
+    }
   }
 
   async function performDeleteOrder() {
@@ -1816,14 +1837,18 @@ export default function PortalPage() {
                       <th className="whitespace-nowrap px-2 py-2 text-right align-bottom">
                         <MyOrderSortHeader label="通路價" sortKey="total_amount" align="right" />
                       </th>
-                      <th className="whitespace-nowrap px-2 py-2 text-center align-bottom text-sm font-medium text-muted-foreground">
+                      <th className="min-w-[6rem] whitespace-nowrap px-2 py-2 text-center align-bottom text-sm font-medium text-muted-foreground">
                         操作
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {myOrdersFilteredSorted.map((o) => (
-                      <tr key={o.id} className="border-b border-border/60">
+                    {myOrdersFilteredSorted.map((o) => {
+                      const isExpanded = expandedOrderIds.has(o.id);
+                      const overview = orderOverviewById[o.id];
+                      return (
+                      <Fragment key={o.id}>
+                      <tr className="border-b border-border/60">
                         <td className="px-2 py-2 align-middle font-mono text-sm text-foreground whitespace-nowrap">
                           {o.order_number}
                         </td>
@@ -1875,15 +1900,16 @@ export default function PortalPage() {
                         <td className="px-2 py-2 align-middle text-right tabular-nums text-muted-foreground whitespace-nowrap">
                           ${o.total_amount.toLocaleString()}
                         </td>
-                        <td className="px-1 py-2 align-middle whitespace-nowrap">
-                          <div className="flex flex-nowrap items-center justify-center gap-0">
+                        <td className="min-w-[6rem] px-2 py-2 align-middle whitespace-nowrap">
+                          <div className="flex flex-nowrap items-center justify-center gap-1">
                             <Button
                               type="button"
                               variant="ghost"
                               className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-foreground"
                               aria-label="檢視訂單"
-                              title="檢視"
-                              onClick={() => openOrderOverview(o.id)}
+                              aria-expanded={isExpanded}
+                              title={isExpanded ? "收合" : "檢視"}
+                              onClick={() => toggleOrderExpand(o.id)}
                             >
                               <Eye className="h-3.5 w-3.5 opacity-90" aria-hidden />
                             </Button>
@@ -1924,7 +1950,34 @@ export default function PortalPage() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      {isExpanded ? (
+                        <tr className="border-b border-border/60 bg-muted/10">
+                          <td colSpan={10} className="p-0">
+                            <div className="p-3 sm:p-4">
+                              {overview === undefined || overview === "loading" ? (
+                                <p className="py-6 text-center text-sm text-muted-foreground">
+                                  載入訂單內容中…
+                                </p>
+                              ) : overview ? (
+                                <OrderOverviewCard
+                                  order={overview}
+                                  variant="dialog"
+                                  visualTone="warm"
+                                  detailLevel="full"
+                                  showEditButton={false}
+                                />
+                              ) : (
+                                <p className="py-6 text-center text-sm text-muted-foreground">
+                                  無法載入訂單內容
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                      </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
                 {myOrdersFilteredSorted.length === 0 && (
@@ -2167,16 +2220,6 @@ export default function PortalPage() {
           confirmLabel="確定刪除"
           onConfirm={performDeleteOrder}
           destructive
-        />
-
-        <OrderOverviewDialog
-          open={orderOverviewId != null}
-          onOpenChange={(open) => {
-            if (!open) setOrderOverviewId(null);
-          }}
-          orderId={orderOverviewId}
-          visualTone="warm"
-          showEditButton={false}
         />
       </div>
     </div>

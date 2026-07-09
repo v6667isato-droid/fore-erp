@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       .from("orders")
       .select("id")
       .eq("customer_id", v.customer_id)
+      .is("deleted_at", null)
       .in("id", order_ids);
 
     if (oErr) {

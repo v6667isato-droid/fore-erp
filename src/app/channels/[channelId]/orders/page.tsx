@@ -128,6 +128,7 @@ export default function ChannelOrdersPage() {
             "id, order_number, order_date, internal_notes, expected_delivery_date, status, payment_status, total_amount, customers!inner(channel_id, contact_person, name, alias)"
           )
           .eq("customers.channel_id", channelId)
+          .is("deleted_at", null)
           .order("order_date", { ascending: false })
           .limit(500),
       ]);

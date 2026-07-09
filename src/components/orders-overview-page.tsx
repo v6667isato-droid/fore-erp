@@ -505,6 +505,7 @@ export async function fetchOrderOverviewById(
     .from("orders")
     .select(ORDER_OVERVIEW_SELECT)
     .eq("id", orderId)
+    .is("deleted_at", null)
     .maybeSingle();
 
   if (error) {
@@ -548,42 +549,28 @@ function OrderFullDetailSections({
   return (
     <div className={cn("flex flex-col gap-4 border-t px-4 py-4 sm:px-5", borderCls)}>
       {(hasShipping || order.internal_notes?.trim()) && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
           {hasShipping ? (
-            <div className={cn("rounded-lg border p-3 text-xs", borderCls, mutedBg)}>
-              <p className="mb-2 font-semibold text-foreground">配送資訊</p>
-              <dl className="space-y-1.5 text-muted-foreground">
-                {order.shipping_contact_name?.trim() ? (
-                  <div className="flex gap-2">
-                    <dt className="shrink-0">收貨人</dt>
-                    <dd className="text-foreground">{order.shipping_contact_name.trim()}</dd>
-                  </div>
-                ) : null}
-                {order.shipping_contact_phone?.trim() ? (
-                  <div className="flex gap-2">
-                    <dt className="shrink-0">電話</dt>
-                    <dd className="text-foreground tabular-nums">{order.shipping_contact_phone.trim()}</dd>
-                  </div>
-                ) : null}
-                {order.shipping_address?.trim() ? (
-                  <div className="flex gap-2">
-                    <dt className="shrink-0">地址</dt>
-                    <dd className="text-foreground whitespace-pre-line break-words">{order.shipping_address.trim()}</dd>
-                  </div>
-                ) : null}
-                {order.shipping_has_elevator != null ? (
-                  <div className="flex gap-2">
-                    <dt className="shrink-0">電梯</dt>
-                    <dd className="text-foreground">{order.shipping_has_elevator ? "有" : "無"}</dd>
-                  </div>
-                ) : null}
-              </dl>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">配送資訊</span>
+              {order.shipping_contact_name?.trim() ? (
+                <span>收貨人 <span className="text-foreground">{order.shipping_contact_name.trim()}</span></span>
+              ) : null}
+              {order.shipping_contact_phone?.trim() ? (
+                <span>電話 <span className="text-foreground tabular-nums">{order.shipping_contact_phone.trim()}</span></span>
+              ) : null}
+              {order.shipping_address?.trim() ? (
+                <span>地址 <span className="text-foreground break-words">{order.shipping_address.trim()}</span></span>
+              ) : null}
+              {order.shipping_has_elevator != null ? (
+                <span>電梯 <span className="text-foreground">{order.shipping_has_elevator ? "有" : "無"}</span></span>
+              ) : null}
             </div>
           ) : null}
           {order.internal_notes?.trim() ? (
-            <div className={cn("rounded-lg border p-3 text-xs", borderCls, mutedBg)}>
-              <p className="mb-2 font-semibold text-foreground">訂單備註</p>
-              <p className="text-muted-foreground whitespace-pre-line break-words">{order.internal_notes.trim()}</p>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">訂單備註</span>
+              <span className="whitespace-pre-line break-words">{order.internal_notes.trim()}</span>
             </div>
           ) : null}
         </div>
@@ -592,7 +579,7 @@ function OrderFullDetailSections({
       <div>
         <p className="mb-2 text-xs font-semibold text-foreground">訂單明細</p>
         <div className={cn("overflow-x-auto rounded-lg border", borderCls)}>
-          <table className="w-full min-w-[640px] text-xs">
+          <table className="w-full min-w-[860px] text-xs">
             <thead>
               <tr className={cn("border-b text-left", borderCls, mutedBg)}>
                 <th className="w-16 px-2 py-2 font-semibold">設計圖</th>
@@ -603,12 +590,15 @@ function OrderFullDetailSections({
                 <th className="w-10 px-2 py-2 text-right font-semibold">數量</th>
                 <th className="w-16 px-2 py-2 text-right font-semibold">單價</th>
                 <th className="w-16 px-2 py-2 text-right font-semibold">小計</th>
+                <th className="min-w-[4rem] px-2 py-2 font-semibold">工序</th>
+                <th className="min-w-[3.5rem] px-2 py-2 font-semibold">負責</th>
+                <th className="min-w-[5rem] px-2 py-2 font-semibold whitespace-nowrap">預計完成</th>
               </tr>
             </thead>
             <tbody>
               {order.lines.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
+                  <td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">
                     此訂單尚無品項。
                   </td>
                 </tr>
@@ -651,11 +641,42 @@ function OrderFullDetailSections({
                         <td className="p-2 text-right tabular-nums font-medium text-foreground">
                           {lineTotal.toLocaleString()}
                         </td>
+                        <td className="p-2 whitespace-nowrap">
+                          {line.has_work_order ? (
+                            <span
+                              className={cn(
+                                "inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
+                                stageStyleClassName(line.stage)
+                              )}
+                            >
+                              {line.stage}
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                              尚無工單
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2 text-muted-foreground whitespace-nowrap">
+                          {line.assignee ? (
+                            <span className="inline-flex items-center gap-1 text-foreground">
+                              <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+                              {line.assignee}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="p-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                          {order.planned_end_order_max
+                            ? formatDateYyMmDd(order.planned_end_order_max)
+                            : "—"}
+                        </td>
                       </tr>
                       {notes ? (
                         <tr className={cn("border-b", warm ? "border-[#EEE8DE]" : "border-border")}>
                           <td className="px-2 py-1.5 text-muted-foreground align-top">備註</td>
-                          <td colSpan={7} className="px-2 py-1.5 text-muted-foreground whitespace-pre-line break-words">
+                          <td colSpan={10} className="px-2 py-1.5 text-muted-foreground whitespace-pre-line break-words">
                             {notes}
                           </td>
                         </tr>
@@ -669,32 +690,28 @@ function OrderFullDetailSections({
         </div>
       </div>
 
-      <div className="flex justify-end">
-        <div className={cn("w-full max-w-xs rounded-lg border p-3 text-xs", borderCls, mutedBg)}>
-          <p className="mb-2 font-semibold text-foreground">金額摘要</p>
-          <dl className="space-y-1.5">
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">商品小計</dt>
-              <dd className="tabular-nums text-foreground">{itemsSubtotal.toLocaleString()}</dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">運費</dt>
-              <dd className="tabular-nums text-foreground">{order.shipping_fee.toLocaleString()}</dd>
-            </div>
-            <div className="flex justify-between gap-3 border-t border-border/60 pt-1.5 font-semibold">
-              <dt className="text-foreground">訂單總額</dt>
-              <dd className="tabular-nums text-foreground">{formatCurrency(order.total_amount)}</dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">已收訂金</dt>
-              <dd className="tabular-nums text-foreground">{order.deposit_amount.toLocaleString()}</dd>
-            </div>
-            <div className="flex justify-between gap-3 font-medium">
-              <dt className="text-foreground">尾款</dt>
-              <dd className="tabular-nums text-foreground">{balance.toLocaleString()}</dd>
-            </div>
-          </dl>
-        </div>
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-end gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-xs",
+          borderCls,
+          mutedBg
+        )}
+      >
+        <span className="text-muted-foreground">
+          商品小計 <span className="tabular-nums text-foreground">{itemsSubtotal.toLocaleString()}</span>
+        </span>
+        <span className="text-muted-foreground">
+          運費 <span className="tabular-nums text-foreground">{order.shipping_fee.toLocaleString()}</span>
+        </span>
+        <span className="text-muted-foreground">
+          訂單總額 <span className="tabular-nums font-semibold text-foreground">{formatCurrency(order.total_amount)}</span>
+        </span>
+        <span className="text-muted-foreground">
+          已收訂金 <span className="tabular-nums text-foreground">{order.deposit_amount.toLocaleString()}</span>
+        </span>
+        <span className="text-muted-foreground">
+          尾款 <span className="tabular-nums font-medium text-foreground">{balance.toLocaleString()}</span>
+        </span>
       </div>
 
       {order.explanation_images.length > 0 ? (
@@ -844,12 +861,9 @@ export function OrderOverviewCard({
 
       {full ? <OrderFullDetailSections order={order} warm={warm} /> : null}
 
-      {full ? (
-        <div className={cn("border-t px-4 pt-3 sm:px-5", warm ? "border-[#E6DFD3]" : "border-border")}>
-          <p className="mb-2 text-xs font-semibold text-foreground">生產進度</p>
-        </div>
-      ) : null}
-
+      {/* 精簡檢視：品項負責人與工序進度表（完整檢視已併入訂單明細） */}
+      {!full ? (
+      <>
       {/* 欄位皆不換行；容器（ui/table 外層）在寬度不足時整表橫向捲動（含手機） */}
       <Table className="min-w-[48rem] w-full text-xs">
         <TableHeader>
@@ -982,6 +996,8 @@ export function OrderOverviewCard({
           )}
         </TableBody>
       </Table>
+      </>
+      ) : null}
     </div>
   );
 }
@@ -1003,7 +1019,7 @@ export function OrdersOverviewPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const [ordersRes, customersRes] = await Promise.all([
-      supabase.from("orders").select(ORDER_OVERVIEW_SELECT).order("order_date", { ascending: false }),
+      supabase.from("orders").select(ORDER_OVERVIEW_SELECT).is("deleted_at", null).order("order_date", { ascending: false }),
       supabase.from("customers").select("id, name, channel_id").order("name", { ascending: true }),
     ]);
 

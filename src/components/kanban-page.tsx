@@ -167,7 +167,8 @@ export function KanbanPage() {
               orders(
                 id,
                 order_number,
-                status
+                status,
+                deleted_at
               )
             )
           )
@@ -197,8 +198,8 @@ export function KanbanPage() {
                 order_items?: Array<{
                   products: { name: string } | null;
                   orders:
-                    | { id: string; order_number: string; status: string | null }
-                    | { id: string; order_number: string; status: string | null }[]
+                    | { id: string; order_number: string; status: string | null; deleted_at?: string | null }
+                    | { id: string; order_number: string; status: string | null; deleted_at?: string | null }[]
                     | null;
                 }>;
               }
@@ -207,8 +208,8 @@ export function KanbanPage() {
                 order_items?: Array<{
                   products: { name: string } | null;
                   orders:
-                    | { id: string; order_number: string; status: string | null }
-                    | { id: string; order_number: string; status: string | null }[]
+                    | { id: string; order_number: string; status: string | null; deleted_at?: string | null }
+                    | { id: string; order_number: string; status: string | null; deleted_at?: string | null }[]
                     | null;
                 }>;
               }>
@@ -225,8 +226,13 @@ export function KanbanPage() {
           const orderRel = firstItem?.orders;
           const orderObj = Array.isArray(orderRel) ? orderRel[0] : orderRel;
 
-          // 報價中／結案不排入生產管理
-          if (!orderObj || orderObj.status === "報價中" || orderObj.status === "結案") {
+          // 已軟刪除訂單、報價中／結案不排入生產管理
+          if (
+            !orderObj ||
+            orderObj.deleted_at ||
+            orderObj.status === "報價中" ||
+            orderObj.status === "結案"
+          ) {
             continue;
           }
           const card: KanbanCard = {
