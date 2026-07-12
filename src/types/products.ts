@@ -22,6 +22,8 @@ export interface SeriesRow {
   image_url?: string | null;
   /** 產品系列尺寸圖 Public URL 陣列（張數不限，來自 product-images bucket；供官網讀取顯示） */
   size_chart_urls?: string[] | null;
+  /** 產品系列細節圖 Public URL 陣列（官網產品頁主視覺圖之後的其他圖片） */
+  detail_image_urls?: string[] | null;
 }
 
 /**

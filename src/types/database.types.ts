@@ -859,6 +859,7 @@ export type Database = {
           customization_rules: string | null
           deleted_at: string | null
           design_concept: string | null
+          detail_image_urls: Json
           faq_scripts: string | null
           id: string
           image_url: string | null
@@ -877,6 +878,7 @@ export type Database = {
           customization_rules?: string | null
           deleted_at?: string | null
           design_concept?: string | null
+          detail_image_urls?: Json
           faq_scripts?: string | null
           id?: string
           image_url?: string | null
@@ -895,6 +897,7 @@ export type Database = {
           customization_rules?: string | null
           deleted_at?: string | null
           design_concept?: string | null
+          detail_image_urls?: Json
           faq_scripts?: string | null
           id?: string
           image_url?: string | null

@@ -46,6 +46,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
   const [website, setWebsite] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [sizeChartUrls, setSizeChartUrls] = useState<string[]>([]);
+  const [detailImageUrls, setDetailImageUrls] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<EditSeriesTab>("basic");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
       setWebsite(typeof row.website === "string" ? row.website : "");
       setImageUrl(typeof row.image_url === "string" && row.image_url ? row.image_url : null);
       setSizeChartUrls(Array.isArray(row.size_chart_urls) ? row.size_chart_urls.filter(Boolean) : []);
+      setDetailImageUrls(Array.isArray(row.detail_image_urls) ? row.detail_image_urls.filter(Boolean) : []);
       setActiveTab("basic");
       setError(null);
     }
@@ -114,6 +116,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
     payload[SERIES_WEBSITE_COLUMN] = websiteUrl || null;
     payload.image_url = imageUrl?.trim() || null;
     payload.size_chart_urls = sizeChartUrls;
+    payload.detail_image_urls = detailImageUrls;
 
     let { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).update(payload).eq("id", row.id);
 
@@ -299,6 +302,16 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">主視覺圖</span>
                     <ProductImageDropzone value={imageUrl} onChange={setImageUrl} disabled={saving} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">
+                      細節圖（官網產品頁的其他圖片，主視覺圖為首張、細節圖依序接續）
+                    </span>
+                    <ProductImagesDropzone
+                      value={detailImageUrls}
+                      onChange={setDetailImageUrls}
+                      disabled={saving}
+                    />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">

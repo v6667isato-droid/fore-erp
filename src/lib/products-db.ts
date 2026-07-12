@@ -13,14 +13,14 @@ export const TABLE_PRODUCT_VARIANTS = "product_variants";
  *  資料表實際欄位為 series_name；PostgREST 別名使用 name:series_name（避免 series_name as name 被誤解析）
  */
 export const SERIES_SELECT =
-  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, website, image_url, size_chart_urls";
+  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, website, image_url, size_chart_urls, detail_image_urls";
 
 /** 資料庫 product_series 表之網站 URL 欄位名稱（與 Supabase 表一致） */
 export const SERIES_WEBSITE_COLUMN = "website";
 
 /** 無 website 欄位時的查詢（表尚未新增 website 時使用） */
 export const SERIES_SELECT_NO_WEBSITE =
-  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, image_url, size_chart_urls";
+  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, image_url, size_chart_urls, detail_image_urls";
 
 /** product_variants 查詢欄位（含 series_id 關聯） */
 export const VARIANT_SELECT =
