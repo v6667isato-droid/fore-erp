@@ -7,6 +7,18 @@
       "runtimeArgs": ["run", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "fore-erp-3003",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "-p", "3003"],
+      "port": 3003
+    },
+    {
+      "name": "fore-website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "D:/dev/fore-website", "run", "dev", "--", "-p", "3001"],
+      "port": 3001
     }
   ]
 }

@@ -30,7 +30,9 @@ export async function GET(
   // 注意：series_name 不一定完全等於編號，可能帶後綴（例如 "CB05 - Flow"），所以用前綴比對
   const { id: seriesCode } = await params;
 
-  const { data: series, error: seriesError } = await supabase
+  // 前綴比對可能中多筆（例如 CH03 會同時比對到「CH03 扶手椅」與「CH03-A 餐椅」），
+  // 取回全部候選後挑最合適的：完全相同 > 「編號 + 空格」開頭 > 名稱最短
+  const { data: seriesCandidates, error: seriesError } = await supabase
     .from("product_series")
     .select(
       // website_article / customization_rules 給 fore-furniture.com 顯示完整文案用
@@ -38,12 +40,18 @@ export async function GET(
       "id, series_name, category, design_concept, website_article, customization_rules, image_url, size_chart_urls"
     )
     .ilike("series_name", `${seriesCode}%`)
-    .maybeSingle();
+    .limit(10);
 
   if (seriesError) {
     console.error("GET /api/products/[id] series error:", seriesError);
     return withCors(NextResponse.json({ error: "查詢失敗" }, { status: 500 }));
   }
+
+  const codeLower = seriesCode.toLowerCase();
+  const series =
+    (seriesCandidates ?? []).find((s) => s.series_name.toLowerCase() === codeLower) ??
+    (seriesCandidates ?? []).find((s) => s.series_name.toLowerCase().startsWith(`${codeLower} `)) ??
+    [...(seriesCandidates ?? [])].sort((a, b) => a.series_name.length - b.series_name.length)[0];
 
   if (!series) {
     return withCors(NextResponse.json({ error: "找不到此商品" }, { status: 404 }));
@@ -69,6 +77,8 @@ export async function GET(
 
   return withCors(
     NextResponse.json({
+      // 系列 UUID：官網用來組產品介紹表列印頁網址（/print/series/[id]）
+      id: series.id,
       series_name: series.series_name,
       category: series.category,
       design_concept: series.design_concept,

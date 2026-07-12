@@ -73,6 +73,8 @@ export default function SeriesIntroPrintPage({
   params: Promise<{ seriesId: string }>;
 }) {
   const { seriesId } = use(params);
+  // 官網「下載 PDF」按鈕會帶 ?autoprint=1，載入完成後自動開啟列印（存成 PDF）對話框
+  const [autoPrint, setAutoPrint] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -133,6 +135,18 @@ export default function SeriesIntroPrintPage({
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("autoprint") === "1") setAutoPrint(true);
+  }, []);
+
+  useEffect(() => {
+    if (!autoPrint || loading || loadError || !series) return;
+    // 等圖片載入完再列印，避免 PDF 缺圖
+    const timer = setTimeout(() => window.print(), 800);
+    return () => clearTimeout(timer);
+  }, [autoPrint, loading, loadError, series]);
 
   const sortedVariants = useMemo(
     () =>
