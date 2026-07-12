@@ -20,6 +20,8 @@ export interface SeriesRow {
   website?: string | null;
   /** 產品系列主視覺圖 Public URL（來自 product-images bucket） */
   image_url?: string | null;
+  /** 產品系列尺寸圖 Public URL 陣列（張數不限，來自 product-images bucket；供官網讀取顯示） */
+  size_chart_urls?: string[] | null;
 }
 
 /**

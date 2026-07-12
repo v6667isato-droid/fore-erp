@@ -34,7 +34,8 @@ export async function GET(
     .from("product_series")
     .select(
       // website_article / customization_rules 給 fore-furniture.com 顯示完整文案用
-      "id, series_name, category, design_concept, website_article, customization_rules, image_url"
+      // size_chart_urls：主視覺圖下方的尺寸圖陣列，供官網顯示
+      "id, series_name, category, design_concept, website_article, customization_rules, image_url, size_chart_urls"
     )
     .ilike("series_name", `${seriesCode}%`)
     .maybeSingle();
@@ -74,6 +75,9 @@ export async function GET(
       website_article: series.website_article,
       customization_rules: series.customization_rules,
       image_url: series.image_url,
+      size_chart_urls: Array.isArray(series.size_chart_urls)
+        ? (series.size_chart_urls as unknown[]).map((u) => String(u)).filter(Boolean)
+        : [],
       price_from: priceFrom,
       variant_count: variants?.length ?? 0,
     })

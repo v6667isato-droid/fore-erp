@@ -22,7 +22,7 @@ import {
   VARIANT_SELECT_MINIMAL,
   SERIES_CONTENT_COLUMNS,
 } from "@/lib/products-db";
-import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download, Copy } from "lucide-react";
+import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download, Copy, FileText } from "lucide-react";
 import { AddSeriesDialog } from "@/components/products/add-series-dialog";
 import { AddVariantDialog } from "@/components/products/add-variant-dialog";
 import { EditSeriesDialog } from "@/components/products/edit-series-dialog";
@@ -54,6 +54,9 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     customization_rules: r.customization_rules != null ? String(r.customization_rules) : null,
     website: r.website != null ? String(r.website) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
+    size_chart_urls: Array.isArray(r.size_chart_urls)
+      ? (r.size_chart_urls as unknown[]).map((u) => String(u)).filter(Boolean)
+      : [],
   };
 }
 
@@ -702,6 +705,17 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditSeries(series)} aria-label={`編輯系列 ${series.name}`}>
                             <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => window.open(`/print/series/${series.id}`, "_blank", "noopener,noreferrer")}
+                            aria-label={`產品介紹表 PDF ${series.name}`}
+                            title="產品介紹表 / PDF"
+                          >
+                            <FileText className="h-4 w-4" />
                           </Button>
                           <Button
                             type="button"

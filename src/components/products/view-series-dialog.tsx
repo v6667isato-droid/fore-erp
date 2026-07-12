@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Copy, Globe, FileText, Package } from "lucide-react";
+import { X, Copy, Globe, FileText, Package, FileDown } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   Table,
@@ -93,15 +93,27 @@ export function ViewSeriesDialog({ open, onOpenChange, row, variants }: ViewSeri
                 {row.category ? `類別：${row.category}` : ""} {row.notes?.trim() ? ` · ${row.notes}` : ""}
               </p>
             </div>
-            <Dialog.Close asChild>
-              <button
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
                 type="button"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
-                aria-label="關閉"
+                variant="outline"
+                className="h-8 gap-1.5 px-3 text-xs"
+                onClick={() => window.open(`/print/series/${row.id}`, "_blank", "noopener,noreferrer")}
+                aria-label="產品介紹表 PDF"
               >
-                <X className="h-4 w-4 text-muted-foreground" />
-              </button>
-            </Dialog.Close>
+                <FileDown className="h-4 w-4" />
+                產品介紹表
+              </Button>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
+                  aria-label="關閉"
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </Dialog.Close>
+            </div>
           </div>
 
           <div className="flex border-b border-border bg-muted/20 px-5">

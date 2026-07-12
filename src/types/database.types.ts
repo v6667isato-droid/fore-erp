@@ -865,6 +865,7 @@ export type Database = {
           notes: string | null
           production_time: string | null
           series_name: string
+          size_chart_urls: Json
           social_media_copy: string | null
           website: string | null
           website_article: string | null
@@ -882,6 +883,7 @@ export type Database = {
           notes?: string | null
           production_time?: string | null
           series_name: string
+          size_chart_urls?: Json
           social_media_copy?: string | null
           website?: string | null
           website_article?: string | null
@@ -899,6 +901,7 @@ export type Database = {
           notes?: string | null
           production_time?: string | null
           series_name?: string
+          size_chart_urls?: Json
           social_media_copy?: string | null
           website?: string | null
           website_article?: string | null
