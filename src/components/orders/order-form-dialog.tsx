@@ -37,6 +37,7 @@ import type {
   OrderItemInput,
   EmployeeOption,
   ExplanationImage,
+  CustomerOption,
 } from "./types";
 import {
   orderDiscountSubtotalField,
@@ -90,6 +91,104 @@ function WoodTypeComboboxInput({
       className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
       autoComplete="off"
     />
+  );
+}
+
+/** 客戶搜尋下拉：可輸入關鍵字過濾客戶名稱，點選後帶入 */
+function CustomerSearchSelect({
+  id,
+  customers,
+  value,
+  onSelect,
+  className = "",
+}: {
+  id: string;
+  customers: CustomerOption[];
+  value: string;
+  onSelect: (id: string) => void;
+  className?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selected = customers.find((c) => c.id === value) ?? null;
+
+  useEffect(() => {
+    function handlePointerDown(e: MouseEvent | TouchEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+    };
+  }, []);
+
+  const keyword = query.trim().toLowerCase();
+  const filtered = keyword
+    ? customers.filter((c) => c.name.toLowerCase().includes(keyword))
+    : customers;
+
+  function choose(customerId: string) {
+    onSelect(customerId);
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <div ref={containerRef} className={`relative min-w-0 ${className}`}>
+      <input
+        id={id}
+        type="text"
+        role="combobox"
+        aria-expanded={open}
+        value={open ? query : selected?.name ?? ""}
+        onFocus={() => {
+          setQuery("");
+          setOpen(true);
+        }}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (open && filtered.length > 0) {
+              choose(filtered[0].id);
+            }
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+        placeholder={selected ? selected.name : "輸入名稱搜尋或點選客戶"}
+        autoComplete="off"
+        className="h-10 w-full max-w-full rounded-lg border border-[#625E55]/28 bg-white px-3 text-sm text-[#625E55] outline-none transition placeholder:text-[#7D7767]/55 focus:border-[#625E55] focus:ring-2 focus:ring-[#625E55]/30"
+      />
+      {open ? (
+        <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-[#625E55]/20 bg-white py-1 shadow-lg">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-[#7D7767]">找不到符合的客戶</p>
+          ) : (
+            filtered.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => choose(c.id)}
+                className={`flex w-full items-center px-3 py-2 text-left text-sm hover:bg-[#FAF9F6] ${
+                  c.id === value ? "font-semibold" : ""
+                } text-[#625E55]`}
+              >
+                {c.name}
+              </button>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -149,6 +248,8 @@ function OrderFormDialog({
     initialOrder ? orderDiscountSubtotalField(initialOrder) : ""
   );
   const [discountLocked, setDiscountLocked] = useState(() => Boolean(initialOrder));
+  /** 折扣 %（例：輸入 10 = 打 9 折）；輸入後自動計算折扣後總金額，手改折扣後金額則清空 */
+  const [discountPct, setDiscountPct] = useState<string>("");
   const [deposit, setDeposit] = useState<string>(() => {
     if (initialOrder?.deposit_amount != null) {
       return String(initialOrder.deposit_amount);
@@ -273,6 +374,7 @@ function OrderFormDialog({
       setDraftOrderNumber(initialOrder.order_number);
       setDiscountTotal(orderDiscountSubtotalField(initialOrder));
       setDiscountLocked(true);
+      setDiscountPct("");
       setDeposit(
         initialOrder.deposit_amount != null
           ? String(initialOrder.deposit_amount)
@@ -306,6 +408,7 @@ function OrderFormDialog({
     prevCustomerIdRef.current = "";
     setDraftOrderNumber(generateOrderNumber());
     setDiscountLocked(false);
+    setDiscountPct("");
     setDiscountTotal("");
     setShippingAddress("");
     setShippingContactName("");
@@ -556,8 +659,14 @@ function OrderFormDialog({
 
   // 品項總額變動 → 同步「折扣後總金額」（單一 effect，避免與載入 effect 競態）
   // - 未鎖定（新增或尚未手改折扣）：直接等於品項總計
-  // - 已鎖定：初次僅記錄品項總計；之後品項有增刪變動則本欄回歸品項總計（不再保留手動折讓差）
+  // - 已鎖定：初次僅記錄品項總計；之後品項有增刪變動則依折扣 % 重算（未設 % 則回歸品項總計）
   useEffect(() => {
+    const pct = Number(discountPct);
+    const hasPct =
+      discountPct.trim() !== "" && Number.isFinite(pct) && pct > 0 && pct <= 100;
+    const applyPct = (base: number) =>
+      hasPct ? Math.max(0, Math.round(base * (1 - pct / 100))) : Math.max(0, base);
+
     if (!discountLocked) {
       setDiscountTotal(totalAmount > 0 ? String(totalAmount) : "");
       prevTotalAmountRef.current = totalAmount;
@@ -572,9 +681,24 @@ function OrderFormDialog({
     if (prev === totalAmount) return;
 
     prevTotalAmountRef.current = totalAmount;
-    const nextBase = Math.max(0, totalAmount);
+    const nextBase = applyPct(totalAmount);
     setDiscountTotal(nextBase > 0 ? String(nextBase) : "");
-  }, [totalAmount, discountLocked]);
+  }, [totalAmount, discountLocked, discountPct]);
+
+  /** 折扣 % 變更：立即以品項總計換算折扣後總金額；清空則回歸品項總計 */
+  function handleDiscountPctChange(raw: string) {
+    setDiscountPct(raw);
+    const pct = Number(raw);
+    if (raw.trim() === "" || !Number.isFinite(pct) || pct <= 0) {
+      setDiscountLocked(false);
+      return;
+    }
+    const clamped = Math.min(100, Math.max(0, pct));
+    setDiscountLocked(true);
+    setDiscountTotal(
+      String(Math.max(0, Math.round(totalAmount * (1 - clamped / 100))))
+    );
+  }
 
   async function handleItemImageUpload(id: string, file: File) {
     if (!file.type.startsWith("image/")) {
@@ -1027,27 +1151,19 @@ function OrderFormDialog({
                         {customers.find((c) => c.id === customerId)?.name ?? "—"}
                       </div>
                     ) : (
-                      <select
+                      <CustomerSearchSelect
                         id="order-customer"
+                        customers={customers}
                         value={customerId}
-                        onChange={(e) => {
-                          const id = e.target.value;
+                        onSelect={(id) => {
                           setCustomerId(id);
                           const customer = customers.find((c) => c.id === id);
                           if (customer?.delivery_address) {
                             setShippingAddress(customer.delivery_address);
                           }
                         }}
-                        className={`${ledgerSelect} min-w-0 flex-1`}
-                        required
-                      >
-                        <option value="">請選擇客戶</option>
-                        {customers.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
+                        className="flex-1"
+                      />
                     )}
                   </div>
                   <AddCustomerDialog
@@ -2277,8 +2393,49 @@ function OrderFormDialog({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,9.5rem)_minmax(0,7.5rem)_minmax(0,1fr)_minmax(0,11rem)] lg:items-end lg:gap-x-3">
-                  <label className="flex flex-col gap-1.5 min-w-0 max-w-[9.5rem]">
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-3 lg:items-end lg:gap-x-3">
+                  <div className="flex flex-col gap-1.5 min-w-0">
+                    <span className="text-xs text-muted-foreground">折扣前金額（品項總計）</span>
+                    <div className="flex h-9 items-center justify-end rounded-lg border border-dashed border-border bg-muted/40 px-3 text-sm tabular-nums text-muted-foreground">
+                      {totalAmount.toLocaleString()}
+                    </div>
+                  </div>
+
+                  <label className="flex flex-col gap-1.5 min-w-0">
+                    <span className="text-xs text-muted-foreground">折扣 %（輸入 10 = 打 9 折）</span>
+                    {readOnly ? (
+                      <div className={`${viewFieldClass} tabular-nums`}>
+                        {(() => {
+                          const after = Number(discountTotal);
+                          if (
+                            totalAmount > 0 &&
+                            Number.isFinite(after) &&
+                            after > 0 &&
+                            after < totalAmount
+                          ) {
+                            return `${Math.round((1 - after / totalAmount) * 1000) / 10}%`;
+                          }
+                          return "—";
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.5"
+                          value={discountPct}
+                          onChange={(e) => handleDiscountPctChange(e.target.value)}
+                          className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="0"
+                        />
+                        <span className="shrink-0 text-xs text-muted-foreground">%</span>
+                      </div>
+                    )}
+                  </label>
+
+                  <label className="flex flex-col gap-1.5 min-w-0">
                     <span className="text-xs text-muted-foreground">折扣後總金額</span>
                     {readOnly ? (
                       <div className={`${viewFieldClass} tabular-nums`}>
@@ -2295,6 +2452,7 @@ function OrderFormDialog({
                         value={discountTotal}
                         onChange={(e) => {
                           setDiscountLocked(true);
+                          setDiscountPct("");
                           setDiscountTotal(e.target.value);
                         }}
                         className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -2302,7 +2460,9 @@ function OrderFormDialog({
                       />
                     )}
                   </label>
+                </div>
 
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_minmax(0,11rem)] lg:items-end lg:gap-x-3">
                   <label className="flex flex-col gap-1.5 min-w-0 max-w-[7.5rem]">
                     <span className="text-xs text-muted-foreground">運費</span>
                     {readOnly ? (
