@@ -14,6 +14,86 @@ export type Database = {
   }
   public: {
     Tables: {
+      accounting_invoices: {
+        Row: {
+          amount_ex_tax: number | null
+          amount_inc_tax: number | null
+          buyer_tax_id: string | null
+          created_at: string | null
+          deleted_at: string | null
+          error: string | null
+          file_name: string | null
+          file_path: string
+          file_url: string
+          id: string
+          invoice_date: string | null
+          invoice_number: string | null
+          media_type: string | null
+          notes: string | null
+          purchase_order_id: string | null
+          recognized: Json | null
+          reviewed_at: string | null
+          seller_name: string | null
+          seller_tax_id: string | null
+          status: string
+          tax_amount: number | null
+        }
+        Insert: {
+          amount_ex_tax?: number | null
+          amount_inc_tax?: number | null
+          buyer_tax_id?: string | null
+          created_at?: string | null
+          deleted_at?: string | null
+          error?: string | null
+          file_name?: string | null
+          file_path: string
+          file_url: string
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          media_type?: string | null
+          notes?: string | null
+          purchase_order_id?: string | null
+          recognized?: Json | null
+          reviewed_at?: string | null
+          seller_name?: string | null
+          seller_tax_id?: string | null
+          status?: string
+          tax_amount?: number | null
+        }
+        Update: {
+          amount_ex_tax?: number | null
+          amount_inc_tax?: number | null
+          buyer_tax_id?: string | null
+          created_at?: string | null
+          deleted_at?: string | null
+          error?: string | null
+          file_name?: string | null
+          file_path?: string
+          file_url?: string
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          media_type?: string | null
+          notes?: string | null
+          purchase_order_id?: string | null
+          recognized?: Json | null
+          reviewed_at?: string | null
+          seller_name?: string | null
+          seller_tax_id?: string | null
+          status?: string
+          tax_amount?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accounting_invoices_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       announcements: {
         Row: {
           content: string | null

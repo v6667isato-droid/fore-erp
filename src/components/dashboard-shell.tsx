@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   BarChart3,
   TrendingUp,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import { FeedbackPage } from "@/components/feedback-page";
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompanyCalendarPage } from "@/components/company-calendar-page";
 import { CostStatisticsPage } from "@/components/cost-statistics-page";
+import { AccountingPage } from "@/components/accounting/accounting-page";
 import { SalesStatisticsPage } from "@/components/sales-statistics-page";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -50,6 +52,7 @@ type Page =
   | "orders"
   | "kanban"
   | "procurement"
+  | "accounting"
   | "sales_statistics"
   | "cost_statistics"
   | "products"
@@ -71,6 +74,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "orders", label: "訂單管理", icon: ShoppingCart },
   { id: "kanban", label: "生產管理", icon: Package },
   { id: "procurement", label: "採購管理", icon: ShoppingCart },
+  { id: "accounting", label: "會計管理", icon: Receipt },
   { id: "sales_statistics", label: "銷售統計", icon: TrendingUp },
   { id: "cost_statistics", label: "成本統計", icon: BarChart3 },
   { id: "leave_approvals", label: "員工管理", icon: ClipboardCheck },
@@ -109,7 +113,7 @@ function SidebarNav({
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
-        if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "sales_statistics") && userRole !== "admin") {
+        if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "sales_statistics" || item.id === "accounting") && userRole !== "admin") {
           return null;
         }
         const Icon = item.icon;
@@ -243,7 +247,7 @@ function MobileHeader({
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
-                  if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "sales_statistics") && userRole !== "admin") {
+                  if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "sales_statistics" || item.id === "accounting") && userRole !== "admin") {
                     return null;
                   }
                   const Icon = item.icon;
@@ -478,7 +482,8 @@ export default function DashboardShell() {
       userRole !== "admin" &&
       (activePage === "leave_approvals" ||
         activePage === "cost_statistics" ||
-        activePage === "sales_statistics")
+        activePage === "sales_statistics" ||
+        activePage === "accounting")
     ) {
       setActivePage("dashboard");
       router.replace("/?page=dashboard");
@@ -571,6 +576,7 @@ export default function DashboardShell() {
           {activePage === "procurement" && (
             <ProcurementPage isAdmin={isErpEditorRole(userRole)} />
           )}
+          {activePage === "accounting" && userRole === "admin" && <AccountingPage />}
           {activePage === "sales_statistics" && userRole === "admin" && <SalesStatisticsPage />}
           {activePage === "cost_statistics" && userRole === "admin" && <CostStatisticsPage />}
           {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}

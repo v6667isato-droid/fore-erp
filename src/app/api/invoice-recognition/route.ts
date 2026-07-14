@@ -26,6 +26,25 @@ export interface RecognizedInvoice {
   items: RecognizedInvoiceItem[];
 }
 
+/** 統一發票辨識結果（會計發票模組審核用，doc_type=tax_invoice） */
+export interface RecognizedTaxInvoice {
+  /** 發票號碼：2 碼英文＋8 碼數字 */
+  invoice_number: string | null;
+  invoice_date: string | null;
+  /** 賣方（開立發票方）名稱 */
+  seller_name: string | null;
+  /** 賣方統一編號（8 碼數字） */
+  seller_tax_id: string | null;
+  /** 買方統一編號（二聯式通常沒有） */
+  buyer_tax_id: string | null;
+  /** 銷售額（未稅） */
+  amount_ex_tax: number | null;
+  /** 營業稅額 */
+  tax_amount: number | null;
+  /** 總計（含稅） */
+  amount_inc_tax: number | null;
+}
+
 const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 type SupportedImageType = (typeof SUPPORTED_IMAGE_TYPES)[number];
 
@@ -105,14 +124,108 @@ const GEMINI_OUTPUT_SCHEMA = {
   },
 } as const;
 
+const TAX_RECOGNITION_PROMPT = `這是一張台灣的統一發票（可能是三聯式、二聯式、收銀機發票或電子發票證明聯）。請仔細辨識並擷取以下資訊：
+
+- 發票號碼：2 碼英文字母＋8 碼數字（如 AB12345678），輸出時去除空白與「-」
+- 發票日期，輸出 YYYY-MM-DD
+- 賣方（開立發票的公司）名稱與統一編號（8 碼數字）
+- 買方統一編號（8 碼數字；二聯式發票通常沒有，輸出 null）
+- 銷售額（未稅）、營業稅額、總計（含稅）：發票上有哪個就填哪個
+
+日期特別注意：
+- 台灣發票常用民國紀年，民國年＝西元年－1911。兩、三位數的年份幾乎都是民國年，
+  例如「115年07-08月」取月份區間首月、「115/07/10」＝西元 2026-07-10
+- 四位數年份（如 2026）才是西元年，直接使用
+
+其他注意：
+- 收銀機發票或電子發票證明聯可能只印含稅總計，此時未稅與稅額輸出 null
+- 金額請輸出數字（去除逗號與貨幣符號）
+- 手寫或模糊不清的欄位，盡力辨識；完全無法辨識的欄位輸出 null`;
+
+const CLAUDE_TAX_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "invoice_number",
+    "invoice_date",
+    "seller_name",
+    "seller_tax_id",
+    "buyer_tax_id",
+    "amount_ex_tax",
+    "tax_amount",
+    "amount_inc_tax",
+  ],
+  properties: {
+    invoice_number: { type: ["string", "null"], description: "發票號碼：2 碼英文＋8 碼數字，去除空白與連字號" },
+    invoice_date: { type: ["string", "null"], description: "發票日期，YYYY-MM-DD；民國年＝西元年－1911" },
+    seller_name: { type: ["string", "null"], description: "賣方（開立發票方）名稱" },
+    seller_tax_id: { type: ["string", "null"], description: "賣方統一編號（8 碼數字）" },
+    buyer_tax_id: { type: ["string", "null"], description: "買方統一編號（8 碼數字；無則 null）" },
+    amount_ex_tax: { type: ["number", "null"], description: "銷售額（未稅）；未列則 null" },
+    tax_amount: { type: ["number", "null"], description: "營業稅額；未列則 null" },
+    amount_inc_tax: { type: ["number", "null"], description: "總計（含稅）；未列則 null" },
+  },
+} as const;
+
+const GEMINI_TAX_OUTPUT_SCHEMA = {
+  type: "OBJECT",
+  required: [
+    "invoice_number",
+    "invoice_date",
+    "seller_name",
+    "seller_tax_id",
+    "buyer_tax_id",
+    "amount_ex_tax",
+    "tax_amount",
+    "amount_inc_tax",
+  ],
+  properties: {
+    invoice_number: { type: "STRING", nullable: true, description: "發票號碼：2 碼英文＋8 碼數字，去除空白與連字號" },
+    invoice_date: { type: "STRING", nullable: true, description: "發票日期，YYYY-MM-DD；民國年＝西元年－1911" },
+    seller_name: { type: "STRING", nullable: true, description: "賣方（開立發票方）名稱" },
+    seller_tax_id: { type: "STRING", nullable: true, description: "賣方統一編號（8 碼數字）" },
+    buyer_tax_id: { type: "STRING", nullable: true, description: "買方統一編號（8 碼數字；無則 null）" },
+    amount_ex_tax: { type: "NUMBER", nullable: true, description: "銷售額（未稅）；未列則 null" },
+    tax_amount: { type: "NUMBER", nullable: true, description: "營業稅額；未列則 null" },
+    amount_inc_tax: { type: "NUMBER", nullable: true, description: "總計（含稅）；未列則 null" },
+  },
+} as const;
+
+/** 依文件類型選 prompt 與 schema：billing=廠商請款單（預設）、tax_invoice=統一發票 */
+type DocType = "billing" | "tax_invoice";
+
+interface DocConfig {
+  prompt: string;
+  claudeSchema: Record<string, unknown>;
+  geminiSchema: Record<string, unknown>;
+  /** 解析後的結果健檢（避免模型輸出缺欄位） */
+  validate: (parsed: unknown) => boolean;
+}
+
+const DOC_CONFIGS: Record<DocType, DocConfig> = {
+  billing: {
+    prompt: RECOGNITION_PROMPT,
+    claudeSchema: CLAUDE_OUTPUT_SCHEMA,
+    geminiSchema: GEMINI_OUTPUT_SCHEMA,
+    validate: (parsed) => Array.isArray((parsed as RecognizedInvoice | null)?.items),
+  },
+  tax_invoice: {
+    prompt: TAX_RECOGNITION_PROMPT,
+    claudeSchema: CLAUDE_TAX_OUTPUT_SCHEMA,
+    geminiSchema: GEMINI_TAX_OUTPUT_SCHEMA,
+    validate: (parsed) =>
+      parsed != null && typeof parsed === "object" && "invoice_number" in parsed && "amount_inc_tax" in parsed,
+  },
+};
+
 type RecognitionOutcome =
-  | { ok: true; result: RecognizedInvoice }
+  | { ok: true; result: RecognizedInvoice | RecognizedTaxInvoice }
   | { ok: false; status: number; error: string };
 
-function parseRecognizedInvoice(text: string): RecognitionOutcome {
+function parseRecognizedInvoice(text: string, config: DocConfig): RecognitionOutcome {
   try {
-    const parsed = JSON.parse(text) as RecognizedInvoice;
-    if (!Array.isArray(parsed.items)) {
+    const parsed = JSON.parse(text);
+    if (!config.validate(parsed)) {
       return { ok: false, status: 502, error: "辨識結果格式異常，請重試或改用手動輸入" };
     }
     return { ok: true, result: parsed };
@@ -126,6 +239,7 @@ async function recognizeWithClaude(
   fileBase64: string,
   mediaType: string,
   isPdf: boolean,
+  config: DocConfig,
 ): Promise<RecognitionOutcome> {
   const client = new Anthropic({ apiKey });
   const model = process.env.INVOICE_AI_MODEL || "claude-opus-4-8";
@@ -150,12 +264,12 @@ async function recognizeWithClaude(
       max_tokens: 16000,
       thinking: { type: "adaptive" },
       output_config: {
-        format: { type: "json_schema", schema: CLAUDE_OUTPUT_SCHEMA },
+        format: { type: "json_schema", schema: config.claudeSchema },
       },
       messages: [
         {
           role: "user",
-          content: [fileBlock, { type: "text", text: RECOGNITION_PROMPT }],
+          content: [fileBlock, { type: "text", text: config.prompt }],
         },
       ],
     });
@@ -168,7 +282,7 @@ async function recognizeWithClaude(
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("");
-    return parseRecognizedInvoice(text);
+    return parseRecognizedInvoice(text, config);
   } catch (err) {
     console.error("invoice-recognition (claude) error:", err);
     if (err instanceof Anthropic.AuthenticationError) {
@@ -186,6 +300,7 @@ async function recognizeWithGemini(
   apiKey: string,
   fileBase64: string,
   mediaType: string,
+  config: DocConfig,
   modelOverride?: string,
 ): Promise<RecognitionOutcome> {
   const model = modelOverride || process.env.INVOICE_GEMINI_MODEL || "gemini-3.5-flash";
@@ -205,13 +320,13 @@ async function recognizeWithGemini(
           {
             parts: [
               { inline_data: { mime_type: mediaType, data: fileBase64 } },
-              { text: RECOGNITION_PROMPT },
+              { text: config.prompt },
             ],
           },
         ],
         generationConfig: {
           responseMimeType: "application/json",
-          responseSchema: GEMINI_OUTPUT_SCHEMA,
+          responseSchema: config.geminiSchema,
         },
       }),
     });
@@ -223,7 +338,7 @@ async function recognizeWithGemini(
       // 主模型過載或限流時，自動退用較輕量的備援模型重試一次
       const fallback = process.env.INVOICE_GEMINI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
       if (!modelOverride && (res.status === 429 || res.status === 503) && fallback !== model) {
-        return recognizeWithGemini(apiKey, fileBase64, mediaType, fallback);
+        return recognizeWithGemini(apiKey, fileBase64, mediaType, config, fallback);
       }
       if (res.status === 400 || res.status === 403) {
         return { ok: false, status: 502, error: "GEMINI_API_KEY 無效或無權限，請確認 key 是否正確" };
@@ -245,7 +360,7 @@ async function recognizeWithGemini(
         error: finishReason === "SAFETY" ? "AI 拒絕處理此文件，請改用手動輸入" : "辨識結果為空，請重試或改用手動輸入",
       };
     }
-    return parseRecognizedInvoice(text);
+    return parseRecognizedInvoice(text, config);
   } catch (err) {
     console.error("invoice-recognition (gemini) error:", model, err);
     const isTimeout =
@@ -253,7 +368,7 @@ async function recognizeWithGemini(
       /timeout|aborted/i.test(err instanceof Error ? err.message : "");
     const fallback = process.env.INVOICE_GEMINI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
     if (!modelOverride && isTimeout && fallback !== model) {
-      return recognizeWithGemini(apiKey, fileBase64, mediaType, fallback);
+      return recognizeWithGemini(apiKey, fileBase64, mediaType, config, fallback);
     }
     return {
       ok: false,
@@ -281,6 +396,8 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const fileBase64 = typeof body?.file_base64 === "string" ? body.file_base64 : "";
   const mediaType = typeof body?.media_type === "string" ? body.media_type : "";
+  const docType: DocType = body?.doc_type === "tax_invoice" ? "tax_invoice" : "billing";
+  const config = DOC_CONFIGS[docType];
 
   if (!fileBase64 || !mediaType) {
     return NextResponse.json(
@@ -300,8 +417,8 @@ export async function POST(request: NextRequest) {
 
   // 有 Anthropic key 優先用 Claude（辨識品質較佳）；否則退用 Gemini 免費額度
   const outcome = anthropicKey
-    ? await recognizeWithClaude(anthropicKey, fileBase64, mediaType, isPdf)
-    : await recognizeWithGemini(geminiKey!, fileBase64, mediaType);
+    ? await recognizeWithClaude(anthropicKey, fileBase64, mediaType, isPdf, config)
+    : await recognizeWithGemini(geminiKey!, fileBase64, mediaType, config);
 
   if (!outcome.ok) {
     return NextResponse.json({ success: false, error: outcome.error }, { status: outcome.status });
