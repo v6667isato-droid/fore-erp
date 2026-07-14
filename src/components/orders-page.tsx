@@ -449,12 +449,6 @@ export function OrdersPage({
   const sortedOrders = useMemo(() => {
     const list = [...filtered];
     list.sort((a, b) => {
-      // 下單日降冪時：已結清放底部，其餘依日期新到舊
-      if (sortKey === "order_date" && sortDir === "desc") {
-        const aSettled = a.payment_status === "已結清";
-        const bSettled = b.payment_status === "已結清";
-        if (aSettled !== bSettled) return aSettled ? 1 : -1;
-      }
       if (sortKey === "status") {
         const ar = orderStatusSortIndex(a.status);
         const br = orderStatusSortIndex(b.status);
