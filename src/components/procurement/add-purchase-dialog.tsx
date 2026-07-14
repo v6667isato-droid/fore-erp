@@ -14,6 +14,7 @@ import {
 } from "@/lib/purchase-amortization";
 import { computePurchaseLinePrices } from "@/lib/purchase-tax";
 import { purchaseSpecFromMaterialParts } from "@/lib/procurement-material";
+import { displayPoNumber, generatePoNumber } from "@/lib/purchase-order";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
 
 export interface AddPurchaseDialogProps {
@@ -215,6 +216,27 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
     }
 
     const vendor = vendorName.trim() || null;
+    setAdding(true);
+
+    // 先建採購單單頭（整合多品項、給編號）；舊 schema 無此表時退回無單頭模式
+    let purchaseOrderId: string | null = null;
+    let poNumber: string | null = null;
+    for (let attempt = 0; attempt < 2 && purchaseOrderId == null; attempt++) {
+      const candidate = generatePoNumber();
+      const poRes = await supabase
+        .from("purchase_orders")
+        .insert({ po_number: candidate, purchase_date: purchaseDate.trim(), vendor_name: vendor })
+        .select("id, po_number")
+        .single();
+      if (!poRes.error && poRes.data) {
+        purchaseOrderId = (poRes.data as { id: string }).id;
+        poNumber = (poRes.data as { po_number: string }).po_number;
+        break;
+      }
+      // 編號撞號（unique 衝突）時重產一次；資料表不存在則直接退回舊模式
+      if (!/duplicate key|unique/i.test(poRes.error?.message ?? "")) break;
+    }
+
     const payloads: Record<string, unknown>[] = filled.map((line) => {
       const price = line.unitPrice.trim() ? Number(line.unitPrice) : 0;
       const qty = line.quantity.trim() ? Number(line.quantity) : 0;
@@ -222,6 +244,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
       return {
         purchase_date: purchaseDate.trim(),
         vendor_name: vendor,
+        purchase_order_id: purchaseOrderId,
         item_name: line.itemName.trim(),
         item_category: line.itemCategory.trim() || null,
         spec: purchaseSpecFromMaterialParts(line.spec, line.spec2) || null,
@@ -238,7 +261,6 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
       };
     });
 
-    setAdding(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema
     let { error: err } = await supabase.from("purchases").insert(payloads as any);
     if (err && /column .* does not exist/i.test(err.message)) {
@@ -247,6 +269,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
         delete r.vendor_name;
         delete r.material_id;
         delete r.amortization_months;
+        delete r.purchase_order_id;
         return r;
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -254,11 +277,18 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
     }
     setAdding(false);
     if (err) {
+      if (purchaseOrderId) {
+        await supabase.from("purchase_orders").delete().eq("id", purchaseOrderId);
+      }
       toast.error(err.message || "新增失敗");
       setError(err.message || "新增失敗");
       return;
     }
-    toast.success(`已新增 ${payloads.length} 筆採購紀錄`);
+    toast.success(
+      poNumber
+        ? `已建立採購單 ${displayPoNumber(poNumber)}（${payloads.length} 筆品項）`
+        : `已新增 ${payloads.length} 筆採購紀錄`,
+    );
     setOpen(false);
     onSuccess();
   }

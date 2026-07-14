@@ -1,18 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { formatDate, relName } from "@/lib/utils";
 import { computePurchaseLinePrices, roundMoney2 } from "@/lib/purchase-tax";
-import type { PurchaseRow, NameRel } from "@/types/procurement";
+import type { PurchaseRow, NameRel, InvoiceFile } from "@/types/procurement";
+import type { Json } from "@/types/database.types";
 import { purchaseSpecPartsForDisplay } from "@/lib/procurement-material";
+import {
+  displayPoNumber,
+  groupPurchaseRows,
+  parseInvoiceFiles,
+  type PurchaseOrderGroup,
+} from "@/lib/purchase-order";
 import { ProcurementSummaryCard } from "@/components/procurement/procurement-summary-card";
 import { ProcurementFilters } from "@/components/procurement/procurement-filters";
 import { PurchaseTable } from "@/components/procurement/purchase-table";
 import { AddPurchaseDialog } from "@/components/procurement/add-purchase-dialog";
 import { EditPurchaseDialog } from "@/components/procurement/edit-purchase-dialog";
+import { InvoiceReviewDialog } from "@/components/procurement/invoice-review-dialog";
 import { exportProcurementCsv } from "@/components/procurement/export-procurement-csv";
+import { compressInvoiceFileForStorage } from "@/lib/invoice-file";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
@@ -28,6 +37,17 @@ const SELECT_WITH_VENDOR_REL =
 
 const SELECT_WITH_VENDOR_ID =
   `id, purchase_date, vendor_id, ${PURCHASE_LINE_FIELDS}, vendors(name, notes), procurement_materials(notes)`;
+
+/** 採購單單頭內嵌（purchases.purchase_order_id → purchase_orders） */
+type PurchaseOrderEmbed = {
+  po_number?: string | null;
+  notes?: string | null;
+  invoice_files?: unknown;
+} | {
+  po_number?: string | null;
+  notes?: string | null;
+  invoice_files?: unknown;
+}[] | null;
 
 type SupabaseRowVendorRel = {
   id: string;
@@ -75,6 +95,8 @@ type SupabaseRowWithVendor = {
 type SupabaseRowNoVendor = {
   id: string;
   purchase_date: string;
+  purchase_order_id?: string | null;
+  purchase_orders?: PurchaseOrderEmbed;
   item_name: string;
   item_category?: string | null;
   spec?: string | null;
@@ -142,6 +164,20 @@ function normalizedMaterialNotes(notes: unknown): string | null {
   if (notes == null) return null;
   const t = String(notes).trim();
   return t || null;
+}
+
+/** 自 purchase_orders 內嵌取出單頭欄位（to-one 關聯通常為物件，防禦性處理陣列） */
+function poFieldsFromEmbed(
+  purchaseOrderId: string | null | undefined,
+  embed: PurchaseOrderEmbed | undefined,
+): Pick<PurchaseRow, "purchase_order_id" | "po_number" | "po_notes" | "po_invoice_files"> {
+  const po = Array.isArray(embed) ? embed[0] : embed;
+  return {
+    purchase_order_id: purchaseOrderId ?? null,
+    po_number: po?.po_number ?? null,
+    po_notes: po?.notes ?? null,
+    po_invoice_files: parseInvoiceFiles(po?.invoice_files),
+  };
 }
 
 function specFieldsForPurchaseRow(
@@ -239,6 +275,7 @@ function mapRowWithVendor(row: SupabaseRowWithVendor): PurchaseRow {
 function mapRowNoVendor(row: SupabaseRowNoVendor): PurchaseRow {
   return {
     id: row.id,
+    ...poFieldsFromEmbed(row.purchase_order_id, row.purchase_orders),
     purchase_date: formatDate(row.purchase_date),
     vendor_name: row.vendor_name?.trim() || "—",
     vendor_notes: vendorNotesFromNameFkEmbed(row),
@@ -270,9 +307,27 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
   const [filterSearch, setFilterSearch] = useState("");
   const [editRow, setEditRow] = useState<PurchaseRow | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<PurchaseRow | null>(null);
+  const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<PurchaseOrderGroup | null>(null);
+  const [invoiceUploadTarget, setInvoiceUploadTarget] = useState<PurchaseOrderGroup | null>(null);
+  const [uploadingInvoice, setUploadingInvoice] = useState(false);
+  const invoiceFileInputRef = useRef<HTMLInputElement>(null);
 
   async function fetchPurchases() {
     setLoading(true);
+
+    const resWithPo = await supabase
+      .from("purchases")
+      .select(
+        `id, purchase_date, ${PURCHASE_LINE_FIELDS}, vendor_name, purchase_order_id, purchase_orders(po_number, notes, invoice_files), procurement_materials(notes), vendors(notes)`,
+      )
+      .is("deleted_at", null)
+      .order("purchase_date", { ascending: false });
+
+    if (!resWithPo.error && resWithPo.data) {
+      setRecords((resWithPo.data as SupabaseRowNoVendor[]).map(mapRowNoVendor));
+      setLoading(false);
+      return;
+    }
 
     const resVendorName = await supabase
       .from("purchases")
@@ -360,6 +415,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     if (filterSearch.trim()) {
       const q = filterSearch.trim().toLowerCase();
       const text = [
+        r.po_number ?? "",
         r.vendor_name,
         r.vendor_notes ?? "",
         r.item_name,
@@ -377,6 +433,8 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     }
     return true;
   });
+
+  const filteredGroups = groupPurchaseRows(filteredRecords);
 
   const today = new Date().toISOString().slice(0, 10);
   const thisYear = new Date().getFullYear();
@@ -431,6 +489,83 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     fetchPurchases();
   }
 
+  async function performDeleteGroup() {
+    if (!deleteConfirmGroup) return;
+    const group = deleteConfirmGroup;
+    setDeleteConfirmGroup(null);
+    const now = new Date().toISOString();
+    if (group.purchase_order_id) {
+      const { error } = await supabase
+        .from("purchases")
+        .update({ deleted_at: now })
+        .eq("purchase_order_id", group.purchase_order_id);
+      if (error) {
+        toast.error(error.message || "刪除失敗");
+        return;
+      }
+      await supabase
+        .from("purchase_orders")
+        .update({ deleted_at: now })
+        .eq("id", group.purchase_order_id);
+    } else {
+      const ids = group.lines.map((l) => l.id);
+      const { error } = await supabase
+        .from("purchases")
+        .update({ deleted_at: now })
+        .in("id", ids);
+      if (error) {
+        toast.error(error.message || "刪除失敗");
+        return;
+      }
+    }
+    toast.success("已刪除採購單");
+    fetchPurchases();
+  }
+
+  function requestUploadInvoice(group: PurchaseOrderGroup) {
+    setInvoiceUploadTarget(group);
+    invoiceFileInputRef.current?.click();
+  }
+
+  async function handleInvoiceFileSelected(file: File | null) {
+    const target = invoiceUploadTarget;
+    setInvoiceUploadTarget(null);
+    if (!file || !target?.purchase_order_id) return;
+    if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
+      toast.error("請選擇圖片或 PDF 檔案");
+      return;
+    }
+    setUploadingInvoice(true);
+    try {
+      const { blob, ext } = await compressInvoiceFileForStorage(file);
+      const path = `${target.purchase_order_id}/${crypto.randomUUID()}.${ext}`;
+      const { data, error } = await supabase.storage
+        .from("purchase-invoices")
+        .upload(path, blob, { cacheControl: "3600", upsert: false });
+      if (error) throw error;
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("purchase-invoices").getPublicUrl(data.path);
+      const nextFiles: InvoiceFile[] = [
+        ...target.invoice_files,
+        { url: publicUrl, path: data.path, name: file.name, uploaded_at: new Date().toISOString() },
+      ];
+      const { error: updErr } = await supabase
+        .from("purchase_orders")
+        .update({ invoice_files: nextFiles as unknown as Json })
+        .eq("id", target.purchase_order_id);
+      if (updErr) throw updErr;
+      toast.success("請款單已上傳");
+      fetchPurchases();
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "請款單上傳失敗");
+    } finally {
+      setUploadingInvoice(false);
+      if (invoiceFileInputRef.current) invoiceFileInputRef.current.value = "";
+    }
+  }
+
   function handleExport() {
     if (filteredRecords.length === 0) {
       toast.info("目前沒有可匯出的資料");
@@ -475,6 +610,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
       <ProcurementSummaryCard summaryLabel={summaryLabel} totalSpent={totalSpent}>
         <div className="flex flex-wrap items-center gap-2">
           <AddPurchaseDialog onSuccess={fetchPurchases} onNavigateToVendors={onNavigateToVendors} />
+          <InvoiceReviewDialog onSuccess={fetchPurchases} />
           {isAdmin && (
             <Button
               variant="outline"
@@ -489,6 +625,18 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
           )}
         </div>
       </ProcurementSummaryCard>
+
+      <input
+        ref={invoiceFileInputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        aria-label="上傳請款單附件"
+        onChange={(e) => handleInvoiceFileSelected(e.target.files?.[0] ?? null)}
+      />
+      {uploadingInvoice && (
+        <p className="text-xs text-muted-foreground" role="status">請款單上傳中…</p>
+      )}
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
         <ProcurementFilters
@@ -507,10 +655,12 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
           records={records}
         />
         <PurchaseTable
-          records={filteredRecords}
+          groups={filteredGroups}
           totalUnfilteredCount={records.length}
           onEdit={setEditRow}
           onDelete={requestDelete}
+          onDeleteGroup={setDeleteConfirmGroup}
+          onUploadInvoice={requestUploadInvoice}
         />
       </div>
 
@@ -527,7 +677,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
       <ConfirmDialog
         open={deleteConfirmRow != null}
         onOpenChange={(open) => !open && setDeleteConfirmRow(null)}
-        title="是否確定刪除此筆採購紀錄？"
+        title="是否確定刪除此筆採購品項？"
         description={
           deleteConfirmRow ? (
             <>
@@ -542,44 +692,69 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
         destructive
       />
 
+      <ConfirmDialog
+        open={deleteConfirmGroup != null}
+        onOpenChange={(open) => !open && setDeleteConfirmGroup(null)}
+        title="是否確定刪除整張採購單？"
+        description={
+          deleteConfirmGroup ? (
+            <>
+              <p className="font-medium text-foreground">
+                單號：{displayPoNumber(deleteConfirmGroup.po_number)}
+              </p>
+              <p className="text-muted-foreground">廠商：{deleteConfirmGroup.vendor_name}</p>
+              <p className="text-muted-foreground">
+                共 {deleteConfirmGroup.lines.length} 筆品項，含稅總計 $
+                {deleteConfirmGroup.total_inc_tax.toLocaleString()}
+              </p>
+              <p className="mt-2 text-muted-foreground">單內所有品項將一併刪除，此操作無法復原。</p>
+            </>
+          ) : null
+        }
+        confirmLabel="確定刪除"
+        onConfirm={performDeleteGroup}
+        destructive
+      />
+
       <div className="flex flex-col gap-3 sm:hidden">
-        <p className="text-xs font-semibold text-muted-foreground">採購明細</p>
-        {filteredRecords.length === 0 ? (
+        <p className="text-xs font-semibold text-muted-foreground">採購單</p>
+        {filteredGroups.length === 0 ? (
           <p className="rounded-lg border border-border bg-card p-4 text-center text-sm text-muted-foreground">
             {records.length === 0 ? "尚無採購紀錄" : "無符合篩選條件的紀錄"}
           </p>
         ) : (
-          filteredRecords.map((record) => (
-            <div key={record.id} className="rounded-lg border border-border bg-card p-4">
+          filteredGroups.map((group) => (
+            <div key={group.key} className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center justify-between">
+                <span className="font-mono text-xs text-primary">{displayPoNumber(group.po_number)}</span>
+                <span className="text-xs text-muted-foreground">{group.purchase_date}</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between">
                 <span className="text-sm font-medium text-foreground">
-                  {record.vendor_name}
-                  {record.vendor_notes?.trim() ? (
-                    <span className="text-muted-foreground font-normal">&nbsp;（{record.vendor_notes.trim()}）</span>
+                  {group.vendor_name}
+                  {group.vendor_notes?.trim() ? (
+                    <span className="text-muted-foreground font-normal">&nbsp;（{group.vendor_notes.trim()}）</span>
                   ) : null}
                 </span>
                 <span className="text-sm font-semibold text-foreground">
-                  ${record.tax_included_amount.toLocaleString()}
+                  ${group.total_inc_tax.toLocaleString()}
                 </span>
               </div>
-              {record.item_category ? (
-                <p className="mt-0.5 text-xs text-muted-foreground">類別：{record.item_category}</p>
-              ) : null}
-              <p className="mt-1 text-xs text-muted-foreground">{record.item_name}</p>
-              {record.spec_primary ? (
-                <p className="mt-0.5 text-xs text-muted-foreground">規格：{record.spec_primary}</p>
-              ) : null}
-              {record.spec_secondary ? (
-                <p className="mt-0.5 text-xs text-muted-foreground">規格2：{record.spec_secondary}</p>
-              ) : null}
-              <div className="mt-2 flex flex-col gap-0.5 text-xs text-muted-foreground">
-                <span>
-                  {record.quantity !== "—" && `數量 ${record.quantity} ${record.unit || ""}`.trim()}
-                </span>
-                <span>
-                  含稅 ${record.tax_included_amount.toLocaleString()}
-                </span>
-                <span className="text-right">{record.purchase_date}</span>
+              <div className="mt-2 flex flex-col gap-1.5 border-t border-border/60 pt-2">
+                {group.lines.map((record) => (
+                  <div key={record.id} className="text-xs text-muted-foreground">
+                    <p className="text-foreground">{record.item_name}</p>
+                    <p>
+                      {[
+                        record.spec_primary.trim() ? `規格 ${record.spec_primary}` : null,
+                        record.quantity !== "—" ? `數量 ${record.quantity} ${record.unit || ""}`.trim() : null,
+                        `含稅 $${record.tax_included_amount.toLocaleString()}`,
+                      ]
+                        .filter(Boolean)
+                        .join("｜")}
+                    </p>
+                  </div>
+                ))}
               </div>
             </div>
           ))

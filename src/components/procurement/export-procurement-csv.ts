@@ -3,6 +3,7 @@ import type { PurchaseRow } from "@/types/procurement";
 
 export function exportProcurementCsv(records: PurchaseRow[]) {
   const headers = [
+    "採購單號",
     "日期",
     "廠商",
     "物料主檔ID",
@@ -20,6 +21,7 @@ export function exportProcurementCsv(records: PurchaseRow[]) {
     "成本攤提",
   ];
   const rows = records.map((r) => [
+    r.po_number ?? "",
     r.purchase_date,
     r.vendor_notes?.trim() ? `${r.vendor_name}（${r.vendor_notes.trim()}）` : r.vendor_name,
     r.material_id ?? "",

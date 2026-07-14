@@ -16,8 +16,24 @@ export interface ProcurementMaterialRow {
   created_at?: string | null;
 }
 
+/** 採購單請款單附件（purchase_orders.invoice_files 內元素） */
+export interface InvoiceFile {
+  url: string;
+  path: string;
+  name: string;
+  uploaded_at: string;
+}
+
 export interface PurchaseRow {
   id: string;
+  /** 所屬採購單（purchase_orders.id）；舊 schema 未遷移時為 null */
+  purchase_order_id?: string | null;
+  /** 採購單編號（自 purchase_orders 內嵌） */
+  po_number?: string | null;
+  /** 採購單備註（單頭） */
+  po_notes?: string | null;
+  /** 採購單請款單附件（單頭） */
+  po_invoice_files?: InvoiceFile[];
   purchase_date: string;
   vendor_name: string;
   /** vendors.notes（有對應主檔時；名稱後括號顯示） */

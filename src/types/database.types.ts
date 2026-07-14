@@ -1152,6 +1152,39 @@ export type Database = {
         }
         Relationships: []
       }
+      purchase_orders: {
+        Row: {
+          created_at: string | null
+          deleted_at: string | null
+          id: string
+          invoice_files: Json
+          notes: string | null
+          po_number: string
+          purchase_date: string
+          vendor_name: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          deleted_at?: string | null
+          id?: string
+          invoice_files?: Json
+          notes?: string | null
+          po_number: string
+          purchase_date?: string
+          vendor_name?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          deleted_at?: string | null
+          id?: string
+          invoice_files?: Json
+          notes?: string | null
+          po_number?: string
+          purchase_date?: string
+          vendor_name?: string | null
+        }
+        Relationships: []
+      }
       purchases: {
         Row: {
           amortization_months: number | null
@@ -1163,6 +1196,7 @@ export type Database = {
           item_name: string
           material_id: string | null
           purchase_date: string
+          purchase_order_id: string | null
           quantity: number
           spec: string | null
           spec2: string | null
@@ -1185,6 +1219,7 @@ export type Database = {
           item_name: string
           material_id?: string | null
           purchase_date?: string
+          purchase_order_id?: string | null
           quantity?: number
           spec?: string | null
           spec2?: string | null
@@ -1207,6 +1242,7 @@ export type Database = {
           item_name?: string
           material_id?: string | null
           purchase_date?: string
+          purchase_order_id?: string | null
           quantity?: number
           spec?: string | null
           spec2?: string | null
@@ -1225,6 +1261,13 @@ export type Database = {
             columns: ["material_id"]
             isOneToOne: false
             referencedRelation: "procurement_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchases_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_orders"
             referencedColumns: ["id"]
           },
           {
@@ -1312,6 +1355,38 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_item_aliases: {
+        Row: {
+          alias_text: string
+          created_at: string | null
+          id: string
+          material_id: string
+          vendor_name: string
+        }
+        Insert: {
+          alias_text: string
+          created_at?: string | null
+          id?: string
+          material_id: string
+          vendor_name?: string
+        }
+        Update: {
+          alias_text?: string
+          created_at?: string | null
+          id?: string
+          material_id?: string
+          vendor_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_item_aliases_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "procurement_materials"
             referencedColumns: ["id"]
           },
         ]
@@ -1447,7 +1522,7 @@ export type Database = {
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals["public"]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
