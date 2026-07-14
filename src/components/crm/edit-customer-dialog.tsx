@@ -30,6 +30,8 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
   const firstFocusRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
+  const [company, setCompany] = useState("");
+  const [taxId, setTaxId] = useState("");
   const [phone, setPhone] = useState("");
   const [lineId, setLineId] = useState("");
   const [igAccount, setIgAccount] = useState("");
@@ -49,6 +51,8 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
       setName(row.name ?? "");
       setAlias((row as any).alias ?? "");
       setContact((row as any).contact_person ?? "");
+      setCompany((row as any).company ?? "");
+      setTaxId((row as any).tax_id ?? "");
       setPhone(row.phone ?? "");
       setLineId(row.line_id ?? "");
       setIgAccount(row.ig_account ?? "");
@@ -83,6 +87,8 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
       name: name.trim(),
       alias: alias.trim() || null,
       contact_person: contact.trim() || null,
+      company: company.trim() || null,
+      tax_id: taxId.trim() || null,
       phone: phone.trim() || null,
       line_id: lineId.trim() || null,
       ig_account: igAccount.trim() || null,
@@ -99,6 +105,8 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
     if (err && isColumnError(err)) {
       const optional = [
         "alias",
+        "company",
+        "tax_id",
         "notes",
         "source",
         "customer_type",
@@ -298,6 +306,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                     <option value="網路">網路</option>
                     <option value="客戶引介">客戶引介</option>
                     <option value="設計師引介">設計師引介</option>
+                    <option value="親友">親友</option>
                     <option value="展覽(好感生活)">展覽(好感生活)</option>
                     <option value="展覽(木質生活)">展覽(木質生活)</option>
                     <option value="通路(謝木木工作室)">通路(謝木木工作室)</option>
@@ -321,7 +330,40 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                     <option value="餐廳">餐廳</option>
                     <option value="政府機關">政府機關</option>
                     <option value="木工廠(代工)">木工廠(代工)</option>
+                    <option value="展覽">展覽</option>
                   </select>
+                </div>
+              </div>
+            </div>
+
+            {/* 5b. 公司 + 統一編號（同一列） */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-1.5">
+                  <label htmlFor="edit-customer-company" className="text-xs text-muted-foreground">
+                    公司
+                  </label>
+                  <input
+                    id="edit-customer-company"
+                    type="text"
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="公司名稱"
+                  />
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <label htmlFor="edit-customer-tax-id" className="text-xs text-muted-foreground">
+                    統一編號
+                  </label>
+                  <input
+                    id="edit-customer-tax-id"
+                    type="text"
+                    value={taxId}
+                    onChange={(e) => setTaxId(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="統一編號"
+                  />
                 </div>
               </div>
             </div>

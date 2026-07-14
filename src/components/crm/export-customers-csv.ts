@@ -5,6 +5,8 @@ export function exportCustomersCsv(records: CustomerRow[]) {
 
   const headers = [
     "姓名",
+    "公司",
+    "統一編號",
     "電話",
     "LINE ID",
     "IG 帳號",
@@ -17,6 +19,8 @@ export function exportCustomersCsv(records: CustomerRow[]) {
 
   const rows = records.map((r) => [
     r.name,
+    r.company ?? "",
+    r.tax_id ?? "",
     r.phone ?? "",
     r.line_id ?? "",
     r.ig_account ?? "",

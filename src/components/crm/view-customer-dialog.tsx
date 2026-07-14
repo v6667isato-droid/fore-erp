@@ -209,6 +209,18 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                     <dd>{(row as any).contact_person}</dd>
                   </div>
                 )}
+                {row.company?.trim() && (
+                  <div>
+                    <dt className="text-muted-foreground">公司</dt>
+                    <dd>{row.company.trim()}</dd>
+                  </div>
+                )}
+                {row.tax_id?.trim() && (
+                  <div>
+                    <dt className="text-muted-foreground">統一編號</dt>
+                    <dd>{row.tax_id.trim()}</dd>
+                  </div>
+                )}
                 {row.source?.trim() && (
                   <div>
                     <dt className="text-muted-foreground">客戶來源</dt>

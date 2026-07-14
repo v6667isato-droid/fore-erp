@@ -6,6 +6,10 @@ export interface CustomerRow {
   alias?: string | null;
   /** 聯絡人姓名 */
   contact_person?: string | null;
+  /** 公司名稱 */
+  company?: string | null;
+  /** 統一編號 */
+  tax_id?: string | null;
   phone?: string | null;
   line_id?: string | null;
   ig_account?: string | null;
