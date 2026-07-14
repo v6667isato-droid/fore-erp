@@ -15,6 +15,12 @@
       "port": 3003
     },
     {
+      "name": "fore-erp-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start", "--", "-p", "3006"],
+      "port": 3006
+    },
+    {
       "name": "fore-website",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "D:/dev/fore-website", "run", "dev", "--", "-p", "3001"],
