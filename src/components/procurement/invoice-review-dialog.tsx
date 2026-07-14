@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Camera, FileScan, Plus, Trash2, X } from "lucide-react";
+import { ExternalLink, Plus, Trash2, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
-import imageCompression from "browser-image-compression";
 import type { InvoiceFile, ProcurementMaterialRow } from "@/types/procurement";
 import type { Json } from "@/types/database.types";
 import {
@@ -14,9 +13,8 @@ import {
   PURCHASE_AMORTIZATION_OPTIONS,
   resolveDefaultAmortizationMonths,
 } from "@/lib/purchase-amortization";
-import { computePurchaseLinePrices } from "@/lib/purchase-tax";
+import { computePurchaseLinePrices, roundMoney2 } from "@/lib/purchase-tax";
 import { purchaseSpecFromMaterialParts } from "@/lib/procurement-material";
-import { compressInvoiceFileForStorage } from "@/lib/invoice-file";
 import { displayPoNumber, generatePoNumber } from "@/lib/purchase-order";
 import {
   matchMaterial,
@@ -25,11 +23,11 @@ import {
   type MatchSource,
   type VendorItemAlias,
 } from "@/lib/invoice-match";
+import { archiveScanPath, fixRocDate, type InvoiceScanRow } from "@/lib/invoice-scan";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import type { RecognizedInvoice } from "@/app/api/invoice-recognition/route";
 
-const MAX_PDF_BYTES = 3.5 * 1024 * 1024;
+const FILTER_MATERIAL_UNCATEGORIZED = "__uncategorized__";
 
 type VendorOption = { id: string; name: string; main_category: string };
 
@@ -40,6 +38,8 @@ type ReviewLine = {
   rawSpec: string;
   materialId: string | null;
   matchSource: MatchSource | null;
+  /** 此列「採購物料」下拉用的類別篩選 */
+  materialCategoryFilter: string;
   quantity: string;
   unitPrice: string;
   amortizationMonths: number;
@@ -58,6 +58,7 @@ function emptyLine(): ReviewLine {
     rawSpec: "",
     materialId: null,
     matchSource: null,
+    materialCategoryFilter: "",
     quantity: "",
     unitPrice: "",
     amortizationMonths: 1,
@@ -74,17 +75,6 @@ function errText(err: unknown, fallback: string): string {
   return fallback;
 }
 
-async function fileToBase64(file: File | Blob): Promise<string> {
-  const buf = await file.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
 const MATCH_BADGE: Record<MatchSource, { label: string; className: string }> = {
   alias: { label: "記憶對應", className: "border-emerald-500/50 text-emerald-700 dark:text-emerald-400" },
   exact: { label: "主檔同名", className: "border-emerald-500/50 text-emerald-700 dark:text-emerald-400" },
@@ -92,64 +82,118 @@ const MATCH_BADGE: Record<MatchSource, { label: string; className: string }> = {
 };
 
 export interface InvoiceReviewDialogProps {
-  onSuccess: () => void;
+  /** 待審核的掃描（含照片與辨識結果）；null 時不顯示 */
+  scan: InvoiceScanRow | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** 建檔歸檔完成 */
+  onArchived: () => void;
 }
 
-export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
-  const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<"upload" | "review">("upload");
-  const [file, setFile] = useState<File | null>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const [recognizing, setRecognizing] = useState(false);
+export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived }: InvoiceReviewDialogProps) {
   const [error, setError] = useState<string | null>(null);
-
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [materials, setMaterials] = useState<ProcurementMaterialRow[]>([]);
   const [aliases, setAliases] = useState<VendorItemAlias[]>([]);
+  const [masterLoaded, setMasterLoaded] = useState(false);
 
   const [purchaseDate, setPurchaseDate] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [priceIsTaxInclusive, setPriceIsTaxInclusive] = useState(false);
-  const [aiTotal, setAiTotal] = useState<number | null>(null);
+  const [aiTotalExTax, setAiTotalExTax] = useState<number | null>(null);
+  const [aiTotalIncTax, setAiTotalIncTax] = useState<number | null>(null);
   const [lines, setLines] = useState<ReviewLine[]>([]);
   const [saving, setSaving] = useState(false);
   const [materialDialogOpen, setMaterialDialogOpen] = useState(false);
   const [materialDialogLineId, setMaterialDialogLineId] = useState<string | null>(null);
 
+  // 開啟時載入主檔
   useEffect(() => {
     if (!open) return;
-    setStep("upload");
-    setFile(null);
     setError(null);
-    setRecognizing(false);
     setSaving(false);
-    setPurchaseDate(new Date().toISOString().slice(0, 10));
-    setVendorName("");
-    setPriceIsTaxInclusive(false);
-    setAiTotal(null);
-    setLines([]);
-    supabase.from("vendors").select("id, name, main_category").then(({ data }) => {
-      setVendors((data as VendorOption[]) ?? []);
+    setMasterLoaded(false);
+    Promise.all([
+      supabase.from("vendors").select("id, name, main_category"),
+      supabase
+        .from("procurement_materials")
+        .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
+        .order("name"),
+      supabase.from("vendor_item_aliases").select("vendor_name, alias_text, material_id"),
+    ]).then(([v, m, a]) => {
+      setVendors((v.data as VendorOption[]) ?? []);
+      setMaterials((m.data as ProcurementMaterialRow[]) ?? []);
+      setAliases((a.data as unknown as VendorItemAlias[]) ?? []);
+      setMasterLoaded(true);
     });
-    supabase
-      .from("procurement_materials")
-      .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
-      .order("name")
-      .then(({ data }) => {
-        setMaterials((data as ProcurementMaterialRow[]) ?? []);
-      });
-    supabase
-      .from("vendor_item_aliases")
-      .select("vendor_name, alias_text, material_id")
-      .then(({ data }) => {
-        setAliases((data as VendorItemAlias[]) ?? []);
-      });
   }, [open]);
+
+  // 主檔載入後，用辨識結果預填表單
+  useEffect(() => {
+    if (!open || !masterLoaded) return;
+    const recognized = scan?.recognized ?? null;
+    const vendorRaw = recognized?.vendor_name?.trim() ?? "";
+    const matchedVendor =
+      vendors.find((v) => v.name === vendorRaw) ??
+      vendors.find((v) => vendorRaw && (v.name.includes(vendorRaw) || vendorRaw.includes(v.name)));
+    const finalVendor = matchedVendor?.name ?? vendorRaw;
+    setVendorName(finalVendor);
+    setPurchaseDate(fixRocDate(recognized?.invoice_date) ?? new Date().toISOString().slice(0, 10));
+    // 大多數單據為未稅；只有明確標示含稅時才勾
+    setPriceIsTaxInclusive(recognized?.prices_tax_inclusive === true);
+    setAiTotalExTax(recognized?.total_amount_ex_tax ?? null);
+    setAiTotalIncTax(recognized?.total_amount_inc_tax ?? null);
+    const nextLines: ReviewLine[] = (recognized?.items ?? []).map((item) => {
+      const match = matchMaterial(item.name, finalVendor, materials, aliases);
+      const material = match ? materials.find((m) => m.id === match.materialId) : undefined;
+      return {
+        id: newLineId(),
+        rawName: item.name,
+        rawSpec: item.spec?.trim() ?? "",
+        materialId: match?.materialId ?? null,
+        matchSource: match?.source ?? null,
+        materialCategoryFilter: "",
+        quantity: item.quantity != null ? String(item.quantity) : "",
+        unitPrice: item.unit_price != null ? String(item.unit_price) : "",
+        amortizationMonths: material ? resolveDefaultAmortizationMonths(material) : 1,
+      };
+    });
+    setLines(nextLines.length > 0 ? nextLines : [emptyLine()]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 僅在開啟＋主檔就緒時預填一次
+  }, [open, masterLoaded, scan?.id]);
 
   const sortedMaterials = useMemo(
     () => [...materials].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")),
     [materials],
   );
+
+  const materialCategoryOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of materials) {
+      const c = m.item_category?.trim();
+      if (c) set.add(c);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "zh-Hant"));
+  }, [materials]);
+
+  const hasUncategorizedMaterials = useMemo(
+    () => materials.some((m) => !m.item_category?.trim()),
+    [materials],
+  );
+
+  function materialsOptionsForLine(line: ReviewLine): ProcurementMaterialRow[] {
+    let base = sortedMaterials;
+    if (line.materialCategoryFilter === FILTER_MATERIAL_UNCATEGORIZED) {
+      base = sortedMaterials.filter((m) => !m.item_category?.trim());
+    } else if (line.materialCategoryFilter) {
+      base = sortedMaterials.filter((m) => (m.item_category || "").trim() === line.materialCategoryFilter);
+    }
+    const selected = line.materialId ? materials.find((m) => m.id === line.materialId) : null;
+    if (selected && !base.some((m) => m.id === selected.id)) {
+      return [selected, ...base];
+    }
+    return base;
+  }
 
   const vendorOptions = useMemo(
     () => [...vendors].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")),
@@ -236,89 +280,6 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
     setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
 
-  function applyRecognition(result: RecognizedInvoice) {
-    const vendor = result.vendor_name?.trim() ?? "";
-    // 辨識出的廠商名嘗試對回廠商主檔（包含關係即視為同廠商）
-    const matchedVendor =
-      vendors.find((v) => v.name === vendor) ??
-      vendors.find((v) => vendor && (v.name.includes(vendor) || vendor.includes(v.name)));
-    const finalVendor = matchedVendor?.name ?? vendor;
-    setVendorName(finalVendor);
-    if (result.invoice_date && /^\d{4}-\d{2}-\d{2}$/.test(result.invoice_date)) {
-      setPurchaseDate(result.invoice_date);
-    }
-    if (result.prices_tax_inclusive != null) {
-      setPriceIsTaxInclusive(result.prices_tax_inclusive);
-    }
-    setAiTotal(result.total_amount ?? null);
-    const nextLines: ReviewLine[] = result.items.map((item) => {
-      const match = matchMaterial(item.name, finalVendor, materials, aliases);
-      const material = match ? materials.find((m) => m.id === match.materialId) : undefined;
-      return {
-        id: newLineId(),
-        rawName: item.name,
-        rawSpec: item.spec?.trim() ?? "",
-        materialId: match?.materialId ?? null,
-        matchSource: match?.source ?? null,
-        quantity: item.quantity != null ? String(item.quantity) : "",
-        unitPrice: item.unit_price != null ? String(item.unit_price) : "",
-        amortizationMonths: material ? resolveDefaultAmortizationMonths(material) : 1,
-      };
-    });
-    setLines(nextLines.length > 0 ? nextLines : [emptyLine()]);
-    setStep("review");
-  }
-
-  async function recognize() {
-    if (!file) {
-      setError("請先選擇請款單檔案");
-      return;
-    }
-    setError(null);
-    setRecognizing(true);
-    try {
-      let payloadBlob: Blob = file;
-      let mediaType = file.type;
-      if (file.type.startsWith("image/")) {
-        payloadBlob = await imageCompression(file, {
-          maxSizeMB: 1.5,
-          maxWidthOrHeight: 2400,
-          useWebWorker: true,
-        });
-        mediaType = payloadBlob.type || "image/jpeg";
-      } else if (file.type === "application/pdf" && file.size > MAX_PDF_BYTES) {
-        setError("PDF 檔案過大（上限約 3.5MB），請改用截圖或壓縮後再試");
-        setRecognizing(false);
-        return;
-      }
-      const base64 = await fileToBase64(payloadBlob);
-      const res = await fetch("/api/invoice-recognition", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_base64: base64, media_type: mediaType }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.success) {
-        setError(json?.error || "辨識失敗，請稍後再試或改用手動輸入");
-        setRecognizing(false);
-        return;
-      }
-      applyRecognition(json.result as RecognizedInvoice);
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "辨識失敗，請稍後再試");
-    } finally {
-      setRecognizing(false);
-    }
-  }
-
-  function skipToManual() {
-    setError(null);
-    setAiTotal(null);
-    setLines([emptyLine()]);
-    setStep("review");
-  }
-
   const lineComputed = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computePurchaseLinePrices> | null>();
     for (const line of lines) {
@@ -333,26 +294,39 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
     return map;
   }, [lines, priceIsTaxInclusive]);
 
-  const computedTotal = useMemo(() => {
-    let total = 0;
+  const computedTotals = useMemo(() => {
+    let exTax = 0;
+    let incTax = 0;
     for (const line of lines) {
       const c = lineComputed.get(line.id);
-      if (c) total += c.tax_included_amount;
+      if (c) {
+        exTax += c.amount_ex_tax;
+        incTax += c.tax_included_amount;
+      }
     }
-    return Math.round(total * 100) / 100;
+    return { exTax: roundMoney2(exTax), incTax: roundMoney2(incTax) };
   }, [lines, lineComputed]);
 
-  const totalMismatch =
-    aiTotal != null && Math.abs(computedTotal - aiTotal) > 1;
+  /** 以未稅金額為主的核對（多數單據未稅）；單據只有含稅總計時退用含稅比對 */
+  const totalCheck = useMemo(() => {
+    if (aiTotalExTax != null) {
+      return { label: "未稅", ai: aiTotalExTax, computed: computedTotals.exTax, mismatch: Math.abs(computedTotals.exTax - aiTotalExTax) > 1 };
+    }
+    if (aiTotalIncTax != null) {
+      return { label: "含稅", ai: aiTotalIncTax, computed: computedTotals.incTax, mismatch: Math.abs(computedTotals.incTax - aiTotalIncTax) > 1 };
+    }
+    return null;
+  }, [aiTotalExTax, aiTotalIncTax, computedTotals]);
 
   async function onConfirm() {
+    if (!scan) return;
     setError(null);
     if (!purchaseDate.trim()) {
       setError("請選擇日期");
       return;
     }
     if (!vendorExists) {
-      setError(`廠商「${vendorName.trim()}」不在廠商主檔中，請點上方按鈕加入主檔、改選既有廠商或留空`);
+      setError(`廠商「${vendorName.trim()}」不在廠商主檔中，請用上方選項處理（帶入相似廠商／改名／新增）或留空`);
       return;
     }
     const activeLines = lines.filter((l) => l.materialId || l.rawName.trim() || l.quantity.trim() || l.unitPrice.trim());
@@ -398,30 +372,7 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
       }
       if (!purchaseOrderId) throw new Error("採購單編號產生失敗，請重試");
 
-      // 2. 上傳請款單附件（有選檔案時）
-      let uploadedPath: string | null = null;
-      if (file) {
-        const { blob, ext } = await compressInvoiceFileForStorage(file);
-        const path = `${purchaseOrderId}/${newLineId()}.${ext}`;
-        const { data: up, error: upErr } = await supabase.storage
-          .from("purchase-invoices")
-          .upload(path, blob, { cacheControl: "3600", upsert: false });
-        if (upErr) throw upErr;
-        uploadedPath = up.path;
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from("purchase-invoices").getPublicUrl(up.path);
-        const files: InvoiceFile[] = [
-          { url: publicUrl, path: up.path, name: file.name, uploaded_at: new Date().toISOString() },
-        ];
-        const { error: updErr } = await supabase
-          .from("purchase_orders")
-          .update({ invoice_files: files as unknown as Json })
-          .eq("id", purchaseOrderId);
-        if (updErr) throw updErr;
-      }
-
-      // 3. 建立採購明細
+      // 2. 建立採購明細
       const payloads = activeLines.map((line) => {
         const m = materials.find((x) => x.id === line.materialId)!;
         const q = line.quantity.trim() ? Number(line.quantity) : 0;
@@ -448,15 +399,54 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
       });
       const { error: insErr } = await supabase.from("purchases").insert(payloads);
       if (insErr) {
-        // 回滾：刪掉剛建立的單頭與附件，避免留下孤兒資料
+        // 回滾單頭；照片仍留在佇列，可修正後重試
         await supabase.from("purchase_orders").delete().eq("id", purchaseOrderId);
-        if (uploadedPath) {
-          await supabase.storage.from("purchase-invoices").remove([uploadedPath]);
-        }
         throw insErr;
       }
 
-      // 4. 寫入廠商品名→料號記憶（下次同廠商自動帶入）
+      // 3. 照片歸檔：inbox → archive/{廠商}/{日期}/，並掛到採購單
+      const ext = scan.file_path.split(".").pop()?.toLowerCase() || "jpg";
+      let finalPath = scan.file_path;
+      const targetPath = archiveScanPath(vendor, purchaseDate.trim(), scan.id, ext);
+      const { error: moveErr } = await supabase.storage
+        .from("purchase-invoices")
+        .move(scan.file_path, targetPath);
+      if (!moveErr) {
+        finalPath = targetPath;
+      } else {
+        console.error("照片歸檔搬移失敗（保留原路徑）:", moveErr.message);
+      }
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("purchase-invoices").getPublicUrl(finalPath);
+      const files: InvoiceFile[] = [
+        {
+          url: publicUrl,
+          path: finalPath,
+          name: scan.file_name || `請款單-${purchaseDate.trim()}`,
+          uploaded_at: new Date().toISOString(),
+        },
+      ];
+      const { error: fileErr } = await supabase
+        .from("purchase_orders")
+        .update({ invoice_files: files as unknown as Json })
+        .eq("id", purchaseOrderId);
+      if (fileErr) console.error("採購單附件更新失敗:", fileErr.message);
+
+      // 4. 更新佇列狀態
+      const { error: scanErr } = await supabase
+        .from("invoice_scans")
+        .update({
+          status: "archived",
+          purchase_order_id: purchaseOrderId,
+          file_path: finalPath,
+          file_url: publicUrl,
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq("id", scan.id);
+      if (scanErr) console.error("佇列狀態更新失敗:", scanErr.message);
+
+      // 5. 寫入廠商品名→料號記憶（下次同廠商自動帶入）
       const aliasRows = activeLines
         .filter((l) => l.rawName.trim() && l.materialId)
         .map((l) => ({
@@ -472,9 +462,9 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
         if (aliasErr) console.error("品名記憶寫入失敗:", aliasErr.message);
       }
 
-      toast.success(`已建立採購單 ${displayPoNumber(poNumber)}（${payloads.length} 筆品項）`);
-      setOpen(false);
-      onSuccess();
+      toast.success(`已建立採購單 ${displayPoNumber(poNumber)}（${payloads.length} 筆品項），照片已歸檔`);
+      onOpenChange(false);
+      onArchived();
     } catch (err) {
       console.error(err);
       let message = errText(err, "建檔失敗，請稍後再試");
@@ -488,32 +478,23 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
     }
   }
 
+  const isPdf = (scan?.media_type ?? "") === "application/pdf" || (scan?.file_path ?? "").endsWith(".pdf");
+
   return (
     <>
-      <Dialog.Root open={open} onOpenChange={setOpen}>
-        <Dialog.Trigger asChild>
-          <button
-            type="button"
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          >
-            <FileScan className="h-4 w-4" />
-            上傳請款單建檔
-          </button>
-        </Dialog.Trigger>
+      <Dialog.Root open={open} onOpenChange={onOpenChange}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
           <Dialog.Content
-            className="fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
+            className="fixed left-1/2 top-1/2 z-50 max-h-[94vh] w-[calc(100%-2rem)] max-w-6xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
             onCloseAutoFocus={(e) => e.preventDefault()}
             aria-describedby="invoice-review-desc"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <Dialog.Title className="text-base font-semibold text-foreground">上傳請款單建檔</Dialog.Title>
+                <Dialog.Title className="text-base font-semibold text-foreground">人工審核建檔</Dialog.Title>
                 <p id="invoice-review-desc" className="mt-1 text-sm text-muted-foreground">
-                  {step === "upload"
-                    ? "上傳廠商請款單（照片或 PDF），AI 自動辨識品項並比對料號，人工審核後一次建立採購單"
-                    : "逐行確認品項對應的採購物料與數量單價，確認無誤後建檔；請款單附件會一併存到此採購單"}
+                  對照左側請款單照片，逐行確認品項對應與數量單價；確認建檔後照片會依廠商／日期歸檔並掛到採購單
                 </p>
               </div>
               <Dialog.Close asChild>
@@ -527,64 +508,53 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
               </Dialog.Close>
             </div>
 
-            {step === "upload" && (
-              <div className="mt-4 space-y-4">
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="invoice-file" className="text-xs text-muted-foreground">
-                    請款單檔案（JPG／PNG 照片或 PDF）
-                  </label>
-                  <input
-                    id="invoice-file"
-                    type="file"
-                    accept="image/*,application/pdf"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                    className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
-                  />
-                  {/* 手機直接開相機拍請款單（capture 桌機瀏覽器會忽略，退回一般選檔） */}
-                  <input
-                    ref={cameraInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    aria-label="開啟相機拍攝請款單"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 w-full sm:w-auto"
-                    onClick={() => cameraInputRef.current?.click()}
-                  >
-                    <Camera className="h-4 w-4 mr-1.5" />
-                    開啟相機拍攝（手機）
-                  </Button>
-                  {file && (
-                    <p className="text-xs text-muted-foreground">
-                      已選擇：{file.name}（{(file.size / 1024 / 1024).toFixed(2)} MB）
-                    </p>
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+              {/* 左：請款單照片 */}
+              <div className="lg:sticky lg:top-0 lg:self-start">
+                <div className="rounded-lg border border-border bg-muted/20 p-2">
+                  <div className="mb-1.5 flex items-center justify-between px-1">
+                    <span className="text-xs font-medium text-foreground">請款單原稿</span>
+                    {scan && (
+                      <a
+                        href={scan.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        新分頁開啟
+                      </a>
+                    )}
+                  </div>
+                  {scan ? (
+                    isPdf ? (
+                      <iframe
+                        src={scan.file_url}
+                        title="請款單 PDF"
+                        className="h-[50vh] w-full rounded-md border-0 bg-white lg:h-[72vh]"
+                      />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element -- Supabase 外部圖，僅審核時載入
+                      <img
+                        src={scan.file_url}
+                        alt="請款單照片"
+                        className="max-h-[50vh] w-full rounded-md object-contain lg:max-h-[72vh]"
+                      />
+                    )
+                  ) : (
+                    <p className="p-6 text-center text-sm text-muted-foreground">無照片</p>
                   )}
                 </div>
+              </div>
 
-                {error && (
-                  <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive" role="alert">
-                    {error}
+              {/* 右：審核表單 */}
+              <div className="space-y-4">
+                {scan?.status === "failed" && (
+                  <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-500">
+                    這張的 AI 辨識失敗（{scan.error || "原因不明"}），以下請對照照片手動輸入。
                   </p>
                 )}
 
-                <div className="flex flex-wrap justify-end gap-2 pt-1">
-                  <Button type="button" variant="ghost" onClick={skipToManual} disabled={recognizing}>
-                    跳過辨識，手動輸入
-                  </Button>
-                  <Button type="button" onClick={recognize} disabled={!file || recognizing}>
-                    {recognizing ? "AI 辨識中…（約 10～30 秒）" : "開始辨識"}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {step === "review" && (
-              <div className="mt-4 space-y-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="invoice-review-date" className="text-xs text-muted-foreground">
@@ -703,6 +673,7 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
                   {lines.map((line) => {
                     const computed = lineComputed.get(line.id);
                     const badge = line.matchSource ? MATCH_BADGE[line.matchSource] : null;
+                    const matOptions = materialsOptionsForLine(line);
                     return (
                       <div key={line.id} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -743,6 +714,22 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
 
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
                           <select
+                            value={line.materialCategoryFilter}
+                            onChange={(e) => updateLine(line.id, { materialCategoryFilter: e.target.value })}
+                            className="h-9 shrink-0 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-32"
+                            aria-label="依物品類別篩選採購物料"
+                          >
+                            <option value="">全部類別</option>
+                            {hasUncategorizedMaterials ? (
+                              <option value={FILTER_MATERIAL_UNCATEGORIZED}>（未分類）</option>
+                            ) : null}
+                            {materialCategoryOptions.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                          <select
                             value={line.materialId ?? ""}
                             onChange={(e) => {
                               const v = e.target.value;
@@ -762,7 +749,7 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
                             aria-label="選擇對應的採購物料"
                           >
                             <option value="">請選擇採購物料</option>
-                            {sortedMaterials.map((m) => (
+                            {matOptions.map((m) => (
                               <option key={m.id} value={m.id}>
                                 {m.item_category ? `[${m.item_category}] ` : ""}
                                 {m.name}
@@ -831,9 +818,9 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
                             </select>
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            含稅小計
+                            未稅小計
                             <p className="mt-0.5 text-sm font-medium tabular-nums text-foreground">
-                              {computed ? computed.tax_included_amount.toLocaleString() : "—"}
+                              {computed ? computed.amount_ex_tax.toLocaleString() : "—"}
                             </p>
                           </div>
                         </div>
@@ -854,13 +841,17 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
 
                 <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/15 px-3 py-2.5 text-sm">
                   <p className="text-foreground">
-                    明細含稅總計：<span className="font-semibold tabular-nums">{computedTotal.toLocaleString()}</span>
+                    明細未稅總計：<span className="font-semibold tabular-nums">{computedTotals.exTax.toLocaleString()}</span>
+                    <span className="ml-3 text-muted-foreground">
+                      含稅：<span className="tabular-nums">{computedTotals.incTax.toLocaleString()}</span>
+                    </span>
                   </p>
-                  {aiTotal != null && (
-                    <p className={totalMismatch ? "text-amber-700 dark:text-amber-500" : "text-muted-foreground"}>
-                      請款單辨識總額：<span className="font-medium tabular-nums">{aiTotal.toLocaleString()}</span>
-                      {totalMismatch
-                        ? "（與明細加總不符，請檢查是否有漏行、金額辨識錯誤或含稅設定不同）"
+                  {totalCheck && (
+                    <p className={totalCheck.mismatch ? "text-amber-700 dark:text-amber-500" : "text-muted-foreground"}>
+                      請款單辨識{totalCheck.label}總額：
+                      <span className="font-medium tabular-nums">{totalCheck.ai.toLocaleString()}</span>
+                      {totalCheck.mismatch
+                        ? `（與明細${totalCheck.label}加總 ${totalCheck.computed.toLocaleString()} 不符，請對照左側照片檢查漏行或金額）`
                         : "（與明細加總相符）"}
                     </p>
                   )}
@@ -872,23 +863,18 @@ export function InvoiceReviewDialog({ onSuccess }: InvoiceReviewDialogProps) {
                   </p>
                 )}
 
-                <div className="flex flex-wrap justify-between gap-2 pt-1">
-                  <Button type="button" variant="ghost" onClick={() => setStep("upload")} disabled={saving}>
-                    上一步
-                  </Button>
-                  <div className="flex gap-2">
-                    <Dialog.Close asChild>
-                      <Button type="button" variant="ghost" disabled={saving}>
-                        取消
-                      </Button>
-                    </Dialog.Close>
-                    <Button type="button" onClick={onConfirm} disabled={saving}>
-                      {saving ? "建檔中…" : "確認建檔"}
+                <div className="flex flex-wrap justify-end gap-2 pt-1">
+                  <Dialog.Close asChild>
+                    <Button type="button" variant="ghost" disabled={saving}>
+                      先擱著（保留在佇列）
                     </Button>
-                  </div>
+                  </Dialog.Close>
+                  <Button type="button" onClick={onConfirm} disabled={saving}>
+                    {saving ? "建檔中…" : "確認建檔並歸檔"}
+                  </Button>
                 </div>
               </div>
-            )}
+            </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

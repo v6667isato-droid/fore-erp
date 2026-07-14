@@ -179,6 +179,7 @@ export type Database = {
         Row: {
           alias: string | null
           channel_id: string | null
+          company: string | null
           contact_method: string | null
           contact_person: string | null
           created_at: string | null
@@ -193,10 +194,12 @@ export type Database = {
           notes: string | null
           phone: string | null
           source: string | null
+          tax_id: string | null
         }
         Insert: {
           alias?: string | null
           channel_id?: string | null
+          company?: string | null
           contact_method?: string | null
           contact_person?: string | null
           created_at?: string | null
@@ -211,10 +214,12 @@ export type Database = {
           notes?: string | null
           phone?: string | null
           source?: string | null
+          tax_id?: string | null
         }
         Update: {
           alias?: string | null
           channel_id?: string | null
+          company?: string | null
           contact_method?: string | null
           contact_person?: string | null
           created_at?: string | null
@@ -229,6 +234,7 @@ export type Database = {
           notes?: string | null
           phone?: string | null
           source?: string | null
+          tax_id?: string | null
         }
         Relationships: [
           {
@@ -470,6 +476,59 @@ export type Database = {
           type?: string | null
         }
         Relationships: []
+      }
+      invoice_scans: {
+        Row: {
+          created_at: string | null
+          deleted_at: string | null
+          error: string | null
+          file_name: string | null
+          file_path: string
+          file_url: string
+          id: string
+          media_type: string | null
+          purchase_order_id: string | null
+          recognized: Json | null
+          reviewed_at: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string | null
+          deleted_at?: string | null
+          error?: string | null
+          file_name?: string | null
+          file_path: string
+          file_url: string
+          id?: string
+          media_type?: string | null
+          purchase_order_id?: string | null
+          recognized?: Json | null
+          reviewed_at?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string | null
+          deleted_at?: string | null
+          error?: string | null
+          file_name?: string | null
+          file_path?: string
+          file_url?: string
+          id?: string
+          media_type?: string | null
+          purchase_order_id?: string | null
+          recognized?: Json | null
+          reviewed_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_scans_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_orders"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       leave_requests: {
         Row: {
@@ -1439,6 +1498,51 @@ export type Database = {
         }
         Relationships: []
       }
+      work_order_stage_history: {
+        Row: {
+          changed_at: string
+          changed_by_employee_id: string | null
+          changed_by_user_id: string | null
+          id: string
+          new_stage: string
+          old_stage: string | null
+          work_order_id: string
+        }
+        Insert: {
+          changed_at?: string
+          changed_by_employee_id?: string | null
+          changed_by_user_id?: string | null
+          id?: string
+          new_stage: string
+          old_stage?: string | null
+          work_order_id: string
+        }
+        Update: {
+          changed_at?: string
+          changed_by_employee_id?: string | null
+          changed_by_user_id?: string | null
+          id?: string
+          new_stage?: string
+          old_stage?: string | null
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_stage_history_changed_by_employee_id_fkey"
+            columns: ["changed_by_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_stage_history_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_orders: {
         Row: {
           actual_end_date: string | null
@@ -1452,6 +1556,7 @@ export type Database = {
           planned_start_date: string | null
           stage: string
           status: string
+          updated_at: string
         }
         Insert: {
           actual_end_date?: string | null
@@ -1465,6 +1570,7 @@ export type Database = {
           planned_start_date?: string | null
           stage?: string
           status?: string
+          updated_at?: string
         }
         Update: {
           actual_end_date?: string | null
@@ -1478,6 +1584,7 @@ export type Database = {
           planned_start_date?: string | null
           stage?: string
           status?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -1510,6 +1617,7 @@ export type Database = {
         }
         Returns: Json
       }
+      current_employee_id: { Args: never; Returns: string }
     }
     Enums: {
       [_ in never]: never

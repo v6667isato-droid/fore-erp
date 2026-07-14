@@ -19,7 +19,7 @@ import { ProcurementFilters } from "@/components/procurement/procurement-filters
 import { PurchaseTable } from "@/components/procurement/purchase-table";
 import { AddPurchaseDialog } from "@/components/procurement/add-purchase-dialog";
 import { EditPurchaseDialog } from "@/components/procurement/edit-purchase-dialog";
-import { InvoiceReviewDialog } from "@/components/procurement/invoice-review-dialog";
+import { InvoiceScanQueue } from "@/components/procurement/invoice-scan-queue";
 import { exportProcurementCsv } from "@/components/procurement/export-procurement-csv";
 import { compressInvoiceFileForStorage } from "@/lib/invoice-file";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -610,7 +610,6 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
       <ProcurementSummaryCard summaryLabel={summaryLabel} totalSpent={totalSpent}>
         <div className="flex flex-wrap items-center gap-2">
           <AddPurchaseDialog onSuccess={fetchPurchases} onNavigateToVendors={onNavigateToVendors} />
-          <InvoiceReviewDialog onSuccess={fetchPurchases} />
           {isAdmin && (
             <Button
               variant="outline"
@@ -637,6 +636,8 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
       {uploadingInvoice && (
         <p className="text-xs text-muted-foreground" role="status">請款單上傳中…</p>
       )}
+
+      <InvoiceScanQueue onArchived={fetchPurchases} />
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
         <ProcurementFilters

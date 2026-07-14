@@ -19,8 +19,10 @@ export interface RecognizedInvoice {
   invoice_date: string | null;
   /** 單價是否含稅；無法判斷時為 null */
   prices_tax_inclusive: boolean | null;
-  /** 請款單上的總金額（供前端核對明細加總） */
-  total_amount: number | null;
+  /** 未稅合計（多數單據以未稅計價，優先用此欄核對） */
+  total_amount_ex_tax: number | null;
+  /** 含稅總計 */
+  total_amount_inc_tax: number | null;
   items: RecognizedInvoiceItem[];
 }
 
@@ -30,12 +32,17 @@ type SupportedImageType = (typeof SUPPORTED_IMAGE_TYPES)[number];
 const RECOGNITION_PROMPT = `這是一張廠商傳來的請款單（或出貨單／對帳單／發票明細）。請仔細辨識並擷取以下資訊：
 
 - 廠商名稱（開立此單據的公司）
-- 單據日期（民國年請換算為西元年，輸出 YYYY-MM-DD）
+- 單據日期，輸出 YYYY-MM-DD
 - 每一行品項：品名（照原文抄錄，不要翻譯或改寫）、規格、數量、單位、單價、金額
-- 總金額（有含稅總計時優先使用）
+- 未稅合計與含稅總計（單據上有哪個就填哪個，兩個都有就都填）
 - 單價是含稅或未稅（單據上有「含稅」「未稅」「稅外加」等字樣時據以判斷，否則為 null）
 
-注意：
+日期特別注意：
+- 台灣單據常用民國紀年，民國年＝西元年－1911。兩、三位數的年份幾乎都是民國年，
+  例如「115/07/10」「115.7.10」＝西元 2026-07-10，「113年3月5日」＝2024-03-05
+- 四位數年份（如 2026）才是西元年，直接使用
+
+其他注意：
 - 運費、稅額等非商品行若列為獨立品項，也照抄輸出為一行品項
 - 手寫或模糊不清的欄位，盡力辨識；完全無法辨識的欄位輸出 null
 - 金額請輸出數字（去除逗號與貨幣符號）`;
@@ -44,12 +51,13 @@ const RECOGNITION_PROMPT = `這是一張廠商傳來的請款單（或出貨單�
 const CLAUDE_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["vendor_name", "invoice_date", "prices_tax_inclusive", "total_amount", "items"],
+  required: ["vendor_name", "invoice_date", "prices_tax_inclusive", "total_amount_ex_tax", "total_amount_inc_tax", "items"],
   properties: {
     vendor_name: { type: ["string", "null"], description: "開立請款單的廠商名稱" },
-    invoice_date: { type: ["string", "null"], description: "請款單日期，YYYY-MM-DD；民國年請換算為西元年" },
+    invoice_date: { type: ["string", "null"], description: "請款單日期，YYYY-MM-DD；民國年＝西元年－1911" },
     prices_tax_inclusive: { type: ["boolean", "null"], description: "單價是否為含稅價；文件未標示則為 null" },
-    total_amount: { type: ["number", "null"], description: "請款單總金額（含稅優先）" },
+    total_amount_ex_tax: { type: ["number", "null"], description: "未稅合計；單據未列則為 null" },
+    total_amount_inc_tax: { type: ["number", "null"], description: "含稅總計；單據未列則為 null" },
     items: {
       type: "array",
       items: {
@@ -72,12 +80,13 @@ const CLAUDE_OUTPUT_SCHEMA = {
 /** Gemini responseSchema（OpenAPI 子集，nullable 以 nullable: true 表示） */
 const GEMINI_OUTPUT_SCHEMA = {
   type: "OBJECT",
-  required: ["vendor_name", "invoice_date", "prices_tax_inclusive", "total_amount", "items"],
+  required: ["vendor_name", "invoice_date", "prices_tax_inclusive", "total_amount_ex_tax", "total_amount_inc_tax", "items"],
   properties: {
     vendor_name: { type: "STRING", nullable: true, description: "開立請款單的廠商名稱" },
-    invoice_date: { type: "STRING", nullable: true, description: "請款單日期，YYYY-MM-DD；民國年請換算為西元年" },
+    invoice_date: { type: "STRING", nullable: true, description: "請款單日期，YYYY-MM-DD；民國年＝西元年－1911" },
     prices_tax_inclusive: { type: "BOOLEAN", nullable: true, description: "單價是否為含稅價；文件未標示則為 null" },
-    total_amount: { type: "NUMBER", nullable: true, description: "請款單總金額（含稅優先）" },
+    total_amount_ex_tax: { type: "NUMBER", nullable: true, description: "未稅合計；單據未列則為 null" },
+    total_amount_inc_tax: { type: "NUMBER", nullable: true, description: "含稅總計；單據未列則為 null" },
     items: {
       type: "ARRAY",
       items: {
@@ -177,13 +186,16 @@ async function recognizeWithGemini(
   apiKey: string,
   fileBase64: string,
   mediaType: string,
+  modelOverride?: string,
 ): Promise<RecognitionOutcome> {
-  const model = process.env.INVOICE_GEMINI_MODEL || "gemini-3.5-flash";
+  const model = modelOverride || process.env.INVOICE_GEMINI_MODEL || "gemini-3.5-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   try {
     const res = await fetch(url, {
       method: "POST",
+      // 主模型 35 秒未回應即中止改打備援；備援 45 秒（Vercel 上限 60 秒）
+      signal: AbortSignal.timeout(modelOverride ? 45000 : 35000),
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": apiKey,
@@ -207,7 +219,12 @@ async function recognizeWithGemini(
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       const apiMessage: string | undefined = body?.error?.message;
-      console.error("invoice-recognition (gemini) error:", res.status, apiMessage);
+      console.error("invoice-recognition (gemini) error:", model, res.status, apiMessage);
+      // 主模型過載或限流時，自動退用較輕量的備援模型重試一次
+      const fallback = process.env.INVOICE_GEMINI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
+      if (!modelOverride && (res.status === 429 || res.status === 503) && fallback !== model) {
+        return recognizeWithGemini(apiKey, fileBase64, mediaType, fallback);
+      }
       if (res.status === 400 || res.status === 403) {
         return { ok: false, status: 502, error: "GEMINI_API_KEY 無效或無權限，請確認 key 是否正確" };
       }
@@ -230,8 +247,19 @@ async function recognizeWithGemini(
     }
     return parseRecognizedInvoice(text);
   } catch (err) {
-    console.error("invoice-recognition (gemini) error:", err);
-    return { ok: false, status: 502, error: "辨識失敗，請稍後再試" };
+    console.error("invoice-recognition (gemini) error:", model, err);
+    const isTimeout =
+      (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) ||
+      /timeout|aborted/i.test(err instanceof Error ? err.message : "");
+    const fallback = process.env.INVOICE_GEMINI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
+    if (!modelOverride && isTimeout && fallback !== model) {
+      return recognizeWithGemini(apiKey, fileBase64, mediaType, fallback);
+    }
+    return {
+      ok: false,
+      status: 502,
+      error: isTimeout ? "AI 服務回應逾時（上游壅塞），請稍後再試" : "辨識失敗，請稍後再試",
+    };
   }
 }
 
