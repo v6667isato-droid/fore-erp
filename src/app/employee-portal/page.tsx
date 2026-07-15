@@ -39,6 +39,7 @@ import {
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
 import { normalizePublicHolidayRows } from "@/lib/attendance-war-room";
+import { seniorityFromHire } from "@/lib/employee-seniority";
 import {
   formatLeaveUpdatedAtDisplay,
   leaveRequestRowWasUpdated,
@@ -1054,6 +1055,11 @@ export default function EmployeePortalPage() {
 
   const { employee, stats, leave_requests, work_progress_seed, assignee_work_orders } = data;
 
+  /** 年資：employees.hire_date 起算，留職停薪月份逐月扣除；無到職日則不顯示 */
+  const seniority = employee.hire_date
+    ? seniorityFromHire(employee.hire_date, new Date(), employee.unpaid_leave_months)
+    : null;
+
   function toggleWoSort(key: AssigneeWoSortKey) {
     if (woSortBy === key) {
       setWoSortAsc((p) => !p);
@@ -1156,7 +1162,17 @@ export default function EmployeePortalPage() {
                 <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                   歡迎回來，{employee.full_name}
                 </h2>
-                <p className="text-sm tabular-nums text-muted-foreground">{todayLabel}</p>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <p className="text-sm tabular-nums text-muted-foreground">{todayLabel}</p>
+                  {seniority ? (
+                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-border/80 bg-background/60 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur-sm">
+                      年資
+                      <span className="font-semibold tabular-nums text-foreground">
+                        {seniority.label}
+                      </span>
+                    </span>
+                  ) : null}
+                </div>
               </div>
               <div className="grid w-full shrink-0 grid-cols-2 gap-3 lg:min-w-0 lg:grid-cols-4 lg:basis-0 lg:flex-[3]">
                 <StatMini

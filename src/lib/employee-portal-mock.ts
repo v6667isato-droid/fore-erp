@@ -14,6 +14,10 @@ export interface EmployeePortalEmployee {
   annual_leave_remaining?: number | null;
   /** 補休剩餘總時數；對應 employees.comp_leave_remaining（8 小時 = 1 日） */
   comp_leave_remaining?: number | null;
+  /** 到職日（YYYY-MM-DD）；對應 employees.hire_date，用於年資顯示 */
+  hire_date?: string | null;
+  /** 留職停薪月份（YYYY-MM）；對應 employees.unpaid_leave_months，年資計算時逐月扣除 */
+  unpaid_leave_months?: string[] | null;
 }
 
 /** 頂部三格統計（本月薪資為固定顯示用數字，可與薪資試算分開） */
@@ -168,6 +172,8 @@ export const employeePortalMock: EmployeePortalPayload = {
     base_salary: 42000,
     annual_leave_remaining: 12.5,
     comp_leave_remaining: 24,
+    hire_date: "2022-11-14",
+    unpaid_leave_months: null,
   },
   stats: {
     monthly_salary_ntd: 43800,

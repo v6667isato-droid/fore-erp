@@ -33,6 +33,8 @@ interface EmployeeRow {
   monthly_wage: number | null;
   annual_leave_remaining?: number | null;
   comp_leave_remaining?: number | null;
+  hire_date?: string | null;
+  unpaid_leave_months?: string[] | null;
 }
 
 function num(v: unknown, fallback = 0): number {
@@ -347,6 +349,8 @@ function payslipStatus(raw: string | null | undefined): PayslipStatus {
 function pickEmployeeRow(emp: Record<string, unknown>): EmployeeRow {
   const alrRaw = emp.annual_leave_remaining ?? emp.special_leave_days;
   const clrRaw = emp.comp_leave_remaining;
+  const hireRaw = emp.hire_date;
+  const unpaidRaw = emp.unpaid_leave_months;
   return {
     id: String(emp.id ?? ""),
     name: String(emp.name ?? ""),
@@ -355,6 +359,10 @@ function pickEmployeeRow(emp: Record<string, unknown>): EmployeeRow {
       alrRaw != null && alrRaw !== "" && Number.isFinite(Number(alrRaw)) ? Number(alrRaw) : null,
     comp_leave_remaining:
       clrRaw != null && clrRaw !== "" && Number.isFinite(Number(clrRaw)) ? Number(clrRaw) : null,
+    hire_date: hireRaw != null && String(hireRaw).trim() ? String(hireRaw).slice(0, 10) : null,
+    unpaid_leave_months: Array.isArray(unpaidRaw)
+      ? unpaidRaw.map((v) => String(v)).filter((v) => v.trim() !== "")
+      : null,
   };
 }
 
@@ -375,8 +383,15 @@ async function fetchEmployeeRowFlexible(
   };
 
   let { data, error } = await run(
-    "id,name,monthly_wage,annual_leave_remaining,comp_leave_remaining",
+    "id,name,monthly_wage,annual_leave_remaining,comp_leave_remaining,hire_date,unpaid_leave_months",
   );
+  if (error && isMissingColumnError(error.message)) {
+    const r = await run(
+      "id,name,monthly_wage,annual_leave_remaining,comp_leave_remaining,hire_date",
+    );
+    data = r.data;
+    error = r.error;
+  }
   if (error && isMissingColumnError(error.message)) {
     const r = await run("id,name,monthly_wage,annual_leave_remaining");
     data = r.data;
@@ -1102,6 +1117,8 @@ export async function fetchEmployeePortalFromSupabase(
         base_salary: baseSalary,
         annual_leave_remaining: annualLeaveRemaining,
         comp_leave_remaining: compLeaveRemaining,
+        hire_date: emp.hire_date ?? null,
+        unpaid_leave_months: emp.unpaid_leave_months ?? null,
       },
       stats: {
         monthly_salary_ntd: baseSalary,
