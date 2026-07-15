@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Download, FileText, Pencil, Search, Trash2 } from "lucide-react";
+import { Download, FileDown, FileText, Pencil, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchConfirmedInvoices,
@@ -13,6 +13,7 @@ import { displayPoNumber } from "@/lib/purchase-order";
 import { AccountingInvoiceQueue } from "@/components/accounting/accounting-invoice-queue";
 import { AccountingInvoiceReviewDialog } from "@/components/accounting/accounting-invoice-review-dialog";
 import { exportAccountingInvoicesCsv } from "@/components/accounting/export-accounting-invoices-csv";
+import { ExportTaxMediaDialog } from "@/components/accounting/export-tax-media-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type MatchFilter = "all" | "matched" | "unmatched";
@@ -26,6 +27,7 @@ export function AccountingPage() {
   const [editRow, setEditRow] = useState<AccountingInvoiceRow | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AccountingInvoiceRow | null>(null);
+  const [mediaExportOpen, setMediaExportOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -111,16 +113,28 @@ export function AccountingPage() {
               含稅總額 ${totals.inc.toLocaleString()}｜稅額 ${totals.tax.toLocaleString()}
             </span>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-8 px-3 text-xs"
-            onClick={() => exportAccountingInvoicesCsv(filtered)}
-            disabled={filtered.length === 0}
-          >
-            <Download className="h-3.5 w-3.5 mr-1" />
-            匯出 CSV
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-3 text-xs"
+              onClick={() => setMediaExportOpen(true)}
+              disabled={invoices.length === 0}
+            >
+              <FileDown className="h-3.5 w-3.5 mr-1" />
+              匯出報稅媒體檔
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-3 text-xs"
+              onClick={() => exportAccountingInvoicesCsv(filtered)}
+              disabled={filtered.length === 0}
+            >
+              <Download className="h-3.5 w-3.5 mr-1" />
+              匯出 CSV
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
@@ -168,7 +182,7 @@ export function AccountingPage() {
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted-foreground">
                   <th className="px-4 py-2 font-medium">發票日期</th>
@@ -177,6 +191,8 @@ export function AccountingPage() {
                   <th className="px-2 py-2 text-right font-medium">未稅</th>
                   <th className="px-2 py-2 text-right font-medium">稅額</th>
                   <th className="px-2 py-2 text-right font-medium">含稅金額</th>
+                  <th className="px-2 py-2 font-medium">格式</th>
+                  <th className="px-2 py-2 font-medium">申報</th>
                   <th className="px-2 py-2 font-medium">對應採購單</th>
                   <th className="px-2 py-2 font-medium">原稿</th>
                   <th className="px-4 py-2 text-right font-medium">操作</th>
@@ -201,6 +217,24 @@ export function AccountingPage() {
                     </td>
                     <td className="px-2 py-2 text-right font-medium tabular-nums text-foreground">
                       {r.amount_inc_tax != null ? `$${r.amount_inc_tax.toLocaleString()}` : "—"}
+                    </td>
+                    <td
+                      className="px-2 py-2 tabular-nums text-muted-foreground"
+                      title={`格式代號 ${r.format_code}／課稅別 ${r.tax_type}／扣抵 ${r.deduction_code}`}
+                    >
+                      {r.format_code}
+                    </td>
+                    <td className="px-2 py-2">
+                      {r.exported_at ? (
+                        <span
+                          className="rounded border border-emerald-500/50 px-1.5 py-px text-xs font-medium text-emerald-700 dark:text-emerald-400"
+                          title={`媒體檔匯出於 ${r.exported_at.slice(0, 10)}`}
+                        >
+                          已匯出
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">未匯出</span>
+                      )}
                     </td>
                     <td className="px-2 py-2">
                       {r.purchase_orders ? (
@@ -277,6 +311,13 @@ export function AccountingPage() {
           </div>
         )}
       </div>
+
+      <ExportTaxMediaDialog
+        invoices={invoices}
+        open={mediaExportOpen}
+        onOpenChange={setMediaExportOpen}
+        onExported={() => void refresh()}
+      />
 
       <AccountingInvoiceReviewDialog
         invoice={editRow}

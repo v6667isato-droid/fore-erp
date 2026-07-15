@@ -20,11 +20,14 @@ export type Database = {
           amount_inc_tax: number | null
           buyer_tax_id: string | null
           created_at: string | null
+          deduction_code: number
           deleted_at: string | null
           error: string | null
+          exported_at: string | null
           file_name: string | null
           file_path: string
           file_url: string
+          format_code: string
           id: string
           invoice_date: string | null
           invoice_number: string | null
@@ -37,17 +40,21 @@ export type Database = {
           seller_tax_id: string | null
           status: string
           tax_amount: number | null
+          tax_type: number
         }
         Insert: {
           amount_ex_tax?: number | null
           amount_inc_tax?: number | null
           buyer_tax_id?: string | null
           created_at?: string | null
+          deduction_code?: number
           deleted_at?: string | null
           error?: string | null
+          exported_at?: string | null
           file_name?: string | null
           file_path: string
           file_url: string
+          format_code?: string
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
@@ -60,17 +67,21 @@ export type Database = {
           seller_tax_id?: string | null
           status?: string
           tax_amount?: number | null
+          tax_type?: number
         }
         Update: {
           amount_ex_tax?: number | null
           amount_inc_tax?: number | null
           buyer_tax_id?: string | null
           created_at?: string | null
+          deduction_code?: number
           deleted_at?: string | null
           error?: string | null
+          exported_at?: string | null
           file_name?: string | null
           file_path?: string
           file_url?: string
+          format_code?: string
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
@@ -83,6 +94,7 @@ export type Database = {
           seller_tax_id?: string | null
           status?: string
           tax_amount?: number | null
+          tax_type?: number
         }
         Relationships: [
           {
@@ -254,6 +266,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      company_settings: {
+        Row: {
+          company_name: string | null
+          id: number
+          tax_id: string | null
+          tax_registration_number: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          company_name?: string | null
+          id?: number
+          tax_id?: string | null
+          tax_registration_number?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          company_name?: string | null
+          id?: number
+          tax_id?: string | null
+          tax_registration_number?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       customers: {
         Row: {

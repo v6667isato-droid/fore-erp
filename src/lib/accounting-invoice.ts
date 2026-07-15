@@ -14,6 +14,9 @@ export interface AccountingInvoicePo {
   vendor_name: string | null;
 }
 
+/** 進項憑證格式代號（報稅媒體檔用） */
+export type InvoiceFormatCode = "21" | "22" | "25";
+
 export interface AccountingInvoiceRow {
   id: string;
   file_path: string;
@@ -31,6 +34,10 @@ export interface AccountingInvoiceRow {
   amount_ex_tax: number | null;
   tax_amount: number | null;
   amount_inc_tax: number | null;
+  format_code: InvoiceFormatCode;
+  deduction_code: number;
+  tax_type: number;
+  exported_at: string | null;
   purchase_order_id: string | null;
   notes: string | null;
   created_at: string | null;
@@ -39,7 +46,29 @@ export interface AccountingInvoiceRow {
 }
 
 export const ACCOUNTING_INVOICE_FIELDS =
-  "id, file_path, file_url, file_name, media_type, status, recognized, error, invoice_number, invoice_date, seller_name, seller_tax_id, buyer_tax_id, amount_ex_tax, tax_amount, amount_inc_tax, purchase_order_id, notes, created_at, reviewed_at";
+  "id, file_path, file_url, file_name, media_type, status, recognized, error, invoice_number, invoice_date, seller_name, seller_tax_id, buyer_tax_id, amount_ex_tax, tax_amount, amount_inc_tax, format_code, deduction_code, tax_type, exported_at, purchase_order_id, notes, created_at, reviewed_at";
+
+/** 格式代號選項（進項；報稅媒體申報） */
+export const FORMAT_CODE_OPTIONS: { value: InvoiceFormatCode; label: string }[] = [
+  { value: "25", label: "25 三聯式收銀機／電子發票" },
+  { value: "21", label: "21 手開三聯式發票" },
+  { value: "22", label: "22 二聯式收銀機發票（內含稅）" },
+];
+
+/** 扣抵代號：1/2 可扣抵、3/4 不可扣抵 */
+export const DEDUCTION_CODE_OPTIONS: { value: number; label: string }[] = [
+  { value: 1, label: "1 進貨及費用（可扣抵）" },
+  { value: 2, label: "2 固定資產（可扣抵）" },
+  { value: 3, label: "3 進貨及費用（不可扣抵）" },
+  { value: 4, label: "4 固定資產（不可扣抵）" },
+];
+
+/** 課稅別 */
+export const TAX_TYPE_OPTIONS: { value: number; label: string }[] = [
+  { value: 1, label: "1 應稅" },
+  { value: 2, label: "2 零稅率" },
+  { value: 3, label: "3 免稅" },
+];
 
 /** 發票號碼正規化：去空白／連字號、轉大寫；符合 2 英 8 數則存為 XX-12345678 */
 export function normalizeInvoiceNumber(raw: string): string {

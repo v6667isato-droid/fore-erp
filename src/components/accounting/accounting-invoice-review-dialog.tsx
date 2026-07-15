@@ -10,9 +10,13 @@ import { fixRocDate } from "@/lib/invoice-scan";
 import {
   accountingArchiveFileName,
   accountingArchivePath,
+  DEDUCTION_CODE_OPTIONS,
+  FORMAT_CODE_OPTIONS,
   isValidInvoiceNumber,
   normalizeInvoiceNumber,
+  TAX_TYPE_OPTIONS,
   type AccountingInvoiceRow,
+  type InvoiceFormatCode,
 } from "@/lib/accounting-invoice";
 import { fetchPoOptions, suggestPos, type PoOption } from "@/lib/accounting-po-match";
 import { displayPoNumber } from "@/lib/purchase-order";
@@ -65,6 +69,9 @@ export function AccountingInvoiceReviewDialog({
   const [purchaseOrderId, setPurchaseOrderId] = useState("");
   const [notes, setNotes] = useState("");
   const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
+  const [formatCode, setFormatCode] = useState<InvoiceFormatCode>("25");
+  const [deductionCode, setDeductionCode] = useState(1);
+  const [taxType, setTaxType] = useState(1);
 
   // 開啟時載入採購單選項並預填表單
   useEffect(() => {
@@ -73,6 +80,10 @@ export function AccountingInvoiceReviewDialog({
     setSaving(false);
     setDuplicateOf(null);
     void fetchPoOptions().then(setPoOptions);
+    // 報稅欄位（新資料為 DB 預設：25／扣抵 1／應稅）
+    setFormatCode(invoice.format_code);
+    setDeductionCode(invoice.deduction_code);
+    setTaxType(invoice.tax_type);
 
     if (invoice.status === "confirmed") {
       // 編輯模式：以已存檔欄位為準
@@ -159,6 +170,24 @@ export function AccountingInvoiceReviewDialog({
     setAmountIncTax(String(Math.round((exTaxNum + tax) * 100) / 100));
   }
 
+  /** 切到二聯式（22）：發票只印含稅總計，依 5% 內含稅自動回推未稅與稅額 */
+  function onFormatCodeChange(code: InvoiceFormatCode) {
+    setFormatCode(code);
+    if (code === "22" && incTaxNum != null && incTaxNum > 0) {
+      const ex = Math.round(incTaxNum / 1.05);
+      setAmountExTax(String(ex));
+      setTaxAmount(String(Math.round(incTaxNum) - ex));
+    }
+  }
+
+  /** 課稅別為零稅率／免稅時，扣抵代號依規定只能選 3（費用）或 4（固定資產） */
+  function onTaxTypeChange(next: number) {
+    setTaxType(next);
+    if (next !== 1 && deductionCode !== 3 && deductionCode !== 4) {
+      setDeductionCode(deductionCode === 2 ? 4 : 3);
+    }
+  }
+
   const suggestions = useMemo(
     () =>
       suggestPos(
@@ -237,6 +266,9 @@ export function AccountingInvoiceReviewDialog({
           amount_ex_tax: exTaxNum,
           tax_amount: taxNum,
           amount_inc_tax: incTaxNum,
+          format_code: formatCode,
+          deduction_code: deductionCode,
+          tax_type: taxType,
           purchase_order_id: purchaseOrderId || null,
           notes: notes.trim() || null,
           file_path: finalPath,
@@ -498,6 +530,69 @@ export function AccountingInvoiceReviewDialog({
                     </span>
                   )}
                 </div>
+              </div>
+
+              {/* 報稅申報欄位（媒體檔用） */}
+              <div className="space-y-2 rounded-lg border border-border bg-muted/15 p-3">
+                <p className="text-xs font-medium text-foreground">報稅申報欄位</p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="acct-format-code" className="text-xs text-muted-foreground">
+                      格式代號
+                    </label>
+                    <select
+                      id="acct-format-code"
+                      value={formatCode}
+                      onChange={(e) => onFormatCodeChange(e.target.value as InvoiceFormatCode)}
+                      className="h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {FORMAT_CODE_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="acct-tax-type" className="text-xs text-muted-foreground">
+                      課稅別
+                    </label>
+                    <select
+                      id="acct-tax-type"
+                      value={taxType}
+                      onChange={(e) => onTaxTypeChange(Number(e.target.value))}
+                      className="h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {TAX_TYPE_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="acct-deduction-code" className="text-xs text-muted-foreground">
+                      扣抵代號
+                    </label>
+                    <select
+                      id="acct-deduction-code"
+                      value={deductionCode}
+                      onChange={(e) => setDeductionCode(Number(e.target.value))}
+                      className="h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {DEDUCTION_CODE_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value} disabled={taxType !== 1 && (o.value === 1 || o.value === 2)}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {formatCode === "22" && (
+                  <p className="text-[11px] text-muted-foreground">
+                    二聯式收銀機發票為內含稅：切換時已依含稅金額 ÷ 1.05 回推未稅與稅額，請對照發票確認。
+                  </p>
+                )}
               </div>
 
               {/* 採購單對應 */}
