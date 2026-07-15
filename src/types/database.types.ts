@@ -130,6 +130,41 @@ export type Database = {
         }
         Relationships: []
       }
+      annual_leave_grants: {
+        Row: {
+          days: number
+          employee_id: string
+          granted_at: string
+          id: string
+          milestone_years: number
+          note: string | null
+        }
+        Insert: {
+          days: number
+          employee_id: string
+          granted_at?: string
+          id?: string
+          milestone_years: number
+          note?: string | null
+        }
+        Update: {
+          days?: number
+          employee_id?: string
+          granted_at?: string
+          id?: string
+          milestone_years?: number
+          note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "annual_leave_grants_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attendance_logs: {
         Row: {
           check_type: string

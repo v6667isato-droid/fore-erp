@@ -24,6 +24,12 @@ import {
   suggestBonusPeriodForPayMonth,
   type SemiAnnualBonusDetail,
 } from "@/lib/performance-bonus-payroll";
+import {
+  dueAnnualLeaveMilestones,
+  milestoneLabel,
+  nextAnnualLeaveMilestone,
+  type AnnualLeaveMilestone,
+} from "@/lib/annual-leave-grant";
 
 interface SettlementEmployee {
   id: string;
@@ -351,6 +357,11 @@ export function SalarySettlementCenter() {
     name: string;
     empId: string | null;
   }>({ open: false, name: "", empId: null });
+  const [grantedByEmp, setGrantedByEmp] = useState<Map<string, Set<number>>>(
+    new Map(),
+  );
+  const [grantsTableMissing, setGrantsTableMissing] = useState(false);
+  const [grantingId, setGrantingId] = useState<string | null>(null);
   const [bonusImportLabel, setBonusImportLabel] = useState<string | null>(null);
   const [bonusDetailByEmp, setBonusDetailByEmp] = useState<
     Record<string, SemiAnnualBonusDetail>
@@ -358,6 +369,12 @@ export function SalarySettlementCenter() {
   const [importingBonus, setImportingBonus] = useState(false);
 
   const bounds = useMemo(() => monthBounds(payPeriod), [payPeriod]);
+
+  /** 年資里程碑判斷基準：結算月份月底 */
+  const monthEndDate = useMemo(
+    () => (bounds ? parseLocalYmd(bounds.end) : new Date()),
+    [bounds],
+  );
 
   const leaveStatsByEmployee = useMemo(() => {
     const map = new Map<
@@ -452,11 +469,12 @@ export function SalarySettlementCenter() {
         setOvertimeRows([]);
         setPaidIds(new Set());
         setInputs({});
+        setGrantedByEmp(new Map());
         return true;
       }
 
       const createdBounds = monthCreatedAtFilterBounds(payPeriod);
-      const [leaveOverlapRes, leaveCreatedRes, attRes, otRes] = await Promise.all([
+      const [leaveOverlapRes, leaveCreatedRes, attRes, otRes, grantsRes] = await Promise.all([
         supabase
           .from("leave_requests")
           .select("*")
@@ -485,7 +503,38 @@ export function SalarySettlementCenter() {
           .gte("overtime_date", bounds.start)
           .lte("overtime_date", bounds.end)
           .in("employee_id", ids),
+        supabase
+          .from("annual_leave_grants")
+          .select("employee_id, milestone_years")
+          .in("employee_id", ids),
       ]);
+
+      if (grantsRes.error) {
+        // 資料表尚未建立時停用「新增特休」提醒，避免對老員工重複提醒歷史里程碑
+        setGrantsTableMissing(true);
+        setGrantedByEmp(new Map());
+        if (!/does not exist|relation|schema cache/i.test(grantsRes.error.message)) {
+          console.warn(
+            "[salary-settlement] annual_leave_grants:",
+            grantsRes.error.message,
+          );
+        }
+      } else {
+        setGrantsTableMissing(false);
+        const map = new Map<string, Set<number>>();
+        for (const g of (grantsRes.data ?? []) as {
+          employee_id: string;
+          milestone_years: unknown;
+        }[]) {
+          const eid = String(g.employee_id);
+          const y = Number(g.milestone_years);
+          if (!Number.isFinite(y)) continue;
+          const set = map.get(eid) ?? new Set<number>();
+          set.add(y);
+          map.set(eid, set);
+        }
+        setGrantedByEmp(map);
+      }
 
       // 結算月內放假日：出勤備註自動寫入、抑制請假／放假日的無打卡異常
       const holidayRes = await supabase
@@ -788,6 +837,100 @@ export function SalarySettlementCenter() {
       toast.success(hints.join("；"), { duration: 9000 });
     } finally {
       setImportingBonus(false);
+    }
+  }
+
+  /** 老闆核准授予年資特休：寫入授予紀錄＋加到員工特休餘額 */
+  async function handleGrantAnnualLeave(
+    emp: SettlementEmployee,
+    pending: AnnualLeaveMilestone[],
+  ) {
+    if (pending.length === 0 || grantingId != null) return;
+    const totalDays = pending.reduce((s, m) => s + m.days, 0);
+    const cur = emp.annual_leave_remaining ?? 0;
+    const after = cur + totalDays;
+    const fmt = (n: number) =>
+      n.toLocaleString("zh-TW", { maximumFractionDigits: 1 });
+    const lines = [
+      `確定為「${emp.name}」新增特休（勞基法年資）？`,
+      ``,
+      ...pending.map(
+        (m) => `${milestoneLabel(m.milestoneYears)}：+${m.days} 天`,
+      ),
+      ``,
+      `特休餘額：${fmt(cur)} 天 → ${fmt(after)} 天`,
+    ];
+    if (!window.confirm(lines.join("\n"))) return;
+
+    setGrantingId(emp.id);
+    try {
+      const { data: inserted, error: insErr } = await supabase
+        .from("annual_leave_grants")
+        .insert(
+          pending.map((m) => ({
+            employee_id: emp.id,
+            milestone_years: m.milestoneYears,
+            days: m.days,
+            note: `薪資結算頁授予（結算月份 ${payPeriod}）`,
+          })),
+        )
+        .select("id");
+
+      if (insErr) {
+        if (/duplicate key/i.test(insErr.message)) {
+          toast.error(
+            "此年資里程碑已授予過，請按「產生本月薪資單」重新載入。",
+          );
+        } else {
+          toast.error(insErr.message || "寫入特休授予紀錄失敗");
+        }
+        return;
+      }
+
+      const grantIds = (inserted ?? []).map((r) =>
+        String((r as { id: string }).id),
+      );
+      const { error: updErr } = await supabase
+        .from("employees")
+        .update({ annual_leave_remaining: after })
+        .eq("id", emp.id);
+
+      if (updErr) {
+        if (grantIds.length > 0) {
+          const { error: rollbackErr } = await supabase
+            .from("annual_leave_grants")
+            .delete()
+            .in("id", grantIds);
+          if (rollbackErr) {
+            console.error(
+              "[salary-settlement] rollback annual_leave_grants failed:",
+              rollbackErr,
+            );
+          }
+        }
+        toast.error(updErr.message || "更新特休餘額失敗，已取消本次授予");
+        return;
+      }
+
+      setEmployees((prev) =>
+        prev.map((e) =>
+          e.id === emp.id ? { ...e, annual_leave_remaining: after } : e,
+        ),
+      );
+      setGrantedByEmp((prev) => {
+        const next = new Map(prev);
+        const set = new Set(next.get(emp.id) ?? []);
+        for (const m of pending) set.add(m.milestoneYears);
+        next.set(emp.id, set);
+        return next;
+      });
+      toast.success(
+        `已為「${emp.name}」新增特休 ${fmt(totalDays)} 天（${pending
+          .map((m) => milestoneLabel(m.milestoneYears))
+          .join("、")}），餘額 ${fmt(after)} 天`,
+      );
+    } finally {
+      setGrantingId(null);
     }
   }
 
@@ -1156,7 +1299,7 @@ export function SalarySettlementCenter() {
             尚無在職員工可結算。
           </p>
         ) : (
-          <table className="w-full max-md:min-w-[1180px] border-collapse text-sm md:table-fixed">
+          <table className="w-full max-md:min-w-[1260px] border-collapse text-sm md:table-fixed">
             <colgroup className="hidden md:table-column-group">
               <col className="w-[3.25rem]" />
               <col className="w-[3.5rem]" />
@@ -1164,6 +1307,7 @@ export function SalarySettlementCenter() {
               <col className="w-[3rem]" />
               <col className="w-[4rem]" />
               <col className="w-[2.5rem]" />
+              <col className="w-[3.25rem]" />
               <col className="w-[2.5rem]" />
               <col className="w-[2.75rem]" />
               <col className="w-[3.25rem]" />
@@ -1189,6 +1333,12 @@ export function SalarySettlementCenter() {
                   className="border-l border-border bg-[var(--secondary)]/40 text-right text-muted-foreground dark:bg-muted/50"
                 >
                   原本特休
+                </th>
+                <th
+                  title="勞基法年資特休：年資達里程碑時提醒，按鈕核准後加入餘額"
+                  className="bg-[var(--secondary)]/40 text-center text-muted-foreground dark:bg-muted/50"
+                >
+                  新增特休
                 </th>
                 <th className="bg-[var(--secondary)]/40 text-right text-muted-foreground dark:bg-muted/50">
                   本月申請
@@ -1253,6 +1403,34 @@ export function SalarySettlementCenter() {
                   (orig ?? 0) - st.specialThisMonth;
                 const hasSpecialUse = st.specialThisMonth > 0;
 
+                const grantedSet = grantedByEmp.get(emp.id);
+                const pendingGrants = grantsTableMissing
+                  ? []
+                  : dueAnnualLeaveMilestones(
+                      emp.hire_date,
+                      monthEndDate,
+                      emp.unpaid_leave_months,
+                    ).filter((m) => !grantedSet?.has(m.milestoneYears));
+                const pendingGrantDays = pendingGrants.reduce(
+                  (s, m) => s + m.days,
+                  0,
+                );
+                const nextMilestone =
+                  pendingGrants.length === 0 && !grantsTableMissing
+                    ? nextAnnualLeaveMilestone(
+                        emp.hire_date,
+                        monthEndDate,
+                        emp.unpaid_leave_months,
+                      )
+                    : null;
+                const grantIdleTitle = grantsTableMissing
+                  ? "需套用 annual_leave_grants migration 後啟用"
+                  : !emp.hire_date
+                    ? "未設到職日，無法計算年資"
+                    : nextMilestone
+                      ? `下次：${milestoneLabel(nextMilestone.milestoneYears)} +${nextMilestone.days} 天（約 ${nextMilestone.monthsAway} 個月後）`
+                      : undefined;
+
                 return (
                   <tr
                     key={emp.id}
@@ -1305,6 +1483,36 @@ export function SalarySettlementCenter() {
                       {orig != null
                         ? `${orig.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}天`
                         : "—"}
+                    </td>
+                    <td className="text-center">
+                      {pendingGrants.length > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={grantingId != null}
+                          title={`年資達${pendingGrants
+                            .map(
+                              (m) =>
+                                `${milestoneLabel(m.milestoneYears)}（+${m.days} 天）`,
+                            )
+                            .join("、")}，點擊核准加入特休餘額`}
+                          className="h-6 px-1.5 text-[11px] font-semibold border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
+                          onClick={() =>
+                            void handleGrantAnnualLeave(emp, pendingGrants)
+                          }
+                        >
+                          {grantingId === emp.id
+                            ? "授予中…"
+                            : `+${pendingGrantDays.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}天`}
+                        </Button>
+                      ) : (
+                        <span
+                          title={grantIdleTitle}
+                          className="text-xs text-muted-foreground"
+                        >
+                          —
+                        </span>
+                      )}
                     </td>
                     <td className="text-right text-xs tabular-nums text-foreground">
                       {st.specialThisMonth.toLocaleString("zh-TW", {
