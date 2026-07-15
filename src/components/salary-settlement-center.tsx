@@ -236,7 +236,7 @@ function isPayslipOnConflictTargetError(message: string): boolean {
  * - 識別／期間：employee_id, period_key, pay_period, month_label
  * - 金額：base_salary, net_pay, net_salary, bonus_and_overtime, leave_deduction, other_adjust
  * - 勞健保快照：labor_insurance_employee, health_insurance_employee, health_insured_persons
- * - 假勤／加班：overtime_days, special_leave_days_settled, leave_days
+ * - 假勤／加班：overtime_days, special_leave_days_settled, special_leave_remaining_after, leave_days
  * - 出勤備註：notes
  * 上述「明細快照」鍵若缺欄會先略過；bonus_and_overtime／leave_deduction 不在此列，fallback 時仍會寫入。
  */
@@ -246,6 +246,7 @@ const PAYSLIP_DETAIL_SNAPSHOT_KEYS = [
   "health_insured_persons",
   "overtime_days",
   "special_leave_days_settled",
+  "special_leave_remaining_after",
   "leave_days",
   "other_adjust",
 ] as const;
@@ -882,6 +883,7 @@ export function SalarySettlementCenter() {
       health_insured_persons: emp.health_insured_persons,
       overtime_days: inp.overtimeDays,
       special_leave_days_settled: st.specialThisMonth,
+      special_leave_remaining_after: settledRemaining,
       leave_days: st.personal + st.sick,
       payroll_bonus: semiBonus,
       other_adjust: inp.otherAdjust,

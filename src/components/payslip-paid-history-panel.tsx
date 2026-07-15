@@ -50,6 +50,8 @@ interface PaidSlipRow {
   leave_deduction: number;
   leave_days: number;
   special_leave_days_settled: number;
+  /** 該月結算後剩餘特休天數快照（舊資料可能無值） */
+  special_leave_remaining_after: number | null;
   overtime_days: number;
   /** 發放時寫入之加班費（含費率×天數；轉補休時為 0） */
   bonus_and_overtime: number;
@@ -69,6 +71,7 @@ const PAYSLIP_DETAIL_SELECT = `
   health_insured_persons,
   overtime_days,
   special_leave_days_settled,
+  special_leave_remaining_after,
   leave_days
 `;
 
@@ -115,6 +118,12 @@ function mapRawToPaidSlipRow(
     leave_deduction: num(r.leave_deduction, 0),
     leave_days: num(r.leave_days, 0),
     special_leave_days_settled: num(r.special_leave_days_settled, 0),
+    special_leave_remaining_after:
+      r.special_leave_remaining_after != null &&
+      r.special_leave_remaining_after !== "" &&
+      Number.isFinite(Number(r.special_leave_remaining_after))
+        ? num(r.special_leave_remaining_after)
+        : null,
     overtime_days: num(r.overtime_days, 0),
     bonus_and_overtime: num(r.bonus_and_overtime, 0),
     payroll_bonus,
@@ -212,6 +221,7 @@ export function PayslipPaidHistoryPanel() {
   /** true：列出全部已發放；false：僅指定 period_key */
   const [showAllMonths, setShowAllMonths] = useState(true);
   const [filterMonth, setFilterMonth] = useState(ymNow);
+  const [filterEmployee, setFilterEmployee] = useState<string>("all");
   const [rows, setRows] = useState<PaidSlipRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -227,6 +237,26 @@ export function PayslipPaidHistoryPanel() {
     if (!y || !m) return filterMonth;
     return `${y} 年 ${m} 月`;
   }, [filterMonth]);
+
+  const employeeOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const r of rows) {
+      if (r.employee_id && !byId.has(r.employee_id)) {
+        byId.set(r.employee_id, r.employee_name);
+      }
+    }
+    return [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-TW"));
+  }, [rows]);
+
+  const displayRows = useMemo(
+    () =>
+      filterEmployee === "all"
+        ? rows
+        : rows.filter((r) => r.employee_id === filterEmployee),
+    [rows, filterEmployee],
+  );
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -535,6 +565,24 @@ export function PayslipPaidHistoryPanel() {
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <label className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 shadow-xs">
             <span className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">
+              員工
+            </span>
+            <select
+              value={filterEmployee}
+              onChange={(e) => setFilterEmployee(e.target.value)}
+              className="min-w-[6.5rem] bg-transparent text-sm font-medium text-foreground focus:outline-none"
+              aria-label="依員工篩選已發放薪資"
+            >
+              <option value="all">全部員工</option>
+              {employeeOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 shadow-xs">
+            <span className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">
               範圍
             </span>
             <select
@@ -588,37 +636,40 @@ export function PayslipPaidHistoryPanel() {
           <p className="py-12 text-center text-sm text-muted-foreground">
             載入中…
           </p>
-        ) : rows.length === 0 ? (
+        ) : displayRows.length === 0 ? (
           <div className="py-12 text-center text-sm text-muted-foreground">
             <p>
-              {showAllMonths
-                ? "尚無已發放薪資紀錄。"
-                : `${monthLabel} 尚無已發放薪資紀錄。`}
+              {rows.length > 0
+                ? "篩選的員工在此範圍內無已發放薪資紀錄。"
+                : showAllMonths
+                  ? "尚無已發放薪資紀錄。"
+                  : `${monthLabel} 尚無已發放薪資紀錄。`}
             </p>
             <p className="mt-1 text-xs opacity-80">
-              {showAllMonths
-                ? "可改選「指定月份」篩選，或至「薪資結算」完成發放。"
-                : "可換其他月份、改選「全部月份」，或至「薪資結算」完成發放。"}
+              {rows.length > 0
+                ? "可改選「全部員工」或調整月份範圍。"
+                : showAllMonths
+                  ? "可改選「指定月份」篩選，或至「薪資結算」完成發放。"
+                  : "可換其他月份、改選「全部月份」，或至「薪資結算」完成發放。"}
             </p>
           </div>
         ) : (
-          <Table className="max-md:min-w-[1040px] md:min-w-0 md:table-fixed md:w-full">
+          <Table className="max-md:min-w-[1120px] md:min-w-0 md:table-fixed md:w-full">
             <colgroup className="hidden md:table-column-group">
-              <col className="w-[4.5rem]" />
-              <col className="w-[2.75rem]" />
-              <col className="w-[3.5rem]" />
-              <col className="w-[3rem]" />
-              <col className="w-[3.25rem]" />
-              <col className="w-[3.25rem]" />
+              <col className="w-[4rem]" />
               <col className="w-[2.5rem]" />
-              <col className="w-[2.5rem]" />
-              <col className="w-[4.25rem]" />
+              <col className="w-[3.25rem]" />
               <col className="w-[3rem]" />
+              <col className="w-[3rem]" />
+              <col className="w-[3rem]" />
+              <col className="w-[2.5rem]" />
               <col className="w-[3rem]" />
               <col className="w-[3.75rem]" />
-              <col className="w-[4.25rem]" />
-              <col className="w-[2.25rem]" />
-              <col className="w-[2.5rem]" />
+              <col className="w-[3rem]" />
+              <col className="w-[3.25rem]" />
+              <col className="w-[3.5rem]" />
+              <col className="w-[3.5rem]" />
+              <col className="w-[3.5rem]" />
             </colgroup>
             <TableHeader>
               <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30 md:[&_th]:px-1.5 md:[&_th]:py-1.5 md:[&_th]:whitespace-normal">
@@ -663,6 +714,12 @@ export function PayslipPaidHistoryPanel() {
                   <span className="hidden md:inline">特休</span>
                 </TableHead>
                 <TableHead
+                  title="剩餘特休（該月結算後餘額）"
+                  className="text-right text-xs font-semibold"
+                >
+                  剩餘特休
+                </TableHead>
+                <TableHead
                   title="加班天數／加班費／轉補休"
                   className="text-right text-xs font-semibold"
                 >
@@ -683,16 +740,13 @@ export function PayslipPaidHistoryPanel() {
                   <span className="md:hidden">入帳時間</span>
                   <span className="hidden md:inline">入帳</span>
                 </TableHead>
-                <TableHead title="出勤備註" className="text-xs font-semibold">
-                  備註
-                </TableHead>
-                <TableHead title="刪除已發放紀錄" className="text-center text-xs font-semibold">
+                <TableHead title="查看出勤備註／刪除紀錄" className="text-center text-xs font-semibold">
                   操作
                 </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody className="md:[&_td]:px-1.5 md:[&_td]:py-2 md:[&_td]:whitespace-normal">
-              {rows.map((row) => {
+              {displayRows.map((row) => {
                 const healthPerPerson =
                   row.health_insured_persons != null &&
                   row.health_insured_persons > 1
@@ -795,6 +849,14 @@ export function PayslipPaidHistoryPanel() {
                         : "—"}
                     </TableCell>
                     <TableCell
+                      title="該月結算後剩餘特休"
+                      className="text-right text-sm tabular-nums text-muted-foreground"
+                    >
+                      {row.special_leave_remaining_after != null
+                        ? `${row.special_leave_remaining_after.toLocaleString("zh-TW", { maximumFractionDigits: 3 })}天`
+                        : "—"}
+                    </TableCell>
+                    <TableCell
                       title={overtimeMobile.title}
                       className="text-right text-sm tabular-nums"
                     >
@@ -836,45 +898,44 @@ export function PayslipPaidHistoryPanel() {
                         {formatDateTime(row.created_at, true)}
                       </span>
                     </TableCell>
-                    <TableCell className="max-md:max-w-[10rem]">
-                      {row.notes ? (
+                    <TableCell className="text-center">
+                      <div className="flex items-center justify-center gap-1 max-md:flex-wrap">
+                        {row.notes ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-8 gap-1 px-2 text-xs text-muted-foreground md:h-7 md:w-7 md:gap-0 md:p-0"
+                            aria-label={`查看 ${row.employee_name} 出勤備註`}
+                            title="查看出勤備註"
+                            onClick={() =>
+                              setRemarkDialog({
+                                open: true,
+                                name: row.employee_name,
+                                text: row.notes ?? "",
+                              })
+                            }
+                          >
+                            <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                            <span className="md:hidden">備註</span>
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
                           variant="ghost"
-                          className="h-8 gap-1 px-2 text-xs text-muted-foreground md:h-7 md:w-7 md:gap-0 md:p-0"
-                          aria-label={`查看 ${row.employee_name} 出勤備註`}
-                          onClick={() =>
-                            setRemarkDialog({
-                              open: true,
-                              name: row.employee_name,
-                              text: row.notes ?? "",
-                            })
-                          }
+                          className="h-8 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive md:h-7 md:w-7 md:gap-0 md:p-0"
+                          disabled={deletingId === row.id}
+                          aria-label={`刪除 ${row.employee_name} ${row.month_label || row.period_key} 已發放薪資`}
+                          title="刪除已發放紀錄"
+                          onClick={() => void handleDeletePaid(row)}
                         >
-                          <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                          <span className="md:hidden">查看明細</span>
+                          {deletingId === row.id ? (
+                            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          )}
+                          <span className="md:hidden">刪除</span>
                         </Button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="h-8 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive md:h-7 md:w-7 md:gap-0 md:p-0"
-                        disabled={deletingId === row.id}
-                        aria-label={`刪除 ${row.employee_name} ${row.month_label || row.period_key} 已發放薪資`}
-                        title="刪除已發放紀錄"
-                        onClick={() => void handleDeletePaid(row)}
-                      >
-                        {deletingId === row.id ? (
-                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                        )}
-                        <span className="md:hidden">刪除</span>
-                      </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

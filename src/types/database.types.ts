@@ -924,6 +924,7 @@ export type Database = {
           payroll_bonus: number
           period_key: string | null
           special_leave_days_settled: number
+          special_leave_remaining_after: number | null
           status: string | null
         }
         Insert: {
@@ -951,6 +952,7 @@ export type Database = {
           payroll_bonus?: number
           period_key?: string | null
           special_leave_days_settled?: number
+          special_leave_remaining_after?: number | null
           status?: string | null
         }
         Update: {
@@ -978,6 +980,7 @@ export type Database = {
           payroll_bonus?: number
           period_key?: string | null
           special_leave_days_settled?: number
+          special_leave_remaining_after?: number | null
           status?: string | null
         }
         Relationships: [
