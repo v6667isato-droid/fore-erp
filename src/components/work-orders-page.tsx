@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/table";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
-  Wrench,
   CalendarDays,
   RefreshCw,
   ArrowUpDown,
@@ -250,9 +249,6 @@ export function WorkOrdersPage() {
           custom_name,
           custom_category,
           custom_description,
-          custom_dimension_w,
-          custom_dimension_d,
-          custom_dimension_h,
           quantity,
           seat_height_cm,
           wood_type,
@@ -270,9 +266,6 @@ export function WorkOrdersPage() {
             product_code,
             wood_type,
             spec1,
-            dimension_w,
-            dimension_d,
-            dimension_h,
             seat_height_cm
           )
         )
@@ -317,16 +310,7 @@ export function WorkOrdersPage() {
       const cat =
         (oi?.custom_category as string | null | undefined)?.trim() || "";
 
-      const w = oi?.custom_dimension_w ?? variant?.dimension_w ?? null;
-      const d = oi?.custom_dimension_d ?? variant?.dimension_d ?? null;
-      const h = oi?.custom_dimension_h ?? variant?.dimension_h ?? null;
-      const parts = [w, d, h].filter((x) => x != null);
-      const dim =
-        parts.length === 0
-          ? ""
-          : `W:${w ?? "—"} x D:${d ?? "—"} x H:${h ?? "—"}`;
-
-      // 中文規格：木種（明細優先於變體）＋編法等，如「白橡木 紙編」
+      // 中文規格：木種（明細優先於變體）＋編法等，如「白橡木 紙編」；不顯示尺寸
       const woodType =
         ((oi?.wood_type ?? variant?.wood_type) as string | null | undefined)?.trim() ||
         "";
@@ -334,14 +318,14 @@ export function WorkOrdersPage() {
         (variant?.spec1 as string | null | undefined)?.trim() || "";
       const chineseSpec = [woodType, spec1].filter(Boolean).join(" ");
 
-      const fullNameParts = [itemName, chineseSpec, dim].filter(
+      const fullNameParts = [itemName, chineseSpec].filter(
         (s) => typeof s === "string" && s.trim()
       ) as string[];
 
       const productCode =
         variant?.product_code != null ? String(variant.product_code).trim() : "";
       const seatCm = resolveSeatHeightCmForDisplay(oi?.seat_height_cm, variant?.seat_height_cm);
-      let itemDisplay = fullNameParts.join(" / ");
+      let itemDisplay = fullNameParts.join(" ");
       if (isChairCh03FamilyProductCode(productCode) && seatCm != null) {
         const sh = formatSeatHeightCmLabel(seatCm);
         itemDisplay = itemDisplay.trim() ? `${itemDisplay} · ${sh}` : sh;
@@ -658,14 +642,6 @@ export function WorkOrdersPage() {
           "[scrollbar-width:thin] [-ms-overflow-style:auto]",
         )}
       >
-        <div className="flex shrink-0 items-center gap-1.5 pr-1 text-xs text-muted-foreground">
-          <Wrench className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span className="whitespace-nowrap">工單列表 · 依品項追蹤生產進度</span>
-        </div>
-        <span
-          className="hidden h-4 w-px shrink-0 bg-border sm:block"
-          aria-hidden
-        />
         <div className="flex shrink-0 flex-nowrap items-center gap-1">
           {PRODUCTION_ORDER_STATUS_FILTERS.map((f) => (
             <button
