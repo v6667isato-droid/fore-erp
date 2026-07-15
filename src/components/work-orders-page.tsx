@@ -164,6 +164,9 @@ const PRODUCTION_ORDER_STATUS_FILTERS: ProductionOrderStatusFilter[] = [
 
 const STAGE_OPTIONS = WORK_ORDER_STAGES;
 
+/** 負責人篩選之「未指派」選項值（避免與 employees.id 衝突） */
+const UNASSIGNED_FILTER = "__unassigned__";
+
 export function WorkOrdersPage() {
   const router = useRouter();
   const [rows, setRows] = useState<WorkOrderRow[]>([]);
@@ -174,6 +177,8 @@ export function WorkOrdersPage() {
     useState<ProductionOrderStatusFilter>("生產中");
   const [categoryFilter, setCategoryFilter] = useState<"全部" | string>("全部");
   const [customerFilter, setCustomerFilter] = useState("");
+  /** 負責人下拉篩選："" 全部、UNASSIGNED_FILTER 未指派、其餘為 employees.id */
+  const [assigneeIdFilter, setAssigneeIdFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [customers, setCustomers] = useState<WorkOrderCustomerOption[]>([]);
@@ -250,6 +255,7 @@ export function WorkOrdersPage() {
           custom_dimension_h,
           quantity,
           seat_height_cm,
+          wood_type,
           orders(
             id,
             customer_id,
@@ -263,6 +269,7 @@ export function WorkOrdersPage() {
           product_variants(
             product_code,
             wood_type,
+            spec1,
             dimension_w,
             dimension_d,
             dimension_h,
@@ -319,7 +326,15 @@ export function WorkOrdersPage() {
           ? ""
           : `W:${w ?? "—"} x D:${d ?? "—"} x H:${h ?? "—"}`;
 
-      const fullNameParts = [itemName, dim].filter(
+      // 中文規格：木種（明細優先於變體）＋編法等，如「白橡木 紙編」
+      const woodType =
+        ((oi?.wood_type ?? variant?.wood_type) as string | null | undefined)?.trim() ||
+        "";
+      const spec1 =
+        (variant?.spec1 as string | null | undefined)?.trim() || "";
+      const chineseSpec = [woodType, spec1].filter(Boolean).join(" ");
+
+      const fullNameParts = [itemName, chineseSpec, dim].filter(
         (s) => typeof s === "string" && s.trim()
       ) as string[];
 
@@ -507,6 +522,11 @@ export function WorkOrdersPage() {
         workOrderCategoryLabel(w) === categoryFilter;
       const matchCustomer =
         !customerFilter || w.customer_id === customerFilter;
+      const matchAssigneeId =
+        !assigneeIdFilter ||
+        (assigneeIdFilter === UNASSIGNED_FILTER
+          ? !w.assignee_id
+          : w.assignee_id === assigneeIdFilter);
       const q = assigneeFilter.trim().toLowerCase();
       const matchAssignee =
         !q ||
@@ -520,6 +540,7 @@ export function WorkOrdersPage() {
         matchOrderStatus &&
         matchCategory &&
         matchCustomer &&
+        matchAssigneeId &&
         matchAssignee
       );
     });
@@ -570,6 +591,7 @@ export function WorkOrdersPage() {
     orderStatusFilter,
     categoryFilter,
     customerFilter,
+    assigneeIdFilter,
     assigneeFilter,
     sortBy,
     sortAsc,
@@ -710,6 +732,25 @@ export function WorkOrdersPage() {
             {customerFilterOptions.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="hidden whitespace-nowrap text-xs text-muted-foreground sm:inline">
+            負責人
+          </span>
+          <select
+            value={assigneeIdFilter}
+            onChange={(e) => setAssigneeIdFilter(e.target.value)}
+            className="h-8 w-[6.5rem] max-w-[10rem] shrink-0 rounded-md border border-input bg-background px-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[8rem]"
+            aria-label="依負責人篩選"
+          >
+            <option value="">全部負責人</option>
+            <option value={UNASSIGNED_FILTER}>未指派</option>
+            {employees.map((emp) => (
+              <option key={emp.id} value={emp.id}>
+                {emp.name}
               </option>
             ))}
           </select>
