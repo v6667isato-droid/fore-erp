@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState, useMemo, Fragment } from "react";
+import { useCallback, useEffect, useState, useMemo, Fragment } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { cn } from "@/lib/utils";
+import { CustomCasesPanel } from "@/components/products/custom-cases-panel";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -102,7 +105,7 @@ function formatDim(v: VariantRow): string {
 type SeriesSortKey = "name" | "category" | "variantCount" | "website";
 type VariantSortKey = "product_code" | "wood_type" | "spec1" | "dimension" | "base_price";
 
-export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
+function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [seriesList, setSeriesList] = useState<SeriesRow[]>([]);
   const [variantsList, setVariantsList] = useState<VariantRow[]>([]);
   const [channels, setChannels] = useState<ChannelOption[]>([]);
@@ -1080,6 +1083,70 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         onConfirm={performDeleteVariant}
         destructive
       />
+    </div>
+  );
+}
+
+export type ProductsTabKey = "series" | "custom" | "processing";
+
+const PRODUCTS_TABS: { key: ProductsTabKey; label: string }[] = [
+  { key: "series", label: "產品系列" },
+  { key: "custom", label: "訂製案例" },
+  { key: "processing", label: "加工區" },
+];
+
+function parseProductsTab(value: string | null): ProductsTabKey {
+  return value === "custom" || value === "processing" ? value : "series";
+}
+
+/**
+ * 產品資料頁：產品系列（原有）、訂製案例（可發佈官網）、加工區（維修保養，僅內部）。
+ * 分頁狀態同步至 ?productsTab=，與 customersTab、procurementTab 慣例一致。
+ */
+export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tab = parseProductsTab(searchParams.get("productsTab"));
+
+  const setTab = useCallback(
+    (next: ProductsTabKey) => {
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.set("page", "products");
+      if (next === "series") nextParams.delete("productsTab");
+      else nextParams.set("productsTab", next);
+      router.replace(`/?${nextParams.toString()}`);
+    },
+    [router, searchParams]
+  );
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div
+        className="inline-flex self-start rounded-xl border border-border bg-muted/30 p-1 shadow-inner"
+        role="tablist"
+        aria-label="產品資料分頁"
+      >
+        {PRODUCTS_TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={cn(
+              "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+              tab === key
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "series" && <ProductSeriesPanel isAdmin={isAdmin} />}
+      {tab === "custom" && <CustomCasesPanel kind="custom" />}
+      {tab === "processing" && <CustomCasesPanel kind="processing" />}
     </div>
   );
 }

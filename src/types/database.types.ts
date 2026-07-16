@@ -326,6 +326,95 @@ export type Database = {
         }
         Relationships: []
       }
+      custom_cases: {
+        Row: {
+          base_price: number | null
+          case_code: string | null
+          category: string | null
+          completed_year: string | null
+          created_at: string | null
+          deleted_at: string | null
+          dimension_d: number | null
+          dimension_h: number | null
+          dimension_w: number | null
+          dimensions_note: string | null
+          id: string
+          image_url: string | null
+          kind: string
+          material: string | null
+          name_en: string | null
+          name_zh: string
+          notes: string | null
+          object_position: string | null
+          order_id: string | null
+          process_image_urls: Json
+          published: boolean
+          sort_order: number | null
+          story_en: string | null
+          story_zh: string | null
+        }
+        Insert: {
+          base_price?: number | null
+          case_code?: string | null
+          category?: string | null
+          completed_year?: string | null
+          created_at?: string | null
+          deleted_at?: string | null
+          dimension_d?: number | null
+          dimension_h?: number | null
+          dimension_w?: number | null
+          dimensions_note?: string | null
+          id?: string
+          image_url?: string | null
+          kind?: string
+          material?: string | null
+          name_en?: string | null
+          name_zh: string
+          notes?: string | null
+          object_position?: string | null
+          order_id?: string | null
+          process_image_urls?: Json
+          published?: boolean
+          sort_order?: number | null
+          story_en?: string | null
+          story_zh?: string | null
+        }
+        Update: {
+          base_price?: number | null
+          case_code?: string | null
+          category?: string | null
+          completed_year?: string | null
+          created_at?: string | null
+          deleted_at?: string | null
+          dimension_d?: number | null
+          dimension_h?: number | null
+          dimension_w?: number | null
+          dimensions_note?: string | null
+          id?: string
+          image_url?: string | null
+          kind?: string
+          material?: string | null
+          name_en?: string | null
+          name_zh?: string
+          notes?: string | null
+          object_position?: string | null
+          order_id?: string | null
+          process_image_urls?: Json
+          published?: boolean
+          sort_order?: number | null
+          story_en?: string | null
+          story_zh?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_cases_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customers: {
         Row: {
           alias: string | null
@@ -1491,6 +1580,30 @@ export type Database = {
             referencedColumns: ["name"]
           },
         ]
+      }
+      telegram_conversations: {
+        Row: {
+          chat_id: string
+          content: string
+          created_at: string
+          id: string
+          role: string
+        }
+        Insert: {
+          chat_id: string
+          content: string
+          created_at?: string
+          id?: string
+          role: string
+        }
+        Update: {
+          chat_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+        }
+        Relationships: []
       }
       user_feedback: {
         Row: {
