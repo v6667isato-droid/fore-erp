@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { X, Globe, Images } from "lucide-react";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { ProductImagesDropzone } from "@/components/products/product-images-dropzone";
+import { FocalPointPicker } from "@/components/products/focal-point-picker";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -429,16 +430,15 @@ export function CustomCaseFormDialog({
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label htmlFor="case-form-object-position" className="text-xs text-muted-foreground">
-                      主圖裁切焦點（object-position）
-                    </label>
-                    <input
-                      id="case-form-object-position"
-                      type="text"
+                    <span className="text-xs text-muted-foreground">
+                      主圖裁切焦點（官網 4:5 裁切時盡量保留此處）
+                    </span>
+                    <FocalPointPicker
+                      imageUrl={imageUrl}
                       value={objectPosition}
-                      onChange={(e) => setObjectPosition(e.target.value)}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder='例："50% 30%"，留空為置中'
+                      onChange={setObjectPosition}
+                      disabled={saving}
+                      previewAspect="4 / 5"
                     />
                   </div>
                 </>

@@ -26,7 +26,7 @@ export async function OPTIONS() {
 export async function GET() {
   const { data: seriesList, error: seriesError } = await supabase
     .from("product_series")
-    .select("id, series_name, category, image_url, detail_image_urls")
+    .select("id, series_name, category, image_url, detail_image_urls, image_meta")
     .is("deleted_at", null)
     .order("series_name", { ascending: true });
 
@@ -56,16 +56,25 @@ export async function GET() {
     }
   }
 
-  const products = (seriesList ?? []).map((s) => ({
-    id: s.id,
-    series_name: s.series_name,
-    category: s.category,
-    image_url: s.image_url,
-    detail_image_urls: Array.isArray(s.detail_image_urls)
-      ? (s.detail_image_urls as unknown[]).map((u) => String(u)).filter(Boolean)
-      : [],
-    price_from: priceFromBySeries.get(s.id) ?? null,
-  }));
+  const products = (seriesList ?? []).map((s) => {
+    // 主視覺圖的裁切焦點：從 image_meta（以圖片 URL 為 key）取出，供官網作品列表 4:5 裁切用
+    const meta =
+      s.image_meta && typeof s.image_meta === "object" && !Array.isArray(s.image_meta)
+        ? (s.image_meta as Record<string, { object_position?: string | null }>)
+        : {};
+    const mainMeta = s.image_url ? meta[s.image_url] : undefined;
+    return {
+      id: s.id,
+      series_name: s.series_name,
+      category: s.category,
+      image_url: s.image_url,
+      image_object_position: mainMeta?.object_position ?? null,
+      detail_image_urls: Array.isArray(s.detail_image_urls)
+        ? (s.detail_image_urls as unknown[]).map((u) => String(u)).filter(Boolean)
+        : [],
+      price_from: priceFromBySeries.get(s.id) ?? null,
+    };
+  });
 
   return withCors(NextResponse.json({ products }));
 }

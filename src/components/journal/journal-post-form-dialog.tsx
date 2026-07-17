@@ -12,6 +12,7 @@ import {
 } from "@/lib/journal-db";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
+import { FocalPointPicker } from "@/components/products/focal-point-picker";
 import { JournalBlockEditor, JOURNAL_IMAGES_BUCKET } from "@/components/journal/journal-block-editor";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Image as ImageIcon, Languages, Sparkles, Loader2 } from "lucide-react";
@@ -370,16 +371,15 @@ export function JournalPostFormDialog({ open, onOpenChange, row, onSuccess }: Jo
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label htmlFor="journal-form-object-position" className="text-xs text-muted-foreground">
-                      主圖裁切焦點（object-position）
-                    </label>
-                    <input
-                      id="journal-form-object-position"
-                      type="text"
+                    <span className="text-xs text-muted-foreground">
+                      主圖裁切焦點（官網文章列表 3:2 裁切時盡量保留此處）
+                    </span>
+                    <FocalPointPicker
+                      imageUrl={imageUrl}
                       value={objectPosition}
-                      onChange={(e) => setObjectPosition(e.target.value)}
-                      className={inputClass}
-                      placeholder='例："50% 30%"，留空為置中'
+                      onChange={setObjectPosition}
+                      disabled={saving}
+                      previewAspect="3 / 2"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">

@@ -24,6 +24,18 @@ export interface SeriesRow {
   size_chart_urls?: string[] | null;
   /** 產品系列細節圖 Public URL 陣列（官網產品頁主視覺圖之後的其他圖片） */
   detail_image_urls?: string[] | null;
+  /** 圖片中繼資料：以圖片 URL 為 key（官網圖說與裁切焦點，適用主視覺圖與細節圖） */
+  image_meta?: Record<string, SeriesImageMeta> | null;
+}
+
+/** 單張圖片的官網中繼資料（product_series.image_meta 的 value） */
+export interface SeriesImageMeta {
+  /** 圖片標題（中），官網圖說與 alt 文字用；留空不顯示 */
+  title_zh?: string | null;
+  /** 圖片標題（英） */
+  title_en?: string | null;
+  /** 官網 4:5 裁切焦點（CSS object-position，例如 "50% 30%"），留空為置中 */
+  object_position?: string | null;
 }
 
 /**

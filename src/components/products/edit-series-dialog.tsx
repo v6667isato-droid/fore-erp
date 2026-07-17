@@ -6,10 +6,11 @@ import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN } f
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { ProductImagesDropzone } from "@/components/products/product-images-dropzone";
-import { X, FileText, MessageCircle, Globe } from "lucide-react";
+import { SeriesImageMetaEditor } from "@/components/products/series-image-meta-editor";
+import { X, FileText, MessageCircle, Globe, Images } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
-import type { SeriesRow } from "@/types/products";
+import type { SeriesRow, SeriesImageMeta } from "@/types/products";
 import { cn } from "@/lib/utils";
 
 export interface EditSeriesDialogProps {
@@ -32,7 +33,7 @@ const CONTENT_FIELDS: { key: (typeof SERIES_CONTENT_COLUMNS)[number]; label: str
 const TAB_1_KEYS = ["design_concept", "social_media_copy", "website_article"];
 const TAB_2_KEYS = ["faq_scripts", "customization_rules"];
 
-type EditSeriesTab = "basic" | "marketing" | "support" | "website";
+type EditSeriesTab = "basic" | "images" | "marketing" | "support" | "website";
 
 export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSeriesDialogProps) {
   const firstRef = useRef<HTMLInputElement>(null);
@@ -47,6 +48,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [sizeChartUrls, setSizeChartUrls] = useState<string[]>([]);
   const [detailImageUrls, setDetailImageUrls] = useState<string[]>([]);
+  const [imageMeta, setImageMeta] = useState<Record<string, SeriesImageMeta>>({});
   const [activeTab, setActiveTab] = useState<EditSeriesTab>("basic");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +73,9 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
       setImageUrl(typeof row.image_url === "string" && row.image_url ? row.image_url : null);
       setSizeChartUrls(Array.isArray(row.size_chart_urls) ? row.size_chart_urls.filter(Boolean) : []);
       setDetailImageUrls(Array.isArray(row.detail_image_urls) ? row.detail_image_urls.filter(Boolean) : []);
+      setImageMeta(
+        row.image_meta && typeof row.image_meta === "object" ? { ...row.image_meta } : {}
+      );
       setActiveTab("basic");
       setError(null);
     }
@@ -117,6 +122,19 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
     payload.image_url = imageUrl?.trim() || null;
     payload.size_chart_urls = sizeChartUrls;
     payload.detail_image_urls = detailImageUrls;
+
+    // 圖片中繼資料只保留目前仍存在的圖片，且捨棄完全沒填的空項目
+    const currentUrls = new Set([imageUrl?.trim(), ...detailImageUrls].filter(Boolean) as string[]);
+    const prunedMeta: Record<string, SeriesImageMeta> = {};
+    for (const [url, m] of Object.entries(imageMeta)) {
+      if (!currentUrls.has(url)) continue;
+      const titleZh = m.title_zh?.trim() || null;
+      const titleEn = m.title_en?.trim() || null;
+      const objectPosition = m.object_position?.trim() || null;
+      if (!titleZh && !titleEn && !objectPosition) continue;
+      prunedMeta[url] = { title_zh: titleZh, title_en: titleEn, object_position: objectPosition };
+    }
+    payload.image_meta = prunedMeta;
 
     let { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).update(payload).eq("id", row.id);
 
@@ -175,6 +193,19 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
               )}
             >
               基本資料
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("images")}
+              className={cn(
+                "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
+                activeTab === "images"
+                  ? "border-b-2 border-primary bg-card text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Images className="h-4 w-4" />
+              圖片
             </button>
             <button
               type="button"
@@ -299,6 +330,11 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       placeholder="例：系列縮寫 + 材質 + 尺寸，如：CHA-OAK-120"
                     />
                   </div>
+                </>
+              )}
+
+              {activeTab === "images" && (
+                <>
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">主視覺圖</span>
                     <ProductImageDropzone value={imageUrl} onChange={setImageUrl} disabled={saving} />
@@ -320,6 +356,23 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                     <ProductImagesDropzone
                       value={sizeChartUrls}
                       onChange={setSizeChartUrls}
+                      disabled={saving}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+                    <span className="text-xs font-medium text-foreground">
+                      官網圖片標題與裁切焦點
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      官網作品頁以 4:5 比例裁切顯示；點圖片設定焦點可避免重點被裁掉，標題會顯示為圖說（尺寸圖不裁切，不需設定）。
+                    </span>
+                    <SeriesImageMetaEditor
+                      images={[
+                        ...(imageUrl ? [{ url: imageUrl, label: "主視覺圖" }] : []),
+                        ...detailImageUrls.map((url, i) => ({ url, label: `細節圖 ${i + 1}` })),
+                      ]}
+                      meta={imageMeta}
+                      onChange={setImageMeta}
                       disabled={saving}
                     />
                   </div>
