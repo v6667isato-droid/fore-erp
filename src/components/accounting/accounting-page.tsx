@@ -7,6 +7,7 @@ import { Download, FileDown, FileText, Pencil, Search, Trash2 } from "lucide-rea
 import { toast } from "sonner";
 import {
   fetchConfirmedInvoices,
+  SOURCE_LABELS,
   type AccountingInvoiceRow,
 } from "@/lib/accounting-invoice";
 import { displayPoNumber } from "@/lib/purchase-order";
@@ -193,6 +194,7 @@ export function AccountingPage() {
                   <th className="px-2 py-2 text-right font-medium">含稅金額</th>
                   <th className="px-2 py-2 font-medium">格式</th>
                   <th className="px-2 py-2 font-medium">申報</th>
+                  <th className="px-2 py-2 font-medium">來源</th>
                   <th className="px-2 py-2 font-medium">對應採購單</th>
                   <th className="px-2 py-2 font-medium">原稿</th>
                   <th className="px-4 py-2 text-right font-medium">操作</th>
@@ -235,6 +237,18 @@ export function AccountingPage() {
                       ) : (
                         <span className="text-xs text-muted-foreground">未匯出</span>
                       )}
+                    </td>
+                    <td className="px-2 py-2">
+                      <span
+                        className="rounded border border-border px-1.5 py-px text-xs text-muted-foreground"
+                        title={
+                          r.source === "gmail"
+                            ? [r.gmail_subject, r.gmail_from].filter(Boolean).join("\n") || undefined
+                            : undefined
+                        }
+                      >
+                        {SOURCE_LABELS[r.source] ?? r.source}
+                      </span>
                     </td>
                     <td className="px-2 py-2">
                       {r.purchase_orders ? (

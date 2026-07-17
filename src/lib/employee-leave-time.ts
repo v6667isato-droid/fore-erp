@@ -25,6 +25,15 @@ export function formatDayDecimalAsDayHour(dayDecimal: number | null | undefined)
   return `${days} 天 ${hours} 小時`;
 }
 
+/** 顯示用：同 {@link formatDayDecimalAsDayHour}，但允許負值（結算後餘額可能透支），顯示為「−X 天 Y 小時」 */
+export function formatSignedDayDecimalAsDayHour(
+  dayDecimal: number | null | undefined,
+): string {
+  if (dayDecimal == null || !Number.isFinite(dayDecimal)) return "—";
+  if (dayDecimal < 0) return `−${formatDayDecimalAsDayHour(-dayDecimal)}`;
+  return formatDayDecimalAsDayHour(dayDecimal);
+}
+
 /** 表單「日 + 小時」→ 寫入 DB 的 annual_leave_remaining（小數日）；日／小時皆可小數，合計為 日 + 小時/8 */
 export function annualLeavePartsToDecimal(daysStr: string, hoursStr: string): number | null {
   const dTrim = daysStr.trim();

@@ -52,6 +52,8 @@ export interface VariantOption {
   series_image_url?: string | null;
   label: string;
   base_price: number | null;
+  /** 訂製款（開單佔位用規格）：牌價改為開單時手動輸入 */
+  is_custom_order?: boolean;
   spec1?: string | null;
   wood_type?: string | null;
   dimension_w?: number | null;

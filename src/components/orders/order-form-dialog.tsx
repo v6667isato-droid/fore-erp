@@ -549,6 +549,15 @@ function OrderFormDialog({
     [variants]
   );
 
+  /** 訂製款規格（開單佔位用）：無牌價，價格由開單時手動輸入 */
+  const isCustomOrderVariant = useCallback(
+    (variantId: string | null | undefined): boolean => {
+      if (!variantId) return false;
+      return variants.find((v) => v.id === variantId)?.is_custom_order === true;
+    },
+    [variants]
+  );
+
   function handleVariantSelect(it: OrderItemInput, variantId: string) {
     if (variantId === it.variant_id) return;
     const selected = variants.find((v) => v.id === variantId);
@@ -575,9 +584,13 @@ function OrderFormDialog({
     });
   }
 
-  /** 規格品項牌價由產品主檔帶入，不可手動改價 */
+  /** 規格品項牌價由產品主檔帶入，不可手動改價；訂製款例外（無牌價，需手動輸入） */
   function isVariantUnitPriceLocked(it: OrderItemInput): boolean {
-    return it.kind === "variant" && Boolean(it.variant_id);
+    return (
+      it.kind === "variant" &&
+      Boolean(it.variant_id) &&
+      !isCustomOrderVariant(it.variant_id)
+    );
   }
 
   /**
@@ -597,6 +610,10 @@ function OrderFormDialog({
         }
         return Number(it.unit_price) || 0;
       }
+      // 訂製款：無牌價也無通路折扣基準，直接採用手動輸入的價格
+      if (isCustomOrderVariant(it.variant_id)) {
+        return Number(it.unit_price) || 0;
+      }
       const channelPrice = resolveChannelUnitPrice(it.variant_id, it.series_id ?? null);
       if (channelPrice != null) return channelPrice;
       if (it.variant_id) {
@@ -604,7 +621,7 @@ function OrderFormDialog({
       }
       return Number(it.unit_price) || 0;
     },
-    [resolveChannelUnitPrice, resolveListUnitPrice]
+    [resolveChannelUnitPrice, resolveListUnitPrice, isCustomOrderVariant]
   );
 
 
@@ -924,7 +941,9 @@ function OrderFormDialog({
           variant_id: it.kind === "variant" ? it.variant_id || null : null,
           quantity: it.quantity,
           unit_price:
-            it.kind === "variant" && it.variant_id
+            it.kind === "variant" &&
+            it.variant_id &&
+            !isCustomOrderVariant(it.variant_id)
               ? resolveListUnitPrice(it.variant_id)
               : it.unit_price,
           channel_unit_price:
@@ -1535,7 +1554,9 @@ function OrderFormDialog({
                           </p>
                           <p className="mt-1 text-xs tabular-nums text-[#7D7767]">
                             NTD{" "}
-                            {(it.kind === "variant" && it.variant_id
+                            {(it.kind === "variant" &&
+                            it.variant_id &&
+                            !isCustomOrderVariant(it.variant_id)
                               ? resolveListUnitPrice(it.variant_id)
                               : Number(it.unit_price) || 0
                             ).toLocaleString()}{" "}
@@ -1753,7 +1774,8 @@ function OrderFormDialog({
                                 type="number"
                                 min={0}
                                 value={
-                                  it.variant_id
+                                  it.variant_id &&
+                                  !isCustomOrderVariant(it.variant_id)
                                     ? resolveListUnitPrice(it.variant_id)
                                     : it.unit_price
                                 }

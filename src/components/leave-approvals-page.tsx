@@ -54,6 +54,7 @@ import {
   computeLeaveHolidayConflict,
   type HolidayLookupRow,
 } from "@/lib/leave-holiday-conflict";
+import { formatDayDecimalAsDayHour } from "@/lib/employee-leave-time";
 
 interface LeaveRequestAdminRow {
   id: string;
@@ -202,6 +203,14 @@ function mapRowToAdminRow(
     updated_at: updated,
     status_raw: String(r.status ?? ""),
   };
+}
+
+/** 特休以「X 天 Y 小時」顯示（total_days 為小數日）；其他假別維持「X 天」 */
+function formatLeaveDaysForType(typeLabel: string, days: number): string {
+  if (typeLabel.trim().startsWith("特休")) {
+    return formatDayDecimalAsDayHour(days);
+  }
+  return `${days.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`;
 }
 
 function leaveBadgeStyles(typeLabel: string): string {
@@ -836,10 +845,7 @@ export function LeaveApprovalsPage() {
                         </span>
                         <br />
                         <span className="text-lg font-semibold tabular-nums text-primary">
-                          {row.days.toLocaleString("zh-TW", {
-                            maximumFractionDigits: 1,
-                          })}{" "}
-                          天
+                          {formatLeaveDaysForType(row.leave_type_label, row.days)}
                         </span>
                       </p>
                       <p className="sm:col-span-2">
@@ -993,10 +999,8 @@ export function LeaveApprovalsPage() {
                             holidayRows={holidayRows}
                           />
                         </TableCell>
-                        <TableCell className="text-right tabular-nums text-sm font-medium">
-                          {row.days.toLocaleString("zh-TW", {
-                            maximumFractionDigits: 1,
-                          })}
+                        <TableCell className="text-right tabular-nums text-sm font-medium whitespace-nowrap">
+                          {formatLeaveDaysForType(row.leave_type_label, row.days)}
                         </TableCell>
                         <TableCell className="text-sm">
                           {st === "approved" ? (

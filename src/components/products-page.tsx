@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { CustomCasesPanel } from "@/components/products/custom-cases-panel";
+import { ProductAccessoriesPanel } from "@/components/products/product-accessories-panel";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -85,6 +86,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
+    is_custom_order: r.is_custom_order === true,
   };
 }
 
@@ -1087,20 +1089,24 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   );
 }
 
-export type ProductsTabKey = "series" | "custom" | "processing";
+export type ProductsTabKey = "series" | "custom" | "processing" | "accessories";
 
 const PRODUCTS_TABS: { key: ProductsTabKey; label: string }[] = [
   { key: "series", label: "產品系列" },
   { key: "custom", label: "訂製案例" },
   { key: "processing", label: "加工區" },
+  { key: "accessories", label: "配件表" },
 ];
 
 function parseProductsTab(value: string | null): ProductsTabKey {
-  return value === "custom" || value === "processing" ? value : "series";
+  return value === "custom" || value === "processing" || value === "accessories"
+    ? value
+    : "series";
 }
 
 /**
- * 產品資料頁：產品系列（原有）、訂製案例（可發佈官網）、加工區（維修保養，僅內部）。
+ * 產品資料頁：產品系列（原有）、訂製案例（可發佈官網）、加工區（維修保養，僅內部）、
+ * 配件表（門框、坐墊、坐墊布料等配件選項，僅內部）。
  * 分頁狀態同步至 ?productsTab=，與 customersTab、procurementTab 慣例一致。
  */
 export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
@@ -1147,6 +1153,7 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       {tab === "series" && <ProductSeriesPanel isAdmin={isAdmin} />}
       {tab === "custom" && <CustomCasesPanel kind="custom" />}
       {tab === "processing" && <CustomCasesPanel kind="processing" />}
+      {tab === "accessories" && <ProductAccessoriesPanel />}
     </div>
   );
 }

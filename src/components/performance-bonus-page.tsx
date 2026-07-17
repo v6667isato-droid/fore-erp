@@ -345,11 +345,12 @@ export function PerformanceBonusPage() {
   const bonusInputs: BonusEmployeeInput[] = useMemo(
     () =>
       employees.map((emp) => {
-        const ov = overrides[emp.id] ?? { performance: 5, participatesInProfitSharing: true };
+        const ov = overrides[emp.id] ?? { performance: 5, participatesInProfitSharing: true, abilityGrade: 5 };
         const seniority = seniorityById.get(emp.id)?.decimalYears ?? 0;
         return {
           id: emp.id,
           name: emp.name,
+          ability: Number.isFinite(Number(ov.abilityGrade)) ? Math.max(0, Number(ov.abilityGrade)) : 5,
           performance: ov.performance,
           seniority,
           salary: emp.monthly_wage,
@@ -390,7 +391,7 @@ export function PerformanceBonusPage() {
     setOverrides((prev) => ({
       ...prev,
       [id]: {
-        ...(prev[id] ?? { performance: 5, participatesInProfitSharing: true }),
+        ...(prev[id] ?? { performance: 5, participatesInProfitSharing: true, abilityGrade: 5 }),
         ...patch,
       },
     }));
@@ -420,6 +421,7 @@ export function PerformanceBonusPage() {
       weights,
       rows: computed.rows.map((row) => ({
         name: row.name,
+        abilityGrade: row.ability,
         seniorityLabel: seniorityById.get(row.id)?.label ?? "—",
         tenureRatioPct: formatTenureRatioPct(row.halfYearTenureRatio),
         performance: row.performance,
@@ -427,6 +429,7 @@ export function PerformanceBonusPage() {
         salary: row.salary,
         shares: row.shares,
         participatesInProfitSharing: row.participatesInProfitSharing,
+        abilityPct: row.abilityPct,
         performancePct: row.performancePct,
         seniorityPct: row.seniorityPct,
         salaryPct: row.salaryPct,
@@ -437,6 +440,7 @@ export function PerformanceBonusPage() {
         totalBonus: row.totalBonus,
       })),
       totals: {
+        ability: computed.totals.ability,
         performance: computed.totals.performance,
         seniority: computed.totals.seniority,
         salary: computed.totals.salary,
@@ -459,7 +463,7 @@ export function PerformanceBonusPage() {
     return [cy - 1, cy, cy + 1];
   }, []);
 
-  const colSpan = 15;
+  const colSpan = 17;
 
   return (
     <div className="flex flex-col gap-4">
@@ -656,11 +660,26 @@ export function PerformanceBonusPage() {
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
-        <table className="w-full min-w-[1100px] border-collapse text-sm">
+        <table className="w-full min-w-[1280px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
               <th className="px-3 py-2 text-left font-medium">姓名</th>
               <th className="px-2 py-2 text-center font-medium">參與分紅</th>
+              <th className="px-2 py-2 text-right font-medium">
+                <div className="flex flex-col items-end gap-1">
+                  <span>能力分級</span>
+                  <input
+                    type="number"
+                    min={0}
+                    className={inputClassSm}
+                    value={weights.ability}
+                    onChange={(e) =>
+                      setWeights((w) => ({ ...w, ability: Math.max(0, parseNum(e.target.value, 0)) }))
+                    }
+                    title="能力分級加權"
+                  />
+                </div>
+              </th>
               <th className="px-2 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
                   <span>考績</span>
@@ -707,6 +726,7 @@ export function PerformanceBonusPage() {
                 </div>
               </th>
               <th className="px-2 py-2 text-right font-medium">股份</th>
+              <th className="px-2 py-2 text-right font-medium">能力%</th>
               <th className="px-2 py-2 text-right font-medium">考績%</th>
               <th className="px-2 py-2 text-right font-medium">年資%</th>
               <th className="px-2 py-2 text-right font-medium">薪資%</th>
@@ -752,6 +772,20 @@ export function PerformanceBonusPage() {
                       max={10}
                       step="0.1"
                       className={inputClass}
+                      value={overrides[row.id]?.abilityGrade ?? 5}
+                      onChange={(e) =>
+                        updateOverride(row.id, { abilityGrade: Math.max(0, parseNum(e.target.value, 0)) })
+                      }
+                      aria-label={`${row.name} 能力分級`}
+                    />
+                  </td>
+                  <td className="px-2 py-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={10}
+                      step="0.1"
+                      className={inputClass}
                       value={overrides[row.id]?.performance ?? row.performance}
                       onChange={(e) =>
                         updateOverride(row.id, { performance: Math.max(0, parseNum(e.target.value, 0)) })
@@ -767,6 +801,7 @@ export function PerformanceBonusPage() {
                   <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
                     {row.shares.toLocaleString("zh-TW")}
                   </td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatPct(row.abilityPct)}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{formatPct(row.performancePct)}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{formatPct(row.seniorityPct)}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{formatPct(row.salaryPct)}</td>
@@ -802,12 +837,14 @@ export function PerformanceBonusPage() {
               <tr className="bg-muted/30 font-medium">
                 <td className="px-3 py-2">合計</td>
                 <td className="px-2 py-2" />
+                <td className="px-2 py-2 text-right tabular-nums">{computed.totals.ability}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{computed.totals.performance}</td>
                 <td className="px-2 py-2" />
                 <td className="px-2 py-2 text-right tabular-nums">{formatMoney(computed.totals.salary)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">
                   {computed.totals.shares.toLocaleString("zh-TW")}
                 </td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatPct(computed.totals.abilityPct)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatPct(computed.totals.performancePct)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatPct(computed.totals.seniorityPct)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatPct(computed.totals.salaryPct)}</td>

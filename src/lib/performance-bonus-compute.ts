@@ -1,4 +1,5 @@
 export type BonusWeights = {
+  ability: number;
   performance: number;
   seniority: number;
   salary: number;
@@ -7,6 +8,8 @@ export type BonusWeights = {
 export type BonusEmployeeInput = {
   id: string;
   name: string;
+  /** 能力分級 */
+  ability: number;
   performance: number;
   seniority: number;
   salary: number;
@@ -17,6 +20,7 @@ export type BonusEmployeeInput = {
 };
 
 export type BonusEmployeeComputed = BonusEmployeeInput & {
+  abilityPct: number;
   performancePct: number;
   seniorityPct: number;
   salaryPct: number;
@@ -36,10 +40,12 @@ export type BonusComputationResult = {
   /** 考績分潤池（分潤獎金池 − 年終獎金） */
   weightedProfitSharingPool: number;
   totals: {
+    ability: number;
     performance: number;
     seniority: number;
     salary: number;
     shares: number;
+    abilityPct: number;
     performancePct: number;
     seniorityPct: number;
     salaryPct: number;
@@ -59,6 +65,7 @@ export function defaultYearEndBonusSalaryPct(): number {
 }
 
 const DEFAULT_WEIGHTS: BonusWeights = {
+  ability: 1,
   performance: 3,
   seniority: 1,
   salary: 2,
@@ -78,17 +85,22 @@ function shareOf(part: number, total: number): number {
 }
 
 function weightedTotalPct(
+  abilityPct: number,
   performancePct: number,
   seniorityPct: number,
   salaryPct: number,
   weights: BonusWeights,
 ): number {
+  const wAbility = safeNum(weights.ability);
   const wPerf = safeNum(weights.performance);
   const wSen = safeNum(weights.seniority);
   const wSal = safeNum(weights.salary);
-  const denom = wPerf + wSen + wSal;
+  const denom = wAbility + wPerf + wSen + wSal;
   if (denom <= 0) return 0;
-  return (performancePct * wPerf + seniorityPct * wSen + salaryPct * wSal) / denom;
+  return (
+    (abilityPct * wAbility + performancePct * wPerf + seniorityPct * wSen + salaryPct * wSal) /
+    denom
+  );
 }
 
 function dayIndex(d: Date): number {
@@ -173,6 +185,7 @@ export function computePerformanceBonus(
   const pool = Math.max(0, grossProfitSharingPool);
   const profitEligible = employees.filter((e) => e.participatesInProfitSharing);
 
+  const sumAbility = profitEligible.reduce((s, e) => s + safeNum(e.ability), 0);
   const sumPerformance = profitEligible.reduce((s, e) => s + safeNum(e.performance), 0);
   const sumSeniority = profitEligible.reduce((s, e) => s + safeNum(e.seniority), 0);
   const sumSalary = profitEligible.reduce((s, e) => s + safeNum(e.salary), 0);
@@ -199,13 +212,14 @@ export function computePerformanceBonus(
 
   const withPct = employees.map((e) => {
     const inPool = e.participatesInProfitSharing;
+    const abilityPct = inPool ? shareOf(safeNum(e.ability), sumAbility) : 0;
     const performancePct = inPool ? shareOf(safeNum(e.performance), sumPerformance) : 0;
     const seniorityPct = inPool ? shareOf(safeNum(e.seniority), sumSeniority) : 0;
     const salaryPct = inPool ? shareOf(safeNum(e.salary), sumSalary) : 0;
     const totalPct = inPool
-      ? weightedTotalPct(performancePct, seniorityPct, salaryPct, weights)
+      ? weightedTotalPct(abilityPct, performancePct, seniorityPct, salaryPct, weights)
       : 0;
-    return { ...e, performancePct, seniorityPct, salaryPct, totalPct };
+    return { ...e, abilityPct, performancePct, seniorityPct, salaryPct, totalPct };
   });
 
   const profitBonuses = distributePool(
@@ -232,10 +246,12 @@ export function computePerformanceBonus(
 
   const totals = rows.reduce(
     (acc, r) => ({
+      ability: acc.ability + safeNum(r.ability),
       performance: acc.performance + safeNum(r.performance),
       seniority: acc.seniority + safeNum(r.seniority),
       salary: acc.salary + safeNum(r.salary),
       shares: acc.shares + safeNum(r.shares),
+      abilityPct: acc.abilityPct + r.abilityPct,
       performancePct: acc.performancePct + r.performancePct,
       seniorityPct: acc.seniorityPct + r.seniorityPct,
       salaryPct: acc.salaryPct + r.salaryPct,
@@ -246,10 +262,12 @@ export function computePerformanceBonus(
       totalBonus: acc.totalBonus + r.totalBonus,
     }),
     {
+      ability: 0,
       performance: 0,
       seniority: 0,
       salary: 0,
       shares: 0,
+      abilityPct: 0,
       performancePct: 0,
       seniorityPct: 0,
       salaryPct: 0,

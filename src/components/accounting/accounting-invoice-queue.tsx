@@ -3,15 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Camera, FileText, FolderUp, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Camera, FileText, FolderUp, Loader2, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { compressInvoiceFileForStorage } from "@/lib/invoice-file";
 import { fixRocDate } from "@/lib/invoice-scan";
 import {
   fetchInvoiceQueue,
+  importInvoicesFromGmail,
   normalizeInvoiceNumber,
   recognizeAccountingInvoice,
   recognizeAccountingInvoiceFromUrl,
+  SOURCE_LABELS,
   type AccountingInvoiceRow,
 } from "@/lib/accounting-invoice";
 import { AccountingInvoiceReviewDialog } from "@/components/accounting/accounting-invoice-review-dialog";
@@ -38,6 +40,7 @@ export interface AccountingInvoiceQueueProps {
 export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueueProps) {
   const [rows, setRows] = useState<AccountingInvoiceRow[]>([]);
   const [uploadingCount, setUploadingCount] = useState(0);
+  const [gmailImporting, setGmailImporting] = useState(false);
   /** 正在跑辨識的發票 id（DB 裡仍是 pending，前端顯示辨識中） */
   const [recognizingIds, setRecognizingIds] = useState<Set<string>>(() => new Set());
   const [reviewRow, setReviewRow] = useState<AccountingInvoiceRow | null>(null);
@@ -90,6 +93,7 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
           file_name: file.name,
           media_type: mediaType,
           status: "pending",
+          source: "upload",
         })
         .select("id")
         .single();
@@ -122,6 +126,45 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
     }
     if (cameraInputRef.current) cameraInputRef.current.value = "";
     if (filesInputRef.current) filesInputRef.current.value = "";
+  }
+
+  /** 從 Gmail 撈發票信附件進佇列，匯入後逐張跑辨識 */
+  async function handleGmailImport() {
+    setGmailImporting(true);
+    try {
+      const result = await importInvoicesFromGmail();
+      if (!result.ok) {
+        if (result.notConfigured) toast.warning(result.error);
+        else toast.error(result.error ?? "Gmail 匯入失敗");
+        return;
+      }
+      if (result.imported === 0) {
+        toast.info(
+          result.skipped > 0
+            ? `沒有新發票信（${result.skipped} 封先前已匯入過）`
+            : "Gmail 裡沒有找到符合條件的發票信",
+        );
+        await refresh();
+        return;
+      }
+      toast.success(`已從 Gmail 匯入 ${result.imported} 張附件，AI 辨識中…`);
+      const queue = await fetchInvoiceQueue();
+      setRows(queue);
+      const newRows = queue.filter((r) => result.ids.includes(r.id));
+      let aiNotConfigured = false;
+      await Promise.all(
+        newRows.map(async (row) => {
+          markRecognizing(row.id, true);
+          const outcome = await recognizeAccountingInvoiceFromUrl(row);
+          markRecognizing(row.id, false);
+          if (!outcome.ok && outcome.notConfigured) aiNotConfigured = true;
+        }),
+      );
+      if (aiNotConfigured) toast.warning("尚未設定 AI key，發票已入佇列，審核時需手動輸入");
+      await refresh();
+    } finally {
+      setGmailImporting(false);
+    }
   }
 
   async function retryRecognition(row: AccountingInvoiceRow) {
@@ -202,6 +245,20 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
             type="button"
             variant="outline"
             className="h-8 px-3 text-xs"
+            disabled={gmailImporting}
+            onClick={() => void handleGmailImport()}
+          >
+            {gmailImporting ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+            ) : (
+              <Mail className="h-3.5 w-3.5 mr-1" />
+            )}
+            從 Gmail 匯入
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 px-3 text-xs"
             onClick={() => cameraInputRef.current?.click()}
           >
             <Camera className="h-3.5 w-3.5 mr-1" />
@@ -256,6 +313,16 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className={`rounded border px-1.5 py-px text-[10px] font-medium ${badge.className}`}>
                       {badge.label}
+                    </span>
+                    <span
+                      className="rounded border border-border px-1.5 py-px text-[10px] text-muted-foreground"
+                      title={
+                        row.source === "gmail"
+                          ? [row.gmail_subject, row.gmail_from].filter(Boolean).join("\n") || undefined
+                          : undefined
+                      }
+                    >
+                      {SOURCE_LABELS[row.source] ?? row.source}
                     </span>
                     <span className="truncate text-sm text-foreground">{rowSummary(row)}</span>
                   </div>

@@ -4,6 +4,8 @@ export const PERFORMANCE_BONUS_EXPORT_KEY = "fore-erp:performance-bonus-export";
 
 export type PerformanceBonusExportRow = {
   name: string;
+  /** 能力分級（舊快照可能沒有） */
+  abilityGrade?: number;
   seniorityLabel: string;
   tenureRatioPct: string;
   performance: number;
@@ -11,6 +13,8 @@ export type PerformanceBonusExportRow = {
   salary: number;
   shares: number;
   participatesInProfitSharing: boolean;
+  /** 能力%（舊快照可能沒有） */
+  abilityPct?: number;
   performancePct: number;
   seniorityPct: number;
   salaryPct: number;
@@ -40,6 +44,8 @@ export type PerformanceBonusExportSnapshot = {
   weights: BonusWeights;
   rows: PerformanceBonusExportRow[];
   totals: {
+    /** 能力分級合計（舊快照可能沒有） */
+    ability?: number;
     performance: number;
     seniority: number;
     salary: number;

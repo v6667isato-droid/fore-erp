@@ -103,8 +103,8 @@ export default function PerformanceBonusPrintPage() {
         )}
 
         <p className="mb-3 text-xs text-gray-600">
-          加權：考績 {snapshot.weights.performance}、年資 {snapshot.weights.seniority}、薪資{" "}
-          {snapshot.weights.salary}
+          加權：能力分級 {snapshot.weights.ability ?? 0}、考績 {snapshot.weights.performance}、年資{" "}
+          {snapshot.weights.seniority}、薪資 {snapshot.weights.salary}
           {snapshot.issueYearEndBonus === false
             ? " · 本次不發放年終獎金"
             : snapshot.yearEndBonusSalaryPct != null
@@ -117,10 +117,12 @@ export default function PerformanceBonusPrintPage() {
             <tr className="border border-gray-400 bg-gray-100">
               <th className="border border-gray-300 px-2 py-1.5 text-left font-semibold">姓名</th>
               <th className="border border-gray-300 px-2 py-1.5 text-center font-semibold">參與分紅</th>
+              <th className="border border-gray-300 px-2 py-1.5 text-right font-semibold">能力分級</th>
               <th className="border border-gray-300 px-2 py-1.5 text-right font-semibold">考績</th>
               <th className="border border-gray-300 px-2 py-1.5 text-right font-semibold">年資</th>
               <th className="border border-gray-300 px-2 py-1.5 text-right font-semibold">薪資</th>
               <th className="border border-gray-300 px-2 py-1.5 text-right font-semibold">股份</th>
+              <th className="border border-gray-300 px-2 py-1.5 text-right font-semibold">能力%</th>
               <th className="border border-gray-300 px-2 py-1.5 text-right font-semibold">考績%</th>
               <th className="border border-gray-300 px-2 py-1.5 text-right font-semibold">年資%</th>
               <th className="border border-gray-300 px-2 py-1.5 text-right font-semibold">薪資%</th>
@@ -138,6 +140,9 @@ export default function PerformanceBonusPrintPage() {
                 <td className="border border-gray-300 px-2 py-1 text-center">
                   {row.participatesInProfitSharing ? "✓" : "—"}
                 </td>
+                <td className="border border-gray-300 px-2 py-1 text-right tabular-nums">
+                  {row.abilityGrade ?? "—"}
+                </td>
                 <td className="border border-gray-300 px-2 py-1 text-right tabular-nums">{row.performance}</td>
                 <td className="border border-gray-300 px-2 py-1 text-right">{row.seniorityLabel}</td>
                 <td className="border border-gray-300 px-2 py-1 text-right tabular-nums">
@@ -145,6 +150,9 @@ export default function PerformanceBonusPrintPage() {
                 </td>
                 <td className="border border-gray-300 px-2 py-1 text-right tabular-nums">
                   {row.shares.toLocaleString("zh-TW")}
+                </td>
+                <td className="border border-gray-300 px-2 py-1 text-right tabular-nums">
+                  {formatPct(row.abilityPct ?? 0)}
                 </td>
                 <td className="border border-gray-300 px-2 py-1 text-right tabular-nums">
                   {formatPct(row.performancePct)}
@@ -179,6 +187,9 @@ export default function PerformanceBonusPrintPage() {
               <td className="border border-gray-300 px-2 py-1.5">合計</td>
               <td className="border border-gray-300 px-2 py-1.5" />
               <td className="border border-gray-300 px-2 py-1.5 text-right tabular-nums">
+                {snapshot.totals.ability ?? ""}
+              </td>
+              <td className="border border-gray-300 px-2 py-1.5 text-right tabular-nums">
                 {snapshot.totals.performance}
               </td>
               <td className="border border-gray-300 px-2 py-1.5" />
@@ -188,7 +199,7 @@ export default function PerformanceBonusPrintPage() {
               <td className="border border-gray-300 px-2 py-1.5 text-right tabular-nums">
                 {snapshot.totals.shares.toLocaleString("zh-TW")}
               </td>
-              <td className="border border-gray-300 px-2 py-1.5" colSpan={4} />
+              <td className="border border-gray-300 px-2 py-1.5" colSpan={5} />
               <td className="border border-gray-300 px-2 py-1.5 text-right tabular-nums">
                 {formatMoney(snapshot.totals.yearEndBonus ?? 0)}
               </td>
@@ -210,7 +221,7 @@ export default function PerformanceBonusPrintPage() {
           {snapshot.issueYearEndBonus !== false && snapshot.yearEndBonusSalaryPct != null
             ? `（${snapshot.yearEndBonusSalaryPct}% 月薪，到職不足半年依比例）`
             : ""}
-          ，剩餘依考績、年資、薪資加權分配；股份分紅依持股數比例分配。本表僅供內部留存。
+          ，剩餘依能力分級、考績、年資、薪資加權分配；股份分紅依持股數比例分配。本表僅供內部留存。
         </footer>
       </div>
     </div>

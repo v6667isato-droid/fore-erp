@@ -32,6 +32,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
   const [seriesCategory, setSeriesCategory] = useState<string | null>(null);
   const [spec1, setSpec1] = useState("");
   const [seatHeightCm, setSeatHeightCm] = useState("");
+  const [isCustomOrder, setIsCustomOrder] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +52,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       setSeatHeightCm(
         row.seat_height_cm != null ? String(row.seat_height_cm) : ""
       );
+      setIsCustomOrder(row.is_custom_order === true);
       setImageUrl(typeof row.image_url === "string" && row.image_url ? row.image_url : null);
     }
   }, [open, row]);
@@ -147,6 +149,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       base_price: price.trim() ? Number(price) : null,
       spec1: spec1.trim() || null,
       image_url: imageUrl?.trim() || null,
+      is_custom_order: isCustomOrder,
     };
     if (seriesCategory === "椅" || seriesCategory === "凳") {
       payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
@@ -288,6 +291,18 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
                 />
               )}
             </div>
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isCustomOrder}
+                onChange={(e) => setIsCustomOrder(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium text-foreground">訂製款（開單佔位用）</span>
+                <span className="text-[11px] text-muted-foreground">不列入產品介紹表／價目表；新增訂單選到時牌價改為手動輸入</span>
+              </span>
+            </label>
             {channels.length > 0 && (() => {
               const visibleChannels = channels.filter((ch) => {
                 const raw = (channelPrices[ch.id] ?? "").trim();

@@ -30,6 +30,10 @@ import {
   nextAnnualLeaveMilestone,
   type AnnualLeaveMilestone,
 } from "@/lib/annual-leave-grant";
+import {
+  formatDayDecimalAsDayHour,
+  formatSignedDayDecimalAsDayHour,
+} from "@/lib/employee-leave-time";
 
 interface SettlementEmployee {
   id: string;
@@ -858,7 +862,7 @@ export function SalarySettlementCenter() {
         (m) => `${milestoneLabel(m.milestoneYears)}：+${m.days} 天`,
       ),
       ``,
-      `特休餘額：${fmt(cur)} 天 → ${fmt(after)} 天`,
+      `特休餘額：${formatDayDecimalAsDayHour(cur)} → ${formatDayDecimalAsDayHour(after)}`,
     ];
     if (!window.confirm(lines.join("\n"))) return;
 
@@ -927,7 +931,7 @@ export function SalarySettlementCenter() {
       toast.success(
         `已為「${emp.name}」新增特休 ${fmt(totalDays)} 天（${pending
           .map((m) => milestoneLabel(m.milestoneYears))
-          .join("、")}），餘額 ${fmt(after)} 天`,
+          .join("、")}），餘額 ${formatDayDecimalAsDayHour(after)}`,
       );
     } finally {
       setGrantingId(null);
@@ -994,7 +998,7 @@ export function SalarySettlementCenter() {
       );
     }
     confirmLines.push(
-      `特休結算後餘額將更新為：${settledRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天（原本 ${baseRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} − 本月建立之特休 ${st.specialThisMonth.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}）`,
+      `特休結算後餘額將更新為：${formatSignedDayDecimalAsDayHour(settledRemaining)}（原本 ${formatDayDecimalAsDayHour(baseRemaining)} − 本月建立之特休 ${formatDayDecimalAsDayHour(st.specialThisMonth)}）`,
     );
 
     const ok = window.confirm(confirmLines.join("\n"));
@@ -1306,10 +1310,10 @@ export function SalarySettlementCenter() {
               <col className="w-[2.75rem]" />
               <col className="w-[3rem]" />
               <col className="w-[4rem]" />
-              <col className="w-[2.5rem]" />
-              <col className="w-[3.25rem]" />
-              <col className="w-[2.5rem]" />
-              <col className="w-[2.75rem]" />
+              <col className="w-[5rem]" />
+              <col className="w-[3.75rem]" />
+              <col className="w-[5rem]" />
+              <col className="w-[5.25rem]" />
               <col className="w-[3.25rem]" />
               <col className="w-[2.5rem]" />
               <col className="w-[2.25rem]" />
@@ -1479,10 +1483,8 @@ export function SalarySettlementCenter() {
                     >
                       −{leaveDedTotal.toLocaleString("zh-TW")}
                     </td>
-                    <td className="border-l border-border text-right text-xs tabular-nums text-muted-foreground">
-                      {orig != null
-                        ? `${orig.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}天`
-                        : "—"}
+                    <td className="whitespace-nowrap! border-l border-border text-right text-xs tabular-nums text-muted-foreground">
+                      {orig != null ? formatDayDecimalAsDayHour(orig) : "—"}
                     </td>
                     <td className="text-center">
                       {pendingGrants.length > 0 ? (
@@ -1514,23 +1516,20 @@ export function SalarySettlementCenter() {
                         </span>
                       )}
                     </td>
-                    <td className="text-right text-xs tabular-nums text-foreground">
-                      {st.specialThisMonth.toLocaleString("zh-TW", {
-                        maximumFractionDigits: 1,
-                      })}
-                      天
+                    <td className="whitespace-nowrap! text-right text-xs tabular-nums text-foreground">
+                      {formatDayDecimalAsDayHour(st.specialThisMonth)}
                     </td>
                     <td
                       title={hasSpecialUse ? "已扣本月建立之特休" : undefined}
                       className={cn(
-                        "bg-[var(--secondary)]/15 text-right text-xs tabular-nums font-semibold dark:bg-muted/30",
+                        "whitespace-nowrap! bg-[var(--secondary)]/15 text-right text-xs tabular-nums font-semibold dark:bg-muted/30",
                         hasSpecialUse
                           ? "text-amber-800 dark:text-amber-400"
                           : "text-foreground",
                       )}
                     >
                       {orig != null || st.specialThisMonth > 0
-                        ? `${settledRemaining.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}天`
+                        ? formatSignedDayDecimalAsDayHour(settledRemaining)
                         : "—"}
                     </td>
                     <td className="border-l border-border text-right">

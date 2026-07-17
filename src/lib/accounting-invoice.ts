@@ -17,6 +17,15 @@ export interface AccountingInvoicePo {
 /** 進項憑證格式代號（報稅媒體檔用） */
 export type InvoiceFormatCode = "21" | "22" | "25";
 
+/** 發票來源：manual=手動輸入 / upload=手動上傳 / gmail=Gmail 自動抓取 */
+export type AccountingInvoiceSource = "manual" | "upload" | "gmail";
+
+export const SOURCE_LABELS: Record<AccountingInvoiceSource, string> = {
+  manual: "手動輸入",
+  upload: "手動上傳",
+  gmail: "Gmail",
+};
+
 export interface AccountingInvoiceRow {
   id: string;
   file_path: string;
@@ -24,6 +33,10 @@ export interface AccountingInvoiceRow {
   file_name: string | null;
   media_type: string | null;
   status: AccountingInvoiceStatus;
+  source: AccountingInvoiceSource;
+  gmail_message_id: string | null;
+  gmail_subject: string | null;
+  gmail_from: string | null;
   recognized: RecognizedTaxInvoice | null;
   error: string | null;
   invoice_number: string | null;
@@ -46,7 +59,7 @@ export interface AccountingInvoiceRow {
 }
 
 export const ACCOUNTING_INVOICE_FIELDS =
-  "id, file_path, file_url, file_name, media_type, status, recognized, error, invoice_number, invoice_date, seller_name, seller_tax_id, buyer_tax_id, amount_ex_tax, tax_amount, amount_inc_tax, format_code, deduction_code, tax_type, exported_at, purchase_order_id, notes, created_at, reviewed_at";
+  "id, file_path, file_url, file_name, media_type, status, source, gmail_message_id, gmail_subject, gmail_from, recognized, error, invoice_number, invoice_date, seller_name, seller_tax_id, buyer_tax_id, amount_ex_tax, tax_amount, amount_inc_tax, format_code, deduction_code, tax_type, exported_at, purchase_order_id, notes, created_at, reviewed_at";
 
 /** 格式代號選項（進項；報稅媒體申報） */
 export const FORMAT_CODE_OPTIONS: { value: InvoiceFormatCode; label: string }[] = [
@@ -133,6 +146,62 @@ export async function fetchConfirmedInvoices(): Promise<AccountingInvoiceRow[]> 
     return [];
   }
   return (data ?? []) as unknown as AccountingInvoiceRow[];
+}
+
+export interface GmailImportResult {
+  ok: boolean;
+  /** 新匯入的張數 */
+  imported: number;
+  /** 已匯入過而略過的信件數 */
+  skipped: number;
+  /** 沒有可用附件的信件數 */
+  noAttachment: number;
+  /** 新建佇列紀錄的 id（前端接著跑辨識） */
+  ids: string[];
+  error?: string;
+  notConfigured?: boolean;
+}
+
+const GMAIL_IMPORT_FAILURE: Omit<GmailImportResult, "error"> = {
+  ok: false,
+  imported: 0,
+  skipped: 0,
+  noAttachment: 0,
+  ids: [],
+};
+
+/** 呼叫 Gmail 匯入 API：撈發票信件附件進佇列（source=gmail） */
+export async function importInvoicesFromGmail(): Promise<GmailImportResult> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return { ...GMAIL_IMPORT_FAILURE, error: "尚未登入，請重新登入後再試" };
+  try {
+    const res = await fetch("/api/gmail-import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({}),
+    });
+    const json = await res.json().catch(() => null);
+    if (res.ok && json?.success) {
+      return {
+        ok: true,
+        imported: json.imported ?? 0,
+        skipped: json.skipped ?? 0,
+        noAttachment: json.no_attachment ?? 0,
+        ids: Array.isArray(json.ids) ? json.ids : [],
+      };
+    }
+    return {
+      ...GMAIL_IMPORT_FAILURE,
+      error: json?.error || "Gmail 匯入失敗，請稍後再試",
+      notConfigured: Boolean(json?.not_configured),
+    };
+  } catch (err) {
+    console.error(err);
+    return { ...GMAIL_IMPORT_FAILURE, error: err instanceof Error ? err.message : "Gmail 匯入失敗" };
+  }
 }
 
 export type TaxRecognitionOutcome =

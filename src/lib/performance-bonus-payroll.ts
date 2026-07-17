@@ -155,6 +155,7 @@ export async function computeSemiAnnualBonusesForPayroll(
     const ov = overrides[emp.id] ?? {
       performance: 5,
       participatesInProfitSharing: true,
+      abilityGrade: 5,
     };
     const seniority = seniorityFromHire(
       emp.hire_date,
@@ -164,6 +165,7 @@ export async function computeSemiAnnualBonusesForPayroll(
     return {
       id: emp.id,
       name: emp.name,
+      ability: Number.isFinite(Number(ov.abilityGrade)) ? Math.max(0, Number(ov.abilityGrade)) : 5,
       performance: ov.performance,
       seniority,
       salary: emp.monthly_wage,

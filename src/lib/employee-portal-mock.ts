@@ -381,7 +381,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       net_pay: 45120,
       status: "paid",
       notes:
-        "3/2 遲到 12分, 3/8 特休 1日, 3/15 假日加班轉補休 6hr, 3/20 事假 4hr",
+        "3/2 遲到 12分, 3/8 特休 1天, 3/15 假日加班轉補休 6hr, 3/20 事假 4hr",
       breakdown: {
         base_salary: 42000,
         labor_insurance_employee: 1260,
@@ -402,7 +402,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       month_label: "2026 年 1 月",
       net_pay: 42850,
       status: "paid",
-      notes: "1/10 特休 2日, 1/22 缺卡",
+      notes: "1/10 特休 2天, 1/22 缺卡",
       breakdown: {
         base_salary: 42000,
         labor_insurance_employee: 1260,

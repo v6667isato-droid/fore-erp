@@ -9,6 +9,8 @@ export const PERFORMANCE_BONUS_DRAFT_KEY = "fore-erp:performance-bonus-draft";
 export type PerformanceBonusRowDraft = {
   performance: number;
   participatesInProfitSharing: boolean;
+  /** 能力分級（0–10，參與總%加權） */
+  abilityGrade: number;
 };
 
 export type PerformanceBonusPeriodDraft = {
@@ -107,12 +109,20 @@ function normalizePeriodDraft(draft: PerformanceBonusPeriodDraft): PerformanceBo
     overrides[id] = {
       performance: Number.isFinite(Number(row.performance)) ? Math.max(0, Number(row.performance)) : 5,
       participatesInProfitSharing: row.participatesInProfitSharing !== false,
+      abilityGrade:
+        String(row.abilityGrade ?? "").trim() !== "" && Number.isFinite(Number(row.abilityGrade))
+          ? Math.max(0, Number(row.abilityGrade))
+          : 5,
     };
   }
   const weights = draft.weights ?? defaultBonusWeights();
   return {
     overrides,
     weights: {
+      ability:
+        weights.ability != null
+          ? Math.max(0, Number(weights.ability) || 0)
+          : defaultBonusWeights().ability,
       performance: Math.max(0, Number(weights.performance) || 0),
       seniority: Math.max(0, Number(weights.seniority) || 0),
       salary: Math.max(0, Number(weights.salary) || 0),
@@ -155,7 +165,7 @@ export function mergePerformanceBonusOverrides(
   const next = { ...saved };
   for (const id of employeeIds) {
     if (!next[id]) {
-      next[id] = { performance: 5, participatesInProfitSharing: true };
+      next[id] = { performance: 5, participatesInProfitSharing: true, abilityGrade: 5 };
     }
   }
   return next;

@@ -24,14 +24,14 @@ export const SERIES_SELECT_NO_WEBSITE =
 
 /** product_variants 查詢欄位（含 series_id 關聯） */
 export const VARIANT_SELECT =
-  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url";
+  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url, is_custom_order";
 
 /** 精簡系列欄位（當完整欄位不存在時 fallback 用） */
 export const SERIES_SELECT_MINIMAL = "id, name:series_name, category, notes";
 
 /** 精簡規格欄位（當完整欄位不存在時 fallback 用） */
 export const VARIANT_SELECT_MINIMAL =
-  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url";
+  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url, is_custom_order";
 
 /** product_series 文案欄位（編輯文案用，須與表內欄位一致） */
 export const SERIES_CONTENT_COLUMNS = [

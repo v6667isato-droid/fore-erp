@@ -54,6 +54,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
+    is_custom_order: r.is_custom_order === true,
   };
 }
 
@@ -153,7 +154,10 @@ export default function SeriesIntroPrintPage({
 
   const sortedVariants = useMemo(
     () =>
-      [...variants].sort((a, b) => (a.product_code || "").localeCompare(b.product_code || "")),
+      variants
+        // 訂製款為開單佔位用規格，不列入對外的產品介紹表
+        .filter((v) => !v.is_custom_order)
+        .sort((a, b) => (a.product_code || "").localeCompare(b.product_code || "")),
     [variants]
   );
 

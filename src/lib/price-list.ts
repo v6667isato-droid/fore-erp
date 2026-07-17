@@ -56,6 +56,8 @@ export function buildPriceListRows(
 
   const rows: PriceListRow[] = [];
   for (const v of variantsList) {
+    // 訂製款為開單佔位用規格，不列入價目表
+    if (v.is_custom_order) continue;
     if (!allowedSeriesIds.has(v.series_id)) continue;
     const s = seriesMap.get(v.series_id);
     rows.push({

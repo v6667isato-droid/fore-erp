@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils";
 import { Eye, Loader2, Receipt, RefreshCw, Trash2 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { parsePayrollBonusFromNotes } from "@/lib/performance-bonus-payroll";
+import {
+  formatDayDecimalAsDayHour,
+  formatSignedDayDecimalAsDayHour,
+} from "@/lib/employee-leave-time";
 import { toast } from "sonner";
 
 function ymNow(): string {
@@ -447,7 +451,7 @@ export function PayslipPaidHistoryPanel() {
     ];
     if (row.special_leave_days_settled > 0) {
       confirmLines.push(
-        `將還原特休餘額 +${row.special_leave_days_settled.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`,
+        `將還原特休餘額 +${formatDayDecimalAsDayHour(row.special_leave_days_settled)}`,
       );
     }
     confirmLines.push(``, `刪除後可至「薪資結算」重新發放該月份薪資。`);
@@ -843,17 +847,17 @@ export function PayslipPaidHistoryPanel() {
                         </span>
                       ) : null}
                     </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums">
+                    <TableCell className="whitespace-nowrap! text-right text-sm tabular-nums">
                       {row.special_leave_days_settled > 0
-                        ? `${row.special_leave_days_settled.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}天`
+                        ? formatDayDecimalAsDayHour(row.special_leave_days_settled)
                         : "—"}
                     </TableCell>
                     <TableCell
                       title="該月結算後剩餘特休"
-                      className="text-right text-sm tabular-nums text-muted-foreground"
+                      className="whitespace-nowrap! text-right text-sm tabular-nums text-muted-foreground"
                     >
                       {row.special_leave_remaining_after != null
-                        ? `${row.special_leave_remaining_after.toLocaleString("zh-TW", { maximumFractionDigits: 3 })}天`
+                        ? formatSignedDayDecimalAsDayHour(row.special_leave_remaining_after)
                         : "—"}
                     </TableCell>
                     <TableCell

@@ -174,7 +174,7 @@ export function OrdersPage({
       const { data: variantData } = await supabase
         .from("product_variants")
         .select(
-          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1, image_url"
+          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1, image_url, is_custom_order"
         )
         .order("product_code", { ascending: true });
       setVariants(
@@ -218,6 +218,7 @@ export function OrdersPage({
               v.base_price !== undefined && v.base_price !== null
                 ? Number(v.base_price)
                 : null,
+            is_custom_order: v.is_custom_order === true,
             spec1: v.spec1 ?? null,
             wood_type: v.wood_type ?? null,
             dimension_w: v.dimension_w != null ? Number(v.dimension_w) : null,

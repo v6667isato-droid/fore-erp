@@ -62,6 +62,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
+    is_custom_order: r.is_custom_order === true,
   };
 }
 

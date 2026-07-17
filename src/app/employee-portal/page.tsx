@@ -293,7 +293,9 @@ function PayslipBreakdownPanel({
               </tr>
               <tr className="border-b border-border/55">
                 <td className={slipLabel}>特休請假</td>
-                <td className={slipVal}>{formatSlipDays(b.special_leave_days_settled)}</td>
+                <td className={slipVal}>
+                  {formatDayDecimalAsDayHour(b.special_leave_days_settled)}
+                </td>
               </tr>
               <tr className="border-b border-border/55">
                 <td className={cn(slipLabel, "whitespace-normal")}>
@@ -476,7 +478,10 @@ function deductsSalaryForLeaveType(type: string): boolean {
 function leaveDurationTableLabel(row: LeaveRequestRow): string {
   if (row.hours_count != null && row.hours_count > 0) {
     const { days, hours } = hoursToDayHourParts(row.hours_count);
-    return `${days} 日 ${hours} 小時`;
+    return `${days} 天 ${hours} 小時`;
+  }
+  if (row.type_label.trim().startsWith("特休")) {
+    return formatDayDecimalAsDayHour(row.days_count);
   }
   return `${row.days_count} 天`;
 }
@@ -1873,7 +1878,7 @@ export default function EmployeePortalPage() {
                   <p className="text-xs font-medium text-muted-foreground">目前特休剩餘</p>
                   {annualLeaveRemainingParts ? (
                     <p className="mt-1 tabular-nums text-base font-medium text-foreground">
-                      {annualLeaveRemainingParts.days} 日 {annualLeaveRemainingParts.hours} 小時
+                      {annualLeaveRemainingParts.days} 天 {annualLeaveRemainingParts.hours} 小時
                     </p>
                   ) : (
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

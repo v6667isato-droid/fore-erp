@@ -27,6 +27,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const [price, setPrice] = useState("");
   const [spec1, setSpec1] = useState("");
   const [seatHeightCm, setSeatHeightCm] = useState("");
+  const [isCustomOrder, setIsCustomOrder] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,6 +40,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       setH("");
       setPrice("");
       setSpec1("");
+      setIsCustomOrder(false);
       setSeatHeightCm(
         series.category === "椅" || series.category === "凳"
           ? String(DEFAULT_SEAT_HEIGHT_CM)
@@ -69,6 +71,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       dimension_d: d.trim() ? Number(d) : null,
       dimension_h: h.trim() ? Number(h) : null,
       base_price: price.trim() ? Number(price) : null,
+      is_custom_order: isCustomOrder,
     };
     payload.spec1 = spec1.trim() || null;
     const showSeatHeight = series.category === "椅" || series.category === "凳";
@@ -195,6 +198,18 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                 />
               )}
             </div>
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isCustomOrder}
+                onChange={(e) => setIsCustomOrder(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium text-foreground">訂製款（開單佔位用）</span>
+                <span className="text-[11px] text-muted-foreground">不列入產品介紹表／價目表；新增訂單選到時牌價改為手動輸入</span>
+              </span>
+            </label>
             {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
             <div className="flex justify-end gap-2 pt-1">
               <Dialog.Close asChild><Button type="button" variant="ghost" disabled={adding}>取消</Button></Dialog.Close>

@@ -46,4 +46,6 @@ export interface VariantRow {
   spec1?: string | null;
   /** 產品規格圖片 Public URL（來自 product-images bucket） */
   image_url?: string | null;
+  /** 訂製款（開單佔位用規格）：不列入產品介紹表／價目表等對外列表，訂單牌價手動輸入 */
+  is_custom_order?: boolean;
 }

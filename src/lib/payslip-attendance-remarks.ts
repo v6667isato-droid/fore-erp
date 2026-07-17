@@ -82,13 +82,13 @@ function createdAtInPayPeriodMonth(row: Record<string, unknown>, payPeriodYm: st
   return t >= new Date(gte).getTime() && t < new Date(lt).getTime();
 }
 
-/** 特休備註：X日Y小時；小時為 0 不顯示「Y小時」；僅小時時不顯示 0日 */
+/** 特休備註：X天Y小時；小時為 0 不顯示「Y小時」；僅小時時不顯示 0天 */
 function formatSpecialLeaveDurationForNote(days: number, hours: number): string {
   const d = Math.max(0, Math.trunc(days));
   const hRaw = Math.max(0, Number(hours) || 0);
   const hRounded = Math.round(hRaw * 100) / 100;
   const parts: string[] = [];
-  if (d > 0) parts.push(`${d}日`);
+  if (d > 0) parts.push(`${d}天`);
   if (hRounded > 0) {
     const hDisp = Number.isInteger(hRounded)
       ? String(hRounded)
