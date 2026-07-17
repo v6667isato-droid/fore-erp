@@ -150,6 +150,9 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
       toast.success(
         `已從 Gmail 匯入 ${result.imported} 張附件${result.duplicates > 0 ? `（另略過 ${result.duplicates} 張重複）` : ""}，AI 辨識中…`,
       );
+      if (result.remaining > 0) {
+        toast.info(`還有 ${result.remaining} 封新發票信未處理（單次上限 20 封），辨識完成後請再按一次「從 Gmail 匯入」`);
+      }
       const queue = await fetchInvoiceQueue();
       setRows(queue);
       const newRows = queue.filter((r) => result.ids.includes(r.id));

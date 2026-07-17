@@ -12,8 +12,11 @@ export const maxDuration = 60;
  */
 
 const DEFAULT_QUERY = "has:attachment (發票 OR 電子發票 OR invoice) newer_than:60d";
-/** 單次最多處理的信件數（避免超過 Vercel 60 秒上限） */
-const MAX_MESSAGES = 20;
+/** 單次最多下載處理的「新」信件數（避免超過 Vercel 60 秒上限）；超過的部分回報 remaining 請使用者再按一次 */
+const MAX_NEW_MESSAGES = 20;
+/** Gmail 清單翻頁：每頁筆數與總掃描上限（已匯入的只比對 id、不佔處理名額） */
+const LIST_PAGE_SIZE = 100;
+const MAX_LIST_MESSAGES = 500;
 /** 圖片附件小於此大小視為信件簽名檔／logo，略過 */
 const MIN_IMAGE_BYTES = 20 * 1024;
 
@@ -165,13 +168,29 @@ export async function POST(request: NextRequest) {
   try {
     const accessToken = await refreshAccessToken(clientId, clientSecret, refreshToken);
 
-    const list = await gmailGet(
-      accessToken,
-      `messages?q=${encodeURIComponent(query)}&maxResults=${MAX_MESSAGES}`,
-    );
-    const messageIds: string[] = ((list.messages as { id: string }[] | undefined) ?? []).map((m) => m.id);
+    // 翻頁掃完符合條件的信件 id（新→舊），避免超過單頁筆數的較舊信件永遠排不進清單
+    const messageIds: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const list = await gmailGet(
+        accessToken,
+        `messages?q=${encodeURIComponent(query)}&maxResults=${LIST_PAGE_SIZE}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`,
+      );
+      messageIds.push(...(((list.messages as { id: string }[] | undefined) ?? []).map((m) => m.id)));
+      pageToken = list.nextPageToken as string | undefined;
+    } while (pageToken && messageIds.length < MAX_LIST_MESSAGES);
+
     if (messageIds.length === 0) {
-      return NextResponse.json({ success: true, imported: 0, skipped: 0, no_attachment: 0, ids: [], query });
+      return NextResponse.json({
+        success: true,
+        imported: 0,
+        skipped: 0,
+        duplicates: 0,
+        no_attachment: 0,
+        remaining: 0,
+        ids: [],
+        query,
+      });
     }
 
     // 防重複匯入：含已刪除紀錄，刪過的信不再重抓
@@ -182,18 +201,18 @@ export async function POST(request: NextRequest) {
     if (existErr) throw new Error(`資料庫查詢失敗：${existErr.message}`);
     const imported = new Set((existing ?? []).map((r) => r.gmail_message_id as string));
 
+    const newIds = messageIds.filter((mid) => !imported.has(mid));
+    const toProcess = newIds.slice(0, MAX_NEW_MESSAGES);
+    const remaining = newIds.length - toProcess.length;
+    const skipped = messageIds.length - newIds.length;
+
     const insertedIds: string[] = [];
-    let skipped = 0;
     let noAttachment = 0;
     let duplicates = 0;
     /** 本次執行內已收的附件內容雜湊（同批信件互相去重） */
     const seenHashes = new Set<string>();
 
-    for (const mid of messageIds) {
-      if (imported.has(mid)) {
-        skipped += 1;
-        continue;
-      }
+    for (const mid of toProcess) {
       const message = await gmailGet(accessToken, `messages/${mid}?format=full`);
       const payload = message.payload as GmailPart | undefined;
       const headers = (message.payload as { headers?: { name?: string; value?: string }[] } | undefined)?.headers;
@@ -269,6 +288,7 @@ export async function POST(request: NextRequest) {
       skipped,
       duplicates,
       no_attachment: noAttachment,
+      remaining,
       ids: insertedIds,
       query,
     });
