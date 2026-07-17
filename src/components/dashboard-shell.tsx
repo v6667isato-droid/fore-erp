@@ -17,6 +17,7 @@ import {
   BarChart3,
   TrendingUp,
   Receipt,
+  Newspaper,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import { OrdersPage } from "@/components/orders-page";
 import { WorkOrdersPage } from "@/components/work-orders-page";
 import { ProcurementPage } from "@/components/procurement-page";
 import { ProductsPage } from "@/components/products-page";
+import { JournalPage } from "@/components/journal-page";
 import { CustomersPage } from "@/components/customers-page";
 import { LeaveApprovalsPage } from "@/components/leave-approvals-page";
 import { FeedbackPage } from "@/components/feedback-page";
@@ -56,6 +58,7 @@ type Page =
   | "sales_statistics"
   | "cost_statistics"
   | "products"
+  | "journal"
   | "customers"
   | "leave_approvals"
   | "feedback";
@@ -69,6 +72,7 @@ function isErpEditorRole(role: AppRole): boolean {
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "總覽", icon: LayoutGrid },
   { id: "products", label: "產品資料", icon: Package },
+  { id: "journal", label: "官網日誌", icon: Newspaper },
   { id: "customers", label: "客戶資料", icon: Users },
   { id: "quotes", label: "報價管理", icon: ClipboardList },
   { id: "orders", label: "訂單管理", icon: ShoppingCart },
@@ -580,6 +584,7 @@ export default function DashboardShell() {
           {activePage === "sales_statistics" && userRole === "admin" && <SalesStatisticsPage />}
           {activePage === "cost_statistics" && userRole === "admin" && <CostStatisticsPage />}
           {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
+          {activePage === "journal" && <JournalPage />}
           {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "leave_approvals" && userRole === "admin" && (
             <LeaveApprovalsPage />

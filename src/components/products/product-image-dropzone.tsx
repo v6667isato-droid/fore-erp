@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 import { Upload, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-/** 與 Supabase Storage bucket 名稱一致（若你的是 product-image 單數，可改為 "product-image"） */
-const BUCKET = "product-images";
+/** 預設 bucket（若你的是 product-image 單數，可改為 "product-image"）；可用 bucket prop 覆寫 */
+const DEFAULT_BUCKET = "product-images";
 
 const COMPRESSION_OPTIONS = {
   maxSizeMB: 0.5,
@@ -21,14 +21,14 @@ export interface ProductImageDropzoneProps {
   onChange: (url: string | null) => void;
   disabled?: boolean;
   className?: string;
+  /** 上傳目標 Storage bucket，預設 product-images */
+  bucket?: string;
 }
 
-const BUCKET_REGEX = new RegExp(`/object/public/${BUCKET}/(.+)$`);
-
 /** 從 Supabase 公開 URL 解析 storage path（用於刪除） */
-function getPathFromPublicUrl(publicUrl: string): string | null {
+function getPathFromPublicUrl(publicUrl: string, bucket: string): string | null {
   try {
-    const match = publicUrl.match(BUCKET_REGEX);
+    const match = publicUrl.match(new RegExp(`/object/public/${bucket}/(.+)$`));
     return match ? match[1] : null;
   } catch {
     return null;
@@ -40,6 +40,7 @@ export function ProductImageDropzone({
   onChange,
   disabled = false,
   className,
+  bucket = DEFAULT_BUCKET,
 }: ProductImageDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -56,7 +57,7 @@ export function ProductImageDropzone({
         const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "webp";
         const filename = `${crypto.randomUUID()}.${safeExt}`;
 
-        const { data, error } = await supabase.storage.from(BUCKET).upload(filename, compressed, {
+        const { data, error } = await supabase.storage.from(bucket).upload(filename, compressed, {
           cacheControl: "3600",
           upsert: false,
         });
@@ -65,7 +66,7 @@ export function ProductImageDropzone({
 
         const {
           data: { publicUrl },
-        } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+        } = supabase.storage.from(bucket).getPublicUrl(data.path);
         setStoragePath(data.path);
         onChange(publicUrl);
       } catch (err) {
@@ -75,21 +76,21 @@ export function ProductImageDropzone({
         setUploading(false);
       }
     },
-    [onChange]
+    [onChange, bucket]
   );
 
   const handleRemove = useCallback(async () => {
-    const path = storagePath || (value ? getPathFromPublicUrl(value) : null);
+    const path = storagePath || (value ? getPathFromPublicUrl(value, bucket) : null);
     if (path) {
       try {
-        await supabase.storage.from(BUCKET).remove([path]);
+        await supabase.storage.from(bucket).remove([path]);
       } catch (e) {
         console.error("Delete image from storage:", e);
       }
     }
     setStoragePath(null);
     onChange(null);
-  }, [value, storagePath, onChange]);
+  }, [value, storagePath, onChange, bucket]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {

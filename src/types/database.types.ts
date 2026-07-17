@@ -28,6 +28,9 @@ export type Database = {
           file_path: string
           file_url: string
           format_code: string
+          gmail_from: string | null
+          gmail_message_id: string | null
+          gmail_subject: string | null
           id: string
           invoice_date: string | null
           invoice_number: string | null
@@ -38,6 +41,7 @@ export type Database = {
           reviewed_at: string | null
           seller_name: string | null
           seller_tax_id: string | null
+          source: string
           status: string
           tax_amount: number | null
           tax_type: number
@@ -55,6 +59,9 @@ export type Database = {
           file_path: string
           file_url: string
           format_code?: string
+          gmail_from?: string | null
+          gmail_message_id?: string | null
+          gmail_subject?: string | null
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
@@ -65,6 +72,7 @@ export type Database = {
           reviewed_at?: string | null
           seller_name?: string | null
           seller_tax_id?: string | null
+          source?: string
           status?: string
           tax_amount?: number | null
           tax_type?: number
@@ -82,6 +90,9 @@ export type Database = {
           file_path?: string
           file_url?: string
           format_code?: string
+          gmail_from?: string | null
+          gmail_message_id?: string | null
+          gmail_subject?: string | null
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
@@ -92,6 +103,7 @@ export type Database = {
           reviewed_at?: string | null
           seller_name?: string | null
           seller_tax_id?: string | null
+          source?: string
           status?: string
           tax_amount?: number | null
           tax_type?: number
@@ -770,6 +782,69 @@ export type Database = {
           },
         ]
       }
+      journal_posts: {
+        Row: {
+          content_en: Json
+          content_zh: Json
+          created_at: string
+          deleted_at: string | null
+          excerpt_en: string | null
+          excerpt_zh: string | null
+          id: string
+          image_url: string | null
+          notes: string | null
+          object_position: string | null
+          post_code: string
+          post_date: string
+          published: boolean
+          sort_order: number | null
+          tag: string
+          title_en: string | null
+          title_zh: string
+          updated_at: string
+        }
+        Insert: {
+          content_en?: Json
+          content_zh?: Json
+          created_at?: string
+          deleted_at?: string | null
+          excerpt_en?: string | null
+          excerpt_zh?: string | null
+          id?: string
+          image_url?: string | null
+          notes?: string | null
+          object_position?: string | null
+          post_code: string
+          post_date?: string
+          published?: boolean
+          sort_order?: number | null
+          tag?: string
+          title_en?: string | null
+          title_zh: string
+          updated_at?: string
+        }
+        Update: {
+          content_en?: Json
+          content_zh?: Json
+          created_at?: string
+          deleted_at?: string | null
+          excerpt_en?: string | null
+          excerpt_zh?: string | null
+          id?: string
+          image_url?: string | null
+          notes?: string | null
+          object_position?: string | null
+          post_code?: string
+          post_date?: string
+          published?: boolean
+          sort_order?: number | null
+          tag?: string
+          title_en?: string | null
+          title_zh?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       leave_requests: {
         Row: {
           created_at: string | null
@@ -1153,6 +1228,48 @@ export type Database = {
         }
         Relationships: []
       }
+      product_accessories: {
+        Row: {
+          category: string
+          created_at: string | null
+          deleted_at: string | null
+          id: string
+          image_url: string | null
+          material: string | null
+          name: string
+          notes: string | null
+          price: number | null
+          sort_order: number | null
+          spec: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          deleted_at?: string | null
+          id?: string
+          image_url?: string | null
+          material?: string | null
+          name: string
+          notes?: string | null
+          price?: number | null
+          sort_order?: number | null
+          spec?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          deleted_at?: string | null
+          id?: string
+          image_url?: string | null
+          material?: string | null
+          name?: string
+          notes?: string | null
+          price?: number | null
+          sort_order?: number | null
+          spec?: string | null
+        }
+        Relationships: []
+      }
       product_series: {
         Row: {
           category: string | null
@@ -1302,6 +1419,7 @@ export type Database = {
           dimension_w: number | null
           id: string
           image_url: string | null
+          is_custom_order: boolean
           product_code: string
           seat_height_cm: number | null
           series_id: string | null
@@ -1318,6 +1436,7 @@ export type Database = {
           dimension_w?: number | null
           id?: string
           image_url?: string | null
+          is_custom_order?: boolean
           product_code: string
           seat_height_cm?: number | null
           series_id?: string | null
@@ -1334,6 +1453,7 @@ export type Database = {
           dimension_w?: number | null
           id?: string
           image_url?: string | null
+          is_custom_order?: boolean
           product_code?: string
           seat_height_cm?: number | null
           series_id?: string | null
