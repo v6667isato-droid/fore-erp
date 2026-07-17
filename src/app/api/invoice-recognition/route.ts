@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { createClient } from "@supabase/supabase-js";
 
 export const maxDuration = 60;
 
@@ -379,6 +380,21 @@ async function recognizeWithGemini(
 }
 
 export async function POST(request: NextRequest) {
+  // 此端點會消耗 AI 額度，僅放行已登入的 ERP 使用者（前端帶 Supabase access token）
+  const authHeader = request.headers.get("authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) {
+    return NextResponse.json({ success: false, error: "未登入" }, { status: 401 });
+  }
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  const { data: userData, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !userData?.user) {
+    return NextResponse.json({ success: false, error: "登入已失效，請重新登入" }, { status: 401 });
+  }
+
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!anthropicKey && !geminiKey) {
