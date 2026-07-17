@@ -36,6 +36,10 @@ export interface OrderRow {
 export interface CustomerOption {
   id: string;
   name: string;
+  /** 客戶別名 */
+  alias?: string | null;
+  /** 公司名稱 */
+  company?: string | null;
   contact_person: string | null;
   phone: string | null;
   delivery_address: string | null;

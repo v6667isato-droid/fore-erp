@@ -129,7 +129,11 @@ function CustomerSearchSelect({
 
   const keyword = query.trim().toLowerCase();
   const filtered = keyword
-    ? customers.filter((c) => c.name.toLowerCase().includes(keyword))
+    ? customers.filter((c) =>
+        [c.name, c.alias, c.company].some(
+          (field) => field != null && field.toLowerCase().includes(keyword)
+        )
+      )
     : customers;
 
   function choose(customerId: string) {
@@ -178,11 +182,21 @@ function CustomerSearchSelect({
                 key={c.id}
                 type="button"
                 onClick={() => choose(c.id)}
-                className={`flex w-full items-center px-3 py-2 text-left text-sm hover:bg-[#FAF9F6] ${
+                className={`flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-[#FAF9F6] ${
                   c.id === value ? "font-semibold" : ""
                 } text-[#625E55]`}
               >
-                {c.name}
+                <span>
+                  {c.name}
+                  {c.alias ? (
+                    <span className="ml-1.5 text-xs text-[#7D7767]">
+                      （{c.alias}）
+                    </span>
+                  ) : null}
+                </span>
+                {c.company ? (
+                  <span className="text-xs text-[#7D7767]">{c.company}</span>
+                ) : null}
               </button>
             ))
           )}

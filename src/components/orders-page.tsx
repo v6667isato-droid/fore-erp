@@ -119,7 +119,7 @@ export function OrdersPage({
   async function fetchCustomers() {
     const { data: customerData, error: customerError } = await supabase
       .from("customers")
-      .select("id, name, contact_person, phone, delivery_address, has_elevator, channel_id")
+      .select("id, name, alias, company, contact_person, phone, delivery_address, has_elevator, channel_id")
       .is("deleted_at", null)
       .order("name", { ascending: true });
     if (!customerError && customerData) {
@@ -127,6 +127,8 @@ export function OrdersPage({
         (customerData as any[]).map((c) => ({
           id: String(c.id),
           name: String(c.name ?? ""),
+          alias: c.alias != null ? String(c.alias) : null,
+          company: c.company != null ? String(c.company) : null,
           contact_person: c.contact_person != null ? String(c.contact_person) : null,
           phone: c.phone != null ? String(c.phone) : null,
           delivery_address: c.delivery_address
