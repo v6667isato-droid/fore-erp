@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { JournalBlockEditor, JOURNAL_IMAGES_BUCKET } from "@/components/journal/journal-block-editor";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Image as ImageIcon, Languages } from "lucide-react";
+import { X, Image as ImageIcon, Languages, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +53,7 @@ export function JournalPostFormDialog({ open, onOpenChange, row, onSuccess }: Jo
   const [notes, setNotes] = useState("");
   const [activeTab, setActiveTab] = useState<FormTab>("basic");
   const [saving, setSaving] = useState(false);
+  const [translating, setTranslating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -74,6 +75,65 @@ export function JournalPostFormDialog({ open, onOpenChange, row, onSuccess }: Jo
     setError(null);
     setTimeout(() => firstRef.current?.focus(), 0);
   }, [open, row]);
+
+  /** AI 中翻英：標題、摘要、內文區塊一次翻好填入英文欄位（圖片沿用、圖說翻譯） */
+  async function translateFromZh() {
+    const zhBlocks = pruneBlocks(contentZh);
+    if (!titleZh.trim() && !excerptZh.trim() && zhBlocks.length === 0) {
+      toast.error("請先填寫中文標題或內文再翻譯");
+      return;
+    }
+    setTranslating(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) {
+        toast.error("登入已失效，請重新登入");
+        return;
+      }
+
+      // 依序：標題、摘要、每個區塊的文字（圖片區塊取圖說），回傳等長陣列後照順序填回
+      const segments: string[] = [
+        titleZh.trim(),
+        excerptZh.trim(),
+        ...zhBlocks.map((b) => (b.type === "image" ? (b.caption ?? "") : b.text)),
+      ];
+
+      const res = await fetch("/api/journal/translate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ segments }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(data?.translations)) {
+        toast.error(data?.error || "翻譯失敗，請稍後再試");
+        return;
+      }
+
+      const translations: string[] = data.translations;
+      setTitleEn(translations[0] ?? "");
+      setExcerptEn(translations[1] ?? "");
+      setContentEn(
+        zhBlocks.map((b, i) => {
+          const t = translations[i + 2] ?? "";
+          if (b.type === "image") {
+            return t.trim() ? { type: "image", url: b.url, caption: t.trim() } : { type: "image", url: b.url };
+          }
+          return { type: b.type, text: t };
+        })
+      );
+      setActiveTab("content_en");
+      toast.success("已翻譯完成，請檢查英文內容後儲存");
+    } catch (err) {
+      console.error("journal translate error:", err);
+      toast.error("翻譯失敗，請稍後再試");
+    } finally {
+      setTranslating(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -348,12 +408,33 @@ export function JournalPostFormDialog({ open, onOpenChange, row, onSuccess }: Jo
               )}
 
               {activeTab === "content_en" && (
-                <JournalBlockEditor
-                  idPrefix="英文內文"
-                  value={contentEn}
-                  onChange={setContentEn}
-                  disabled={saving}
-                />
+                <>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                    <p className="text-xs text-muted-foreground">
+                      可用 AI 依「內文（中文）」與中文標題、摘要自動翻譯，會覆蓋現有英文內容，翻完可再修改。
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 shrink-0 gap-1.5 px-3 text-xs"
+                      disabled={saving || translating}
+                      onClick={() => void translateFromZh()}
+                    >
+                      {translating ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      )}
+                      {translating ? "翻譯中…" : "AI 從中文翻譯"}
+                    </Button>
+                  </div>
+                  <JournalBlockEditor
+                    idPrefix="英文內文"
+                    value={contentEn}
+                    onChange={setContentEn}
+                    disabled={saving || translating}
+                  />
+                </>
               )}
 
               {error && (
