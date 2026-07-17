@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { LEAVE_WORK_DAY_HOURS } from "@/lib/employee-leave-time";
 import {
   buildPayslipAttendanceRemarks,
   sumApprovedOvertimeHoursForEmployee,
@@ -713,7 +714,6 @@ function mapLeaveRow(row: Record<string, unknown>, index: number): LeaveRequestR
   const typeLabel = String(row.leave_type ?? row.type_label ?? row.type ?? "假別");
   const start = String(row.start_date ?? row.start ?? "").slice(0, 10);
   const end = String(row.end_date ?? row.end ?? start).slice(0, 10);
-  const days = num(row.total_days ?? row.days_count ?? row.days ?? 1, 1);
   const deducts =
     row.deducts_salary === true ||
     row.is_unpaid === true ||
@@ -727,6 +727,11 @@ function mapLeaveRow(row: Record<string, unknown>, index: number): LeaveRequestR
   const hcRaw = row.hours_count;
   const hoursCount =
     hcRaw != null && hcRaw !== "" && Number.isFinite(Number(hcRaw)) ? Number(hcRaw) : null;
+  // total_days 舊欄位曾為 numeric(4,1)（0.125 天會被進位成 0.1），優先以 hours_count 反推
+  const days =
+    hoursCount != null && hoursCount > 0
+      ? hoursCount / LEAVE_WORK_DAY_HOURS
+      : num(row.total_days ?? row.days_count ?? row.days ?? 1, 1);
   const reasonRaw = row.reason;
   const reason =
     reasonRaw != null && String(reasonRaw).trim() !== "" ? String(reasonRaw).trim() : null;

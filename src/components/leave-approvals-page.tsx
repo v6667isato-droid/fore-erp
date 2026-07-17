@@ -54,7 +54,7 @@ import {
   computeLeaveHolidayConflict,
   type HolidayLookupRow,
 } from "@/lib/leave-holiday-conflict";
-import { formatDayDecimalAsDayHour } from "@/lib/employee-leave-time";
+import { LEAVE_WORK_DAY_HOURS, formatDayDecimalAsDayHour } from "@/lib/employee-leave-time";
 
 interface LeaveRequestAdminRow {
   id: string;
@@ -182,7 +182,13 @@ function mapRowToAdminRow(
   const joined = embedEmployeeName(r.employees);
   const start = String(r.start_date ?? r.start ?? "").slice(0, 10);
   const end = String(r.end_date ?? r.end ?? start).slice(0, 10);
-  const days = num(r.total_days ?? r.days_count ?? r.days, 0);
+  // total_days 舊欄位曾為 numeric(4,1)（0.125 天會被進位成 0.1），優先以 hours_count 反推
+  const hoursRaw = r.hours_count;
+  const hours = hoursRaw != null && hoursRaw !== "" ? Number(hoursRaw) : NaN;
+  const days =
+    Number.isFinite(hours) && hours > 0
+      ? hours / LEAVE_WORK_DAY_HOURS
+      : num(r.total_days ?? r.days_count ?? r.days, 0);
   const lt = String(r.leave_type ?? r.type_label ?? r.type ?? "假別").trim() || "假別";
   const created =
     r.created_at != null
@@ -307,6 +313,7 @@ export function LeaveApprovalsPage() {
         end_date,
         status,
         total_days,
+        hours_count,
         created_at,
         employees ( name )
       `;
@@ -318,6 +325,7 @@ export function LeaveApprovalsPage() {
         end_date,
         status,
         total_days,
+        hours_count,
         created_at,
         updated_at,
         employees ( name )
@@ -344,7 +352,7 @@ export function LeaveApprovalsPage() {
         let plain = await supabase
           .from("leave_requests")
           .select(
-            "id, employee_id, leave_type, start_date, end_date, status, total_days, created_at, updated_at",
+            "id, employee_id, leave_type, start_date, end_date, status, total_days, hours_count, created_at, updated_at",
           )
           .order("created_at", { ascending: false });
 
@@ -352,7 +360,7 @@ export function LeaveApprovalsPage() {
           plain = (await supabase
             .from("leave_requests")
             .select(
-              "id, employee_id, leave_type, start_date, end_date, status, total_days, created_at",
+              "id, employee_id, leave_type, start_date, end_date, status, total_days, hours_count, created_at",
             )
             .order("created_at", { ascending: false })) as typeof plain;
         }
