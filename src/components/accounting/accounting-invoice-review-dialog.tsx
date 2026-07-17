@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, X } from "lucide-react";
+import { ExternalLink, Trash2, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { fixRocDate } from "@/lib/invoice-scan";
 import {
   accountingArchiveFileName,
@@ -56,6 +57,8 @@ export function AccountingInvoiceReviewDialog({
   const isEdit = invoice?.status === "confirmed";
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [poOptions, setPoOptions] = useState<PoOption[]>([]);
 
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -305,6 +308,35 @@ export function AccountingInvoiceReviewDialog({
     }
   }
 
+  /** 刪除此張發票：佇列中的連檔案一併刪除；已存檔的保留歸檔照片（與清單刪除行為一致） */
+  async function performDelete() {
+    if (!invoice) return;
+    setDeleting(true);
+    try {
+      const { error: delErr } = await supabase
+        .from("accounting_invoices")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", invoice.id);
+      if (delErr) throw delErr;
+      if (!isEdit) {
+        await supabase.storage.from("accounting-invoices").remove([invoice.file_path]);
+      }
+      toast.success(
+        isEdit
+          ? `已刪除發票 ${invoice.invoice_number ?? ""}（照片仍保留於歸檔）`
+          : "已刪除該張發票",
+      );
+      setDeleteOpen(false);
+      onOpenChange(false);
+      onSaved();
+    } catch (err) {
+      console.error(err);
+      toast.error(errText(err, "刪除失敗，請稍後再試"));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const isPdf =
     (invoice?.media_type ?? "") === "application/pdf" || (invoice?.file_path ?? "").endsWith(".pdf");
 
@@ -417,7 +449,7 @@ export function AccountingInvoiceReviewDialog({
 
               {duplicateOf && (
                 <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                  這個發票號碼已存檔過（{duplicateOf}），可能是重複上傳；若確定重複，請關閉並刪除這張。
+                  這個發票號碼已存檔過（{duplicateOf}），可能是重複上傳；若確定重複，點下方「刪除此張」即可。
                 </p>
               )}
 
@@ -680,20 +712,57 @@ export function AccountingInvoiceReviewDialog({
                 </p>
               )}
 
-              <div className="flex flex-wrap justify-end gap-2 pt-1">
-                <Dialog.Close asChild>
-                  <Button type="button" variant="ghost" disabled={saving}>
-                    {isEdit ? "取消" : "先擱著（保留在佇列）"}
-                  </Button>
-                </Dialog.Close>
-                <Button type="button" onClick={onConfirm} disabled={saving}>
-                  {saving ? "存檔中…" : isEdit ? "儲存變更" : "確認存檔"}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  disabled={saving || deleting}
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  刪除此張
                 </Button>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Dialog.Close asChild>
+                    <Button type="button" variant="ghost" disabled={saving || deleting}>
+                      {isEdit ? "取消" : "先擱著（保留在佇列）"}
+                    </Button>
+                  </Dialog.Close>
+                  <Button type="button" onClick={onConfirm} disabled={saving || deleting}>
+                    {saving ? "存檔中…" : isEdit ? "儲存變更" : "確認存檔"}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={(o) => !deleting && setDeleteOpen(o)}
+        title="是否刪除此張發票？"
+        description={
+          invoice ? (
+            <>
+              <p className="font-medium text-foreground">
+                {(invoiceNumber.trim() || invoice.file_name) ?? "（未命名）"}
+                {sellerName.trim() ? `｜${sellerName.trim()}` : ""}
+                {incTaxNum != null ? `｜含稅 $${incTaxNum.toLocaleString()}` : ""}
+              </p>
+              <p className="mt-2 text-muted-foreground">
+                {isEdit
+                  ? "發票紀錄將自清單移除（照片仍保留於歸檔資料夾）。"
+                  : "照片與辨識結果將一併刪除，此操作無法復原。"}
+              </p>
+            </>
+          ) : null
+        }
+        confirmLabel={deleting ? "刪除中…" : "確定刪除"}
+        onConfirm={performDelete}
+        destructive
+      />
     </Dialog.Root>
   );
 }
