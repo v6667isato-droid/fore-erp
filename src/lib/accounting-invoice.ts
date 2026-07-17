@@ -154,6 +154,8 @@ export interface GmailImportResult {
   imported: number;
   /** 已匯入過而略過的信件數 */
   skipped: number;
+  /** 內容重複（如轉寄信）而略過的附件數 */
+  duplicates: number;
   /** 沒有可用附件的信件數 */
   noAttachment: number;
   /** 新建佇列紀錄的 id（前端接著跑辨識） */
@@ -166,6 +168,7 @@ const GMAIL_IMPORT_FAILURE: Omit<GmailImportResult, "error"> = {
   ok: false,
   imported: 0,
   skipped: 0,
+  duplicates: 0,
   noAttachment: 0,
   ids: [],
 };
@@ -189,6 +192,7 @@ export async function importInvoicesFromGmail(): Promise<GmailImportResult> {
         ok: true,
         imported: json.imported ?? 0,
         skipped: json.skipped ?? 0,
+        duplicates: json.duplicates ?? 0,
         noAttachment: json.no_attachment ?? 0,
         ids: Array.isArray(json.ids) ? json.ids : [],
       };

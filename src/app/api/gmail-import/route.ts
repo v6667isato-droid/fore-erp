@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 
 export const maxDuration = 60;
 
@@ -72,6 +72,16 @@ function collectAttachments(part: GmailPart | undefined, out: AttachmentRef[]): 
     }
   }
   for (const child of part.parts ?? []) collectAttachments(child, out);
+}
+
+/**
+ * 同一封信同時附「發票證明聯」與「發票明細（示意圖）」時，只留正式的證明聯。
+ * 台灣 tradevan 等開立通知常見此組合，明細只是示意圖不必入帳。
+ */
+function dropRedundantDetailSheets(attachments: AttachmentRef[]): AttachmentRef[] {
+  const hasProof = attachments.some((a) => a.filename.includes("證明聯"));
+  if (!hasProof) return attachments;
+  return attachments.filter((a) => !a.filename.includes("明細"));
 }
 
 function headerValue(headers: { name?: string; value?: string }[] | undefined, name: string): string | null {
@@ -175,6 +185,9 @@ export async function POST(request: NextRequest) {
     const insertedIds: string[] = [];
     let skipped = 0;
     let noAttachment = 0;
+    let duplicates = 0;
+    /** 本次執行內已收的附件內容雜湊（同批信件互相去重） */
+    const seenHashes = new Set<string>();
 
     for (const mid of messageIds) {
       if (imported.has(mid)) {
@@ -187,8 +200,9 @@ export async function POST(request: NextRequest) {
       const subject = headerValue(headers, "Subject");
       const from = headerValue(headers, "From");
 
-      const attachments: AttachmentRef[] = [];
-      collectAttachments(payload, attachments);
+      const collected: AttachmentRef[] = [];
+      collectAttachments(payload, collected);
+      const attachments = dropRedundantDetailSheets(collected);
       if (attachments.length === 0) {
         noAttachment += 1;
         continue;
@@ -199,6 +213,25 @@ export async function POST(request: NextRequest) {
         const data = attData.data as string | undefined;
         if (!data) continue;
         const bytes = Buffer.from(data, "base64url");
+
+        // 內容雜湊去重：轉寄信的附件位元組相同，本批與資料庫（含已刪除）都比對
+        const hash = createHash("sha256").update(bytes).digest("hex");
+        if (seenHashes.has(hash)) {
+          duplicates += 1;
+          continue;
+        }
+        const { data: dupRows, error: dupErr } = await admin
+          .from("accounting_invoices")
+          .select("id")
+          .eq("file_hash", hash)
+          .limit(1);
+        if (dupErr) throw new Error(`資料庫查詢失敗：${dupErr.message}`);
+        if ((dupRows ?? []).length > 0) {
+          seenHashes.add(hash);
+          duplicates += 1;
+          continue;
+        }
+        seenHashes.add(hash);
 
         const path = `inbox/${randomUUID()}.${att.ext}`;
         const { data: up, error: upErr } = await admin.storage
@@ -218,6 +251,7 @@ export async function POST(request: NextRequest) {
             media_type: att.mediaType,
             status: "pending",
             source: "gmail",
+            file_hash: hash,
             gmail_message_id: mid,
             gmail_subject: subject,
             gmail_from: from,
@@ -233,6 +267,7 @@ export async function POST(request: NextRequest) {
       success: true,
       imported: insertedIds.length,
       skipped,
+      duplicates,
       no_attachment: noAttachment,
       ids: insertedIds,
       query,

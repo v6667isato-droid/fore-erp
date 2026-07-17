@@ -24,6 +24,7 @@ export type Database = {
           deleted_at: string | null
           error: string | null
           exported_at: string | null
+          file_hash: string | null
           file_name: string | null
           file_path: string
           file_url: string
@@ -55,6 +56,7 @@ export type Database = {
           deleted_at?: string | null
           error?: string | null
           exported_at?: string | null
+          file_hash?: string | null
           file_name?: string | null
           file_path: string
           file_url: string
@@ -86,6 +88,7 @@ export type Database = {
           deleted_at?: string | null
           error?: string | null
           exported_at?: string | null
+          file_hash?: string | null
           file_name?: string | null
           file_path?: string
           file_url?: string

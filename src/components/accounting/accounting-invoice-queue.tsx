@@ -140,14 +140,16 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
       }
       if (result.imported === 0) {
         toast.info(
-          result.skipped > 0
-            ? `沒有新發票信（${result.skipped} 封先前已匯入過）`
+          result.skipped > 0 || result.duplicates > 0
+            ? `沒有新發票（先前已匯入 ${result.skipped} 封、重複附件 ${result.duplicates} 張）`
             : "Gmail 裡沒有找到符合條件的發票信",
         );
         await refresh();
         return;
       }
-      toast.success(`已從 Gmail 匯入 ${result.imported} 張附件，AI 辨識中…`);
+      toast.success(
+        `已從 Gmail 匯入 ${result.imported} 張附件${result.duplicates > 0 ? `（另略過 ${result.duplicates} 張重複）` : ""}，AI 辨識中…`,
+      );
       const queue = await fetchInvoiceQueue();
       setRows(queue);
       const newRows = queue.filter((r) => result.ids.includes(r.id));
