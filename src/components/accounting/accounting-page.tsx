@@ -243,7 +243,9 @@ export function AccountingPage() {
                         className="rounded border border-border px-1.5 py-px text-xs text-muted-foreground"
                         title={
                           r.source === "gmail"
-                            ? [r.gmail_subject, r.gmail_from].filter(Boolean).join("\n") || undefined
+                            ? [r.gmail_subject, r.gmail_from, r.gmail_account && `信箱：${r.gmail_account}`]
+                                .filter(Boolean)
+                                .join("\n") || undefined
                             : undefined
                         }
                       >

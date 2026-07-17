@@ -37,6 +37,7 @@ export interface AccountingInvoiceRow {
   gmail_message_id: string | null;
   gmail_subject: string | null;
   gmail_from: string | null;
+  gmail_account: string | null;
   recognized: RecognizedTaxInvoice | null;
   error: string | null;
   invoice_number: string | null;
@@ -59,7 +60,7 @@ export interface AccountingInvoiceRow {
 }
 
 export const ACCOUNTING_INVOICE_FIELDS =
-  "id, file_path, file_url, file_name, media_type, status, source, gmail_message_id, gmail_subject, gmail_from, recognized, error, invoice_number, invoice_date, seller_name, seller_tax_id, buyer_tax_id, amount_ex_tax, tax_amount, amount_inc_tax, format_code, deduction_code, tax_type, exported_at, purchase_order_id, notes, created_at, reviewed_at";
+  "id, file_path, file_url, file_name, media_type, status, source, gmail_message_id, gmail_subject, gmail_from, gmail_account, recognized, error, invoice_number, invoice_date, seller_name, seller_tax_id, buyer_tax_id, amount_ex_tax, tax_amount, amount_inc_tax, format_code, deduction_code, tax_type, exported_at, purchase_order_id, notes, created_at, reviewed_at";
 
 /** 格式代號選項（進項；報稅媒體申報） */
 export const FORMAT_CODE_OPTIONS: { value: InvoiceFormatCode; label: string }[] = [

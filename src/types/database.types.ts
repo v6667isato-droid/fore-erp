@@ -29,6 +29,7 @@ export type Database = {
           file_path: string
           file_url: string
           format_code: string
+          gmail_account: string | null
           gmail_from: string | null
           gmail_message_id: string | null
           gmail_subject: string | null
@@ -61,6 +62,7 @@ export type Database = {
           file_path: string
           file_url: string
           format_code?: string
+          gmail_account?: string | null
           gmail_from?: string | null
           gmail_message_id?: string | null
           gmail_subject?: string | null
@@ -93,6 +95,7 @@ export type Database = {
           file_path?: string
           file_url?: string
           format_code?: string
+          gmail_account?: string | null
           gmail_from?: string | null
           gmail_message_id?: string | null
           gmail_subject?: string | null
@@ -1284,6 +1287,7 @@ export type Database = {
           detail_image_urls: Json
           faq_scripts: string | null
           id: string
+          image_meta: Json
           image_url: string | null
           notes: string | null
           production_time: string | null
@@ -1303,6 +1307,7 @@ export type Database = {
           detail_image_urls?: Json
           faq_scripts?: string | null
           id?: string
+          image_meta?: Json
           image_url?: string | null
           notes?: string | null
           production_time?: string | null
@@ -1322,6 +1327,7 @@ export type Database = {
           detail_image_urls?: Json
           faq_scripts?: string | null
           id?: string
+          image_meta?: Json
           image_url?: string | null
           notes?: string | null
           production_time?: string | null

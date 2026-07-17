@@ -205,133 +205,138 @@ export async function POST(request: NextRequest) {
 
   const admin = createClient(url, serviceKey ?? anonKey);
 
+  // 多帳號：GMAIL_REFRESH_TOKEN（主帳號）＋ GMAIL_REFRESH_TOKEN_2（第二帳號，選用），共用同一組 client
+  const refreshTokens = [refreshToken, process.env.GMAIL_REFRESH_TOKEN_2].filter(
+    (t): t is string => Boolean(t && t.trim()),
+  );
+
   try {
-    const accessToken = await refreshAccessToken(clientId, clientSecret, refreshToken);
-
-    // 翻頁掃完符合條件的信件 id（新→舊），避免超過單頁筆數的較舊信件永遠排不進清單
-    const messageIds: string[] = [];
-    let pageToken: string | undefined;
-    do {
-      const list = await gmailGet(
-        accessToken,
-        `messages?q=${encodeURIComponent(query)}&maxResults=${LIST_PAGE_SIZE}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`,
-      );
-      messageIds.push(...(((list.messages as { id: string }[] | undefined) ?? []).map((m) => m.id)));
-      pageToken = list.nextPageToken as string | undefined;
-    } while (pageToken && messageIds.length < MAX_LIST_MESSAGES);
-
-    if (messageIds.length === 0) {
-      return NextResponse.json({
-        success: true,
-        imported: 0,
-        skipped: 0,
-        duplicates: 0,
-        no_attachment: 0,
-        remaining: 0,
-        ids: [],
-        query,
-      });
-    }
-
-    // 防重複匯入：含已刪除紀錄，刪過的信不再重抓
-    const { data: existing, error: existErr } = await admin
-      .from("accounting_invoices")
-      .select("gmail_message_id")
-      .in("gmail_message_id", messageIds);
-    if (existErr) throw new Error(`資料庫查詢失敗：${existErr.message}`);
-    const imported = new Set((existing ?? []).map((r) => r.gmail_message_id as string));
-
-    const newIds = messageIds.filter((mid) => !imported.has(mid));
-    const toProcess = newIds.slice(0, MAX_NEW_MESSAGES);
-    const remaining = newIds.length - toProcess.length;
-    const skipped = messageIds.length - newIds.length;
-
-    // 貼標籤用；唯讀授權時為 null（略過貼標籤，匯入照常）
-    const labelId = toProcess.length > 0 ? await ensureLabelId(accessToken) : null;
-
     const insertedIds: string[] = [];
-    let noAttachment = 0;
+    let skipped = 0;
     let duplicates = 0;
+    let noAttachment = 0;
+    let remaining = 0;
     let labeled = 0;
-    /** 本次執行內已收的附件內容雜湊（同批信件互相去重） */
+    let labelingUnavailable = false;
+    /** 單次可下載處理的新信總額度（所有帳號共用，控制在 Vercel 60 秒內） */
+    let budget = MAX_NEW_MESSAGES;
+    /** 跨帳號共用：同一張發票兩個信箱都收到時只匯一次 */
     const seenHashes = new Set<string>();
 
-    for (const mid of toProcess) {
-      const message = await gmailGet(accessToken, `messages/${mid}?format=full`);
-      const payload = message.payload as GmailPart | undefined;
-      const headers = (message.payload as { headers?: { name?: string; value?: string }[] } | undefined)?.headers;
-      const subject = headerValue(headers, "Subject");
-      const from = headerValue(headers, "From");
+    for (const rt of refreshTokens) {
+      const accessToken = await refreshAccessToken(clientId, clientSecret, rt);
+      const profile = await gmailGet(accessToken, "profile");
+      const account = (profile.emailAddress as string | undefined) ?? null;
 
-      const collected: AttachmentRef[] = [];
-      collectAttachments(payload, collected);
-      const attachments = dropRedundantDetailSheets(collected);
-      if (attachments.length === 0) {
-        noAttachment += 1;
-        continue;
-      }
+      // 翻頁掃完符合條件的信件 id（新→舊），避免超過單頁筆數的較舊信件永遠排不進清單
+      const messageIds: string[] = [];
+      let pageToken: string | undefined;
+      do {
+        const list = await gmailGet(
+          accessToken,
+          `messages?q=${encodeURIComponent(query)}&maxResults=${LIST_PAGE_SIZE}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`,
+        );
+        messageIds.push(...(((list.messages as { id: string }[] | undefined) ?? []).map((m) => m.id)));
+        pageToken = list.nextPageToken as string | undefined;
+      } while (pageToken && messageIds.length < MAX_LIST_MESSAGES);
+      if (messageIds.length === 0) continue;
 
-      for (const att of attachments) {
-        const attData = await gmailGet(accessToken, `messages/${mid}/attachments/${att.attachmentId}`);
-        const data = attData.data as string | undefined;
-        if (!data) continue;
-        const bytes = Buffer.from(data, "base64url");
+      // 防重複匯入：含已刪除紀錄，刪過的信不再重抓
+      const { data: existing, error: existErr } = await admin
+        .from("accounting_invoices")
+        .select("gmail_message_id")
+        .in("gmail_message_id", messageIds);
+      if (existErr) throw new Error(`資料庫查詢失敗：${existErr.message}`);
+      const imported = new Set((existing ?? []).map((r) => r.gmail_message_id as string));
 
-        // 內容雜湊去重：轉寄信的附件位元組相同，本批與資料庫（含已刪除）都比對
-        const hash = createHash("sha256").update(bytes).digest("hex");
-        if (seenHashes.has(hash)) {
-          duplicates += 1;
+      const newIds = messageIds.filter((mid) => !imported.has(mid));
+      const toProcess = newIds.slice(0, Math.max(budget, 0));
+      remaining += newIds.length - toProcess.length;
+      budget -= toProcess.length;
+      skipped += messageIds.length - newIds.length;
+
+      // 貼標籤用；唯讀授權時為 null（略過貼標籤，匯入照常）
+      const labelId = toProcess.length > 0 ? await ensureLabelId(accessToken) : null;
+      if (toProcess.length > 0 && labelId == null) labelingUnavailable = true;
+
+      for (const mid of toProcess) {
+        const message = await gmailGet(accessToken, `messages/${mid}?format=full`);
+        const payload = message.payload as GmailPart | undefined;
+        const headers = (message.payload as { headers?: { name?: string; value?: string }[] } | undefined)?.headers;
+        const subject = headerValue(headers, "Subject");
+        const from = headerValue(headers, "From");
+
+        const collected: AttachmentRef[] = [];
+        collectAttachments(payload, collected);
+        const attachments = dropRedundantDetailSheets(collected);
+        if (attachments.length === 0) {
+          noAttachment += 1;
           continue;
         }
-        const { data: dupRows, error: dupErr } = await admin
-          .from("accounting_invoices")
-          .select("id")
-          .eq("file_hash", hash)
-          .limit(1);
-        if (dupErr) throw new Error(`資料庫查詢失敗：${dupErr.message}`);
-        if ((dupRows ?? []).length > 0) {
+
+        for (const att of attachments) {
+          const attData = await gmailGet(accessToken, `messages/${mid}/attachments/${att.attachmentId}`);
+          const data = attData.data as string | undefined;
+          if (!data) continue;
+          const bytes = Buffer.from(data, "base64url");
+
+          // 內容雜湊去重：轉寄信的附件位元組相同，本批與資料庫（含已刪除）都比對
+          const hash = createHash("sha256").update(bytes).digest("hex");
+          if (seenHashes.has(hash)) {
+            duplicates += 1;
+            continue;
+          }
+          const { data: dupRows, error: dupErr } = await admin
+            .from("accounting_invoices")
+            .select("id")
+            .eq("file_hash", hash)
+            .limit(1);
+          if (dupErr) throw new Error(`資料庫查詢失敗：${dupErr.message}`);
+          if ((dupRows ?? []).length > 0) {
+            seenHashes.add(hash);
+            duplicates += 1;
+            continue;
+          }
           seenHashes.add(hash);
-          duplicates += 1;
-          continue;
+
+          const path = `inbox/${randomUUID()}.${att.ext}`;
+          const { data: up, error: upErr } = await admin.storage
+            .from("accounting-invoices")
+            .upload(path, bytes, { cacheControl: "3600", contentType: att.mediaType, upsert: false });
+          if (upErr) throw new Error(`附件上傳失敗：${upErr.message}`);
+          const {
+            data: { publicUrl },
+          } = admin.storage.from("accounting-invoices").getPublicUrl(up.path);
+
+          const { data: row, error: insErr } = await admin
+            .from("accounting_invoices")
+            .insert({
+              file_path: up.path,
+              file_url: publicUrl,
+              file_name: att.filename,
+              media_type: att.mediaType,
+              status: "pending",
+              source: "gmail",
+              file_hash: hash,
+              gmail_message_id: mid,
+              gmail_subject: subject,
+              gmail_from: from,
+              gmail_account: account,
+            })
+            .select("id")
+            .single();
+          if (insErr || !row) throw new Error(`佇列紀錄建立失敗：${insErr?.message ?? "unknown"}`);
+          insertedIds.push((row as { id: string }).id);
         }
-        seenHashes.add(hash);
 
-        const path = `inbox/${randomUUID()}.${att.ext}`;
-        const { data: up, error: upErr } = await admin.storage
-          .from("accounting-invoices")
-          .upload(path, bytes, { cacheControl: "3600", contentType: att.mediaType, upsert: false });
-        if (upErr) throw new Error(`附件上傳失敗：${upErr.message}`);
-        const {
-          data: { publicUrl },
-        } = admin.storage.from("accounting-invoices").getPublicUrl(up.path);
-
-        const { data: row, error: insErr } = await admin
-          .from("accounting_invoices")
-          .insert({
-            file_path: up.path,
-            file_url: publicUrl,
-            file_name: att.filename,
-            media_type: att.mediaType,
-            status: "pending",
-            source: "gmail",
-            file_hash: hash,
-            gmail_message_id: mid,
-            gmail_subject: subject,
-            gmail_from: from,
-          })
-          .select("id")
-          .single();
-        if (insErr || !row) throw new Error(`佇列紀錄建立失敗：${insErr?.message ?? "unknown"}`);
-        insertedIds.push((row as { id: string }).id);
-      }
-
-      // 附件已全數處理（匯入或判定重複）→ 在 Gmail 貼上標籤；失敗不影響匯入
-      if (labelId) {
-        try {
-          await gmailPost(accessToken, `messages/${mid}/modify`, { addLabelIds: [labelId] });
-          labeled += 1;
-        } catch (err) {
-          console.warn("gmail-import: 貼標籤失敗:", err instanceof Error ? err.message : err);
+        // 附件已全數處理（匯入或判定重複）→ 在 Gmail 貼上標籤；失敗不影響匯入
+        if (labelId) {
+          try {
+            await gmailPost(accessToken, `messages/${mid}/modify`, { addLabelIds: [labelId] });
+            labeled += 1;
+          } catch (err) {
+            console.warn("gmail-import: 貼標籤失敗:", err instanceof Error ? err.message : err);
+          }
         }
       }
     }
@@ -344,8 +349,8 @@ export async function POST(request: NextRequest) {
       no_attachment: noAttachment,
       remaining,
       labeled,
-      // 有處理信件但拿不到標籤 id ＝ 授權仍是唯讀，提示前端顯示升級授權
-      labeling_unavailable: toProcess.length > 0 && labelId == null,
+      // 有處理信件但拿不到標籤 id ＝ 該帳號授權仍是唯讀，提示前端顯示升級授權
+      labeling_unavailable: labelingUnavailable,
       ids: insertedIds,
       query,
     });

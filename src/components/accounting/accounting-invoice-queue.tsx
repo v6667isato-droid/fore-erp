@@ -326,7 +326,9 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
                       className="rounded border border-border px-1.5 py-px text-[10px] text-muted-foreground"
                       title={
                         row.source === "gmail"
-                          ? [row.gmail_subject, row.gmail_from].filter(Boolean).join("\n") || undefined
+                          ? [row.gmail_subject, row.gmail_from, row.gmail_account && `信箱：${row.gmail_account}`]
+                              .filter(Boolean)
+                              .join("\n") || undefined
                           : undefined
                       }
                     >
