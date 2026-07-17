@@ -160,6 +160,10 @@ export interface GmailImportResult {
   noAttachment: number;
   /** 因單次處理上限而尚未匯入的新信件數（再按一次即可續匯） */
   remaining: number;
+  /** 本次成功貼上「ERP已匯入」標籤的信件數 */
+  labeled: number;
+  /** Gmail 授權仍為唯讀、無法貼標籤（需重新授權 gmail.modify） */
+  labelingUnavailable: boolean;
   /** 新建佇列紀錄的 id（前端接著跑辨識） */
   ids: string[];
   error?: string;
@@ -173,6 +177,8 @@ const GMAIL_IMPORT_FAILURE: Omit<GmailImportResult, "error"> = {
   duplicates: 0,
   noAttachment: 0,
   remaining: 0,
+  labeled: 0,
+  labelingUnavailable: false,
   ids: [],
 };
 
@@ -198,6 +204,8 @@ export async function importInvoicesFromGmail(): Promise<GmailImportResult> {
         duplicates: json.duplicates ?? 0,
         noAttachment: json.no_attachment ?? 0,
         remaining: json.remaining ?? 0,
+        labeled: json.labeled ?? 0,
+        labelingUnavailable: Boolean(json.labeling_unavailable),
         ids: Array.isArray(json.ids) ? json.ids : [],
       };
     }
@@ -224,10 +232,18 @@ export async function recognizeAccountingInvoice(
 ): Promise<TaxRecognitionOutcome> {
   let outcome: TaxRecognitionOutcome;
   try {
+    // 辨識 API 需登入 token 才放行（避免 AI 額度被盜用）
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    if (!token) return { ok: false, error: "登入已失效，請重新登入" };
+
     const base64 = await blobToBase64(blob);
     const res = await fetch("/api/invoice-recognition", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ file_base64: base64, media_type: mediaType, doc_type: "tax_invoice" }),
     });
     const json = await res.json().catch(() => null);

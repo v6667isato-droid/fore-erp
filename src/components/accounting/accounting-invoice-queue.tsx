@@ -153,6 +153,9 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
       if (result.remaining > 0) {
         toast.info(`還有 ${result.remaining} 封新發票信未處理（單次上限 20 封），辨識完成後請再按一次「從 Gmail 匯入」`);
       }
+      if (result.labelingUnavailable) {
+        toast.info("Gmail 標籤未貼上：目前授權為唯讀，需以 gmail.modify 權限重新取得 refresh token");
+      }
       const queue = await fetchInvoiceQueue();
       setRows(queue);
       const newRows = queue.filter((r) => result.ids.includes(r.id));

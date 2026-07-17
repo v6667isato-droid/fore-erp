@@ -12,6 +12,8 @@ export const maxDuration = 60;
  */
 
 const DEFAULT_QUERY = "has:attachment (發票 OR 電子發票 OR invoice) newer_than:60d";
+/** 匯入後自動貼上的 Gmail 標籤（需 gmail.modify 授權；唯讀授權時靜默略過） */
+const GMAIL_LABEL_NAME = "ERP已匯入";
 /** 單次最多下載處理的「新」信件數（避免超過 Vercel 60 秒上限）；超過的部分回報 remaining 請使用者再按一次 */
 const MAX_NEW_MESSAGES = 20;
 /** Gmail 清單翻頁：每頁筆數與總掃描上限（已匯入的只比對 id、不佔處理名額） */
@@ -123,6 +125,44 @@ async function gmailGet(accessToken: string, path: string): Promise<Record<strin
   return json as Record<string, unknown>;
 }
 
+async function gmailPost(
+  accessToken: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const detail = (json as { error?: { message?: string } } | null)?.error?.message || `HTTP ${res.status}`;
+    throw new Error(`Gmail API 寫入失敗（${detail}）`);
+  }
+  return json as Record<string, unknown>;
+}
+
+/** 找到或建立「ERP已匯入」標籤；授權不足（唯讀）或失敗時回傳 null，匯入照常進行 */
+async function ensureLabelId(accessToken: string): Promise<string | null> {
+  try {
+    const res = await gmailGet(accessToken, "labels");
+    const labels = (res.labels as { id: string; name: string }[] | undefined) ?? [];
+    const hit = labels.find((l) => l.name === GMAIL_LABEL_NAME);
+    if (hit) return hit.id;
+    const created = await gmailPost(accessToken, "labels", {
+      name: GMAIL_LABEL_NAME,
+      labelListVisibility: "labelShow",
+      messageListVisibility: "show",
+      color: { backgroundColor: "#16a766", textColor: "#ffffff" },
+    });
+    return (created.id as string | undefined) ?? null;
+  } catch (err) {
+    console.warn("gmail-import: 標籤功能不可用（可能為唯讀授權）:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -206,9 +246,13 @@ export async function POST(request: NextRequest) {
     const remaining = newIds.length - toProcess.length;
     const skipped = messageIds.length - newIds.length;
 
+    // 貼標籤用；唯讀授權時為 null（略過貼標籤，匯入照常）
+    const labelId = toProcess.length > 0 ? await ensureLabelId(accessToken) : null;
+
     const insertedIds: string[] = [];
     let noAttachment = 0;
     let duplicates = 0;
+    let labeled = 0;
     /** 本次執行內已收的附件內容雜湊（同批信件互相去重） */
     const seenHashes = new Set<string>();
 
@@ -280,6 +324,16 @@ export async function POST(request: NextRequest) {
         if (insErr || !row) throw new Error(`佇列紀錄建立失敗：${insErr?.message ?? "unknown"}`);
         insertedIds.push((row as { id: string }).id);
       }
+
+      // 附件已全數處理（匯入或判定重複）→ 在 Gmail 貼上標籤；失敗不影響匯入
+      if (labelId) {
+        try {
+          await gmailPost(accessToken, `messages/${mid}/modify`, { addLabelIds: [labelId] });
+          labeled += 1;
+        } catch (err) {
+          console.warn("gmail-import: 貼標籤失敗:", err instanceof Error ? err.message : err);
+        }
+      }
     }
 
     return NextResponse.json({
@@ -289,6 +343,9 @@ export async function POST(request: NextRequest) {
       duplicates,
       no_attachment: noAttachment,
       remaining,
+      labeled,
+      // 有處理信件但拿不到標籤 id ＝ 授權仍是唯讀，提示前端顯示升級授權
+      labeling_unavailable: toProcess.length > 0 && labelId == null,
       ids: insertedIds,
       query,
     });
