@@ -219,14 +219,27 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
     );
   }
 
-  const query = queryOverride?.trim() || process.env.GMAIL_INVOICE_QUERY || DEFAULT_QUERY;
+  const sharedQuery = queryOverride?.trim() || process.env.GMAIL_INVOICE_QUERY || DEFAULT_QUERY;
 
   const admin = createClient(url, serviceKey ?? anonKey);
 
-  // 多帳號：GMAIL_REFRESH_TOKEN（主帳號）＋ GMAIL_REFRESH_TOKEN_2（第二帳號，選用），共用同一組 client
-  const refreshTokens = [refreshToken, process.env.GMAIL_REFRESH_TOKEN_2].filter(
-    (t): t is string => Boolean(t && t.trim()),
-  );
+  // 多帳號：GMAIL_REFRESH_TOKEN（主帳號）＋ GMAIL_REFRESH_TOKEN_2（第二帳號，選用），共用同一組 client。
+  // 第二帳號可用 GMAIL_INVOICE_QUERY_2 設自己的搜尋條件（公司信箱多為國外貿易信，預設含
+  // "invoice" 會誤抓 Proforma Invoice／B/L，建議只用中文關鍵字）
+  const accounts: { refreshToken: string; query: string }[] = [
+    { refreshToken, query: sharedQuery },
+  ];
+  const refreshToken2 = process.env.GMAIL_REFRESH_TOKEN_2;
+  if (refreshToken2?.trim()) {
+    accounts.push({
+      refreshToken: refreshToken2,
+      query:
+        queryOverride?.trim() ||
+        process.env.GMAIL_INVOICE_QUERY_2 ||
+        process.env.GMAIL_INVOICE_QUERY ||
+        DEFAULT_QUERY,
+    });
+  }
 
   try {
     const insertedIds: string[] = [];
@@ -241,7 +254,7 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
     /** 跨帳號共用：同一張發票兩個信箱都收到時只匯一次 */
     const seenHashes = new Set<string>();
 
-    for (const rt of refreshTokens) {
+    for (const { refreshToken: rt, query } of accounts) {
       const accessToken = await refreshAccessToken(clientId, clientSecret, rt);
       const profile = await gmailGet(accessToken, "profile");
       const account = (profile.emailAddress as string | undefined) ?? null;
@@ -370,7 +383,7 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
       // 有處理信件但拿不到標籤 id ＝ 該帳號授權仍是唯讀，提示前端顯示升級授權
       labeling_unavailable: labelingUnavailable,
       ids: insertedIds,
-      query,
+      query: accounts.map((a) => a.query),
     });
   } catch (err) {
     console.error("gmail-import error:", err);
