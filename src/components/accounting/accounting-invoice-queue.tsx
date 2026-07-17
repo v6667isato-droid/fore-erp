@@ -53,8 +53,26 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
     setRows(await fetchInvoiceQueue());
   }, []);
 
+  /** 進頁面時自動辨識排程匯入（或先前中斷）留下的待辨識發票；每次掛載只跑一次 */
+  const autoRecognizedRef = useRef(false);
+
   useEffect(() => {
-    void refresh();
+    void (async () => {
+      const queue = await fetchInvoiceQueue();
+      setRows(queue);
+      if (autoRecognizedRef.current) return;
+      autoRecognizedRef.current = true;
+      const pending = queue.filter((r) => r.status === "pending");
+      if (pending.length === 0) return;
+      await Promise.all(
+        pending.map(async (row) => {
+          markRecognizing(row.id, true);
+          await recognizeAccountingInvoiceFromUrl(row);
+          markRecognizing(row.id, false);
+        }),
+      );
+      await refresh();
+    })();
   }, [refresh]);
 
   function markRecognizing(id: string, on: boolean) {

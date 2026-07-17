@@ -163,10 +163,10 @@ async function ensureLabelId(accessToken: string): Promise<string | null> {
   }
 }
 
+/** 手動觸發（會計頁按鈕）：需登入 */
 export async function POST(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !anonKey) {
     return NextResponse.json({ success: false, error: "Supabase 未設定" }, { status: 500 });
   }
@@ -180,6 +180,28 @@ export async function POST(request: NextRequest) {
   } = await supabaseAnon.auth.getUser(token);
   if (userErr || !user) {
     return NextResponse.json({ success: false, error: "登入已失效，請重新登入" }, { status: 401 });
+  }
+
+  const body = await request.json().catch(() => null);
+  return handleImport(typeof body?.query === "string" ? body.query : null);
+}
+
+/** 排程觸發（Vercel Cron，vercel.json）：驗證 CRON_SECRET，與每週訂單摘要同模式 */
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  const secret = process.env.CRON_SECRET;
+  if (secret && authHeader !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return handleImport(null);
+}
+
+async function handleImport(queryOverride: string | null): Promise<NextResponse> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !anonKey) {
+    return NextResponse.json({ success: false, error: "Supabase 未設定" }, { status: 500 });
   }
 
   const clientId = process.env.GMAIL_CLIENT_ID;
@@ -197,11 +219,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const body = await request.json().catch(() => null);
-  const query =
-    (typeof body?.query === "string" && body.query.trim()) ||
-    process.env.GMAIL_INVOICE_QUERY ||
-    DEFAULT_QUERY;
+  const query = queryOverride?.trim() || process.env.GMAIL_INVOICE_QUERY || DEFAULT_QUERY;
 
   const admin = createClient(url, serviceKey ?? anonKey);
 
