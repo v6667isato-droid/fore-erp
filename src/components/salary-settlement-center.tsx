@@ -1293,7 +1293,7 @@ export function SalarySettlementCenter() {
         </p>
       )}
 
-      <div className="px-2 pb-2 pt-1 max-md:overflow-x-auto md:overflow-visible sm:px-4 sm:pb-4 sm:pt-2">
+      <div className="overflow-x-auto px-2 pb-2 pt-1 sm:px-4 sm:pb-4 sm:pt-2">
         {loading ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
             載入結算資料中…
@@ -1303,29 +1303,29 @@ export function SalarySettlementCenter() {
             尚無在職員工可結算。
           </p>
         ) : (
-          <table className="w-full max-md:min-w-[1260px] border-collapse text-sm md:table-fixed">
-            <colgroup className="hidden md:table-column-group">
+          <table className="w-full min-w-[1240px] table-fixed border-collapse text-sm">
+            <colgroup>
+              <col className="w-[4.5rem]" />
+              <col className="w-[4rem]" />
               <col className="w-[3.25rem]" />
+              <col className="w-[3.25rem]" />
+              <col className="w-[4rem]" />
+              <col className="w-[5.5rem]" />
+              <col className="w-[4rem]" />
+              <col className="w-[5.5rem]" />
+              <col className="w-[5.75rem]" />
               <col className="w-[3.5rem]" />
-              <col className="w-[2.75rem]" />
               <col className="w-[3rem]" />
-              <col className="w-[4rem]" />
-              <col className="w-[5rem]" />
-              <col className="w-[3.75rem]" />
-              <col className="w-[5rem]" />
-              <col className="w-[5.25rem]" />
-              <col className="w-[3.25rem]" />
               <col className="w-[2.5rem]" />
-              <col className="w-[2.25rem]" />
-              <col className="w-[4rem]" />
-              <col className="w-[4rem]" />
-              <col className="w-[3.25rem]" />
-              <col className="min-w-[7rem]" />
+              <col className="w-[4.75rem]" />
+              <col className="w-[4.75rem]" />
+              <col className="w-[3.75rem]" />
+              <col />
               <col className="w-[3.5rem]" />
             </colgroup>
             <thead>
               <tr className="border-b border-border bg-muted/20 text-left [&_th]:px-1 [&_th]:py-1.5 [&_th]:text-xs [&_th]:font-semibold md:[&_th]:whitespace-normal">
-                <th className="max-md:sticky max-md:left-0 max-md:z-30 max-md:bg-card max-md:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.08)] text-foreground">
+                <th className="sticky left-0 z-30 bg-card shadow-[4px_0_12px_-4px_rgba(0,0,0,0.08)] text-foreground">
                   姓名
                 </th>
                 <th className="text-right text-muted-foreground">本月薪資</th>
@@ -1446,10 +1446,10 @@ export function SalarySettlementCenter() {
                     <td
                       title={emp.name || undefined}
                       className={cn(
-                        "max-w-[4.5rem] truncate font-medium text-foreground max-md:sticky max-md:left-0 max-md:z-10 max-md:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.06)] md:max-w-none",
+                        "truncate font-medium text-foreground sticky left-0 z-10 shadow-[4px_0_12px_-4px_rgba(0,0,0,0.06)]",
                         paid
-                          ? "max-md:bg-muted/25 bg-muted/25"
-                          : "max-md:bg-card bg-card group-hover:bg-muted/40",
+                          ? "bg-muted/25"
+                          : "bg-card group-hover:bg-muted/40",
                       )}
                     >
                       {emp.name || "—"}
