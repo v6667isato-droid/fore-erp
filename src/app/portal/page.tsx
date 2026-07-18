@@ -2,11 +2,7 @@
 
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
-import {
-  DEFAULT_WORK_ORDER_STAGE,
-  plannedEndDateFromOrderDelivery,
-  syncWorkOrdersToOrderStatus,
-} from "@/lib/work-order-stages";
+import { canEditOrDelete, PORTAL_NO_EDIT_DELETE_STATUSES } from "@/lib/portal-order-rules";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
@@ -29,7 +25,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { VariantSeriesThumb } from "@/components/variant-series-thumb";
 import {
   OrderOverviewCard,
-  fetchOrderOverviewById,
+  parseOrdersPayload,
   type OverviewOrder,
 } from "@/components/orders-overview-page";
 import {
@@ -214,27 +210,48 @@ function setSession(s: PortalSession | null) {
   else localStorage.removeItem(PORTAL_SESSION_KEY);
 }
 
-function generateOrderNumber() {
-  const now = new Date();
-  const ymd = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const suffix = String(now.getTime()).slice(-4);
-  return `ORD-${ymd}-${suffix}`;
-}
+type PortalApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string };
 
 /**
- * 訂單狀態為「生產中」之後（含）即鎖定，與內部訂單流程一致。
- * 此前：報價中、繪圖中、排程中、繪製製作圖 — 通路可編輯／刪除。
+ * orders / order_items / work_orders 已啟用 RLS，anon 無法直接讀寫；
+ * 通路端一律走 /api/portal/* 由 service role 代查代寫（以 portal_token 驗身分）。
  */
-const PORTAL_NO_EDIT_DELETE_STATUSES = new Set([
-  "生產中",
-  "暫停",
-  "已完工",
-  "已出貨",
-  "結案",
-]);
+async function portalApiPost<T>(
+  path: string,
+  token: string | undefined,
+  payload: Record<string, unknown>,
+): Promise<PortalApiResult<T>> {
+  if (!token) return { ok: false, status: 401, error: "unauthorized" };
+  try {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, ...payload }),
+    });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        error: typeof json?.error === "string" ? json.error : "server",
+      };
+    }
+    return { ok: true, data: json as T };
+  } catch {
+    return { ok: false, status: 0, error: "network" };
+  }
+}
 
-function canEditOrDelete(status: string) {
-  return !PORTAL_NO_EDIT_DELETE_STATUSES.has(String(status ?? "").trim());
+function portalApiErrorMessage(
+  r: { status: number; error: string },
+  fallback: string,
+): string {
+  if (r.status === 401) return "登入已過期，請重新登入通路入口";
+  if (r.status === 409 || r.error === "locked")
+    return "此訂單已進入生產或後續階段，無法修改";
+  if (r.status === 404) return "找不到訂單，請重新整理列表";
+  if (r.error === "network") return "網路連線異常，請稍後再試";
+  return fallback;
 }
 
 function portalStatusColor(status: string): string {
@@ -432,50 +449,23 @@ export default function PortalPage() {
     if (!session?.customer_id) return;
     setMyOrdersLoading(true);
     try {
-      let rawList: any[] = [];
-      const orderSelect =
-        "id, order_number, order_date, shipping_contact_name, expected_delivery_date, status, payment_status, total_amount, shipping_fee";
+      const listRes = await portalApiPost<{
+        orders: any[];
+        list_grand_by_order: Record<string, number>;
+      }>("/api/portal/orders/list", session.portal_token, {});
 
-      const { data: orderData, error: orderError } = await supabase
-        .from("orders")
-        .select(orderSelect)
-        .eq("customer_id", session.customer_id)
-        .is("deleted_at", null)
-        .order("order_date", { ascending: false })
-        .limit(100);
-
-      if (orderError) {
-        console.error("[portal] orders:", orderError);
-        toast.error("無法載入訂單，請稍後再試");
+      if (!listRes.ok) {
+        console.error("[portal] orders:", listRes.error);
+        toast.error(portalApiErrorMessage(listRes, "無法載入訂單，請稍後再試"));
         setMyOrders([]);
         return;
       }
-      rawList = (orderData ?? []) as any[];
+      const rawList = (listRes.data.orders ?? []) as any[];
       const orderIds = rawList.map((r) => String(r.id));
 
-      const listGrandByOrderId = new Map<string, number>();
-      if (orderIds.length > 0) {
-        const { data: itemRows } = await supabase
-          .from("order_items")
-          .select("order_id, quantity, unit_price")
-          .in("order_id", orderIds);
-
-        const lineSumByOrder = new Map<string, number>();
-        for (const row of (itemRows ?? []) as any[]) {
-          const oid = String(row.order_id);
-          const q = Math.max(0, Number(row.quantity) || 0);
-          const listUnit = Number(row.unit_price ?? 0);
-          const line = Math.round(listUnit * q);
-          lineSumByOrder.set(oid, (lineSumByOrder.get(oid) ?? 0) + line);
-        }
-
-        for (const r of rawList) {
-          const oid = String(r.id);
-          const ship = Number(r.shipping_fee ?? 0);
-          const listGrand = (lineSumByOrder.get(oid) ?? 0) + ship;
-          listGrandByOrderId.set(oid, listGrand);
-        }
-      }
+      const listGrandByOrderId = new Map<string, number>(
+        Object.entries(listRes.data.list_grand_by_order ?? {}).map(([k, v]) => [k, Number(v)]),
+      );
 
       let plannedMap = new Map<string, string | null>();
       let stageMap = new Map<string, string | null>();
@@ -864,8 +854,22 @@ export default function PortalPage() {
     });
     if (willExpand && orderOverviewById[orderId] === undefined) {
       setOrderOverviewById((prev) => ({ ...prev, [orderId]: "loading" }));
-      void fetchOrderOverviewById(orderId).then((row) => {
-        setOrderOverviewById((prev) => ({ ...prev, [orderId]: row }));
+      void portalApiPost<{ row: unknown }>(
+        "/api/portal/orders/overview",
+        session?.portal_token,
+        { order_id: orderId },
+      ).then((res) => {
+        if (!res.ok) {
+          setOrderOverviewById((prev) => ({ ...prev, [orderId]: null }));
+          return;
+        }
+        const row = parseOrdersPayload([res.data.row])[0] ?? null;
+        // 保險：embed 若無客戶名，以登入回應的客戶名遞補
+        const patched =
+          row && !row.customer_name.trim() && session?.customer_name
+            ? { ...row, customer_name: session.customer_name }
+            : row;
+        setOrderOverviewById((prev) => ({ ...prev, [orderId]: patched }));
       });
     }
   }
@@ -874,12 +878,11 @@ export default function PortalPage() {
     if (!deleteConfirmOrder) return;
     const order = deleteConfirmOrder;
     setDeleteConfirmOrder(null);
-    const { error } = await supabase
-      .from("orders")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", order.id);
-    if (error) {
-      toast.error(error.message || "刪除訂單失敗");
+    const res = await portalApiPost("/api/portal/orders/delete", session?.portal_token, {
+      order_id: order.id,
+    });
+    if (!res.ok) {
+      toast.error(portalApiErrorMessage(res, "刪除訂單失敗"));
       return;
     }
     toast.success("已刪除訂單");
@@ -892,29 +895,23 @@ export default function PortalPage() {
       return;
     }
     setEditFormLoading(true);
-    Promise.all([
-      supabase.from("orders").select("id, order_date, expected_delivery_date, shipping_address, internal_notes, status").eq("id", editingOrderId).eq("customer_id", session.customer_id).single(),
-      supabase
-        .from("order_items")
-        .select("id, variant_id, quantity, unit_price, custom_notes, seat_height_cm, product_variants(base_price)")
-        .eq("order_id", editingOrderId)
-        .order("line_order", { ascending: true })
-        .order("id", { ascending: true }),
-    ]).then(([orderRes, itemsRes]) => {
-      if (orderRes.error || !orderRes.data) {
-        toast.error(orderRes.error?.message || "讀取訂單失敗");
+    portalApiPost<{ order: any; items: any[] }>("/api/portal/orders/get", session.portal_token, {
+      order_id: editingOrderId,
+    }).then((res) => {
+      if (!res.ok) {
+        toast.error(portalApiErrorMessage(res, "讀取訂單失敗"));
         setEditingOrderId(null);
         setEditFormLoading(false);
         return;
       }
-      const o = orderRes.data as any;
+      const o = res.data.order as any;
       if (o.status && PORTAL_NO_EDIT_DELETE_STATUSES.has(String(o.status).trim())) {
         toast.error("此訂單已進入生產或後續階段，無法修改");
         setEditingOrderId(null);
         setEditFormLoading(false);
         return;
       }
-      const itemRows = ((itemsRes.data ?? []) as any[]).map((d, idx) => {
+      const itemRows = ((res.data.items ?? []) as any[]).map((d, idx) => {
         const pv = d.product_variants as { base_price?: number | null } | null;
         const listPx =
           d.variant_id && pv?.base_price != null && Number.isFinite(Number(pv.base_price))
@@ -951,7 +948,7 @@ export default function PortalPage() {
             ],
       });
     }).finally(() => setEditFormLoading(false));
-  }, [editingOrderId, session?.customer_id]);
+  }, [editingOrderId, session?.customer_id, session?.portal_token]);
 
   function updateEditItem(id: string, patch: Partial<PortalItem>) {
     if (!editForm) return;
@@ -1013,98 +1010,37 @@ export default function PortalPage() {
       toast.error("請至少保留一筆有效品項");
       return;
     }
-    const { data: statusCheck, error: statusCheckErr } = await supabase
-      .from("orders")
-      .select("status")
-      .eq("id", editingOrderId)
-      .eq("customer_id", session.customer_id)
-      .single();
-    if (statusCheckErr || !statusCheck) {
-      toast.error(statusCheckErr?.message || "無法確認訂單狀態，請稍後再試");
-      return;
-    }
-    const liveStatus = String((statusCheck as { status?: string }).status ?? "");
-    if (!canEditOrDelete(liveStatus)) {
-      toast.error("此訂單已進入生產或後續階段，無法修改");
-      setEditingOrderId(null);
-      setEditForm(null);
-      fetchMyOrders();
-      return;
-    }
-    const totalAmount = validItems.reduce((s, it) => {
-      const v = variants.find((x) => x.id === it.variant_id);
-      return s + it.quantity * portalSettlementUnitPrice(v, portalSeriesDiscountPct);
-    }, 0);
     setEditSaving(true);
     try {
-      const { error: updateErr } = await supabase
-        .from("orders")
-        .update({
-          order_date: editForm.order_date || null,
-          expected_delivery_date: editForm.expected_delivery_date || null,
-          shipping_address: editForm.shipping_address || null,
-          internal_notes: editForm.order_notes || null,
-          total_amount: totalAmount,
-        })
-        .eq("id", editingOrderId)
-        .eq("customer_id", session.customer_id);
-      if (updateErr) {
-        toast.error(updateErr.message || "更新訂單失敗");
-        return;
-      }
-      const { data: existingItems } = await supabase.from("order_items").select("id").eq("order_id", editingOrderId);
-      const ids = (existingItems ?? []).map((x: { id: string }) => x.id);
-      if (ids.length > 0) {
-        await supabase.from("work_orders").delete().in("order_item_id", ids);
-      }
-      await supabase.from("order_items").delete().eq("order_id", editingOrderId);
-      const itemsPayload = validItems.map((it, lineIndex) => ({
+      // 狀態檢查、計價與明細/工單重建皆由 API 以 service role 處理
+      const res = await portalApiPost("/api/portal/orders/update", session.portal_token, {
         order_id: editingOrderId,
-        line_order: lineIndex,
-        variant_id: it.variant_id,
-        quantity: it.quantity,
-        unit_price: portalListUnitPrice(variants.find((x) => x.id === it.variant_id)),
-        custom_notes: it.notes || null,
-        custom_category: null,
-        custom_name: null,
-        custom_description: null,
-        custom_dimension_w: null,
-        custom_dimension_d: null,
-        custom_dimension_h: null,
-        seat_height_cm:
-          it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
-            ? Number(it.seat_height_cm)
-            : null,
-      }));
-      const { data: insertedItems, error: itemsErr } = await supabase.from("order_items").insert(itemsPayload).select("id");
-      if (itemsErr) {
-        toast.error(itemsErr.message || "更新明細失敗");
-        return;
-      }
-      const plannedFromDelivery = plannedEndDateFromOrderDelivery(
-        editForm.expected_delivery_date
-      );
-      const workOrderPayload = (insertedItems ?? []).map((row: { id: string }) => ({
-        order_item_id: row.id,
-        stage: DEFAULT_WORK_ORDER_STAGE,
-        status: "未開始",
-        planned_end_date: plannedFromDelivery,
-      }));
-      if (workOrderPayload.length > 0) {
-        const { error: woInsErr } = await supabase.from("work_orders").insert(workOrderPayload);
-        if (woInsErr) {
-          console.error(woInsErr);
-        } else {
-          const { data: ordRow } = await supabase
-            .from("orders")
-            .select("status")
-            .eq("id", editingOrderId)
-            .single();
-          const st = (ordRow as { status?: string } | null)?.status;
-          if (st) {
-            await syncWorkOrdersToOrderStatus(supabase, editingOrderId, st);
-          }
+        order: {
+          order_date: editForm.order_date || "",
+          expected_delivery_date: editForm.expected_delivery_date || "",
+          shipping_address: editForm.shipping_address || "",
+          internal_notes: editForm.order_notes || "",
+        },
+        items: validItems.map((it) => ({
+          variant_id: it.variant_id,
+          quantity: it.quantity,
+          notes: it.notes || "",
+          seat_height_cm:
+            it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
+              ? Number(it.seat_height_cm)
+              : null,
+        })),
+      });
+      if (!res.ok) {
+        if (res.status === 409 || res.error === "locked") {
+          toast.error("此訂單已進入生產或後續階段，無法修改");
+          setEditingOrderId(null);
+          setEditForm(null);
+          fetchMyOrders();
+          return;
         }
+        toast.error(portalApiErrorMessage(res, "更新訂單失敗"));
+        return;
       }
       toast.success("訂單已更新");
       setEditingOrderId(null);
@@ -1172,107 +1108,41 @@ export default function PortalPage() {
     setSubmitting(true);
     setSubmittedOrderNumber(null);
     try {
-      const orderNumber = generateOrderNumber();
-      const orderPayloadWithSource = {
-        order_number: orderNumber,
-        customer_id: session.customer_id,
-        order_date: orderDate || null,
-        expected_delivery_date: expectedDate || null,
-        status: "排程中",
-        payment_status: "未付款",
-        total_amount: totalAmount,
-        deposit_amount: 0,
-        shipping_contact_name: contactName.trim() || null,
-        shipping_contact_phone: contactPhone.trim() || null,
-        shipping_address:
-          (contactAddress.trim() || shippingAddress.trim() || "") || null,
-        internal_notes: orderNotes || null,
-        source: "portal",
-      };
-      let orderId: string;
-      const { data: orderRow, error: orderError } = await supabase
-        .from("orders")
-        .insert(orderPayloadWithSource)
-        .select("id")
-        .single();
+      // 訂單編號、金額計價與工單建立皆由 API 以 service role 處理
+      const res = await portalApiPost<{
+        order_id: string;
+        order_number: string;
+        work_orders_ok?: boolean;
+      }>("/api/portal/orders/create", session.portal_token, {
+        order: {
+          order_date: orderDate || "",
+          expected_delivery_date: expectedDate || "",
+          shipping_contact_name: contactName.trim(),
+          shipping_contact_phone: contactPhone.trim(),
+          shipping_address: contactAddress.trim() || shippingAddress.trim() || "",
+          internal_notes: orderNotes || "",
+        },
+        items: validItems.map((it) => ({
+          variant_id: it.variant_id,
+          quantity: it.quantity,
+          notes: it.notes || "",
+          seat_height_cm:
+            it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
+              ? Number(it.seat_height_cm)
+              : null,
+        })),
+      });
 
-      if (orderError) {
-        const isColumnError = /column .* does not exist/i.test(orderError.message ?? "") || /could not find.*column/i.test(orderError.message ?? "");
-        if (isColumnError) {
-          const fallbackPayload: Record<string, unknown> = { ...orderPayloadWithSource };
-          delete fallbackPayload.source;
-          const { data: fallbackRow, error: fallbackError } = await supabase
-            .from("orders")
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 舊 schema 相容 fallback，欄位組合與型別定義不同
-            .insert(fallbackPayload as any)
-            .select("id")
-            .single();
-          if (fallbackError || !fallbackRow) {
-            toast.error(fallbackError?.message || "建立訂單失敗");
-            return;
-          }
-          orderId = fallbackRow.id as string;
-        } else {
-          toast.error(orderError.message || "建立訂單失敗");
-          return;
-        }
-      } else if (orderRow) {
-        orderId = orderRow.id as string;
-      } else {
-        toast.error("建立訂單失敗");
+      if (!res.ok) {
+        toast.error(portalApiErrorMessage(res, "建立訂單失敗"));
         return;
       }
-
-      const itemsPayload = validItems.map((it, lineIndex) => ({
-        order_id: orderId,
-        line_order: lineIndex,
-        variant_id: it.variant_id,
-        quantity: it.quantity,
-        unit_price: portalListUnitPrice(variants.find((x) => x.id === it.variant_id)),
-        custom_notes: it.notes || null,
-        custom_category: null,
-        custom_name: null,
-        custom_description: null,
-        custom_dimension_w: null,
-        custom_dimension_d: null,
-        custom_dimension_h: null,
-        seat_height_cm:
-          it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
-            ? Number(it.seat_height_cm)
-            : null,
-      }));
-
-      const { data: insertedItems, error: itemsError } = await supabase
-        .from("order_items")
-        .insert(itemsPayload)
-        .select("id");
-
-      if (itemsError) {
-        toast.error(itemsError.message || "寫入訂單明細失敗");
-        return;
-      }
-
-      const plannedFromDelivery = plannedEndDateFromOrderDelivery(expectedDate);
-      const workOrderPayload = (insertedItems ?? []).map((row: { id: string }) => ({
-        order_item_id: row.id,
-        stage: DEFAULT_WORK_ORDER_STAGE,
-        status: "未開始",
-        planned_end_date: plannedFromDelivery,
-      }));
-      if (workOrderPayload.length > 0) {
-        const { error: woError } = await supabase
-          .from("work_orders")
-          .insert(workOrderPayload);
-        if (woError) {
-          console.error("建立工單失敗:", woError);
-          toast.error("訂單已建立，但工單建立失敗，請聯絡客服。");
-        } else {
-          await syncWorkOrdersToOrderStatus(supabase, orderId, "排程中");
-        }
+      if (res.data.work_orders_ok === false) {
+        toast.error("訂單已建立，但工單建立失敗，請聯絡客服。");
       }
 
       toast.success("訂單已建立，已進入生產排程");
-      setSubmittedOrderNumber(orderNumber);
+      setSubmittedOrderNumber(res.data.order_number);
       setExpectedDate("");
       setShippingAddress(session.delivery_address ?? "");
       setOrderNotes("");

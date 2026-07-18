@@ -38,6 +38,7 @@ import {
 } from "@/lib/chair-product-code";
 import { parseExplanationImages, type ExplanationImage } from "@/lib/explanation-images";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
+import { ORDER_OVERVIEW_SELECT } from "@/lib/order-overview-select";
 
 /** 與訂單／生產列表一致之訂單狀態排序 */
 const ORDER_STATUS_SEQUENCE = [
@@ -188,62 +189,6 @@ export type OverviewLine = {
   has_work_order: boolean;
 };
 
-const ORDER_OVERVIEW_SELECT = `
-        id,
-        customer_id,
-        order_number,
-        order_date,
-        expected_delivery_date,
-        status,
-        payment_status,
-        total_amount,
-        deposit_amount,
-        shipping_fee,
-        shipping_address,
-        shipping_contact_name,
-        shipping_contact_phone,
-        shipping_has_elevator,
-        internal_notes,
-        explanation_image_url,
-        customers(name, alias),
-        order_items(
-          id,
-          variant_id,
-          quantity,
-          unit_price,
-          custom_name,
-          custom_category,
-          custom_description,
-          custom_notes,
-          custom_dimension_w,
-          custom_dimension_d,
-          custom_dimension_h,
-          seat_height_cm,
-          image_url,
-          wood_type,
-          product_variants(
-            product_code,
-            spec1,
-            wood_type,
-            series_id,
-            dimension_w,
-            dimension_d,
-            dimension_h,
-            seat_height_cm,
-            image_url,
-            product_series(series_name, image_url)
-          ),
-          work_orders(
-            id,
-            stage,
-            assignee_id,
-            employees!assignee_id(name),
-            planned_start_date,
-            planned_end_date
-          )
-        )
-      `;
-
 function itemWoodType(r: { wood_type?: unknown }): string | null {
   const w = r.wood_type;
   if (w == null || String(w).trim() === "") return null;
@@ -367,7 +312,7 @@ function buildLineDetail(oi: any): {
   };
 }
 
-function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
+export function parseOrdersPayload(data: unknown[]): OverviewOrder[] {
   return (data as any[]).map((row) => {
     const customerName = relCustomerName(row.customers);
     const customerAlias = relCustomerAlias(row.customers);

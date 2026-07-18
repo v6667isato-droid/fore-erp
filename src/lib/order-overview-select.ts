@@ -1,0 +1,59 @@
+/**
+ * 訂單總覽卡的 PostgREST select 字串。
+ * 抽成純 lib：orders-overview-page（client）與 /api/portal/orders/overview（server）共用。
+ */
+export const ORDER_OVERVIEW_SELECT = `
+        id,
+        customer_id,
+        order_number,
+        order_date,
+        expected_delivery_date,
+        status,
+        payment_status,
+        total_amount,
+        deposit_amount,
+        shipping_fee,
+        shipping_address,
+        shipping_contact_name,
+        shipping_contact_phone,
+        shipping_has_elevator,
+        internal_notes,
+        explanation_image_url,
+        customers(name, alias),
+        order_items(
+          id,
+          variant_id,
+          quantity,
+          unit_price,
+          custom_name,
+          custom_category,
+          custom_description,
+          custom_notes,
+          custom_dimension_w,
+          custom_dimension_d,
+          custom_dimension_h,
+          seat_height_cm,
+          image_url,
+          wood_type,
+          product_variants(
+            product_code,
+            spec1,
+            wood_type,
+            series_id,
+            dimension_w,
+            dimension_d,
+            dimension_h,
+            seat_height_cm,
+            image_url,
+            product_series(series_name, image_url)
+          ),
+          work_orders(
+            id,
+            stage,
+            assignee_id,
+            employees!assignee_id(name),
+            planned_start_date,
+            planned_end_date
+          )
+        )
+      `;
