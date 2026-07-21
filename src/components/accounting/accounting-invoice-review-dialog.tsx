@@ -21,6 +21,7 @@ import {
 } from "@/lib/accounting-invoice";
 import { fetchPoOptions, suggestPos, type PoOption } from "@/lib/accounting-po-match";
 import { displayPoNumber } from "@/lib/purchase-order";
+import { InvoiceImageViewer, sanitizeCropBox } from "@/components/accounting/invoice-image-viewer";
 
 /** 從 Supabase 錯誤物件盡量取出可讀訊息 */
 function errText(err: unknown, fallback: string): string {
@@ -340,6 +341,9 @@ export function AccountingInvoiceReviewDialog({
   const isPdf =
     (invoice?.media_type ?? "") === "application/pdf" || (invoice?.file_path ?? "").endsWith(".pdf");
 
+  /** AI 辨識的發票紙張範圍：有值時照片預設聚焦放大該區域 */
+  const cropBox = useMemo(() => sanitizeCropBox(invoice?.recognized?.crop_box), [invoice]);
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -395,17 +399,39 @@ export function AccountingInvoiceReviewDialog({
                       className="h-[50vh] w-full rounded-md border-0 bg-white lg:h-[72vh]"
                     />
                   ) : (
-                    // eslint-disable-next-line @next/next/no-img-element -- Supabase 外部圖，僅審核時載入
-                    <img
-                      src={invoice.file_url}
-                      alt="發票照片"
-                      className="max-h-[50vh] w-full rounded-md object-contain lg:max-h-[72vh]"
-                    />
+                    <InvoiceImageViewer src={invoice.file_url} alt="發票照片" cropBox={cropBox} />
                   )
                 ) : (
                   <p className="p-6 text-center text-sm text-muted-foreground">無照片</p>
                 )}
               </div>
+
+              {/* 對照條：目前輸入的關鍵欄位放大顯示，眼睛不用在照片與表單間來回 */}
+              {invoice && (
+                <div className="mt-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
+                  <p className="text-[10px] text-muted-foreground">目前輸入（存檔前請與照片核對）</p>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                    <div>
+                      <span className="mr-1.5 text-[10px] text-muted-foreground">號碼</span>
+                      <span className="text-lg font-semibold tracking-wide text-foreground tabular-nums">
+                        {invoiceNumber.trim() || "—"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="mr-1.5 text-[10px] text-muted-foreground">日期</span>
+                      <span className="text-lg font-semibold text-foreground tabular-nums">
+                        {invoiceDate || "—"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="mr-1.5 text-[10px] text-muted-foreground">含稅</span>
+                      <span className="text-lg font-semibold text-foreground tabular-nums">
+                        {incTaxNum != null ? `$${incTaxNum.toLocaleString()}` : "—"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 右：審核表單 */}

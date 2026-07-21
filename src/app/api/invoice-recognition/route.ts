@@ -27,6 +27,14 @@ export interface RecognizedInvoice {
   items: RecognizedInvoiceItem[];
 }
 
+/** 發票紙張在照片中的範圍（0–1000 標準化座標，x0,y0 左上、x1,y1 右下） */
+export interface RecognizedCropBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
 /** 統一發票辨識結果（會計發票模組審核用，doc_type=tax_invoice） */
 export interface RecognizedTaxInvoice {
   /** 發票號碼：2 碼英文＋8 碼數字 */
@@ -44,6 +52,8 @@ export interface RecognizedTaxInvoice {
   tax_amount: number | null;
   /** 總計（含稅） */
   amount_inc_tax: number | null;
+  /** 發票紙張範圍，審核畫面自動聚焦放大用；PDF、佔滿畫面或舊資料為 null／缺欄 */
+  crop_box?: RecognizedCropBox | null;
 }
 
 const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
@@ -132,6 +142,9 @@ const TAX_RECOGNITION_PROMPT = `這是一張台灣的統一發票（可能是三
 - 賣方（開立發票的公司）名稱與統一編號（8 碼數字）
 - 買方統一編號（8 碼數字；二聯式發票通常沒有，輸出 null）
 - 銷售額（未稅）、營業稅額、總計（含稅）：發票上有哪個就填哪個
+- crop_box：發票紙張本體在整張照片中的範圍，0–1000 標準化座標（x0,y0＝左上角、x1,y1＝右下角）。
+  照片常含桌面等背景，請框住整張發票紙，寧可框大一點也不要切到任何文字；
+  發票已幾乎佔滿整張畫面、或檔案是 PDF 時輸出 null
 
 日期特別注意：
 - 台灣發票常用民國紀年，民國年＝西元年－1911。兩、三位數的年份幾乎都是民國年，
@@ -155,6 +168,7 @@ const CLAUDE_TAX_OUTPUT_SCHEMA = {
     "amount_ex_tax",
     "tax_amount",
     "amount_inc_tax",
+    "crop_box",
   ],
   properties: {
     invoice_number: { type: ["string", "null"], description: "發票號碼：2 碼英文＋8 碼數字，去除空白與連字號" },
@@ -165,6 +179,18 @@ const CLAUDE_TAX_OUTPUT_SCHEMA = {
     amount_ex_tax: { type: ["number", "null"], description: "銷售額（未稅）；未列則 null" },
     tax_amount: { type: ["number", "null"], description: "營業稅額；未列則 null" },
     amount_inc_tax: { type: ["number", "null"], description: "總計（含稅）；未列則 null" },
+    crop_box: {
+      type: ["object", "null"],
+      description: "發票紙張在照片中的範圍（0–1000 標準化座標）；發票已佔滿畫面或 PDF 則 null",
+      additionalProperties: false,
+      required: ["x0", "y0", "x1", "y1"],
+      properties: {
+        x0: { type: "number", description: "左上角 X（0–1000）" },
+        y0: { type: "number", description: "左上角 Y（0–1000）" },
+        x1: { type: "number", description: "右下角 X（0–1000）" },
+        y1: { type: "number", description: "右下角 Y（0–1000）" },
+      },
+    },
   },
 } as const;
 
@@ -179,6 +205,7 @@ const GEMINI_TAX_OUTPUT_SCHEMA = {
     "amount_ex_tax",
     "tax_amount",
     "amount_inc_tax",
+    "crop_box",
   ],
   properties: {
     invoice_number: { type: "STRING", nullable: true, description: "發票號碼：2 碼英文＋8 碼數字，去除空白與連字號" },
@@ -189,6 +216,18 @@ const GEMINI_TAX_OUTPUT_SCHEMA = {
     amount_ex_tax: { type: "NUMBER", nullable: true, description: "銷售額（未稅）；未列則 null" },
     tax_amount: { type: "NUMBER", nullable: true, description: "營業稅額；未列則 null" },
     amount_inc_tax: { type: "NUMBER", nullable: true, description: "總計（含稅）；未列則 null" },
+    crop_box: {
+      type: "OBJECT",
+      nullable: true,
+      description: "發票紙張在照片中的範圍（0–1000 標準化座標）；發票已佔滿畫面或 PDF 則 null",
+      required: ["x0", "y0", "x1", "y1"],
+      properties: {
+        x0: { type: "NUMBER", description: "左上角 X（0–1000）" },
+        y0: { type: "NUMBER", description: "左上角 Y（0–1000）" },
+        x1: { type: "NUMBER", description: "右下角 X（0–1000）" },
+        y1: { type: "NUMBER", description: "右下角 Y（0–1000）" },
+      },
+    },
   },
 } as const;
 
