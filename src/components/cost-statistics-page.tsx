@@ -212,6 +212,7 @@ export function CostStatisticsPage() {
         supabase
           .from("purchases")
           .select("purchase_date,item_category,tax_included_amount,amount_ex_tax,amortization_months")
+          .is("deleted_at", null)
           .gte("purchase_date", lookbackStart)
           .lte("purchase_date", end),
         supabase
@@ -279,20 +280,28 @@ export function CostStatisticsPage() {
     const yearEndYm = `${year}-12`;
     const purchaseNonWoodByMonth = new Map<string, number>();
     const purchaseWoodByMonth = new Map<string, number>();
+    const purchaseAmortizedByMonth = new Map<string, number>();
     const purchaseNonWoodFullByMonth = new Map<string, number>();
     const purchaseWoodFullByMonth = new Map<string, number>();
+    const purchaseAmortizedFullByMonth = new Map<string, number>();
     const salaryByMonth = new Map<string, number>();
     const revenueByMonth = new Map<string, number>();
     const burdenByEmployeeId = new Map<string, number>();
 
     let totalPurchaseNonWood = 0;
     let totalPurchaseWood = 0;
+    let totalPurchaseAmortized = 0;
     for (const row of purchaseRows) {
       const spreadsYtd = spreadPurchaseCostByMonth(row, { cutoffYm, statYear: year });
-      for (const { monthKey: key, amount, isWood } of spreadsYtd) {
-        if (isWood) totalPurchaseWood += amount;
+      for (const { monthKey: key, amount, isWood, isAmortized } of spreadsYtd) {
+        if (isAmortized) totalPurchaseAmortized += amount;
+        else if (isWood) totalPurchaseWood += amount;
         else totalPurchaseNonWood += amount;
-        const map = isWood ? purchaseWoodByMonth : purchaseNonWoodByMonth;
+        const map = isAmortized
+          ? purchaseAmortizedByMonth
+          : isWood
+            ? purchaseWoodByMonth
+            : purchaseNonWoodByMonth;
         map.set(key, (map.get(key) ?? 0) + amount);
       }
       const spreadsFull = spreadPurchaseCostByMonth(row, {
@@ -300,12 +309,16 @@ export function CostStatisticsPage() {
         statYear: year,
         throughYm: yearEndYm,
       });
-      for (const { monthKey: key, amount, isWood } of spreadsFull) {
-        const map = isWood ? purchaseWoodFullByMonth : purchaseNonWoodFullByMonth;
+      for (const { monthKey: key, amount, isWood, isAmortized } of spreadsFull) {
+        const map = isAmortized
+          ? purchaseAmortizedFullByMonth
+          : isWood
+            ? purchaseWoodFullByMonth
+            : purchaseNonWoodFullByMonth;
         map.set(key, (map.get(key) ?? 0) + amount);
       }
     }
-    const totalPurchaseCost = totalPurchaseNonWood + totalPurchaseWood;
+    const totalPurchaseCost = totalPurchaseNonWood + totalPurchaseWood + totalPurchaseAmortized;
 
     for (const emp of employeeBurdens) {
       const burden =
@@ -379,6 +392,7 @@ export function CostStatisticsPage() {
       key: string;
       purchaseNonWood: number;
       purchaseWood: number;
+      purchaseAmortized: number;
       purchaseCost: number;
       salaryCost: number;
       rentCost: number;
@@ -400,6 +414,7 @@ export function CostStatisticsPage() {
 
       let purchaseNonWood = 0;
       let purchaseWood = 0;
+      let purchaseAmortized = 0;
       let salaryCost = 0;
       let rentCost = 0;
       let loanCost = 0;
@@ -410,6 +425,7 @@ export function CostStatisticsPage() {
       if (isProjected) {
         purchaseNonWood = purchaseNonWoodFullByMonth.get(key) ?? 0;
         purchaseWood = purchaseWoodFullByMonth.get(key) ?? 0;
+        purchaseAmortized = purchaseAmortizedFullByMonth.get(key) ?? 0;
         const rl = rentLoanForFullMonth(annualRent, annualCompanyLoan);
         rentCost = rl.rent;
         loanCost = rl.loan;
@@ -419,6 +435,7 @@ export function CostStatisticsPage() {
         if (!rl) continue;
         purchaseNonWood = purchaseNonWoodByMonth.get(key) ?? 0;
         purchaseWood = purchaseWoodByMonth.get(key) ?? 0;
+        purchaseAmortized = purchaseAmortizedByMonth.get(key) ?? 0;
         salaryCost = salaryByMonth.get(key) ?? 0;
         rentCost = rl.rent;
         loanCost = rl.loan;
@@ -428,7 +445,7 @@ export function CostStatisticsPage() {
         }
       }
 
-      const purchaseCost = purchaseNonWood + purchaseWood;
+      const purchaseCost = purchaseNonWood + purchaseWood + purchaseAmortized;
       taxCost = computeRevenueTax(revenue);
       const totalCost = purchaseCost + salaryCost + rentCost + loanCost + taxCost;
       const grossProfit = revenue - totalCost;
@@ -438,6 +455,7 @@ export function CostStatisticsPage() {
         key,
         purchaseNonWood,
         purchaseWood,
+        purchaseAmortized,
         purchaseCost,
         salaryCost,
         rentCost,
@@ -456,6 +474,7 @@ export function CostStatisticsPage() {
     type AggregateTotals = {
       purchaseNonWood: number;
       purchaseWood: number;
+      purchaseAmortized: number;
       salaryCost: number;
       rentCost: number;
       loanCost: number;
@@ -474,6 +493,7 @@ export function CostStatisticsPage() {
     function sumMonthSlice(slice: MonthRow[]): AggregateTotals {
       let purchaseNonWood = 0;
       let purchaseWood = 0;
+      let purchaseAmortized = 0;
       let salaryCost = 0;
       let rentCost = 0;
       let loanCost = 0;
@@ -485,6 +505,7 @@ export function CostStatisticsPage() {
       for (const row of slice) {
         purchaseNonWood += row.purchaseNonWood;
         purchaseWood += row.purchaseWood;
+        purchaseAmortized += row.purchaseAmortized;
         salaryCost += row.salaryCost;
         rentCost += row.rentCost;
         loanCost += row.loanCost;
@@ -498,6 +519,7 @@ export function CostStatisticsPage() {
       return {
         purchaseNonWood,
         purchaseWood,
+        purchaseAmortized,
         salaryCost,
         rentCost,
         loanCost,
@@ -554,6 +576,7 @@ export function CostStatisticsPage() {
       totalPurchaseCost,
       totalPurchaseNonWood,
       totalPurchaseWood,
+      totalPurchaseAmortized,
       totalSalaryCost,
       totalRentCost,
       totalCompanyLoanCost,
@@ -601,6 +624,7 @@ export function CostStatisticsPage() {
       fixedOverhead: snapshot.fixedOverhead,
       totalPurchaseNonWood: snapshot.totalPurchaseNonWood,
       totalPurchaseWood: snapshot.totalPurchaseWood,
+      totalPurchaseAmortized: snapshot.totalPurchaseAmortized ?? 0,
       totalSalaryCost: snapshot.totalSalaryCost,
       totalRentCost: snapshot.totalRentCost,
       totalCompanyLoanCost: snapshot.totalCompanyLoanCost,
@@ -613,6 +637,7 @@ export function CostStatisticsPage() {
         key: row.month,
         purchaseNonWood: row.purchaseNonWood,
         purchaseWood: row.purchaseWood,
+        purchaseAmortized: row.purchaseAmortized ?? 0,
         salaryCost: row.salaryCost,
         rentCost: row.rentCost,
         loanCost: row.loanCost,
@@ -635,6 +660,7 @@ export function CostStatisticsPage() {
       },
       totalPurchaseNonWood: computed.totalPurchaseNonWood,
       totalPurchaseWood: computed.totalPurchaseWood,
+      totalPurchaseAmortized: computed.totalPurchaseAmortized,
       totalSalaryCost: computed.totalSalaryCost,
       totalRentCost: computed.totalRentCost,
       totalCompanyLoanCost: computed.totalCompanyLoanCost,
@@ -658,6 +684,7 @@ export function CostStatisticsPage() {
       },
       totalPurchaseNonWood: computed.totalPurchaseNonWood,
       totalPurchaseWood: computed.totalPurchaseWood,
+      totalPurchaseAmortized: computed.totalPurchaseAmortized,
       totalSalaryCost: computed.totalSalaryCost,
       totalRentCost: computed.totalRentCost,
       totalCompanyLoanCost: computed.totalCompanyLoanCost,
@@ -670,6 +697,7 @@ export function CostStatisticsPage() {
         month: row.key,
         purchaseNonWood: row.purchaseNonWood,
         purchaseWood: row.purchaseWood,
+        purchaseAmortized: row.purchaseAmortized,
         salaryCost: row.salaryCost,
         rentCost: row.rentCost,
         loanCost: row.loanCost,
@@ -718,7 +746,7 @@ export function CostStatisticsPage() {
     <section className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {year} 年年初至今（截至 {computed.ytdCutoffLabel}）；採購／薪資／訂單依實際日期或發薪月份，租金與公司貸款利息依年額按月分攤（當月按日比例），稅金為訂單營收之 {REVENUE_TAX_RATE * 100}%。營收排除「報價中」訂單。
+          {year} 年年初至今（截至 {computed.ytdCutoffLabel}）；採購／薪資／訂單依實際日期或發薪月份，設攤提之採購按月分攤列於「攤提」欄（含往年採購當年度分攤額），租金與公司貸款利息依年額按月分攤（當月按日比例），稅金為訂單營收之 {REVENUE_TAX_RATE * 100}%。營收排除「報價中」訂單；採購不含已刪除紀錄。
         </p>
         <div className="inline-flex rounded-lg border border-border bg-muted/30 p-1">
           <Button
@@ -860,7 +888,7 @@ export function CostStatisticsPage() {
 
       {!loading && !error && (
         <>
-          <div className="flex flex-nowrap gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:min-w-0 sm:grid-cols-10 sm:overflow-visible">
+          <div className="flex flex-nowrap gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:min-w-0 sm:grid-cols-11 sm:overflow-visible">
             <div className="min-w-[5.75rem] shrink-0 rounded-lg border border-border bg-card p-2 sm:min-w-0">
               <p className="text-[10px] leading-tight text-muted-foreground">非木料成本</p>
               <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground sm:text-base">
@@ -871,6 +899,12 @@ export function CostStatisticsPage() {
               <p className="text-[10px] leading-tight text-muted-foreground">木料成本</p>
               <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground sm:text-base">
                 {formatMoney(computed.totalPurchaseWood)}
+              </p>
+            </div>
+            <div className="min-w-[5.75rem] shrink-0 rounded-lg border border-border bg-card p-2 sm:min-w-0">
+              <p className="text-[10px] leading-tight text-muted-foreground">攤提</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground sm:text-base">
+                {formatMoney(computed.totalPurchaseAmortized)}
               </p>
             </div>
             <div className="min-w-[5.75rem] shrink-0 rounded-lg border border-border bg-card p-2 sm:min-w-0">
@@ -968,12 +1002,13 @@ export function CostStatisticsPage() {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1080px] text-sm">
+              <table className="w-full min-w-[1160px] text-sm">
                 <thead>
                   <tr className="whitespace-nowrap border-b border-border bg-muted/30 text-left text-muted-foreground">
                     <th className="px-4 py-2 font-medium">月份</th>
                     <th className="px-4 py-2 font-medium">非木料成本</th>
                     <th className="px-4 py-2 font-medium">木料成本</th>
+                    <th className="px-4 py-2 font-medium">攤提</th>
                     <th className="px-4 py-2 font-medium">薪資成本</th>
                     <th className="px-4 py-2 font-medium">租金</th>
                     <th className="px-4 py-2 font-medium">公司貸款利息</th>
@@ -987,7 +1022,7 @@ export function CostStatisticsPage() {
                 <tbody>
                   {computed.tableRows.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={11}>
+                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={12}>
                         這個年度尚無可統計資料
                       </td>
                     </tr>
@@ -1008,6 +1043,7 @@ export function CostStatisticsPage() {
                             </td>
                             <td className="px-4 py-2">{formatMoney(item.row.purchaseNonWood)}</td>
                             <td className="px-4 py-2">{formatMoney(item.row.purchaseWood)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.row.purchaseAmortized)}</td>
                             <td className="px-4 py-2">{formatMoney(item.row.salaryCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.row.rentCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.row.loanCost)}</td>
@@ -1052,6 +1088,7 @@ export function CostStatisticsPage() {
                             </td>
                             <td className="px-4 py-2">{formatMoney(item.purchaseNonWood)}</td>
                             <td className="px-4 py-2">{formatMoney(item.purchaseWood)}</td>
+                            <td className="px-4 py-2">{formatMoney(item.purchaseAmortized)}</td>
                             <td className="px-4 py-2">{formatMoney(item.salaryCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.rentCost)}</td>
                             <td className="px-4 py-2">{formatMoney(item.loanCost)}</td>

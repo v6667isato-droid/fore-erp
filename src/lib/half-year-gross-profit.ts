@@ -114,6 +114,7 @@ export async function fetchHalfYearGrossProfit(
     supabase
       .from("purchases")
       .select("purchase_date,item_category,tax_included_amount,amount_ex_tax,amortization_months")
+      .is("deleted_at", null)
       .gte("purchase_date", lookbackStart)
       .lte("purchase_date", end),
     supabase

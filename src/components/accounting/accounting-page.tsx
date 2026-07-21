@@ -15,11 +15,48 @@ import { AccountingInvoiceQueue } from "@/components/accounting/accounting-invoi
 import { AccountingInvoiceReviewDialog } from "@/components/accounting/accounting-invoice-review-dialog";
 import { exportAccountingInvoicesCsv } from "@/components/accounting/export-accounting-invoices-csv";
 import { ExportTaxMediaDialog } from "@/components/accounting/export-tax-media-dialog";
+import { SalesInvoicesPage } from "@/components/accounting/sales-invoices-page";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type MatchFilter = "all" | "matched" | "unmatched";
+type AccountingTab = "input" | "sales";
 
+/** 會計管理：進項（採購發票歸檔）／銷項（開立發票）兩個頁籤 */
 export function AccountingPage() {
+  const [tab, setTab] = useState<AccountingTab>("input");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-1 w-fit" role="tablist" aria-label="會計管理頁籤">
+        {(
+          [
+            { id: "input", label: "進項發票（採購）" },
+            { id: "sales", label: "銷項發票（開立）" },
+          ] as { id: AccountingTab; label: string }[]
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
+              tab === t.id
+                ? "bg-card text-foreground shadow-sm border border-border"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "input" ? <InputInvoicesTab /> : <SalesInvoicesPage />}
+    </div>
+  );
+}
+
+/** 進項發票（原會計頁內容）：批次上傳→AI 辨識→審核歸檔→401 媒體檔 */
+function InputInvoicesTab() {
   const [invoices, setInvoices] = useState<AccountingInvoiceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [monthFilter, setMonthFilter] = useState("");

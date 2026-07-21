@@ -34,6 +34,7 @@ export type ExportCurrentView = {
   fixedOverhead: CostStatisticsFixedOverhead;
   totalPurchaseNonWood: number;
   totalPurchaseWood: number;
+  totalPurchaseAmortized: number;
   totalSalaryCost: number;
   totalRentCost: number;
   totalCompanyLoanCost: number;
@@ -46,6 +47,7 @@ export type ExportCurrentView = {
     key: string;
     purchaseNonWood: number;
     purchaseWood: number;
+    purchaseAmortized: number;
     salaryCost: number;
     rentCost: number;
     loanCost: number;
@@ -83,6 +85,7 @@ export function exportCostStatisticsCsv(args: {
     csvRow(["項目", "金額"]),
     csvRow(["非木料成本", Math.round(current.totalPurchaseNonWood)]),
     csvRow(["木料成本", Math.round(current.totalPurchaseWood)]),
+    csvRow(["攤提", Math.round(current.totalPurchaseAmortized)]),
     csvRow(["薪資成本", Math.round(current.totalSalaryCost)]),
     csvRow(["租金", Math.round(current.totalRentCost)]),
     csvRow(["公司貸款利息", Math.round(current.totalCompanyLoanCost)]),
@@ -101,6 +104,7 @@ export function exportCostStatisticsCsv(args: {
       "月份",
       "非木料成本",
       "木料成本",
+      "攤提",
       "薪資成本",
       "租金",
       "公司貸款利息",
@@ -115,6 +119,7 @@ export function exportCostStatisticsCsv(args: {
         row.key,
         Math.round(row.purchaseNonWood),
         Math.round(row.purchaseWood),
+        Math.round(row.purchaseAmortized),
         Math.round(row.salaryCost),
         Math.round(row.rentCost),
         Math.round(row.loanCost),
@@ -134,6 +139,7 @@ export function exportCostStatisticsCsv(args: {
       csvRow(["統計截止", snapshot.ytdCutoffLabel]),
       csvRow(["非木料成本", Math.round(snapshot.totalPurchaseNonWood)]),
       csvRow(["木料成本", Math.round(snapshot.totalPurchaseWood)]),
+      csvRow(["攤提", Math.round(snapshot.totalPurchaseAmortized ?? 0)]),
       csvRow(["薪資成本", Math.round(snapshot.totalSalaryCost)]),
       csvRow(["租金", Math.round(snapshot.totalRentCost)]),
       csvRow(["公司貸款利息", Math.round(snapshot.totalCompanyLoanCost)]),

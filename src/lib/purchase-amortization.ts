@@ -65,6 +65,8 @@ export type PurchaseCostSpread = {
   monthKey: string;
   amount: number;
   isWood: boolean;
+  /** 該筆採購設有攤提（>1 個月），此份額屬攤提認列 */
+  isAmortized: boolean;
 };
 
 export type SpreadPurchaseCostOptions = {
@@ -99,7 +101,7 @@ export function spreadPurchaseCostByMonth(
 
   if (months <= 1) {
     if (startYm.startsWith(yearPrefix) && startYm <= throughYm) {
-      return [{ monthKey: startYm, amount: total, isWood }];
+      return [{ monthKey: startYm, amount: total, isWood, isAmortized: false }];
     }
     return [];
   }
@@ -110,11 +112,11 @@ export function spreadPurchaseCostByMonth(
 
   for (let i = 0; i < months; i++) {
     const ym = addMonthsToYm(startYm, i);
-    if (!ym.startsWith(yearPrefix)) continue;
-    if (ym > throughYm) continue;
     const amount = i === months - 1 ? roundMoney2(total - allocated) : base;
     allocated += amount;
-    results.push({ monthKey: ym, amount, isWood });
+    if (!ym.startsWith(yearPrefix)) continue;
+    if (ym > throughYm) continue;
+    results.push({ monthKey: ym, amount, isWood, isAmortized: true });
   }
 
   return results;

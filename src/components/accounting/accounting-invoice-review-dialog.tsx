@@ -343,6 +343,8 @@ export function AccountingInvoiceReviewDialog({
 
   /** AI 辨識的發票紙張範圍：有值時照片預設聚焦放大該區域 */
   const cropBox = useMemo(() => sanitizeCropBox(invoice?.recognized?.crop_box), [invoice]);
+  /** 需人工核對欄位所在範圍：照片上的紅框 */
+  const fieldsBox = useMemo(() => sanitizeCropBox(invoice?.recognized?.fields_box), [invoice]);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -399,7 +401,7 @@ export function AccountingInvoiceReviewDialog({
                       className="h-[50vh] w-full rounded-md border-0 bg-white lg:h-[72vh]"
                     />
                   ) : (
-                    <InvoiceImageViewer src={invoice.file_url} alt="發票照片" cropBox={cropBox} />
+                    <InvoiceImageViewer src={invoice.file_url} alt="發票照片" cropBox={cropBox} fieldsBox={fieldsBox} />
                   )
                 ) : (
                   <p className="p-6 text-center text-sm text-muted-foreground">無照片</p>

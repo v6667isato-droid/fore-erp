@@ -27,6 +27,8 @@ export type CostStatisticsMonthlySnapshotRow = {
   month: string;
   purchaseNonWood: number;
   purchaseWood: number;
+  /** 當月認列之攤提金額；舊快照無此欄位 */
+  purchaseAmortized?: number;
   salaryCost: number;
   rentCost: number;
   loanCost: number;
@@ -44,6 +46,8 @@ export type CostStatisticsYearSnapshot = {
   fixedOverhead: CostStatisticsFixedOverhead;
   totalPurchaseNonWood: number;
   totalPurchaseWood: number;
+  /** 年初至今攤提認列總額；舊快照無此欄位 */
+  totalPurchaseAmortized?: number;
   totalSalaryCost: number;
   totalRentCost: number;
   totalCompanyLoanCost: number;

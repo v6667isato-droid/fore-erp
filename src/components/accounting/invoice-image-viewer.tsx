@@ -38,15 +38,28 @@ export interface InvoiceImageViewerProps {
   alt: string;
   /** 有值時預設聚焦放大該區域（可切回完整照片） */
   cropBox: InvoiceCropBox | null;
+  /** 需人工核對欄位所在範圍：紅框優先畫這個，沒有時退回畫 cropBox */
+  fieldsBox?: InvoiceCropBox | null;
 }
 
 /** 發票照片檢視：AI 裁切自動聚焦＋滾輪縮放＋拖曳平移，雙擊回復 */
-export function InvoiceImageViewer({ src, alt, cropBox }: InvoiceImageViewerProps) {
+export function InvoiceImageViewer({ src, alt, cropBox, fieldsBox = null }: InvoiceImageViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const naturalRef = useRef<{ w: number; h: number } | null>(null);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const [cropMode, setCropMode] = useState(cropBox != null);
   const [view, setView] = useState<ViewTransform>(IDENTITY);
+  // 紅框定位需要在 render 算像素位置，圖片原始尺寸與容器尺寸都得進 state
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const [boxSize, setBoxSize] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBoxSize({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   /** 依 crop_box 算出聚焦用的縮放平移；外擴邊距避免剛好切到字 */
   const computeCropTransform = useCallback((): ViewTransform => {
@@ -121,7 +134,9 @@ export function InvoiceImageViewer({ src, alt, cropBox }: InvoiceImageViewerProp
   }, []);
 
   function onImgLoad(e: React.SyntheticEvent<HTMLImageElement>) {
-    naturalRef.current = { w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight };
+    const nat = { w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight };
+    naturalRef.current = nat;
+    setNatural(nat);
     if (cropMode) setView(computeCropTransform());
   }
 
@@ -150,6 +165,23 @@ export function InvoiceImageViewer({ src, alt, cropBox }: InvoiceImageViewerProp
     dragRef.current = null;
   }
 
+  // 紅框：優先框住欄位區（fields_box），沒有才框整張紙；換算成 object-contain 後的像素位置，跟著圖片一起縮放平移
+  const redBox = fieldsBox ?? cropBox;
+  let boxRect: { left: number; top: number; width: number; height: number } | null = null;
+  if (redBox && natural && boxSize && boxSize.w > 0 && boxSize.h > 0) {
+    const fit = Math.min(boxSize.w / natural.w, boxSize.h / natural.h);
+    const dw = natural.w * fit;
+    const dh = natural.h * fit;
+    const ox = (boxSize.w - dw) / 2;
+    const oy = (boxSize.h - dh) / 2;
+    boxRect = {
+      left: ox + (redBox.x0 / 1000) * dw,
+      top: oy + (redBox.y0 / 1000) * dh,
+      width: ((redBox.x1 - redBox.x0) / 1000) * dw,
+      height: ((redBox.y1 - redBox.y0) / 1000) * dh,
+    };
+  }
+
   return (
     <div>
       <div
@@ -162,15 +194,31 @@ export function InvoiceImageViewer({ src, alt, cropBox }: InvoiceImageViewerProp
         onPointerCancel={onPointerUp}
         onDoubleClick={() => setView(cropMode ? computeCropTransform() : IDENTITY)}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element -- Supabase 外部圖，僅審核時載入 */}
-        <img
-          src={src}
-          alt={alt}
-          onLoad={onImgLoad}
-          draggable={false}
-          className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+        <div
+          className="absolute inset-0"
           style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.s})` }}
-        />
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- Supabase 外部圖，僅審核時載入 */}
+          <img
+            src={src}
+            alt={alt}
+            onLoad={onImgLoad}
+            draggable={false}
+            className="pointer-events-none h-full w-full object-contain"
+          />
+          {boxRect && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute rounded-sm border-red-500"
+              style={{
+                ...boxRect,
+                // 邊框粗細除以縮放倍率，放大後紅框不會變成粗槓
+                borderWidth: Math.max(1, 4 / view.s),
+                borderStyle: "solid",
+              }}
+            />
+          )}
+        </div>
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
         {cropBox ? (

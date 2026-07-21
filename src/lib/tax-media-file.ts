@@ -1,8 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import type { AccountingInvoiceRow } from "@/lib/accounting-invoice";
+import type { SalesInvoiceRow } from "@/lib/sales-invoice";
 
 /**
- * 營業人進銷項資料檔（報稅媒體檔）產生器——進項專用
+ * 營業人進銷項資料檔（報稅媒體檔）產生器——進項＋銷項
  *
  * 每筆固定 81 字元、每張發票一行，欄位版面（起訖位置）：
  *   1-2   格式代號（21/22/25）
@@ -156,6 +157,105 @@ export function buildTaxMediaFile(
   return {
     content: issues.length === 0 && lines.length > 0 ? lines.join("\r\n") + "\r\n" : null,
     fileName: `${taxId || "media"}.txt`,
+    issues,
+    countByFormat,
+  };
+}
+
+/**
+ * 銷項格式代號推導：
+ *   31 手開三聯式（B2B、尚未透過光賀開立電子發票）
+ *   32 三聯式電子發票（B2B、光賀已回傳 external_id）
+ *   35 二聯式／電子發票（B2C，無買受人統編）
+ */
+export function salesFormatCode(inv: SalesInvoiceRow): "31" | "32" | "35" {
+  if (inv.invoice_type === "B2C") return "35";
+  return inv.external_id ? "32" : "31";
+}
+
+/**
+ * 逐張驗證並組出銷項媒體檔（81 字元版面同進項）：
+ *   24-31 買受人統編（B2B 填客戶統編；B2C 空白）
+ *   32-39 銷售人統編（本公司）
+ *   73    扣抵代號（銷項不適用，空白）
+ * 已作廢發票仍需列報（銷售金額與稅額以 0 申報）。
+ * 折讓單（格式 33/34）欄位規格待與會計師／光賀確認，先不寫入檔案，於畫面另行提醒。
+ */
+export function buildSalesTaxMediaFile(
+  invoices: SalesInvoiceRow[],
+  profile: CompanyTaxProfile,
+): MediaFileResult {
+  const issues: MediaFileIssue[] = [];
+  const countByFormat: Record<string, number> = {};
+  const lines: string[] = [];
+
+  const taxId = profile.taxId.trim();
+  const regNo = profile.taxRegistrationNumber.trim();
+  if (!/^\d{8}$/.test(taxId)) issues.push({ invoiceNumber: "（公司設定）", message: "公司統一編號須為 8 碼數字" });
+  if (!/^\d{9}$/.test(regNo)) issues.push({ invoiceNumber: "（公司設定）", message: "稅籍編號須為 9 碼數字" });
+
+  // 依格式代號、發票日期排序後整檔連續編流水號
+  const sorted = [...invoices].sort(
+    (a, b) =>
+      salesFormatCode(a).localeCompare(salesFormatCode(b)) ||
+      (a.invoice_date ?? "").localeCompare(b.invoice_date ?? "") ||
+      (a.invoice_number ?? "").localeCompare(b.invoice_number ?? ""),
+  );
+
+  let serial = 0;
+  for (const inv of sorted) {
+    const label = inv.invoice_number ?? "（無號碼）";
+    const voided = inv.status === "voided";
+    const problems: string[] = [];
+
+    const numberMatch = (inv.invoice_number ?? "").match(/^([A-Z]{2})-(\d{8})$/);
+    if (!numberMatch) problems.push("發票號碼格式不正確");
+    const roc = inv.invoice_date ? toRocYearMonth(inv.invoice_date) : null;
+    if (!roc) problems.push("缺少發票日期");
+    if (inv.invoice_type === "B2B" && !/^\d{8}$/.test(inv.buyer_tax_id ?? ""))
+      problems.push("B2B 發票的買方統編須為 8 碼數字");
+    if (!voided) {
+      if (inv.amount_ex_tax == null) problems.push("缺少未稅金額");
+      if (inv.tax_amount == null) problems.push("缺少稅額");
+      if (inv.tax_type === 1 && inv.amount_ex_tax != null && inv.tax_amount != null) {
+        const expected = Math.round(inv.amount_ex_tax * 0.05);
+        if (Math.abs(Math.round(inv.tax_amount) - expected) > 1)
+          problems.push(`稅額（${inv.tax_amount}）與未稅金額 5%（約 ${expected}）差距過大`);
+      }
+    }
+
+    if (problems.length > 0) {
+      for (const message of problems) issues.push({ invoiceNumber: label, message });
+      continue;
+    }
+
+    const formatCode = salesFormatCode(inv);
+    serial += 1;
+    countByFormat[formatCode] = (countByFormat[formatCode] ?? 0) + 1;
+    const line =
+      formatCode + //                                     1-2   格式代號
+      regNo + //                                          3-11  稅籍編號
+      String(serial).padStart(7, "0") + //                12-18 流水號
+      roc!.year +
+      roc!.month + //                                     19-23 資料所屬年月（民國）
+      pad(inv.invoice_type === "B2B" ? inv.buyer_tax_id ?? "" : "", 8) + // 24-31 買受人統編
+      taxId + //                                          32-39 銷售人統編（本公司）
+      numberMatch![1] + //                                40-41 發票字軌
+      numberMatch![2] + //                                42-49 發票號碼
+      padAmount(voided ? 0 : inv.amount_ex_tax!, 12) + // 50-61 銷售金額（未稅；作廢＝0）
+      String(inv.tax_type) + //                           62    課稅別
+      padAmount(voided ? 0 : inv.tax_amount!, 10) + //    63-72 營業稅額（作廢＝0）
+      pad("", 1) + //                                     73    扣抵代號（銷項空白）
+      pad("", 5) + //                                     74-78 保留欄位
+      pad("", 1) + //                                     79    特種稅額稅率
+      pad("", 1) + //                                     80    彙加註記
+      pad("", 1); //                                      81    通關方式註記
+    lines.push(line);
+  }
+
+  return {
+    content: issues.length === 0 && lines.length > 0 ? lines.join("\r\n") + "\r\n" : null,
+    fileName: `${taxId || "media"}-sales.txt`,
     issues,
     countByFormat,
   };
