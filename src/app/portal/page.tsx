@@ -25,6 +25,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { VariantSeriesThumb } from "@/components/variant-series-thumb";
 import {
   OrderOverviewCard,
+  fetchOrderOverviewById,
   parseOrdersPayload,
   type OverviewOrder,
 } from "@/components/orders-overview-page";
@@ -854,17 +855,8 @@ export default function PortalPage() {
     });
     if (willExpand && orderOverviewById[orderId] === undefined) {
       setOrderOverviewById((prev) => ({ ...prev, [orderId]: "loading" }));
-      void portalApiPost<{ row: unknown }>(
-        "/api/portal/orders/overview",
-        session?.portal_token,
-        { order_id: orderId },
-      ).then((res) => {
-        if (!res.ok) {
-          setOrderOverviewById((prev) => ({ ...prev, [orderId]: null }));
-          return;
-        }
-        const row = parseOrdersPayload([res.data.row])[0] ?? null;
-        // 保險：embed 若無客戶名，以登入回應的客戶名遞補
+      void fetchOrderOverviewById(orderId).then((row) => {
+        // customers 已啟用 RLS：anon 的 customers embed 回 null，改用登入回應的客戶名
         const patched =
           row && !row.customer_name.trim() && session?.customer_name
             ? { ...row, customer_name: session.customer_name }
