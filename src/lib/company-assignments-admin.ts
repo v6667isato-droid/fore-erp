@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { fetchMeetingMinutesListSafe } from "@/lib/meeting-minutes";
 import {
   fetchAllCompanyEventAssignees,
+  splitAssignmentImage,
   type CompanyEventRow,
 } from "@/lib/company-events";
 
@@ -18,6 +19,8 @@ export interface AdminCompanyAssignmentItem {
   employee_name: string;
   content: string;
   description: string | null;
+  /** 行事曆交辦附圖（Telegram bot 上傳）；開會交辦為 null */
+  image_url: string | null;
   date: string;
   completed: boolean;
   completed_at: string | null;
@@ -80,6 +83,7 @@ export async function fetchAllCompanyAssignments(): Promise<
             employee_name: nameById.get(eid) ?? "（未知員工）",
             content,
             description: null,
+            image_url: null,
             date: meetingDate,
             completed: mine?.completed === true,
             completed_at: mine?.completed ? mine.updated_at ?? null : null,
@@ -99,13 +103,18 @@ export async function fetchAllCompanyAssignments(): Promise<
   } else {
     for (const c of calendarRes.rows) {
       const eid = String(c.employee_id);
+      const { text, imageUrl } = splitAssignmentImage(
+        c.event_description,
+        c.event_image_url,
+      );
       items.push({
         key: `c-${c.id}`,
         source: "calendar",
         employee_id: eid,
         employee_name: nameById.get(eid) ?? "（未知員工）",
         content: c.event_title || "（未命名事件）",
-        description: c.event_description,
+        description: text,
+        image_url: imageUrl,
         date: String(c.event_date ?? "").slice(0, 10),
         completed: c.completed === true,
         completed_at: c.completed ? c.updated_at || null : null,

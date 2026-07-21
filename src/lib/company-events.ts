@@ -179,6 +179,27 @@ export interface CompanyEventAssigneeRow {
   event_date: string;
   event_category: CompanyEventCategory;
   event_description: string | null;
+  /** 交辦附圖（Telegram bot 上傳至 Storage task-images bucket 的公開 URL） */
+  event_image_url: string | null;
+}
+
+/**
+ * 交辦 description 可能含 Telegram bot 寫入的「附圖:URL」純文字行。
+ * 回傳去除該行後的說明文字，以及圖片網址（優先取 image_url 欄位，其次從文字解析）。
+ */
+export function splitAssignmentImage(
+  description: string | null,
+  imageUrl: string | null,
+): { text: string | null; imageUrl: string | null } {
+  let url = imageUrl;
+  let text = description ?? "";
+  const m = text.match(/附圖[:：]\s*(https?:\/\/\S+)/);
+  if (m) {
+    if (!url) url = m[1];
+    text = text.replace(m[0], "");
+  }
+  text = text.trim();
+  return { text: text || null, imageUrl: url };
 }
 
 export async function insertCompanyEventAssignees(
@@ -201,7 +222,7 @@ export async function fetchCompanyEventAssignmentsForEmployee(
   const { data, error } = await supabase
     .from(CEA_TABLE)
     .select(
-      "id, company_event_id, employee_id, completed, updated_at, company_event(title, event_date, category, description)",
+      "id, company_event_id, employee_id, completed, updated_at, company_event(title, event_date, category, description, image_url)",
     )
     .eq("employee_id", employeeId)
     .order("updated_at", { ascending: false });
@@ -223,6 +244,7 @@ export async function fetchCompanyEventAssignmentsForEmployee(
       event_date: typeof ev.event_date === "string" ? ev.event_date : "",
       event_category: cat,
       event_description: typeof ev.description === "string" ? ev.description : null,
+      event_image_url: typeof ev.image_url === "string" ? ev.image_url : null,
     };
   });
   rows.sort((a, b) => a.event_date.localeCompare(b.event_date));
@@ -237,7 +259,7 @@ export async function fetchAllCompanyEventAssignees(): Promise<
   const { data, error } = await supabase
     .from(CEA_TABLE)
     .select(
-      "id, company_event_id, employee_id, completed, updated_at, company_event(title, event_date, category, description)",
+      "id, company_event_id, employee_id, completed, updated_at, company_event(title, event_date, category, description, image_url)",
     )
     .order("updated_at", { ascending: false });
 
@@ -258,6 +280,7 @@ export async function fetchAllCompanyEventAssignees(): Promise<
       event_date: typeof ev.event_date === "string" ? ev.event_date : "",
       event_category: cat,
       event_description: typeof ev.description === "string" ? ev.description : null,
+      event_image_url: typeof ev.image_url === "string" ? ev.image_url : null,
     };
   });
   return { ok: true, rows };

@@ -188,7 +188,8 @@ export function CompanyAssignmentsAdmin() {
       ) : (
         <ul className="space-y-2">
           {filtered.map((item) => {
-            const hasDetail = item.source === "calendar" && !!item.description;
+            const hasDetail =
+              item.source === "calendar" && !!(item.description || item.image_url);
             const isExpanded = expandedKey === item.key;
             return (
               <li
@@ -269,8 +270,27 @@ export function CompanyAssignmentsAdmin() {
                   )}
                 </div>
                 {hasDetail && isExpanded && (
-                  <div className="mt-2 rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap">
-                    {item.description}
+                  <div className="mt-2 space-y-2 rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                    {item.description && (
+                      <p className="whitespace-pre-wrap">{item.description}</p>
+                    )}
+                    {item.image_url && (
+                      <a
+                        href={item.image_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block w-fit"
+                        title="點擊開啟原圖"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={item.image_url}
+                          alt="交辦附圖"
+                          loading="lazy"
+                          className="max-h-48 max-w-full rounded-md border border-border/40 object-contain"
+                        />
+                      </a>
+                    )}
                   </div>
                 )}
               </li>

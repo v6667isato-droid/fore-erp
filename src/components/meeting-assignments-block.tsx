@@ -8,6 +8,7 @@ import {
 } from "@/lib/meeting-minutes";
 import {
   fetchCompanyEventAssignmentsForEmployee,
+  splitAssignmentImage,
   upsertCompanyEventAssigneeCompleted,
   type CompanyEventAssigneeRow,
 } from "@/lib/company-events";
@@ -31,6 +32,7 @@ interface UnifiedItem {
   label: string;
   content: string;
   description: string | null;
+  imageUrl: string | null;
   date: string;
   completed: boolean;
   completedAt: string | null;
@@ -48,18 +50,21 @@ function toUnified(
       label: "開會交辦",
       content: m.content,
       description: null,
+      imageUrl: null,
       date: m.meeting_date,
       completed: m.completed,
       completedAt: m.status_updated_at,
     });
   }
   for (const c of calendar) {
+    const { text, imageUrl } = splitAssignmentImage(c.event_description, c.event_image_url);
     items.push({
       id: `c-${c.id}`,
       source: "calendar",
       label: "行事曆交辦",
       content: c.event_title,
-      description: c.event_description,
+      description: text,
+      imageUrl,
       date: c.event_date,
       completed: c.completed,
       completedAt: c.completed ? c.updated_at : null,
@@ -252,7 +257,8 @@ export function MeetingAssignmentsBlock({
     <ul className="space-y-2 pr-2">
       {visible.map((item) => {
         const busy = pendingId === item.id;
-        const hasDetail = item.source === "calendar" && item.description;
+        const hasDetail =
+          item.source === "calendar" && (item.description || item.imageUrl);
         const isExpanded = expandedId === item.id;
 
         return (
@@ -333,8 +339,27 @@ export function MeetingAssignmentsBlock({
               )}
             </div>
             {hasDetail && isExpanded && (
-              <div className="ml-7 mt-2 rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap">
-                {item.description}
+              <div className="ml-7 mt-2 space-y-2 rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                {item.description && (
+                  <p className="whitespace-pre-wrap">{item.description}</p>
+                )}
+                {item.imageUrl && (
+                  <a
+                    href={item.imageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-fit"
+                    title="點擊開啟原圖"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={item.imageUrl}
+                      alt="交辦附圖"
+                      loading="lazy"
+                      className="max-h-48 max-w-full rounded-md border border-border/40 object-contain"
+                    />
+                  </a>
+                )}
               </div>
             )}
           </li>
