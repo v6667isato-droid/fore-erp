@@ -1,6 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import { fetchMeetingMinutesListSafe } from "@/lib/meeting-minutes";
-import { fetchAllCompanyEventAssignees } from "@/lib/company-events";
+import {
+  fetchAllCompanyEventAssignees,
+  type CompanyEventRow,
+} from "@/lib/company-events";
 
 export type CompanyAssignmentSource = "meeting" | "calendar";
 
@@ -18,6 +21,10 @@ export interface AdminCompanyAssignmentItem {
   date: string;
   completed: boolean;
   completed_at: string | null;
+  /** 行事曆交辦：company_event_assignees 該筆 id，供勾選完成狀態 */
+  assignee_row_id: string | null;
+  /** 行事曆交辦：對應的 company_event，供編輯 modal 使用；開會交辦為 null */
+  calendar_event: CompanyEventRow | null;
 }
 
 function normalizeAssigneeIds(v: unknown): string[] {
@@ -76,6 +83,8 @@ export async function fetchAllCompanyAssignments(): Promise<
             date: meetingDate,
             completed: mine?.completed === true,
             completed_at: mine?.completed ? mine.updated_at ?? null : null,
+            assignee_row_id: null,
+            calendar_event: null,
           });
         }
       }
@@ -100,6 +109,14 @@ export async function fetchAllCompanyAssignments(): Promise<
         date: String(c.event_date ?? "").slice(0, 10),
         completed: c.completed === true,
         completed_at: c.completed ? c.updated_at || null : null,
+        assignee_row_id: c.id,
+        calendar_event: {
+          id: c.company_event_id,
+          title: c.event_title,
+          event_date: String(c.event_date ?? "").slice(0, 10),
+          category: c.event_category,
+          description: c.event_description,
+        },
       });
     }
   }

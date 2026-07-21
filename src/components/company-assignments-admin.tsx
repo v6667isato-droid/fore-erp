@@ -8,7 +8,9 @@ import {
 import { isSupabaseConfigured, SUPABASE_CONFIG_HELP } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Inbox, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, Inbox, Loader2, Pencil, RefreshCw } from "lucide-react";
+import { CompanyCalendarEventDetailModal } from "@/components/company-calendar-event-detail-modal";
+import type { CompanyEventRow } from "@/lib/company-events";
 
 function formatMd(iso: string): string {
   const d = (iso ?? "").slice(0, 10);
@@ -31,6 +33,7 @@ export function CompanyAssignmentsAdmin() {
   const [employeeFilter, setEmployeeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [editingEvent, setEditingEvent] = useState<CompanyEventRow | null>(null);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -238,6 +241,17 @@ export function CompanyAssignmentsAdmin() {
                       ) : null}
                     </span>
                   </div>
+                  {item.calendar_event && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingEvent(item.calendar_event)}
+                      className="mt-0.5 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                      aria-label="編輯交辦事件"
+                      title="編輯"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  )}
                   {hasDetail && (
                     <button
                       type="button"
@@ -264,6 +278,12 @@ export function CompanyAssignmentsAdmin() {
           })}
         </ul>
       )}
+
+      <CompanyCalendarEventDetailModal
+        event={editingEvent}
+        onClose={() => setEditingEvent(null)}
+        onSaved={() => void load()}
+      />
     </div>
   );
 }
