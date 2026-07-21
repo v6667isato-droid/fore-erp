@@ -567,12 +567,14 @@ export default function DashboardShell() {
             <OrdersPage
               mode="quotation"
               isAdmin={isErpEditorRole(userRole)}
+              canIssueInvoice={userRole === "admin"}
             />
           )}
           {activePage === "orders" && (
             <OrdersPage
               mode="order"
               isAdmin={isErpEditorRole(userRole)}
+              canIssueInvoice={userRole === "admin"}
               initialOpenOrderId={resolvedInitialOpenOrderId ?? undefined}
             />
           )}

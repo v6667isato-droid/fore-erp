@@ -26,9 +26,14 @@ import {
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CustomerRow } from "@/types/crm";
-import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown } from "lucide-react";
+import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt } from "lucide-react";
 import { toast } from "sonner";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
+import {
+  SalesInvoiceDialog,
+  type SalesInvoiceOrderContext,
+} from "@/components/accounting/sales-invoice-dialog";
+import { fetchOrderInvoiceCounts } from "@/lib/sales-invoice";
 import type {
   OrderRow,
   CustomerOption,
@@ -70,10 +75,13 @@ const STATUS_FILTER_OPTIONS: StatusFilterValue[] = [
 export function OrdersPage({
   mode = "order",
   isAdmin = false,
+  canIssueInvoice = false,
   initialOpenOrderId,
 }: {
   mode?: OrdersPageMode;
   isAdmin?: boolean;
+  /** 開立發票僅限 admin（isAdmin 含 manager，權限較寬） */
+  canIssueInvoice?: boolean;
   /** 若提供，會在載入後自動開啟該筆訂單的編輯窗格 */
   initialOpenOrderId?: string;
 } = {}) {
@@ -97,8 +105,16 @@ export function OrdersPage({
     Record<string, OverviewOrder | null | "loading">
   >({});
   const [viewCustomer, setViewCustomer] = useState<CustomerRow | null>(null);
+  // 開立發票：目標訂單與各訂單已開張數（僅 canIssueInvoice＝admin 載入）
+  const [invoiceOrder, setInvoiceOrder] = useState<SalesInvoiceOrderContext | null>(null);
+  const [invoiceCounts, setInvoiceCounts] = useState<Record<string, number>>({});
   const hasAppliedInitialOpenRef = useRef(false);
   const lastInitialOpenOrderIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!canIssueInvoice) return;
+    void fetchOrderInvoiceCounts().then(setInvoiceCounts);
+  }, [canIssueInvoice]);
 
   function toggleOrderExpand(orderId: string) {
     const willExpand = !expandedIds.has(orderId);
@@ -592,6 +608,7 @@ export function OrdersPage({
     const itemSelectBase = `
         id,
         variant_id,
+        custom_case_id,
         quantity,
         unit_price,
         custom_notes,
@@ -616,6 +633,9 @@ export function OrdersPage({
           dimension_d,
           dimension_h,
           seat_height_cm
+        ),
+        custom_cases (
+          kind
         )
       `;
     const itemSelectWithChannel = itemSelectBase.replace(
@@ -713,7 +733,16 @@ export function OrdersPage({
             : null,
         isNewLine: false,
         custom_notes: d.custom_notes ?? "",
-        kind: isCustom ? "custom" : "variant",
+        // 有 custom_case_id 時依來源 custom_cases.kind 還原品項類型（case=訂製案例／processing=加工項目）
+        kind: !isCustom
+          ? "variant"
+          : d.custom_case_id
+          ? ((Array.isArray(d.custom_cases) ? d.custom_cases[0] : d.custom_cases)
+              ?.kind === "processing"
+              ? "processing"
+              : "case")
+          : "custom",
+        custom_case_id: d.custom_case_id ? String(d.custom_case_id) : null,
         custom_category: d.custom_category ?? null,
         custom_name: d.custom_name ?? null,
         custom_description: d.custom_description ?? null,
@@ -1233,6 +1262,34 @@ export function OrdersPage({
                       >
                         <span className="text-[10px] leading-none">標</span>
                       </Button>
+                      {canIssueInvoice && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={`h-6 w-6 ${
+                            (invoiceCounts[order.id] ?? 0) > 0
+                              ? "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                          title={
+                            (invoiceCounts[order.id] ?? 0) > 0
+                              ? `開立發票（此訂單已開 ${invoiceCounts[order.id]} 張）`
+                              : "開立發票"
+                          }
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setInvoiceOrder({
+                              id: order.id,
+                              order_number: order.order_number,
+                              customer_id: order.customer_id,
+                            });
+                          }}
+                        >
+                          <Receipt className="h-3 w-3" />
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
@@ -1303,6 +1360,15 @@ export function OrdersPage({
           if (!open) setViewCustomer(null);
         }}
         row={viewCustomer}
+      />
+
+      <SalesInvoiceDialog
+        open={invoiceOrder != null}
+        onOpenChange={(open) => {
+          if (!open) setInvoiceOrder(null);
+        }}
+        order={invoiceOrder}
+        onSaved={() => void fetchOrderInvoiceCounts().then(setInvoiceCounts)}
       />
 
       <OrderFormDialog

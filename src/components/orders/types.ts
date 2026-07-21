@@ -66,6 +66,15 @@ export interface VariantOption {
   seat_height_cm?: number | null;
 }
 
+/**
+ * 品項類型：
+ *   variant    規格庫（產品系列 product_variants）
+ *   case       訂製案例（custom_cases kind=custom，挑選後帶入名稱等，可再編輯）
+ *   processing 加工項目（custom_cases kind=processing，維修保養等，帶入定價）
+ *   custom     客製品項（純手填）
+ */
+export type OrderItemKind = "variant" | "case" | "processing" | "custom";
+
 export interface OrderItemInput {
   id: string;
   variant_id: string;
@@ -76,7 +85,9 @@ export interface OrderItemInput {
   /** 客製品項通路價（手動）；有值時結算優先採用 */
   channel_unit_price?: number | null;
   custom_notes: string;
-  kind: "variant" | "custom";
+  kind: OrderItemKind;
+  /** kind=case／processing 時對應 order_items.custom_case_id（custom_cases.id） */
+  custom_case_id?: string | null;
   custom_category?: string | null;
   custom_name?: string | null;
   custom_description?: string | null;

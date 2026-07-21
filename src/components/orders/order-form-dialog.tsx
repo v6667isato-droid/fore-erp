@@ -35,10 +35,16 @@ import type {
   OrderStatus,
   PaymentStatus,
   OrderItemInput,
+  OrderItemKind,
   EmployeeOption,
   ExplanationImage,
   CustomerOption,
 } from "./types";
+import {
+  CUSTOM_CASE_CATEGORY_OPTIONS,
+  TABLE_CUSTOM_CASES,
+  type CustomCaseKind,
+} from "@/lib/custom-cases-db";
 import {
   orderDiscountSubtotalField,
   generateOrderNumber,
@@ -64,6 +70,40 @@ const ORDER_EXPLANATION_COMPRESSION_OPTIONS = {
 } as const;
 
 const WOOD_TYPE_OPTIONS = ["白橡木", "胡桃木", "柚木", "雞翅木"] as const;
+
+/** 品項類型切換選項：規格庫（產品系列）／訂製案例／加工項目（加工區）／客製品項（手填） */
+const ITEM_KIND_OPTIONS: { kind: OrderItemKind; label: string }[] = [
+  { kind: "variant", label: "規格庫" },
+  { kind: "case", label: "訂製案例" },
+  { kind: "processing", label: "加工項目" },
+  { kind: "custom", label: "客製品項" },
+];
+
+/** 挑選下拉的顯示格式：類別 / 品名 / 價格（缺項自動略過） */
+function caseOptionLabel(c: OrderCaseOption): string {
+  return [
+    c.category,
+    c.name_zh,
+    c.base_price != null ? `NTD ${c.base_price.toLocaleString()}` : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+}
+
+/** 開單挑選用的 custom_cases 精簡列（訂製案例／加工項目共用） */
+interface OrderCaseOption {
+  id: string;
+  kind: CustomCaseKind;
+  case_code: string | null;
+  name_zh: string;
+  category: string | null;
+  material: string | null;
+  dimension_w: number | null;
+  dimension_d: number | null;
+  dimension_h: number | null;
+  image_url: string | null;
+  base_price: number | null;
+}
 const WOOD_TYPE_DATALIST_ID = "order-form-wood-type-list";
 
 function WoodTypeComboboxInput({
@@ -326,6 +366,45 @@ function OrderFormDialog({
         ]
   );
 
+  /** 訂製案例／加工區項目（custom_cases）：品項類型為 case／processing 時的挑選清單 */
+  const [customCases, setCustomCases] = useState<OrderCaseOption[]>([]);
+  /** 挑選下拉前的「類別」篩選（key = 品項列 id；僅過濾清單，不影響已帶入欄位） */
+  const [casePickerCategory, setCasePickerCategory] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCustomCases() {
+      const { data } = await supabase
+        .from(TABLE_CUSTOM_CASES)
+        .select(
+          "id, kind, case_code, name_zh, category, material, dimension_w, dimension_d, dimension_h, image_url, base_price, sort_order"
+        )
+        .is("deleted_at", null)
+        .order("sort_order", { ascending: true, nullsFirst: false })
+        .order("case_code", { ascending: true });
+      if (cancelled) return;
+      setCustomCases(
+        ((data ?? []) as any[]).map((c) => ({
+          id: String(c.id),
+          kind: c.kind === "processing" ? "processing" : "custom",
+          case_code: c.case_code != null ? String(c.case_code) : null,
+          name_zh: String(c.name_zh ?? ""),
+          category: c.category != null ? String(c.category) : null,
+          material: c.material != null ? String(c.material) : null,
+          dimension_w: c.dimension_w != null ? Number(c.dimension_w) : null,
+          dimension_d: c.dimension_d != null ? Number(c.dimension_d) : null,
+          dimension_h: c.dimension_h != null ? Number(c.dimension_h) : null,
+          image_url: c.image_url != null ? String(c.image_url) : null,
+          base_price: c.base_price != null ? Number(c.base_price) : null,
+        }))
+      );
+    }
+    void loadCustomCases();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function loadEmployees() {
@@ -515,6 +594,39 @@ function OrderFormDialog({
 
   const itemRows = items;
 
+  /**
+   * 非規格品項「類別」建議清單（可自由輸入新分類，與產品資料頁一致）：
+   * 預設選項 + 既有 custom_cases 資料已使用的分類
+   */
+  const itemCategorySuggestions = useMemo(() => {
+    const build = (kind: CustomCaseKind, defaults: readonly string[]) => {
+      const set = new Set<string>(defaults);
+      customCases.forEach((c) => {
+        if (c.kind === kind && c.category?.trim()) set.add(c.category.trim());
+      });
+      return Array.from(set);
+    };
+    return {
+      case: build("custom", CUSTOM_CASE_CATEGORY_OPTIONS.custom),
+      processing: build("processing", CUSTOM_CASE_CATEGORY_OPTIONS.processing),
+      custom: ["桌", "椅", "櫃", "架", "其他"],
+      variant: [] as string[],
+    };
+  }, [customCases]);
+
+  /** 挑選下拉「類別」篩選選項：從既有 custom_cases 資料推出（僅列實際有項目的分類） */
+  const casePickerCategories = useMemo(() => {
+    const build = (kind: CustomCaseKind) =>
+      [
+        ...new Set(
+          customCases
+            .filter((c) => c.kind === kind && c.category?.trim())
+            .map((c) => c.category!.trim())
+        ),
+      ].sort((a, b) => a.localeCompare(b));
+    return { case: build("custom"), processing: build("processing") };
+  }, [customCases]);
+
   // 系列下拉選項：從 variants 推出唯一系列列表
   const seriesOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -598,6 +710,32 @@ function OrderFormDialog({
     });
   }
 
+  /**
+   * 挑選訂製案例／加工項目：帶入名稱、類別、材質、尺寸、圖片與定價（有 base_price 時）。
+   * 帶入後欄位仍可編輯；重選會覆蓋前次帶入值。
+   */
+  function handleCaseSelect(it: OrderItemInput, caseId: string) {
+    if (caseId === (it.custom_case_id ?? "")) return;
+    if (!caseId) {
+      updateItem(it.id, { custom_case_id: null });
+      return;
+    }
+    const selected = customCases.find((c) => c.id === caseId);
+    if (!selected) return;
+    // 以新選項為準整組帶入（含空值），避免換選項後殘留上一個項目的價格／圖片
+    updateItem(it.id, {
+      custom_case_id: caseId,
+      custom_name: selected.name_zh || null,
+      custom_category: selected.category,
+      wood_type: selected.material?.trim() || null,
+      custom_dimension_w: selected.dimension_w,
+      custom_dimension_d: selected.dimension_d,
+      custom_dimension_h: selected.dimension_h,
+      image_url: selected.image_url,
+      unit_price: selected.base_price ?? 0,
+    });
+  }
+
   /** 規格品項牌價由產品主檔帶入，不可手動改價；訂製款例外（無牌價，需手動輸入） */
   function isVariantUnitPriceLocked(it: OrderItemInput): boolean {
     return (
@@ -613,7 +751,7 @@ function OrderFormDialog({
    */
   const resolveItemSettlementPrice = useCallback(
     (it: OrderItemInput): number => {
-      if (it.kind === "custom") {
+      if (it.kind !== "variant") {
         const manualChannel = it.channel_unit_price;
         if (
           manualChannel != null &&
@@ -653,6 +791,20 @@ function OrderFormDialog({
           : v.label
         : "—";
       return { code, title, thumb: it.image_url ?? null };
+    }
+    if (it.kind === "case" || it.kind === "processing") {
+      const cc = customCases.find((c) => c.id === it.custom_case_id);
+      return {
+        code:
+          cc?.case_code?.trim() ||
+          it.custom_category?.trim() ||
+          (it.kind === "case" ? "案例" : "加工"),
+        title:
+          it.custom_name?.trim() ||
+          cc?.name_zh ||
+          (it.kind === "case" ? "訂製案例" : "加工項目"),
+        thumb: it.image_url ?? cc?.image_url ?? null,
+      };
     }
     return {
       code: it.custom_category?.trim() || "客製",
@@ -960,8 +1112,12 @@ function OrderFormDialog({
             !isCustomOrderVariant(it.variant_id)
               ? resolveListUnitPrice(it.variant_id)
               : it.unit_price,
+          custom_case_id:
+            it.kind === "case" || it.kind === "processing"
+              ? it.custom_case_id || null
+              : null,
           channel_unit_price:
-            it.kind === "custom" &&
+            it.kind !== "variant" &&
             it.channel_unit_price != null &&
             Number.isFinite(Number(it.channel_unit_price)) &&
             Number(it.channel_unit_price) > 0
@@ -969,10 +1125,10 @@ function OrderFormDialog({
               : null,
           custom_notes: it.custom_notes || null,
           custom_category:
-            it.kind === "custom" ? it.custom_category || null : resolvedCategory,
-          custom_name: it.kind === "custom" ? it.custom_name || null : null,
+            it.kind !== "variant" ? it.custom_category || null : resolvedCategory,
+          custom_name: it.kind !== "variant" ? it.custom_name || null : null,
           custom_description:
-            it.kind === "custom" ? it.custom_description || null : null,
+            it.kind !== "variant" ? it.custom_description || null : null,
           custom_dimension_w:
             it.custom_dimension_w != null ? it.custom_dimension_w : null,
           custom_dimension_d:
@@ -996,6 +1152,7 @@ function OrderFormDialog({
         const reduced = itemsPayload.map((p) => {
           const row: Record<string, unknown> = { ...p };
           delete row.channel_unit_price;
+          delete row.custom_case_id;
           return row;
         });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema
@@ -1616,43 +1773,51 @@ function OrderFormDialog({
                         )}
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                           <span>品項類型：</span>
-                          <button
-                            type="button"
-                            disabled={readOnly}
-                            onClick={() =>
-                              updateItem(it.id, {
-                                kind: "variant",
-                                // 切回規格模式時保留原 variant_id / 價格
-                              })
-                            }
-                            className={`rounded-full px-2 py-0.5 border text-[11px] ${
-                              it.kind === "variant"
-                                ? "border-primary bg-primary/10 text-primary"
-                                : "border-border bg-background"
-                            } disabled:opacity-50 disabled:pointer-events-none`}
-                          >
-                            規格庫
-                          </button>
-                          <button
-                            type="button"
-                            disabled={readOnly}
-                            onClick={() =>
-                              updateItem(it.id, {
-                                kind: "custom",
-                                variant_id: "",
-                                channel_unit_price: null,
-                              })
-                            }
-                            className={`rounded-full px-2 py-0.5 border text-[11px] ${
-                              it.kind === "custom"
-                                ? "border-primary bg-primary/10 text-primary"
-                                : "border-border bg-background"
-                            } disabled:opacity-50 disabled:pointer-events-none`}
-                          >
-                            客製品項
-                          </button>
+                          {ITEM_KIND_OPTIONS.map(({ kind, label }) => (
+                            <button
+                              key={kind}
+                              type="button"
+                              disabled={readOnly}
+                              onClick={() => {
+                                if (kind === it.kind) return;
+                                if (kind === "variant") {
+                                  // 切回規格模式時保留原 variant_id / 價格
+                                  updateItem(it.id, { kind });
+                                  return;
+                                }
+                                // 切換非規格類型時整組重置，避免前一類型帶入的欄位殘留
+                                setCasePickerCategory((prev) => ({
+                                  ...prev,
+                                  [it.id]: "",
+                                }));
+                                updateItem(it.id, {
+                                  kind,
+                                  variant_id: "",
+                                  channel_unit_price: null,
+                                  custom_case_id: null,
+                                  custom_name: null,
+                                  custom_category: null,
+                                  custom_description: null,
+                                  custom_dimension_w: null,
+                                  custom_dimension_d: null,
+                                  custom_dimension_h: null,
+                                  seat_height_cm: null,
+                                  wood_type: null,
+                                  unit_price: 0,
+                                  image_url: null,
+                                });
+                              }}
+                              className={`rounded-full px-2 py-0.5 border text-[11px] ${
+                                it.kind === kind
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border bg-background"
+                              } disabled:opacity-50 disabled:pointer-events-none`}
+                            >
+                              {label}
+                            </button>
+                          ))}
                         </div>
                       </div>
 
@@ -2018,6 +2183,97 @@ function OrderFormDialog({
                         </>
                       ) : (
                         <>
+                          {(it.kind === "case" || it.kind === "processing") && (
+                            <div
+                              className={
+                                readOnly
+                                  ? "grid grid-cols-1 gap-3"
+                                  : "grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,9rem)_minmax(0,1fr)]"
+                              }
+                            >
+                              {!readOnly && (
+                                <div className="flex flex-col gap-1.5">
+                                  <label
+                                    className="text-xs text-muted-foreground"
+                                    htmlFor={`item-case-cat-${it.id}`}
+                                  >
+                                    類別
+                                  </label>
+                                  <select
+                                    id={`item-case-cat-${it.id}`}
+                                    value={casePickerCategory[it.id] ?? ""}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setCasePickerCategory((prev) => ({
+                                        ...prev,
+                                        [it.id]: next,
+                                      }));
+                                      // 換類別時先清空挑選（比照系列→規格），已帶入欄位保留
+                                      if (it.custom_case_id) {
+                                        updateItem(it.id, { custom_case_id: null });
+                                      }
+                                    }}
+                                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                  >
+                                    <option value="">全部類別</option>
+                                    {casePickerCategories[it.kind].map((cat) => (
+                                      <option key={cat} value={cat}>
+                                        {cat}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                              <div className="flex flex-col gap-1.5">
+                                <label
+                                  className="text-xs text-muted-foreground"
+                                  htmlFor={`item-case-${it.id}`}
+                                >
+                                  {it.kind === "case"
+                                    ? "訂製案例（挑選後帶入，可再修改）"
+                                    : "加工項目（挑選後帶入定價，可再修改）"}
+                                </label>
+                                {readOnly ? (
+                                  <div className={viewFieldClass}>
+                                    {(() => {
+                                      const cc = customCases.find(
+                                        (c) => c.id === it.custom_case_id
+                                      );
+                                      return cc ? caseOptionLabel(cc) : "—";
+                                    })()}
+                                  </div>
+                                ) : (
+                                  <select
+                                    id={`item-case-${it.id}`}
+                                    value={it.custom_case_id ?? ""}
+                                    onChange={(e) => handleCaseSelect(it, e.target.value)}
+                                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                  >
+                                    <option value="">
+                                      {it.kind === "case"
+                                        ? "請選擇訂製案例"
+                                        : "請選擇加工項目"}
+                                    </option>
+                                    {customCases
+                                      .filter(
+                                        (c) =>
+                                          (it.kind === "case"
+                                            ? c.kind === "custom"
+                                            : c.kind === "processing") &&
+                                          (!casePickerCategory[it.id] ||
+                                            c.category?.trim() ===
+                                              casePickerCategory[it.id])
+                                      )
+                                      .map((c) => (
+                                        <option key={c.id} value={c.id}>
+                                          {caseOptionLabel(c)}
+                                        </option>
+                                      ))}
+                                  </select>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                             <div className="flex flex-col gap-1.5">
                               <label className="text-xs text-muted-foreground">
@@ -2030,22 +2286,26 @@ function OrderFormDialog({
                                     : "—"}
                                 </div>
                               ) : (
-                                <select
-                                  value={it.custom_category ?? ""}
-                                  onChange={(e) =>
-                                    updateItem(it.id, {
-                                      custom_category: e.target.value || null,
-                                    })
-                                  }
-                                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                >
-                                  <option value="">請選擇類別</option>
-                                  <option value="桌">桌</option>
-                                  <option value="椅">椅</option>
-                                  <option value="櫃">櫃</option>
-                                  <option value="架">架</option>
-                                  <option value="其他">其他</option>
-                                </select>
+                                <>
+                                  <input
+                                    type="text"
+                                    list={`item-category-list-${it.id}`}
+                                    value={it.custom_category ?? ""}
+                                    onChange={(e) =>
+                                      updateItem(it.id, {
+                                        custom_category: e.target.value || null,
+                                      })
+                                    }
+                                    placeholder="選擇或輸入分類"
+                                    autoComplete="off"
+                                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                  />
+                                  <datalist id={`item-category-list-${it.id}`}>
+                                    {itemCategorySuggestions[it.kind].map((opt) => (
+                                      <option key={opt} value={opt} />
+                                    ))}
+                                  </datalist>
+                                </>
                               )}
                             </div>
                             <div className="flex flex-col gap-1.5">

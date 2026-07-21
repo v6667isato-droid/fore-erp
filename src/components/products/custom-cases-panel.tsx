@@ -321,6 +321,7 @@ export function CustomCasesPanel({ kind }: { kind: CustomCaseKind }) {
         onOpenChange={setAddOpen}
         kind={kind}
         row={null}
+        categorySuggestions={categories}
         onSuccess={() => void fetchData()}
       />
       <CustomCaseFormDialog
@@ -328,6 +329,7 @@ export function CustomCasesPanel({ kind }: { kind: CustomCaseKind }) {
         onOpenChange={(open) => !open && setEditRow(null)}
         kind={kind}
         row={editRow}
+        categorySuggestions={categories}
         onSuccess={() => {
           setEditRow(null);
           void fetchData();

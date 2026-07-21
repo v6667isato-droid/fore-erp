@@ -447,6 +447,9 @@ export type Database = {
           has_elevator: boolean
           id: string
           ig_account: string | null
+          invoice_carrier: string | null
+          invoice_email: string | null
+          invoice_title: string | null
           line_id: string | null
           name: string
           notes: string | null
@@ -467,6 +470,9 @@ export type Database = {
           has_elevator?: boolean
           id?: string
           ig_account?: string | null
+          invoice_carrier?: string | null
+          invoice_email?: string | null
+          invoice_title?: string | null
           line_id?: string | null
           name: string
           notes?: string | null
@@ -487,6 +493,9 @@ export type Database = {
           has_elevator?: boolean
           id?: string
           ig_account?: string | null
+          invoice_carrier?: string | null
+          invoice_email?: string | null
+          invoice_title?: string | null
           line_id?: string | null
           name?: string
           notes?: string | null
@@ -905,6 +914,7 @@ export type Database = {
         Row: {
           channel_unit_price: number | null
           created_at: string | null
+          custom_case_id: string | null
           custom_category: string | null
           custom_description: string | null
           custom_dimension_d: number | null
@@ -925,6 +935,7 @@ export type Database = {
         Insert: {
           channel_unit_price?: number | null
           created_at?: string | null
+          custom_case_id?: string | null
           custom_category?: string | null
           custom_description?: string | null
           custom_dimension_d?: number | null
@@ -945,6 +956,7 @@ export type Database = {
         Update: {
           channel_unit_price?: number | null
           created_at?: string | null
+          custom_case_id?: string | null
           custom_category?: string | null
           custom_description?: string | null
           custom_dimension_d?: number | null
@@ -963,6 +975,13 @@ export type Database = {
           wood_type?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "order_items_custom_case_id_fkey"
+            columns: ["custom_case_id"]
+            isOneToOne: false
+            referencedRelation: "custom_cases"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "order_items_order_id_fkey"
             columns: ["order_id"]
@@ -1484,8 +1503,13 @@ export type Database = {
           assigned_to: string | null
           completed_at: string | null
           created_at: string | null
+          employee_id: string | null
           id: string
+          image_url: string | null
           notes: string | null
+          report: string | null
+          reported_at: string | null
+          source: string | null
           status: string | null
           step_name: string
           step_order: number
@@ -1495,8 +1519,13 @@ export type Database = {
           assigned_to?: string | null
           completed_at?: string | null
           created_at?: string | null
+          employee_id?: string | null
           id?: string
+          image_url?: string | null
           notes?: string | null
+          report?: string | null
+          reported_at?: string | null
+          source?: string | null
           status?: string | null
           step_name: string
           step_order: number
@@ -1506,8 +1535,13 @@ export type Database = {
           assigned_to?: string | null
           completed_at?: string | null
           created_at?: string | null
+          employee_id?: string | null
           id?: string
+          image_url?: string | null
           notes?: string | null
+          report?: string | null
+          reported_at?: string | null
+          source?: string | null
           status?: string | null
           step_name?: string
           step_order?: number
@@ -1517,6 +1551,13 @@ export type Database = {
           {
             foreignKeyName: "production_tasks_assigned_to_fkey"
             columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_tasks_employee_id_fkey"
+            columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
             referencedColumns: ["id"]
@@ -1710,6 +1751,226 @@ export type Database = {
           },
         ]
       }
+      sales_allowances: {
+        Row: {
+          allowance_date: string | null
+          allowance_number: string | null
+          amount_ex_tax: number | null
+          amount_inc_tax: number | null
+          created_at: string | null
+          deleted_at: string | null
+          exported_at: string | null
+          external_id: string | null
+          id: string
+          invoice_id: string
+          reason: string | null
+          status: string
+          sync_error: string | null
+          sync_status: string
+          synced_at: string | null
+          tax_amount: number | null
+        }
+        Insert: {
+          allowance_date?: string | null
+          allowance_number?: string | null
+          amount_ex_tax?: number | null
+          amount_inc_tax?: number | null
+          created_at?: string | null
+          deleted_at?: string | null
+          exported_at?: string | null
+          external_id?: string | null
+          id?: string
+          invoice_id: string
+          reason?: string | null
+          status?: string
+          sync_error?: string | null
+          sync_status?: string
+          synced_at?: string | null
+          tax_amount?: number | null
+        }
+        Update: {
+          allowance_date?: string | null
+          allowance_number?: string | null
+          amount_ex_tax?: number | null
+          amount_inc_tax?: number | null
+          created_at?: string | null
+          deleted_at?: string | null
+          exported_at?: string | null
+          external_id?: string | null
+          id?: string
+          invoice_id?: string
+          reason?: string | null
+          status?: string
+          sync_error?: string | null
+          sync_status?: string
+          synced_at?: string | null
+          tax_amount?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_allowances_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "sales_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_invoice_items: {
+        Row: {
+          amount: number
+          created_at: string | null
+          description: string
+          id: string
+          invoice_id: string
+          order_item_id: string | null
+          quantity: number
+          sort_order: number
+          unit: string | null
+          unit_price: number | null
+        }
+        Insert: {
+          amount?: number
+          created_at?: string | null
+          description: string
+          id?: string
+          invoice_id: string
+          order_item_id?: string | null
+          quantity?: number
+          sort_order?: number
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string | null
+          description?: string
+          id?: string
+          invoice_id?: string
+          order_item_id?: string | null
+          quantity?: number
+          sort_order?: number
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_invoice_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "sales_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_invoice_items_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_invoices: {
+        Row: {
+          amount_ex_tax: number | null
+          amount_inc_tax: number | null
+          buyer_email: string | null
+          buyer_name: string | null
+          buyer_tax_id: string | null
+          carrier_id: string | null
+          carrier_type: string | null
+          created_at: string | null
+          deleted_at: string | null
+          donation_code: string | null
+          exported_at: string | null
+          external_id: string | null
+          id: string
+          invoice_date: string | null
+          invoice_number: string | null
+          invoice_type: string
+          issued_at: string | null
+          notes: string | null
+          order_id: string | null
+          print_flag: boolean
+          status: string
+          sync_error: string | null
+          sync_status: string
+          synced_at: string | null
+          tax_amount: number | null
+          tax_type: number
+          void_date: string | null
+          void_reason: string | null
+        }
+        Insert: {
+          amount_ex_tax?: number | null
+          amount_inc_tax?: number | null
+          buyer_email?: string | null
+          buyer_name?: string | null
+          buyer_tax_id?: string | null
+          carrier_id?: string | null
+          carrier_type?: string | null
+          created_at?: string | null
+          deleted_at?: string | null
+          donation_code?: string | null
+          exported_at?: string | null
+          external_id?: string | null
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          invoice_type?: string
+          issued_at?: string | null
+          notes?: string | null
+          order_id?: string | null
+          print_flag?: boolean
+          status?: string
+          sync_error?: string | null
+          sync_status?: string
+          synced_at?: string | null
+          tax_amount?: number | null
+          tax_type?: number
+          void_date?: string | null
+          void_reason?: string | null
+        }
+        Update: {
+          amount_ex_tax?: number | null
+          amount_inc_tax?: number | null
+          buyer_email?: string | null
+          buyer_name?: string | null
+          buyer_tax_id?: string | null
+          carrier_id?: string | null
+          carrier_type?: string | null
+          created_at?: string | null
+          deleted_at?: string | null
+          donation_code?: string | null
+          exported_at?: string | null
+          external_id?: string | null
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          invoice_type?: string
+          issued_at?: string | null
+          notes?: string | null
+          order_id?: string | null
+          print_flag?: boolean
+          status?: string
+          sync_error?: string | null
+          sync_status?: string
+          synced_at?: string | null
+          tax_amount?: number | null
+          tax_type?: number
+          void_date?: string | null
+          void_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       telegram_conversations: {
         Row: {
           chat_id: string
@@ -1733,6 +1994,47 @@ export type Database = {
           role?: string
         }
         Relationships: []
+      }
+      telegram_pending_tasks: {
+        Row: {
+          chat_id: string
+          created_at: string
+          employee_id: string
+          employee_name: string
+          id: string
+          image_url: string | null
+          status: string
+          title: string
+        }
+        Insert: {
+          chat_id: string
+          created_at?: string
+          employee_id: string
+          employee_name: string
+          id?: string
+          image_url?: string | null
+          status?: string
+          title: string
+        }
+        Update: {
+          chat_id?: string
+          created_at?: string
+          employee_id?: string
+          employee_name?: string
+          id?: string
+          image_url?: string | null
+          status?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telegram_pending_tasks_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_feedback: {
         Row: {

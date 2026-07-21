@@ -25,6 +25,8 @@ export interface CustomCaseFormDialogProps {
   /** null 為新增；有值為編輯 */
   row: CustomCaseRow | null;
   onSuccess: () => void;
+  /** 既有資料的分類（供類別建議清單合併顯示；輸入新分類即成為新的大分類） */
+  categorySuggestions?: string[];
 }
 
 type FormTab = "basic" | "images" | "website";
@@ -36,6 +38,7 @@ export function CustomCaseFormDialog({
   kind,
   row,
   onSuccess,
+  categorySuggestions,
 }: CustomCaseFormDialogProps) {
   const isEdit = row != null;
   const kindLabel = CUSTOM_CASE_KIND_LABEL[kind];
@@ -229,7 +232,12 @@ export function CustomCaseFormDialog({
                         placeholder={kind === "custom" ? "例：桌、椅" : "例：維修、保養"}
                       />
                       <datalist id="case-form-category-list">
-                        {CUSTOM_CASE_CATEGORY_OPTIONS[kind].map((o) => (
+                        {[
+                          ...new Set([
+                            ...CUSTOM_CASE_CATEGORY_OPTIONS[kind],
+                            ...(categorySuggestions ?? []),
+                          ]),
+                        ].map((o) => (
                           <option key={o} value={o} />
                         ))}
                       </datalist>

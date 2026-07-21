@@ -159,7 +159,7 @@ export function KanbanPage() {
           step_name,
           notes,
           status,
-          employees(name),
+          employees!assigned_to(name),
           work_orders(
             batch_quantity,
             order_items(
