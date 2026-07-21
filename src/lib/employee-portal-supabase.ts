@@ -332,6 +332,7 @@ function mapLeaveStatus(raw: string | null | undefined): LeaveRequestStatus {
   const s = (raw ?? "").trim().toLowerCase();
   if (s === "approved" || s === "已核准" || s === "核准") return "approved";
   if (s === "rejected" || s === "退回" || s === "拒絕") return "rejected";
+  if (s === "revoked" || s === "已撤銷" || s === "撤銷") return "revoked";
   return "pending";
 }
 

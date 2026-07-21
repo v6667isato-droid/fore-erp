@@ -126,6 +126,16 @@ function leaveStatusBadge(row: LeaveRequestRow) {
       </Badge>
     );
   }
+  if (row.status === "revoked") {
+    return (
+      <Badge
+        variant="outline"
+        className="border-zinc-500/40 bg-zinc-100 text-zinc-700 dark:border-zinc-500/40 dark:bg-zinc-800/60 dark:text-zinc-300"
+      >
+        已撤銷
+      </Badge>
+    );
+  }
   return (
     <Badge
       variant="outline"

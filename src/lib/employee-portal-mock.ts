@@ -45,7 +45,7 @@ export interface EmployeeTaskRow {
   due_date: string | null;
 }
 
-export type LeaveRequestStatus = "pending" | "approved" | "rejected";
+export type LeaveRequestStatus = "pending" | "approved" | "rejected" | "revoked";
 
 export interface LeaveRequestRow {
   id: string;
