@@ -10,7 +10,7 @@ import {
   type DragEvent,
 } from "react";
 import { toast } from "sonner";
-import { Upload, Loader2, ListFilter } from "lucide-react";
+import { Upload, Loader2, ListFilter, CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -41,6 +41,7 @@ import {
   type WarRoomRow,
 } from "@/lib/attendance-war-room";
 import { WeekendOvertimeApprovalDialog } from "@/components/weekend-overtime-approval-dialog";
+import { ManualOvertimeDialog } from "@/components/manual-overtime-dialog";
 import {
   isSupabaseConfigured,
   supabase,
@@ -130,8 +131,8 @@ function WarCalendar({
   monthPublicHolidays: PublicHolidayEntry[];
   /** 主力年（YYYY）內 public_holidays 總筆數（用於空狀態判讀） */
   yearPublicHolidayCount: number;
-  /** 圖層三：已核准轉補休（overtime_records） */
-  compOffByDay: Map<number, { employeeName: string }[]>;
+  /** 圖層三：已核准轉補休（overtime_records，含手動補登；hours 供顯示時數） */
+  compOffByDay: Map<number, { employeeName: string; hours?: number | null }[]>;
   /** 該曆日 CSV 主力列是否至少有一筆打卡列（避免無資料之週末誤判為全員正常） */
   csvPunchDaySet: ReadonlySet<number>;
 }) {
@@ -276,8 +277,10 @@ function WarCalendar({
           const entriesAll =
             day != null ? anomalyEntriesByDayAllEmployees.get(day) ?? [] : [];
           const compOffLines = day != null ? compOffByDay.get(day) ?? [] : [];
-          const compOffNameSet = new Set(
-            compOffLines.map((c) => normCalendarName(c.employeeName)).filter(Boolean),
+          const compOffByName = new Map(
+            compOffLines
+              .filter((c) => normCalendarName(c.employeeName))
+              .map((c) => [normCalendarName(c.employeeName), c]),
           );
           const restHols = hols.filter((h) => !h.is_workday);
           const makeupHols = hols.filter((h) => h.is_workday);
@@ -364,9 +367,10 @@ function WarCalendar({
                     {(entries.length > 0 || compOffLines.length > 0) && (
                       <ul className="space-y-0.5 text-[10px] leading-tight text-muted-foreground">
                         {entries.map((e, i) => {
-                          const mergeCompOff =
-                            TAG_IDS_MERGE_COMP_OFF_INLINE.has(e.tagId) &&
-                            compOffNameSet.has(normCalendarName(e.employeeName));
+                          const compHit = TAG_IDS_MERGE_COMP_OFF_INLINE.has(e.tagId)
+                            ? compOffByName.get(normCalendarName(e.employeeName))
+                            : undefined;
+                          const mergeCompOff = compHit != null;
                           return (
                             <li key={`${e.tagId}-${e.employeeName}-${i}`} className="break-words">
                               <span className="font-medium text-foreground">{e.employeeName}</span>
@@ -390,6 +394,7 @@ function WarCalendar({
                                   <span className="text-emerald-700 dark:text-emerald-300">
                                     {" "}
                                     · <span aria-hidden>💰</span>已轉補休
+                                    {compHit?.hours != null ? `·${compHit.hours}h` : ""}
                                   </span>
                                 ) : null}
                                 ）
@@ -415,6 +420,7 @@ function WarCalendar({
                               {c.employeeName}{" "}
                               <span className="text-emerald-700 dark:text-emerald-300">
                                 <span aria-hidden>💰</span> 已轉補休
+                                {c.hours != null ? `·${c.hours}h` : ""}
                               </span>
                             </li>
                           ))}
@@ -478,12 +484,23 @@ export function AttendanceImporterPanel({
   const [overtimeKeys, setOvertimeKeys] = useState<Set<string>>(() => new Set());
   const [overtimeKeysLoading, setOvertimeKeysLoading] = useState(false);
   const [approvalRow, setApprovalRow] = useState<WarRoomRow | null>(null);
+  const [manualOvertimeOpen, setManualOvertimeOpen] = useState(false);
+  const [overtimeHoursByKey, setOvertimeHoursByKey] = useState<Map<string, number | null>>(
+    () => new Map(),
+  );
 
   /** 主力月永遠依完整 CSV 推算，避免 empClockMap 尚未載入時 ym 為空而無法查 employees */
-  const { ym, filtered: dominantMonthRows } = useMemo(
+  const { ym: csvYm, filtered: dominantMonthRows } = useMemo(
     () => pickDominantMonth(csvRows),
     [csvRows],
   );
+  const hasCsv = csvRows.length > 0;
+  /** 未匯入 CSV 時以今天所在月份先行顯示月曆與表格（假日／核准假單圖層先載入） */
+  const fallbackYm = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+  const ym = csvYm || fallbackYm;
 
   /** DB 載入完成後，主力月內僅保留對應到在職 timeclock_uid 之列；載入中暫顯示該月全部列（避免閃空） */
   const filtered = useMemo(() => {
@@ -601,12 +618,12 @@ export function AttendanceImporterPanel({
   );
 
   const warRowsWithLeaveOnly = useMemo(() => {
-    if (!ym) return warRows;
+    if (!ym || !hasCsv) return warRows;
     return appendLeaveOnlyRowsWithoutPunch(warRows, ym, activeEmployees, leaves);
-  }, [warRows, ym, activeEmployees, leaves]);
+  }, [warRows, ym, hasCsv, activeEmployees, leaves]);
 
   const displayWarRows = useMemo(() => {
-    if (!ym) return warRowsWithLeaveOnly;
+    if (!ym || !hasCsv) return warRowsWithLeaveOnly;
     return appendAbsentEmployeeWarnings(
       warRowsWithLeaveOnly,
       ym,
@@ -614,7 +631,7 @@ export function AttendanceImporterPanel({
       leaves,
       publicHolidays,
     );
-  }, [warRowsWithLeaveOnly, ym, activeEmployees, leaves, publicHolidays]);
+  }, [warRowsWithLeaveOnly, ym, hasCsv, activeEmployees, leaves, publicHolidays]);
 
   const activeEmployeeIdSet = useMemo(
     () => new Set(activeEmployees.map((e) => e.id)),
@@ -666,19 +683,20 @@ export function AttendanceImporterPanel({
 
   const scopeEmpIdsForCalendar = useMemo(() => {
     if (!filterEmployeeKey) {
-      return new Set(
-        panelVisibleWarRows.map((r) => r.employeeId).filter(Boolean) as string[],
-      );
+      return new Set([
+        ...activeEmployees.map((e) => e.id),
+        ...(panelVisibleWarRows.map((r) => r.employeeId).filter(Boolean) as string[]),
+      ]);
     }
     const row = panelVisibleWarRows.find(
       (r) => (r.employeeId ?? `row:${r.uid}`) === filterEmployeeKey,
     );
     if (!row?.employeeId) return new Set<string>();
     return new Set([row.employeeId]);
-  }, [filterEmployeeKey, panelVisibleWarRows]);
+  }, [filterEmployeeKey, activeEmployees, panelVisibleWarRows]);
 
   const compOffLinesByDay = useMemo(() => {
-    const map = new Map<number, { employeeName: string }[]>();
+    const map = new Map<number, { employeeName: string; hours: number | null }[]>();
     if (!ym) return map;
     const prefix = `${ym}-`;
     const idToName = new Map(activeEmployees.map((e) => [e.id, e.name]));
@@ -693,11 +711,12 @@ export function AttendanceImporterPanel({
       if (!Number.isFinite(day) || day < 1 || day > 31) continue;
       const name = idToName.get(empId) ?? "—";
       const arr = map.get(day) ?? [];
-      if (!arr.some((x) => x.employeeName === name)) arr.push({ employeeName: name });
+      if (!arr.some((x) => x.employeeName === name))
+        arr.push({ employeeName: name, hours: overtimeHoursByKey.get(key) ?? null });
       map.set(day, arr);
     }
     return map;
-  }, [ym, overtimeKeys, activeEmployees, scopeEmpIdsForCalendar]);
+  }, [ym, overtimeKeys, overtimeHoursByKey, activeEmployees, scopeEmpIdsForCalendar]);
 
   const anomalyCalendarMap = useMemo(
     () => buildCalendarAnomalyEntriesByDay(filteredDisplayWarRows),
@@ -740,11 +759,19 @@ export function AttendanceImporterPanel({
   const refreshOvertimeKeys = useCallback(async () => {
     if (!ym || !isSupabaseConfigured) {
       setOvertimeKeys(new Set());
+      setOvertimeHoursByKey(new Map());
       return;
     }
-    const empIds = [...new Set(panelVisibleWarRows.map((r) => r.employeeId).filter(Boolean))] as string[];
+    /** 涵蓋全體在職員工：手動補登（出差等未打卡）之紀錄即使無 CSV 列也要顯示 */
+    const empIds = [
+      ...new Set([
+        ...activeEmployees.map((e) => e.id),
+        ...(panelVisibleWarRows.map((r) => r.employeeId).filter(Boolean) as string[]),
+      ]),
+    ];
     if (empIds.length === 0) {
       setOvertimeKeys(new Set());
+      setOvertimeHoursByKey(new Map());
       return;
     }
     setOvertimeKeysLoading(true);
@@ -753,25 +780,31 @@ export function AttendanceImporterPanel({
       const monthEnd = monthEndIso(ym);
       const { data, error } = await supabase
         .from("overtime_records")
-        .select("employee_id, overtime_date")
+        .select("employee_id, overtime_date, hours")
         .in("employee_id", empIds)
         .gte("overtime_date", monthStart)
         .lte("overtime_date", monthEnd);
       if (error) throw error;
       const next = new Set<string>();
+      const hoursMap = new Map<string, number | null>();
       for (const raw of data ?? []) {
-        const rec = raw as { employee_id: string; overtime_date: string };
+        const rec = raw as { employee_id: string; overtime_date: string; hours?: unknown };
         const d = String(rec.overtime_date).slice(0, 10);
-        next.add(`${rec.employee_id}\t${d}`);
+        const key = `${rec.employee_id}\t${d}`;
+        next.add(key);
+        const h = Number(rec.hours);
+        hoursMap.set(key, Number.isFinite(h) && h > 0 ? h : null);
       }
       setOvertimeKeys(next);
+      setOvertimeHoursByKey(hoursMap);
     } catch (e) {
       console.error("[attendance] overtime_records:", e);
       setOvertimeKeys(new Set());
+      setOvertimeHoursByKey(new Map());
     } finally {
       setOvertimeKeysLoading(false);
     }
-  }, [ym, panelVisibleWarRows]);
+  }, [ym, activeEmployees, panelVisibleWarRows]);
 
   useEffect(() => {
     void refreshOvertimeKeys();
@@ -930,18 +963,34 @@ export function AttendanceImporterPanel({
         </div>
       )}
 
-      {csvRows.length > 0 && ym && (
-        <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-foreground">
-          <span className="font-medium">本月分析目標：</span>
-          <span className="tabular-nums">{ymLabel}</span>
-          <span className="text-muted-foreground">
-            （{filtered.length} 筆，已排除其他月份）
-          </span>
-          {dbLoading && (
-            <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              同步員工、假單與國定假日…
+      {ym && (
+        <div className="flex flex-col gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <span className="font-medium">{hasCsv ? "本月分析目標：" : "預覽月份："}</span>
+            <span className="tabular-nums">{ymLabel}</span>
+            <span className="text-muted-foreground">
+              {hasCsv
+                ? `（${filtered.length} 筆，已排除其他月份）`
+                : "（尚未匯入 CSV；先顯示本月假日與核准假單，匯入後自動切換為資料最多之月份並帶入打卡分析）"}
             </span>
+            {dbLoading && (
+              <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                同步員工、假單與國定假日…
+              </span>
+            )}
+          </div>
+          {isSupabaseConfigured && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 shrink-0 gap-1.5 self-start px-3 text-xs font-semibold sm:self-auto"
+              disabled={dbLoading || activeEmployees.length === 0}
+              onClick={() => setManualOvertimeOpen(true)}
+            >
+              <CalendarPlus className="h-3.5 w-3.5" />
+              手動補登加班（出差／未打卡）
+            </Button>
           )}
         </div>
       )}
@@ -958,9 +1007,7 @@ export function AttendanceImporterPanel({
         </p>
       )}
 
-      {csvRows.length > 0 &&
-        ym &&
-        (panelVisibleWarRows.length > 0 || monthPublicHolidaysSorted.length > 0) && (
+      {ym && (
         <WarCalendar
           ym={ym}
           leavesByDay={approvedLeavesByDay}
@@ -973,8 +1020,9 @@ export function AttendanceImporterPanel({
         />
       )}
 
-      {csvRows.length > 0 && ym && panelVisibleWarRows.length > 0 && (
+      {ym && (!hasCsv || panelVisibleWarRows.length > 0) && (
         <div className="space-y-2">
+          {hasCsv && (
           <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <ListFilter className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -1002,6 +1050,7 @@ export function AttendanceImporterPanel({
               </p>
             )}
           </div>
+          )}
           <div className="rounded-xl border border-border bg-card shadow-sm">
             <Table wrapperClassName="max-h-[min(72vh,880px)] overflow-auto">
               <TableHeader className="sticky top-0 z-20 border-b border-border bg-card shadow-[0_1px_0_0_hsl(var(--border))]">
@@ -1017,6 +1066,16 @@ export function AttendanceImporterPanel({
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {!hasCsv && filteredDisplayWarRows.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={8}
+                      className="py-10 text-center text-sm text-muted-foreground"
+                    >
+                      尚未匯入 CSV — 匯入後此表會帶入每日打卡、時數與異常標籤。
+                    </TableCell>
+                  </TableRow>
+                )}
                 {filteredDisplayWarRows.map((r) => (
                   <TableRow
                     key={`${r.dateIso}-${r.uid}`}
@@ -1078,7 +1137,7 @@ export function AttendanceImporterPanel({
             <Button
               type="button"
               className="h-11 w-full gap-2 px-6 text-base font-semibold shadow-md sm:w-auto sm:min-w-[20rem]"
-              disabled={saveLoading || dbLoading}
+              disabled={saveLoading || dbLoading || !hasCsv || panelVisibleWarRows.length === 0}
               onClick={() => void persistMonthToDatabase()}
             >
               {saveLoading ? (
@@ -1129,6 +1188,13 @@ export function AttendanceImporterPanel({
         }}
         row={approvalRow}
         onApproved={() => void refreshOvertimeKeys()}
+      />
+
+      <ManualOvertimeDialog
+        open={manualOvertimeOpen}
+        onOpenChange={setManualOvertimeOpen}
+        employees={activeEmployees}
+        onSaved={() => void refreshOvertimeKeys()}
       />
     </div>
   );
