@@ -436,6 +436,7 @@ export function SalesStatisticsPage() {
 
       const quantity = Number(item.quantity ?? 0);
       if (!Number.isFinite(quantity) || quantity <= 0) continue;
+      // 結算單價：通路價快照（儲存訂單時寫入）優先，否則採牌價
       const unitPrice = Number(item.channel_unit_price ?? item.unit_price ?? 0);
       const revenue = (Number.isFinite(unitPrice) ? unitPrice : 0) * quantity;
       const periodKey = periodKeyOf(orderDate, granularity);

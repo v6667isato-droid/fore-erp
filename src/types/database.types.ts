@@ -261,6 +261,7 @@ export type Database = {
           description: string | null
           event_date: string
           id: string
+          image_url: string | null
           title: string
         }
         Insert: {
@@ -269,6 +270,7 @@ export type Database = {
           description?: string | null
           event_date: string
           id?: string
+          image_url?: string | null
           title: string
         }
         Update: {
@@ -277,6 +279,7 @@ export type Database = {
           description?: string | null
           event_date?: string
           id?: string
+          image_url?: string | null
           title?: string
         }
         Relationships: []
@@ -1217,6 +1220,177 @@ export type Database = {
           },
         ]
       }
+      performance_bonus_issuance_rows: {
+        Row: {
+          ability_grade: number
+          ability_pct: number
+          created_at: string | null
+          employee_id: string | null
+          employee_name: string
+          id: string
+          issuance_id: string
+          participates_in_profit_sharing: boolean
+          performance: number
+          performance_pct: number
+          profit_sharing_bonus: number
+          salary: number
+          salary_pct: number
+          seniority_label: string | null
+          seniority_pct: number
+          seniority_years: number
+          share_bonus: number
+          shares: number
+          sort_order: number
+          tenure_ratio: number
+          total_bonus: number
+          total_pct: number
+          year_end_bonus: number
+        }
+        Insert: {
+          ability_grade?: number
+          ability_pct?: number
+          created_at?: string | null
+          employee_id?: string | null
+          employee_name: string
+          id?: string
+          issuance_id: string
+          participates_in_profit_sharing?: boolean
+          performance?: number
+          performance_pct?: number
+          profit_sharing_bonus?: number
+          salary?: number
+          salary_pct?: number
+          seniority_label?: string | null
+          seniority_pct?: number
+          seniority_years?: number
+          share_bonus?: number
+          shares?: number
+          sort_order?: number
+          tenure_ratio?: number
+          total_bonus?: number
+          total_pct?: number
+          year_end_bonus?: number
+        }
+        Update: {
+          ability_grade?: number
+          ability_pct?: number
+          created_at?: string | null
+          employee_id?: string | null
+          employee_name?: string
+          id?: string
+          issuance_id?: string
+          participates_in_profit_sharing?: boolean
+          performance?: number
+          performance_pct?: number
+          profit_sharing_bonus?: number
+          salary?: number
+          salary_pct?: number
+          seniority_label?: string | null
+          seniority_pct?: number
+          seniority_years?: number
+          share_bonus?: number
+          shares?: number
+          sort_order?: number
+          tenure_ratio?: number
+          total_bonus?: number
+          total_pct?: number
+          year_end_bonus?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "performance_bonus_issuance_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "performance_bonus_issuance_rows_issuance_id_fkey"
+            columns: ["issuance_id"]
+            isOneToOne: false
+            referencedRelation: "performance_bonus_issuances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      performance_bonus_issuances: {
+        Row: {
+          cost: number | null
+          created_at: string | null
+          deleted_at: string | null
+          half: string
+          id: string
+          issue_year_end_bonus: boolean
+          issued_at: string
+          profit: number
+          profit_meta: string | null
+          profit_sharing_pct: number
+          profit_sharing_pool: number
+          revenue: number | null
+          share_bonus_pct: number
+          share_bonus_pool: number
+          total_bonus: number
+          weight_ability: number
+          weight_performance: number
+          weight_salary: number
+          weight_seniority: number
+          weighted_profit_sharing_pool: number
+          year: number
+          year_end_bonus_salary_pct: number
+          year_end_bonus_total: number
+        }
+        Insert: {
+          cost?: number | null
+          created_at?: string | null
+          deleted_at?: string | null
+          half: string
+          id?: string
+          issue_year_end_bonus?: boolean
+          issued_at?: string
+          profit?: number
+          profit_meta?: string | null
+          profit_sharing_pct?: number
+          profit_sharing_pool?: number
+          revenue?: number | null
+          share_bonus_pct?: number
+          share_bonus_pool?: number
+          total_bonus?: number
+          weight_ability?: number
+          weight_performance?: number
+          weight_salary?: number
+          weight_seniority?: number
+          weighted_profit_sharing_pool?: number
+          year: number
+          year_end_bonus_salary_pct?: number
+          year_end_bonus_total?: number
+        }
+        Update: {
+          cost?: number | null
+          created_at?: string | null
+          deleted_at?: string | null
+          half?: string
+          id?: string
+          issue_year_end_bonus?: boolean
+          issued_at?: string
+          profit?: number
+          profit_meta?: string | null
+          profit_sharing_pct?: number
+          profit_sharing_pool?: number
+          revenue?: number | null
+          share_bonus_pct?: number
+          share_bonus_pool?: number
+          total_bonus?: number
+          weight_ability?: number
+          weight_performance?: number
+          weight_salary?: number
+          weight_seniority?: number
+          weighted_profit_sharing_pool?: number
+          year?: number
+          year_end_bonus_salary_pct?: number
+          year_end_bonus_total?: number
+        }
+        Relationships: []
+      }
       procurement_materials: {
         Row: {
           amortization_months: number | null
@@ -1560,6 +1734,13 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_tasks_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
             referencedColumns: ["id"]
           },
         ]
@@ -1999,6 +2180,7 @@ export type Database = {
         Row: {
           chat_id: string
           created_at: string
+          due_date: string | null
           employee_id: string
           employee_name: string
           id: string
@@ -2009,6 +2191,7 @@ export type Database = {
         Insert: {
           chat_id: string
           created_at?: string
+          due_date?: string | null
           employee_id: string
           employee_name: string
           id?: string
@@ -2019,6 +2202,7 @@ export type Database = {
         Update: {
           chat_id?: string
           created_at?: string
+          due_date?: string | null
           employee_id?: string
           employee_name?: string
           id?: string

@@ -727,8 +727,9 @@ export function OrdersPage({
           d.variant_id && pv?.base_price != null && Number.isFinite(Number(pv.base_price))
             ? Number(pv.base_price)
             : Number(d.unit_price ?? 0),
+        // 通路價快照（規格品自動帶入後可能被手動改過；客製品項為手填），原值帶回表單
         channel_unit_price:
-          isCustom && d.channel_unit_price != null && Number.isFinite(Number(d.channel_unit_price))
+          d.channel_unit_price != null && Number.isFinite(Number(d.channel_unit_price))
             ? Number(d.channel_unit_price)
             : null,
         isNewLine: false,

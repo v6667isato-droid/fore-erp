@@ -12,7 +12,7 @@ function formatMoney(value: number): string {
 }
 
 function formatPct(value: number): string {
-  return `${value.toFixed(2)}%`;
+  return `${value.toFixed(1)}%`;
 }
 
 function formatSavedAt(iso: string): string {

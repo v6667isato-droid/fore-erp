@@ -82,7 +82,7 @@ export interface OrderItemInput {
   quantity: number;
   /** 牌價 */
   unit_price: number;
-  /** 客製品項通路價（手動）；有值時結算優先採用 */
+  /** 通路價格：規格品依折扣規則自動帶入、可手動改（個別折扣）；客製品項為手填。有值時結算優先採用 */
   channel_unit_price?: number | null;
   custom_notes: string;
   kind: OrderItemKind;

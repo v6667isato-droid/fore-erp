@@ -149,6 +149,9 @@ export function portalItemInsertPayload(orderId: string, items: PortalPricedItem
     variant_id: it.variant_id,
     quantity: it.quantity,
     unit_price: it.list_unit_price,
+    // 通路價快照：有套折扣（結算價 ≠ 牌價）時寫入，供統計／發票直接讀取
+    channel_unit_price:
+      it.settlement_unit_price !== it.list_unit_price ? it.settlement_unit_price : null,
     custom_notes: it.notes,
     custom_category: null,
     custom_name: null,

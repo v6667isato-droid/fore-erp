@@ -642,14 +642,18 @@ function OrderFormDialog({
    * 計算指定品項在目前客戶下的「通路成交價」。
    * 客戶有所屬通路且該系列設定折扣 % 時，回傳 base_price * (1 - pct/100)，否則回傳 null。
    */
-  const resolveChannelUnitPrice = useCallback(
-    (variantId: string | null | undefined, seriesId: string | null | undefined): number | null => {
+  const resolveChannelUnitPriceFor = useCallback(
+    (
+      forCustomerId: string,
+      variantId: string | null | undefined,
+      seriesId: string | null | undefined,
+    ): number | null => {
       if (!variantId) return null;
       const variant = variants.find((v) => v.id === variantId);
       const base = variant?.base_price ?? null;
       if (base == null || !Number.isFinite(Number(base))) return null;
 
-      const customer = customers.find((c) => c.id === customerId);
+      const customer = customers.find((c) => c.id === forCustomerId);
       const channelId = customer?.channel_id ?? null;
       const sid = seriesId ?? variant?.series_id ?? null;
       if (!channelId || !sid) return null;
@@ -661,7 +665,13 @@ function OrderFormDialog({
 
       return Math.round(Number(base) * (1 - pct / 100));
     },
-    [variants, customers, customerId, seriesDiscounts]
+    [variants, customers, seriesDiscounts]
+  );
+
+  const resolveChannelUnitPrice = useCallback(
+    (variantId: string | null | undefined, seriesId: string | null | undefined): number | null =>
+      resolveChannelUnitPriceFor(customerId, variantId, seriesId),
+    [resolveChannelUnitPriceFor, customerId]
   );
 
   /** 產品規格牌價（base_price）；明細 unit_price 一律以此為準 */
@@ -702,6 +712,11 @@ function OrderFormDialog({
       variant_id: variantId,
       series_id: selected?.series_id ?? it.series_id ?? null,
       unit_price: nextUnitPrice,
+      // 自動帶入通路價（可再手動改，給個別折扣）；重選規格會依折扣規則重算
+      channel_unit_price: resolveChannelUnitPrice(
+        variantId,
+        selected?.series_id ?? it.series_id ?? null
+      ),
       wood_type: wt ? wt : null,
       custom_dimension_w: dimW,
       custom_dimension_d: dimD,
@@ -746,34 +761,26 @@ function OrderFormDialog({
   }
 
   /**
-   * 結算單價：有通路價格優先採用通路價格，否則採用牌價（unit_price）。
-   * 用於品項小計、訂單合計等結算用途；與明細欄位「牌價」分開。
+   * 結算單價：「通路價格」欄位有值時優先採用（自動帶入後可手動改，給個別折扣），
+   * 否則採用牌價（unit_price）。用於品項小計、訂單合計等結算用途；與明細欄位「牌價」分開。
    */
   const resolveItemSettlementPrice = useCallback(
     (it: OrderItemInput): number => {
-      if (it.kind !== "variant") {
-        const manualChannel = it.channel_unit_price;
-        if (
-          manualChannel != null &&
-          Number.isFinite(Number(manualChannel)) &&
-          Number(manualChannel) > 0
-        ) {
-          return Number(manualChannel);
-        }
-        return Number(it.unit_price) || 0;
+      const channelPrice = it.channel_unit_price;
+      if (
+        channelPrice != null &&
+        Number.isFinite(Number(channelPrice)) &&
+        Number(channelPrice) > 0
+      ) {
+        return Number(channelPrice);
       }
       // 訂製款：無牌價也無通路折扣基準，直接採用手動輸入的價格
-      if (isCustomOrderVariant(it.variant_id)) {
-        return Number(it.unit_price) || 0;
-      }
-      const channelPrice = resolveChannelUnitPrice(it.variant_id, it.series_id ?? null);
-      if (channelPrice != null) return channelPrice;
-      if (it.variant_id) {
+      if (it.kind === "variant" && it.variant_id && !isCustomOrderVariant(it.variant_id)) {
         return resolveListUnitPrice(it.variant_id) || Number(it.unit_price) || 0;
       }
       return Number(it.unit_price) || 0;
     },
-    [resolveChannelUnitPrice, resolveListUnitPrice, isCustomOrderVariant]
+    [resolveListUnitPrice, isCustomOrderVariant]
   );
 
 
@@ -1116,8 +1123,9 @@ function OrderFormDialog({
             it.kind === "case" || it.kind === "processing"
               ? it.custom_case_id || null
               : null,
+          // 通路價快照：存「通路價格」欄位值（自動帶入折扣價後可手動改）。
+          // NULL 表示無通路價（結算用牌價）。供統計／發票等頁面直接讀取，不需重算。
           channel_unit_price:
-            it.kind !== "variant" &&
             it.channel_unit_price != null &&
             Number.isFinite(Number(it.channel_unit_price)) &&
             Number(it.channel_unit_price) > 0
@@ -1351,6 +1359,21 @@ function OrderFormDialog({
                           if (customer?.delivery_address) {
                             setShippingAddress(customer.delivery_address);
                           }
+                          // 換客戶＝換通路：規格品項的通路價依新客戶重新帶入（會覆蓋手動改過的值）
+                          setItems((prev) =>
+                            prev.map((it) =>
+                              it.kind === "variant" && it.variant_id
+                                ? {
+                                    ...it,
+                                    channel_unit_price: resolveChannelUnitPriceFor(
+                                      id,
+                                      it.variant_id,
+                                      it.series_id ?? null
+                                    ),
+                                  }
+                                : it
+                            )
+                          );
                         }}
                         className="flex-1"
                       />
@@ -1969,20 +1992,35 @@ function OrderFormDialog({
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
-                              <span className="text-xs text-muted-foreground">
+                              <label
+                                className="text-xs text-muted-foreground"
+                                htmlFor={`item-channel-price-${it.id}`}
+                              >
                                 通路價格
-                              </span>
-                              {(() => {
-                                const channelPrice = resolveChannelUnitPrice(
-                                  it.variant_id,
-                                  it.series_id ?? null
-                                );
-                                return (
-                                  <div className="h-9 flex items-center justify-end rounded-lg border border-dashed border-border bg-muted/40 px-3 text-xs tabular-nums text-muted-foreground">
-                                    {channelPrice != null ? channelPrice.toLocaleString() : "—"}
-                                  </div>
-                                );
-                              })()}
+                              </label>
+                              <input
+                                id={`item-channel-price-${it.id}`}
+                                type="number"
+                                min={0}
+                                step={1}
+                                value={
+                                  it.channel_unit_price != null &&
+                                  Number.isFinite(Number(it.channel_unit_price)) &&
+                                  Number(it.channel_unit_price) > 0
+                                    ? it.channel_unit_price
+                                    : ""
+                                }
+                                onChange={(e) => {
+                                  const raw = e.target.value.trim();
+                                  updateItem(it.id, {
+                                    channel_unit_price:
+                                      raw === "" ? null : Math.max(0, Number(raw) || 0),
+                                  });
+                                }}
+                                placeholder="無（依牌價結算）"
+                                readOnly={readOnly}
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-xs focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                              />
                             </div>
                           </div>
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">

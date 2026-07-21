@@ -79,6 +79,11 @@ function safeNum(v: number): number {
   return Number.isFinite(v) && v >= 0 ? v : 0;
 }
 
+/** 發放金額以「百」為最小單位（無條件捨去至百位） */
+function floorToHundred(v: number): number {
+  return Math.floor(safeNum(v) / 100) * 100;
+}
+
 function shareOf(part: number, total: number): number {
   if (total <= 0) return 0;
   return (part / total) * 100;
@@ -206,6 +211,7 @@ export function computePerformanceBonus(
   } else {
     yearEndBonuses = distributePool(pool, rawYearEnd);
   }
+  yearEndBonuses = yearEndBonuses.map(floorToHundred);
 
   const yearEndBonusTotal = yearEndBonuses.reduce((a, b) => a + b, 0);
   const weightedProfitSharingPool = Math.max(0, pool - yearEndBonusTotal);
@@ -222,14 +228,15 @@ export function computePerformanceBonus(
     return { ...e, abilityPct, performancePct, seniorityPct, salaryPct, totalPct };
   });
 
+  // 各項獎金以「百」為最小單位無條件捨去；捨去的尾數不再重分配
   const profitBonuses = distributePool(
     weightedProfitSharingPool,
     withPct.map((r) => r.totalPct),
-  );
+  ).map(floorToHundred);
   const shareBonuses = distributePool(
     Math.max(0, shareBonusPool),
     withPct.map((r) => (sumShares > 0 ? safeNum(r.shares) : 0)),
-  );
+  ).map(floorToHundred);
 
   const rows: BonusEmployeeComputed[] = withPct.map((r, i) => {
     const yearEndBonus = yearEndBonuses[i] ?? 0;

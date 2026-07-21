@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Download, RefreshCw } from "lucide-react";
+import { CheckCircle2, Download, RefreshCw } from "lucide-react";
 import { fetchHalfYearGrossProfit } from "@/lib/half-year-gross-profit";
 import { seniorityFromHire } from "@/lib/employee-seniority";
 import {
@@ -24,6 +24,7 @@ import {
   savePerformanceBonusExport,
   type PerformanceBonusExportSnapshot,
 } from "@/lib/performance-bonus-export";
+import { PerformanceBonusHistory } from "@/components/performance-bonus-history";
 import {
   computePerformanceBonus,
   defaultBonusWeights,
@@ -62,7 +63,7 @@ function formatMoney(value: number): string {
 }
 
 function formatPct(value: number): string {
-  return `${value.toFixed(2)}%`;
+  return `${value.toFixed(1)}%`;
 }
 
 function parseNum(raw: string, fallback = 0): number {
@@ -105,7 +106,11 @@ const inputClass =
 const selectClass = cn(inputClass, "text-left");
 
 const inputClassSm =
-  "h-7 w-14 rounded-md border border-input bg-background px-1.5 text-center text-xs tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "h-7 w-11 rounded-md border border-input bg-background px-1 text-center text-xs tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/** 表格內能力分級／考績輸入：與表頭加權輸入同寬（w-11），避免撐寬欄位 */
+const inputClassNarrow =
+  "h-9 w-11 rounded-md border border-input bg-background px-1 text-center text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 function FieldLabel({ children }: { children: ReactNode }) {
   return (
@@ -131,6 +136,9 @@ export function PerformanceBonusPage() {
   const [issueYearEndBonus, setIssueYearEndBonus] = useState(false);
   const [yearEndBonusSalaryPct, setYearEndBonusSalaryPct] = useState("50");
   const [profitMeta, setProfitMeta] = useState<string>("");
+  const [profitStats, setProfitStats] = useState<{ revenue: number; cost: number } | null>(null);
+  const [issuing, setIssuing] = useState(false);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const loadedPeriodRef = useRef<string | null>(null);
 
   const asOf = useMemo(() => halfYearEndDate(year, half), [year, half]);
@@ -286,6 +294,7 @@ export function PerformanceBonusPage() {
     try {
       const result = await fetchHalfYearGrossProfit(year, half);
       setGrossProfit(result.grossProfit);
+      setProfitStats({ revenue: result.revenue, cost: result.totalCost });
       if (!profitManual) {
         setProfitInput(String(Math.round(result.grossProfit)));
       }
@@ -402,6 +411,99 @@ export function PerformanceBonusPage() {
     void loadProfit();
   }
 
+  /** 確定發放：將當期設定、加權與每位員工的所有欄位快照寫入發放紀錄 */
+  async function confirmIssue() {
+    if (!isSupabaseConfigured) {
+      toast.error(SUPABASE_CONFIG_HELP);
+      return;
+    }
+    if (computed.rows.length === 0) return;
+
+    setIssuing(true);
+    try {
+      const existing = await supabase
+        .from("performance_bonus_issuances")
+        .select("id")
+        .eq("year", year)
+        .eq("half", half)
+        .is("deleted_at", null);
+      if (existing.error) throw new Error(existing.error.message);
+
+      const label = halfYearLabel(year, half);
+      const confirmed = window.confirm(
+        (existing.data ?? []).length > 0
+          ? `${label} 已有 ${existing.data.length} 筆發放紀錄，仍要再記錄一筆？\n獎金合計 ${formatMoney(computed.totals.totalBonus)} 元`
+          : `確定發放 ${label} 獎金並記錄？\n獎金合計 ${formatMoney(computed.totals.totalBonus)} 元`,
+      );
+      if (!confirmed) return;
+
+      const header = await supabase
+        .from("performance_bonus_issuances")
+        .insert({
+          year,
+          half,
+          profit,
+          profit_meta: profitMeta || null,
+          revenue: profitStats?.revenue ?? null,
+          cost: profitStats?.cost ?? null,
+          profit_sharing_pct: parseNum(profitSharingPct, 0),
+          share_bonus_pct: parseNum(shareBonusPct, 0),
+          issue_year_end_bonus: issueYearEndBonus,
+          year_end_bonus_salary_pct: parsedYearEndBonusSalaryPct,
+          weight_ability: weights.ability,
+          weight_performance: weights.performance,
+          weight_seniority: weights.seniority,
+          weight_salary: weights.salary,
+          profit_sharing_pool: computed.grossProfitSharingPool,
+          year_end_bonus_total: computed.yearEndBonusTotal,
+          weighted_profit_sharing_pool: computed.weightedProfitSharingPool,
+          share_bonus_pool: shareBonusPool,
+          total_bonus: computed.totals.totalBonus,
+        })
+        .select("id")
+        .single();
+      if (header.error) throw new Error(header.error.message);
+
+      const rows = await supabase.from("performance_bonus_issuance_rows").insert(
+        computed.rows.map((row, i) => ({
+          issuance_id: header.data.id,
+          employee_id: row.id,
+          employee_name: row.name,
+          participates_in_profit_sharing: row.participatesInProfitSharing,
+          ability_grade: row.ability,
+          performance: row.performance,
+          seniority_years: row.seniority,
+          seniority_label: seniorityById.get(row.id)?.label ?? null,
+          tenure_ratio: row.halfYearTenureRatio,
+          salary: row.salary,
+          shares: row.shares,
+          ability_pct: row.abilityPct,
+          performance_pct: row.performancePct,
+          seniority_pct: row.seniorityPct,
+          salary_pct: row.salaryPct,
+          total_pct: row.totalPct,
+          year_end_bonus: row.yearEndBonus,
+          profit_sharing_bonus: row.profitSharingBonus,
+          share_bonus: row.shareBonus,
+          total_bonus: row.totalBonus,
+          sort_order: i,
+        })),
+      );
+      if (rows.error) {
+        // 明細寫入失敗時移除主檔，避免留下半套紀錄
+        await supabase.from("performance_bonus_issuances").delete().eq("id", header.data.id);
+        throw new Error(rows.error.message);
+      }
+
+      toast.success(`${label} 發放紀錄已儲存（${computed.rows.length} 人）`);
+      setHistoryRefreshKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "發放紀錄儲存失敗");
+    } finally {
+      setIssuing(false);
+    }
+  }
+
   function exportPdf() {
     const snapshot: PerformanceBonusExportSnapshot = {
       savedAt: new Date().toISOString(),
@@ -506,6 +608,16 @@ export function PerformanceBonusPage() {
             <Button
               type="button"
               variant="default"
+              className="h-9 gap-2 text-xs"
+              onClick={() => void confirmIssue()}
+              disabled={loading || issuing || computed.rows.length === 0}
+            >
+              <CheckCircle2 className={cn("h-3.5 w-3.5", issuing && "animate-spin")} />
+              {issuing ? "記錄中…" : "確定發放"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               className="h-9 gap-2 text-xs"
               onClick={exportPdf}
               disabled={loading || computed.rows.length === 0}
@@ -660,12 +772,12 @@ export function PerformanceBonusPage() {
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
-        <table className="w-full min-w-[1280px] border-collapse text-sm">
+        <table className="w-full min-w-[1040px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
-              <th className="px-3 py-2 text-left font-medium">姓名</th>
-              <th className="px-2 py-2 text-center font-medium">參與分紅</th>
-              <th className="px-2 py-2 text-right font-medium">
+              <th className="px-2 py-2 text-left font-medium">姓名</th>
+              <th className="px-1.5 py-2 text-center font-medium">參與分紅</th>
+              <th className="px-1.5 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
                   <span>能力分級</span>
                   <input
@@ -680,7 +792,7 @@ export function PerformanceBonusPage() {
                   />
                 </div>
               </th>
-              <th className="px-2 py-2 text-right font-medium">
+              <th className="px-1.5 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
                   <span>考績</span>
                   <input
@@ -695,7 +807,7 @@ export function PerformanceBonusPage() {
                   />
                 </div>
               </th>
-              <th className="px-2 py-2 text-right font-medium">
+              <th className="px-1.5 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
                   <span>年資</span>
                   <input
@@ -710,7 +822,7 @@ export function PerformanceBonusPage() {
                   />
                 </div>
               </th>
-              <th className="px-2 py-2 text-right font-medium">
+              <th className="px-1.5 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
                   <span>薪資</span>
                   <input
@@ -725,16 +837,16 @@ export function PerformanceBonusPage() {
                   />
                 </div>
               </th>
-              <th className="px-2 py-2 text-right font-medium">股份</th>
-              <th className="px-2 py-2 text-right font-medium">能力%</th>
-              <th className="px-2 py-2 text-right font-medium">考績%</th>
-              <th className="px-2 py-2 text-right font-medium">年資%</th>
-              <th className="px-2 py-2 text-right font-medium">薪資%</th>
-              <th className="px-2 py-2 text-right font-medium">總%</th>
-              <th className="px-2 py-2 text-right font-medium">年終獎金</th>
-              <th className="px-2 py-2 text-right font-medium">考績分潤</th>
-              <th className="px-2 py-2 text-right font-medium">股份分紅</th>
-              <th className="px-3 py-2 text-right font-medium">總獎金</th>
+              <th className="px-1.5 py-2 text-right font-medium">股份</th>
+              <th className="px-1.5 py-2 text-right font-medium">能力%</th>
+              <th className="px-1.5 py-2 text-right font-medium">考績%</th>
+              <th className="px-1.5 py-2 text-right font-medium">年資%</th>
+              <th className="px-1.5 py-2 text-right font-medium">薪資%</th>
+              <th className="px-1.5 py-2 text-right font-medium">總%</th>
+              <th className="px-1.5 py-2 text-right font-medium">年終獎金</th>
+              <th className="px-1.5 py-2 text-right font-medium">考績分潤</th>
+              <th className="px-1.5 py-2 text-right font-medium">股份分紅</th>
+              <th className="px-2 py-2 text-right font-medium">總獎金</th>
             </tr>
           </thead>
           <tbody>
@@ -753,8 +865,8 @@ export function PerformanceBonusPage() {
             ) : (
               computed.rows.map((row) => (
                 <tr key={row.id} className="border-b border-border/60 hover:bg-muted/20">
-                  <td className="px-3 py-2 font-medium">{row.name}</td>
-                  <td className="px-2 py-2 text-center">
+                  <td className="px-2 py-2 font-medium">{row.name}</td>
+                  <td className="px-1.5 py-2 text-center">
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded border-input"
@@ -765,13 +877,13 @@ export function PerformanceBonusPage() {
                       aria-label={`${row.name} 參與分紅`}
                     />
                   </td>
-                  <td className="px-2 py-1">
+                  <td className="px-1.5 py-1 text-right">
                     <input
                       type="number"
                       min={0}
                       max={10}
                       step="0.1"
-                      className={inputClass}
+                      className={inputClassNarrow}
                       value={overrides[row.id]?.abilityGrade ?? 5}
                       onChange={(e) =>
                         updateOverride(row.id, { abilityGrade: Math.max(0, parseNum(e.target.value, 0)) })
@@ -779,35 +891,35 @@ export function PerformanceBonusPage() {
                       aria-label={`${row.name} 能力分級`}
                     />
                   </td>
-                  <td className="px-2 py-1">
+                  <td className="px-1.5 py-1 text-right">
                     <input
                       type="number"
                       min={0}
                       max={10}
                       step="0.1"
-                      className={inputClass}
+                      className={inputClassNarrow}
                       value={overrides[row.id]?.performance ?? row.performance}
                       onChange={(e) =>
                         updateOverride(row.id, { performance: Math.max(0, parseNum(e.target.value, 0)) })
                       }
                     />
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums text-muted-foreground whitespace-nowrap">
+                  <td className="px-1.5 py-2 text-right tabular-nums text-muted-foreground whitespace-nowrap">
                     {seniorityById.get(row.id)?.label ?? "—"}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                  <td className="px-1.5 py-2 text-right tabular-nums text-muted-foreground">
                     {formatMoney(row.salary)}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                  <td className="px-1.5 py-2 text-right tabular-nums text-muted-foreground">
                     {row.shares.toLocaleString("zh-TW")}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums">{formatPct(row.abilityPct)}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{formatPct(row.performancePct)}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{formatPct(row.seniorityPct)}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{formatPct(row.salaryPct)}</td>
-                  <td className="px-2 py-2 text-right tabular-nums font-medium">{formatPct(row.totalPct)}</td>
+                  <td className="px-1.5 py-2 text-right tabular-nums">{formatPct(row.abilityPct)}</td>
+                  <td className="px-1.5 py-2 text-right tabular-nums">{formatPct(row.performancePct)}</td>
+                  <td className="px-1.5 py-2 text-right tabular-nums">{formatPct(row.seniorityPct)}</td>
+                  <td className="px-1.5 py-2 text-right tabular-nums">{formatPct(row.salaryPct)}</td>
+                  <td className="px-1.5 py-2 text-right tabular-nums font-medium">{formatPct(row.totalPct)}</td>
                   <td
-                    className="px-2 py-2 text-right tabular-nums"
+                    className="px-1.5 py-2 text-right tabular-nums"
                     title={
                       row.halfYearTenureRatio < 1
                         ? `月薪 × ${parsedYearEndBonusSalaryPct}% × 在職比例 ${formatTenureRatioPct(row.halfYearTenureRatio)}`
@@ -821,13 +933,13 @@ export function PerformanceBonusPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums text-primary">
+                  <td className="px-1.5 py-2 text-right tabular-nums text-primary">
                     {formatMoney(row.profitSharingBonus)}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums text-primary">
+                  <td className="px-1.5 py-2 text-right tabular-nums text-primary">
                     {formatMoney(row.shareBonus)}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums font-semibold">
+                  <td className="px-2 py-2 text-right tabular-nums font-semibold">
                     {formatMoney(row.totalBonus)}
                   </td>
                 </tr>
@@ -835,30 +947,30 @@ export function PerformanceBonusPage() {
             )}
             {!loading && computed.rows.length > 0 && (
               <tr className="bg-muted/30 font-medium">
-                <td className="px-3 py-2">合計</td>
-                <td className="px-2 py-2" />
-                <td className="px-2 py-2 text-right tabular-nums">{computed.totals.ability}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{computed.totals.performance}</td>
-                <td className="px-2 py-2" />
-                <td className="px-2 py-2 text-right tabular-nums">{formatMoney(computed.totals.salary)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">
+                <td className="px-2 py-2">合計</td>
+                <td className="px-1.5 py-2" />
+                <td className="px-1.5 py-2 text-right tabular-nums">{computed.totals.ability}</td>
+                <td className="px-1.5 py-2 text-right tabular-nums">{computed.totals.performance}</td>
+                <td className="px-1.5 py-2" />
+                <td className="px-1.5 py-2 text-right tabular-nums">{formatMoney(computed.totals.salary)}</td>
+                <td className="px-1.5 py-2 text-right tabular-nums">
                   {computed.totals.shares.toLocaleString("zh-TW")}
                 </td>
-                <td className="px-2 py-2 text-right tabular-nums">{formatPct(computed.totals.abilityPct)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{formatPct(computed.totals.performancePct)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{formatPct(computed.totals.seniorityPct)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{formatPct(computed.totals.salaryPct)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">{formatPct(computed.totals.totalPct)}</td>
-                <td className="px-2 py-2 text-right tabular-nums">
+                <td className="px-1.5 py-2 text-right tabular-nums">{formatPct(computed.totals.abilityPct)}</td>
+                <td className="px-1.5 py-2 text-right tabular-nums">{formatPct(computed.totals.performancePct)}</td>
+                <td className="px-1.5 py-2 text-right tabular-nums">{formatPct(computed.totals.seniorityPct)}</td>
+                <td className="px-1.5 py-2 text-right tabular-nums">{formatPct(computed.totals.salaryPct)}</td>
+                <td className="px-1.5 py-2 text-right tabular-nums">{formatPct(computed.totals.totalPct)}</td>
+                <td className="px-1.5 py-2 text-right tabular-nums">
                   {formatMoney(computed.totals.yearEndBonus)}
                 </td>
-                <td className="px-2 py-2 text-right tabular-nums text-primary">
+                <td className="px-1.5 py-2 text-right tabular-nums text-primary">
                   {formatMoney(computed.totals.profitSharingBonus)}
                 </td>
-                <td className="px-2 py-2 text-right tabular-nums text-primary">
+                <td className="px-1.5 py-2 text-right tabular-nums text-primary">
                   {formatMoney(computed.totals.shareBonus)}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                <td className="px-2 py-2 text-right tabular-nums">
                   {formatMoney(computed.totals.totalBonus)}
                 </td>
               </tr>
@@ -870,6 +982,8 @@ export function PerformanceBonusPage() {
       <p className="text-xs text-muted-foreground leading-relaxed">
         勾選「發放」並設定年終獎金（% 月薪）時，分潤獎金池先扣年終（到職不足半年依在職比例），剩餘為考績分潤池；未勾選則全額作考績分潤（年終另於期末發放）。考績分潤僅分配給勾選「參與分紅」者。
       </p>
+
+      <PerformanceBonusHistory refreshKey={historyRefreshKey} />
     </div>
   );
 }
