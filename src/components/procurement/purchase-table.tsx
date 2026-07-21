@@ -37,6 +37,8 @@ export interface PurchaseTableProps {
   totalUnfilteredCount: number;
   onEdit?: (row: PurchaseRow) => void;
   onDelete?: (row: PurchaseRow) => void;
+  /** 編輯整張採購單（單頭＋所有品項） */
+  onEditGroup?: (group: PurchaseOrderGroup) => void;
   /** 刪除整張採購單（單頭＋所有品項） */
   onDeleteGroup?: (group: PurchaseOrderGroup) => void;
   /** 上傳請款單附件到既有採購單 */
@@ -48,6 +50,7 @@ export function PurchaseTable({
   totalUnfilteredCount,
   onEdit,
   onDelete,
+  onEditGroup,
   onDeleteGroup,
   onUploadInvoice,
 }: PurchaseTableProps) {
@@ -134,7 +137,7 @@ export function PurchaseTable({
     );
   }
 
-  const hasActions = Boolean(onEdit || onDelete || onDeleteGroup || onUploadInvoice);
+  const hasActions = Boolean(onEdit || onDelete || onEditGroup || onDeleteGroup || onUploadInvoice);
   const emptyColSpan = hasActions ? COL_SPAN_BASE + 1 : COL_SPAN_BASE;
 
   return (
@@ -248,6 +251,23 @@ export function PurchaseTable({
                     {hasActions && (
                       <TableCell className="p-2">
                         <div className="flex items-center gap-1">
+                          {onEditGroup && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="編輯整張採購單"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onEditGroup(group);
+                              }}
+                              aria-label={`編輯採購單 ${group.po_number ?? ""}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
                           {onUploadInvoice && group.purchase_order_id && (
                             <Button
                               type="button"

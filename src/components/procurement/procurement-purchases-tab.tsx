@@ -19,6 +19,7 @@ import { ProcurementFilters } from "@/components/procurement/procurement-filters
 import { PurchaseTable } from "@/components/procurement/purchase-table";
 import { AddPurchaseDialog } from "@/components/procurement/add-purchase-dialog";
 import { EditPurchaseDialog } from "@/components/procurement/edit-purchase-dialog";
+import { EditPurchaseOrderDialog } from "@/components/procurement/edit-purchase-order-dialog";
 import { InvoiceScanQueue } from "@/components/procurement/invoice-scan-queue";
 import { exportProcurementCsv } from "@/components/procurement/export-procurement-csv";
 import { compressInvoiceFileForStorage } from "@/lib/invoice-file";
@@ -306,6 +307,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
   const [filterItemName, setFilterItemName] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
   const [editRow, setEditRow] = useState<PurchaseRow | null>(null);
+  const [editGroup, setEditGroup] = useState<PurchaseOrderGroup | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<PurchaseRow | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<PurchaseOrderGroup | null>(null);
   const [invoiceUploadTarget, setInvoiceUploadTarget] = useState<PurchaseOrderGroup | null>(null);
@@ -660,6 +662,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
           totalUnfilteredCount={records.length}
           onEdit={setEditRow}
           onDelete={requestDelete}
+          onEditGroup={setEditGroup}
           onDeleteGroup={setDeleteConfirmGroup}
           onUploadInvoice={requestUploadInvoice}
         />
@@ -671,6 +674,16 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
         row={editRow}
         onSuccess={() => {
           setEditRow(null);
+          fetchPurchases();
+        }}
+      />
+
+      <EditPurchaseOrderDialog
+        open={editGroup != null}
+        onOpenChange={(open) => !open && setEditGroup(null)}
+        group={editGroup}
+        onSuccess={() => {
+          setEditGroup(null);
           fetchPurchases();
         }}
       />
