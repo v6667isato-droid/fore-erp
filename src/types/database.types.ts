@@ -40,6 +40,7 @@ export type Database = {
           notes: string | null
           purchase_order_id: string | null
           recognized: Json | null
+          review_checks: Json | null
           reviewed_at: string | null
           seller_name: string | null
           seller_tax_id: string | null
@@ -73,6 +74,7 @@ export type Database = {
           notes?: string | null
           purchase_order_id?: string | null
           recognized?: Json | null
+          review_checks?: Json | null
           reviewed_at?: string | null
           seller_name?: string | null
           seller_tax_id?: string | null
@@ -106,6 +108,7 @@ export type Database = {
           notes?: string | null
           purchase_order_id?: string | null
           recognized?: Json | null
+          review_checks?: Json | null
           reviewed_at?: string | null
           seller_name?: string | null
           seller_tax_id?: string | null
@@ -1014,6 +1017,8 @@ export type Database = {
           final_payment_date: string | null
           id: string
           internal_notes: string | null
+          invoice_tax_id: string | null
+          invoice_title: string | null
           order_date: string | null
           order_number: string
           payment_status: string | null
@@ -1038,6 +1043,8 @@ export type Database = {
           final_payment_date?: string | null
           id?: string
           internal_notes?: string | null
+          invoice_tax_id?: string | null
+          invoice_title?: string | null
           order_date?: string | null
           order_number: string
           payment_status?: string | null
@@ -1062,6 +1069,8 @@ export type Database = {
           final_payment_date?: string | null
           id?: string
           internal_notes?: string | null
+          invoice_tax_id?: string | null
+          invoice_title?: string | null
           order_date?: string | null
           order_number?: string
           payment_status?: string | null
@@ -2148,6 +2157,91 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      telegram_bot_invites: {
+        Row: {
+          code: string
+          created_at: string
+          employee_id: string | null
+          expires_at: string
+          id: string
+          name: string | null
+          role: string
+          used_at: string | null
+          used_by_chat_id: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          employee_id?: string | null
+          expires_at?: string
+          id?: string
+          name?: string | null
+          role?: string
+          used_at?: string | null
+          used_by_chat_id?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          employee_id?: string | null
+          expires_at?: string
+          id?: string
+          name?: string | null
+          role?: string
+          used_at?: string | null
+          used_by_chat_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telegram_bot_invites_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      telegram_bot_users: {
+        Row: {
+          chat_id: string
+          created_at: string
+          employee_id: string | null
+          is_active: boolean
+          name: string
+          note: string | null
+          role: string
+          updated_at: string
+        }
+        Insert: {
+          chat_id: string
+          created_at?: string
+          employee_id?: string | null
+          is_active?: boolean
+          name: string
+          note?: string | null
+          role?: string
+          updated_at?: string
+        }
+        Update: {
+          chat_id?: string
+          created_at?: string
+          employee_id?: string | null
+          is_active?: boolean
+          name?: string
+          note?: string | null
+          role?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telegram_bot_users_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
             referencedColumns: ["id"]
           },
         ]

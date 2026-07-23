@@ -431,12 +431,12 @@ export function AddCustomerDialog({
               </div>
             </div>
 
-            {/* 5b. 公司 + 統一編號（同一列） */}
+            {/* 5b. 公司抬頭 + 統一編號（同一列）；company 欄位同時做為訂單發票的公司抬頭來源 */}
             <div className="flex flex-col gap-1.5">
               <div className="flex gap-3">
                 <div className="flex-1 space-y-1.5">
                   <label htmlFor="add-customer-company" className="text-xs text-muted-foreground">
-                    公司
+                    公司抬頭
                   </label>
                   <input
                     id="add-customer-company"
@@ -444,7 +444,7 @@ export function AddCustomerDialog({
                     value={company}
                     onChange={(e) => setCompany(e.target.value)}
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="公司名稱"
+                    placeholder="發票公司抬頭"
                   />
                 </div>
                 <div className="flex-1 space-y-1.5">

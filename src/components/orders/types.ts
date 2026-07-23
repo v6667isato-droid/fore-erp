@@ -29,6 +29,10 @@ export interface OrderRow {
   shipping_contact_name?: string | null;
   shipping_contact_phone?: string | null;
   shipping_has_elevator?: boolean | null;
+  /** 發票公司抬頭（開單時自客戶主檔帶入，可改） */
+  invoice_title?: string | null;
+  /** 統一編號（開單時自客戶主檔帶入，可改） */
+  invoice_tax_id?: string | null;
   internal_notes?: string | null;
   explanation_image_url?: string | null;
 }
@@ -44,6 +48,8 @@ export interface CustomerOption {
   phone: string | null;
   delivery_address: string | null;
   has_elevator: boolean | null;
+  /** 統一編號 */
+  tax_id?: string | null;
   channel_id?: string | null;
 }
 

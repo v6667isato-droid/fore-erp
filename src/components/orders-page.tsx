@@ -135,7 +135,7 @@ export function OrdersPage({
   async function fetchCustomers() {
     const { data: customerData, error: customerError } = await supabase
       .from("customers")
-      .select("id, name, alias, company, contact_person, phone, delivery_address, has_elevator, channel_id")
+      .select("id, name, alias, company, contact_person, phone, delivery_address, has_elevator, tax_id, channel_id")
       .is("deleted_at", null)
       .order("name", { ascending: true });
     if (!customerError && customerData) {
@@ -154,6 +154,7 @@ export function OrdersPage({
             c.has_elevator === true || c.has_elevator === false
               ? Boolean(c.has_elevator)
               : null,
+          tax_id: c.tax_id != null ? String(c.tax_id) : null,
           channel_id: c.channel_id != null ? String(c.channel_id) : null,
         }))
       );
@@ -256,7 +257,7 @@ export function OrdersPage({
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
         )
         .is("deleted_at", null)
         .order("order_date", { ascending: false });
@@ -296,6 +297,8 @@ export function OrdersPage({
             row.shipping_has_elevator === true || row.shipping_has_elevator === false
               ? Boolean(row.shipping_has_elevator)
               : null,
+          invoice_title: row.invoice_title ?? null,
+          invoice_tax_id: row.invoice_tax_id ?? null,
           internal_notes: row.internal_notes ?? null,
           explanation_image_url: row.explanation_image_url ?? null,
         }))
@@ -328,7 +331,7 @@ export function OrdersPage({
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
       )
       .is("deleted_at", null)
       .order("order_date", { ascending: false });
@@ -368,6 +371,8 @@ export function OrdersPage({
           row.shipping_has_elevator === true || row.shipping_has_elevator === false
             ? Boolean(row.shipping_has_elevator)
             : null,
+        invoice_title: row.invoice_title ?? null,
+        invoice_tax_id: row.invoice_tax_id ?? null,
         internal_notes: row.internal_notes ?? null,
         explanation_image_url: row.explanation_image_url ?? null,
       }))

@@ -20,6 +20,8 @@ interface PrintOrder {
   shipping_contact_name?: string | null;
   shipping_contact_phone?: string | null;
   shipping_address?: string | null;
+  invoice_title?: string | null;
+  invoice_tax_id?: string | null;
   customer_type?: string | null;
   deposit_amount: number;
   explanation_image_url?: string | null;
@@ -132,7 +134,7 @@ export default function PrintQuotationPage() {
         const { data: orderRow, error: orderErr } = await supabase
           .from('orders')
           .select(
-            'id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, shipping_contact_name, shipping_contact_phone, shipping_address, explanation_image_url, customer_id, customers(name, customer_type)'
+            'id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, shipping_contact_name, shipping_contact_phone, shipping_address, invoice_title, invoice_tax_id, explanation_image_url, customer_id, customers(name, customer_type)'
           )
           .eq('id', safeOrderId)
           .single();
@@ -397,6 +399,8 @@ export default function PrintQuotationPage() {
           shipping_contact_name: orderRow.shipping_contact_name ?? null,
           shipping_contact_phone: orderRow.shipping_contact_phone ?? null,
           shipping_address: orderRow.shipping_address ?? null,
+          invoice_title: orderRow.invoice_title ?? null,
+          invoice_tax_id: orderRow.invoice_tax_id ?? null,
           customer_type: customer?.customer_type ?? null,
           deposit_amount: Number(orderRow.deposit_amount ?? 0),
           explanation_image_url: orderRow.explanation_image_url ?? null,
@@ -550,6 +554,23 @@ export default function PrintQuotationPage() {
               <span className="font-medium">{order.shipping_contact_name?.trim() || '—'}</span>
               <span className="text-gray-500">聯絡電話</span>
               <span className="font-medium">{order.shipping_contact_phone?.trim() || '—'}</span>
+              {/* 只填其中一個時值撐滿整列，避免 4 欄 grid 下送貨地址被擠到同列右側 */}
+              {order.invoice_title?.trim() ? (
+                <>
+                  <span className="text-gray-500">公司抬頭</span>
+                  <span className={order.invoice_tax_id?.trim() ? 'font-medium' : 'font-medium sm:col-span-3'}>
+                    {order.invoice_title.trim()}
+                  </span>
+                </>
+              ) : null}
+              {order.invoice_tax_id?.trim() ? (
+                <>
+                  <span className="text-gray-500">統一編號</span>
+                  <span className={order.invoice_title?.trim() ? 'font-medium' : 'font-medium sm:col-span-3'}>
+                    {order.invoice_tax_id.trim()}
+                  </span>
+                </>
+              ) : null}
               <span className="text-gray-500">送貨地址</span>
               <span className="font-medium break-words">{order.shipping_address?.trim() || '—'}</span>
             </div>

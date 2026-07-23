@@ -24,6 +24,8 @@ interface PrintOrder {
   shipping_contact_phone?: string | null;
   shipping_address?: string | null;
   shipping_has_elevator?: boolean | null;
+  invoice_title?: string | null;
+  invoice_tax_id?: string | null;
 }
 
 type ExplanationImage = { url: string; title?: string | null };
@@ -138,7 +140,7 @@ export default function PrintOrderPage() {
         const { data: orderRow, error: orderErr } = await supabase
           .from("orders")
           .select(
-            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, customer_id, customers(name, customer_type)"
+            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, customer_id, customers(name, customer_type)"
           )
           .eq("id", safeOrderId)
           .single();
@@ -399,6 +401,8 @@ export default function PrintOrderPage() {
             orderRow.shipping_has_elevator === false
               ? Boolean(orderRow.shipping_has_elevator)
               : null,
+          invoice_title: orderRow.invoice_title ?? null,
+          invoice_tax_id: orderRow.invoice_tax_id ?? null,
         });
 
         setItems(mappedItems);
@@ -545,6 +549,23 @@ export default function PrintOrderPage() {
               <span className="font-medium">{order.shipping_contact_name?.trim() || "—"}</span>
               <span className="text-gray-500">電話</span>
               <span className="font-medium">{order.shipping_contact_phone?.trim() || "—"}</span>
+              {/* 只填其中一個時值撐滿整列，避免 4 欄 grid 下地址／電梯被擠到同列右側 */}
+              {order.invoice_title?.trim() ? (
+                <>
+                  <span className="text-gray-500">公司抬頭</span>
+                  <span className={order.invoice_tax_id?.trim() ? "font-medium" : "font-medium sm:col-span-3"}>
+                    {order.invoice_title.trim()}
+                  </span>
+                </>
+              ) : null}
+              {order.invoice_tax_id?.trim() ? (
+                <>
+                  <span className="text-gray-500">統一編號</span>
+                  <span className={order.invoice_title?.trim() ? "font-medium" : "font-medium sm:col-span-3"}>
+                    {order.invoice_tax_id.trim()}
+                  </span>
+                </>
+              ) : null}
               <span className="text-gray-500">地址</span>
               <span className="font-medium break-words">{order.shipping_address?.trim() || "—"}</span>
               <span className="text-gray-500">電梯</span>

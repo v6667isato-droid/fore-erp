@@ -330,6 +330,9 @@ function OrderFormDialog({
   const [shippingContactPhone, setShippingContactPhone] = useState<string>("");
   /** null = 未填；true/false = 有／無電梯 */
   const [shippingHasElevator, setShippingHasElevator] = useState<boolean | null>(null);
+  /** 發票公司抬頭／統編：選客戶時自動帶入客戶主檔，仍可手動修改 */
+  const [invoiceTitle, setInvoiceTitle] = useState<string>("");
+  const [invoiceTaxId, setInvoiceTaxId] = useState<string>("");
   const [internalNotes, setInternalNotes] = useState<string>(
     ""
   );
@@ -507,6 +510,8 @@ function OrderFormDialog({
     setShippingContactName("");
     setShippingContactPhone("");
     setShippingHasElevator(null);
+    setInvoiceTitle("");
+    setInvoiceTaxId("");
     setInternalNotes("");
     setOrderExplanationImages([]);
     setItems([
@@ -569,7 +574,24 @@ function OrderFormDialog({
         ? initialOrder.shipping_has_elevator
         : null
     );
+    setInvoiceTitle(initialOrder.invoice_title ?? "");
+    setInvoiceTaxId(initialOrder.invoice_tax_id ?? "");
   }, [initialOrder]);
+
+  /** 以客戶主檔覆蓋寄送／發票欄位（選客戶自動帶入與「帶入客戶資料」共用） */
+  function fillShippingFromCustomer(customer: CustomerOption) {
+    setShippingContactName(customer.contact_person?.trim() ?? "");
+    setShippingContactPhone(customer.phone?.trim() ?? "");
+    setShippingAddress(customer.delivery_address?.trim() ?? "");
+    setShippingHasElevator(
+      customer.has_elevator === true || customer.has_elevator === false
+        ? customer.has_elevator
+        : null
+    );
+    // 公司抬頭直接採用客戶主檔的「公司抬頭」（customers.company）
+    setInvoiceTitle(customer.company?.trim() ?? "");
+    setInvoiceTaxId(customer.tax_id?.trim() ?? "");
+  }
 
   function applyShippingFromCustomer() {
     if (!customerId) {
@@ -581,14 +603,7 @@ function OrderFormDialog({
       toast.error("找不到客戶資料");
       return;
     }
-    setShippingContactName(customer.contact_person?.trim() ?? "");
-    setShippingContactPhone(customer.phone?.trim() ?? "");
-    setShippingAddress(customer.delivery_address?.trim() ?? "");
-    setShippingHasElevator(
-      customer.has_elevator === true || customer.has_elevator === false
-        ? customer.has_elevator
-        : null
-    );
+    fillShippingFromCustomer(customer);
     toast.success("已帶入客戶寄送資料");
   }
 
@@ -1050,6 +1065,8 @@ function OrderFormDialog({
         shipping_contact_name: shippingContactName.trim() || null,
         shipping_contact_phone: shippingContactPhone.trim() || null,
         shipping_has_elevator: shippingHasElevator,
+        invoice_title: invoiceTitle.trim() || null,
+        invoice_tax_id: invoiceTaxId.trim() || null,
         internal_notes: internalNotes || null,
         explanation_image_url:
           orderExplanationImages.length > 0
@@ -1356,8 +1373,9 @@ function OrderFormDialog({
                         onSelect={(id) => {
                           setCustomerId(id);
                           const customer = customers.find((c) => c.id === id);
-                          if (customer?.delivery_address) {
-                            setShippingAddress(customer.delivery_address);
+                          // 選客戶＝自動帶入寄送／發票資訊（聯絡人、電話、地址、電梯、公司抬頭、統編）
+                          if (customer) {
+                            fillShippingFromCustomer(customer);
                           }
                           // 換客戶＝換通路：規格品項的通路價依新客戶重新帶入（會覆蓋手動改過的值）
                           setItems((prev) =>
@@ -1506,85 +1524,124 @@ function OrderFormDialog({
                         帶入客戶資料
                       </Button>
                     </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label
-                        htmlFor="order-ship-contact"
-                        className={ledgerLabelZh}
-                      >
-                        聯絡人
-                      </label>
-                      <input
-                        id="order-ship-contact"
-                        type="text"
-                        value={shippingContactName}
-                        onChange={(e) => setShippingContactName(e.target.value)}
-                        readOnly={readOnly}
-                        className={ledgerIn}
-                        placeholder="收貨聯絡人"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label
-                        htmlFor="order-ship-phone"
-                        className={ledgerLabelZh}
-                      >
-                        聯絡電話
-                      </label>
-                      <input
-                        id="order-ship-phone"
-                        type="text"
-                        value={shippingContactPhone}
-                        onChange={(e) => setShippingContactPhone(e.target.value)}
-                        readOnly={readOnly}
-                        className={ledgerIn}
-                        placeholder="手機或市話"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label
-                        htmlFor="order-shipping"
-                        className={ledgerLabelZh}
-                      >
-                        送貨地址
-                      </label>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
-                        <textarea
-                          id="order-shipping"
-                          value={shippingAddress}
-                          onChange={(e) => setShippingAddress(e.target.value)}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <label
+                          htmlFor="order-ship-contact"
+                          className={ledgerLabelZh}
+                        >
+                          聯絡人
+                        </label>
+                        <input
+                          id="order-ship-contact"
+                          type="text"
+                          value={shippingContactName}
+                          onChange={(e) => setShippingContactName(e.target.value)}
                           readOnly={readOnly}
-                          className={`${ledgerTa} min-h-[80px] min-w-0 flex-1`}
-                          placeholder="送貨地址；選客戶時可自動帶入預設地址，亦可按「帶入客戶資料」一次帶入聯絡人／電話／地址／電梯。"
+                          className={ledgerIn}
+                          placeholder="收貨聯絡人"
                         />
-                        <div className="flex shrink-0 items-start sm:min-w-[5.5rem] sm:pt-1">
-                          {readOnly ? (
-                            <div
-                              id="order-ship-elevator"
-                              className={`${viewFieldClass} text-sm`}
-                            >
-                              {shippingHasElevator === true
-                                ? "有電梯"
-                                : shippingHasElevator === false
-                                  ? "無電梯"
-                                  : "未填"}
-                            </div>
-                          ) : (
-                            <label
-                              htmlFor="order-ship-elevator"
-                              className="flex cursor-pointer items-center gap-2 text-sm text-[#625E55]"
-                            >
-                              <input
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <label
+                          htmlFor="order-ship-phone"
+                          className={ledgerLabelZh}
+                        >
+                          聯絡電話
+                        </label>
+                        <input
+                          id="order-ship-phone"
+                          type="text"
+                          value={shippingContactPhone}
+                          onChange={(e) => setShippingContactPhone(e.target.value)}
+                          readOnly={readOnly}
+                          className={ledgerIn}
+                          placeholder="手機或市話"
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <label
+                          htmlFor="order-invoice-title"
+                          className={ledgerLabelZh}
+                        >
+                          公司抬頭
+                        </label>
+                        <input
+                          id="order-invoice-title"
+                          type="text"
+                          value={invoiceTitle}
+                          onChange={(e) => setInvoiceTitle(e.target.value)}
+                          readOnly={readOnly}
+                          className={ledgerIn}
+                          placeholder="發票公司抬頭"
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <label
+                          htmlFor="order-invoice-tax-id"
+                          className={ledgerLabelZh}
+                        >
+                          統一編號
+                        </label>
+                        <input
+                          id="order-invoice-tax-id"
+                          type="text"
+                          value={invoiceTaxId}
+                          onChange={(e) => setInvoiceTaxId(e.target.value)}
+                          readOnly={readOnly}
+                          className={ledgerIn}
+                          placeholder="8 碼統編"
+                          inputMode="numeric"
+                          maxLength={8}
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
+                        <label
+                          htmlFor="order-shipping"
+                          className={ledgerLabelZh}
+                        >
+                          送貨地址
+                        </label>
+                        <div className="flex items-center gap-3">
+                          <input
+                            id="order-shipping"
+                            type="text"
+                            value={shippingAddress}
+                            onChange={(e) => setShippingAddress(e.target.value)}
+                            readOnly={readOnly}
+                            className={`${ledgerIn} min-w-0 flex-1`}
+                            placeholder="送貨地址；選客戶時自動帶入，亦可按「帶入客戶資料」重新帶入。"
+                          />
+                          <div className="flex shrink-0 items-center">
+                            {readOnly ? (
+                              <div
                                 id="order-ship-elevator"
-                                type="checkbox"
-                                checked={shippingHasElevator === true}
-                                onChange={(e) =>
-                                  setShippingHasElevator(e.target.checked ? true : false)
-                                }
-                                className="h-4 w-4 rounded border-[#625E55]/30 text-[#625E55] focus:ring-[#625E55]/30"
-                              />
-                              <span>有電梯</span>
-                            </label>
-                          )}
+                                className={`${viewFieldClass} text-sm`}
+                              >
+                                {shippingHasElevator === true
+                                  ? "有電梯"
+                                  : shippingHasElevator === false
+                                    ? "無電梯"
+                                    : "未填"}
+                              </div>
+                            ) : (
+                              <label
+                                htmlFor="order-ship-elevator"
+                                className="flex cursor-pointer items-center gap-2 text-sm text-[#625E55]"
+                              >
+                                <input
+                                  id="order-ship-elevator"
+                                  type="checkbox"
+                                  checked={shippingHasElevator === true}
+                                  onChange={(e) =>
+                                    setShippingHasElevator(e.target.checked ? true : false)
+                                  }
+                                  className="h-4 w-4 rounded border-[#625E55]/30 text-[#625E55] focus:ring-[#625E55]/30"
+                                />
+                                <span className="whitespace-nowrap">有電梯</span>
+                              </label>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
