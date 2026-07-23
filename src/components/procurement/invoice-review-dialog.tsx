@@ -88,9 +88,11 @@ export interface InvoiceReviewDialogProps {
   onOpenChange: (open: boolean) => void;
   /** 建檔歸檔完成 */
   onArchived: () => void;
+  /** 建檔／略過後呼叫：父層切到下一張待審核時回傳 true（dialog 保持開啟）；沒有下一張回傳 false */
+  onAdvance?: () => boolean;
 }
 
-export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived }: InvoiceReviewDialogProps) {
+export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived, onAdvance }: InvoiceReviewDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [materials, setMaterials] = useState<ProcurementMaterialRow[]>([]);
@@ -131,6 +133,7 @@ export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived }: In
   // 主檔載入後，用辨識結果預填表單
   useEffect(() => {
     if (!open || !masterLoaded) return;
+    setError(null);
     const recognized = scan?.recognized ?? null;
     const vendorRaw = recognized?.vendor_name?.trim() ?? "";
     const matchedVendor =
@@ -463,8 +466,8 @@ export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived }: In
       }
 
       toast.success(`已建立採購單 ${displayPoNumber(poNumber)}（${payloads.length} 筆品項），照片已歸檔`);
-      onOpenChange(false);
       onArchived();
+      if (!onAdvance?.()) onOpenChange(false);
     } catch (err) {
       console.error(err);
       let message = errText(err, "建檔失敗，請稍後再試");
@@ -869,6 +872,18 @@ export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived }: In
                       先擱著（保留在佇列）
                     </Button>
                   </Dialog.Close>
+                  {onAdvance && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={saving}
+                      onClick={() => {
+                        if (!onAdvance()) onOpenChange(false);
+                      }}
+                    >
+                      略過，看下一張
+                    </Button>
+                  )}
                   <Button type="button" onClick={onConfirm} disabled={saving}>
                     {saving ? "建檔中…" : "確認建檔並歸檔"}
                   </Button>

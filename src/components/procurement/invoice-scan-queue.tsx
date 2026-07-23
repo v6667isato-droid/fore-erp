@@ -149,6 +149,22 @@ export function InvoiceScanQueue({ onArchived }: InvoiceScanQueueProps) {
     await refresh();
   }
 
+  /** 審核 dialog 建檔／略過後帶入下一張可審核的請款單；沒有下一張時回傳 false（dialog 會關閉） */
+  function advanceToNextReviewable(): boolean {
+    const currentId = reviewScan?.id;
+    const reviewable = scans.filter(
+      (s) =>
+        s.id !== currentId &&
+        !recognizingIds.has(s.id) &&
+        (s.status === "ready" || s.status === "failed" || s.status === "pending"),
+    );
+    if (reviewable.length === 0) return false;
+    const idx = currentId ? scans.findIndex((s) => s.id === currentId) : -1;
+    const next = reviewable.find((s) => scans.indexOf(s) > idx) ?? reviewable[0];
+    setReviewScan(next);
+    return true;
+  }
+
   function scanSummary(scan: InvoiceScanRow): string {
     const r = scan.recognized;
     if (!r) return scan.file_name || "（未辨識）";
@@ -321,6 +337,7 @@ export function InvoiceScanQueue({ onArchived }: InvoiceScanQueueProps) {
           void refresh();
           onArchived();
         }}
+        onAdvance={advanceToNextReviewable}
       />
 
       <ConfirmDialog

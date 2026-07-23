@@ -218,6 +218,22 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
     await refresh();
   }
 
+  /** 審核 dialog 存檔／刪除／略過後帶入下一張可審核的發票；沒有下一張時回傳 false（dialog 會關閉） */
+  function advanceToNextReviewable(): boolean {
+    const currentId = reviewRow?.id;
+    const reviewable = rows.filter(
+      (r) =>
+        r.id !== currentId &&
+        !recognizingIds.has(r.id) &&
+        (r.status === "ready" || r.status === "failed" || r.status === "pending"),
+    );
+    if (reviewable.length === 0) return false;
+    const idx = currentId ? rows.findIndex((r) => r.id === currentId) : -1;
+    const next = reviewable.find((r) => rows.indexOf(r) > idx) ?? reviewable[0];
+    setReviewRow(next);
+    return true;
+  }
+
   function rowSummary(row: AccountingInvoiceRow): string {
     const r = row.recognized;
     if (!r) return row.file_name || "（未辨識）";
@@ -416,6 +432,11 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
           void refresh();
           onConfirmed();
         }}
+        onAdvance={advanceToNextReviewable}
+        queueProgress={(() => {
+          const idx = reviewRow ? rows.findIndex((r) => r.id === reviewRow.id) : -1;
+          return idx >= 0 ? { index: idx + 1, total: rows.length } : null;
+        })()}
       />
 
       <ConfirmDialog

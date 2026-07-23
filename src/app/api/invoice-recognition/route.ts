@@ -35,6 +35,18 @@ export interface RecognizedCropBox {
   y1: number;
 }
 
+/** 各欄位在照片中的概略範圍（0–1000 標準化座標）；模型給的是大概位置，使用時請外擴 padding */
+export interface RecognizedFieldBoxes {
+  invoice_number?: RecognizedCropBox | null;
+  invoice_date?: RecognizedCropBox | null;
+  seller_name?: RecognizedCropBox | null;
+  seller_tax_id?: RecognizedCropBox | null;
+  buyer_tax_id?: RecognizedCropBox | null;
+  amount_ex_tax?: RecognizedCropBox | null;
+  tax_amount?: RecognizedCropBox | null;
+  amount_inc_tax?: RecognizedCropBox | null;
+}
+
 /** 統一發票辨識結果（會計發票模組審核用，doc_type=tax_invoice） */
 export interface RecognizedTaxInvoice {
   /** 發票號碼：2 碼英文＋8 碼數字 */
@@ -56,7 +68,71 @@ export interface RecognizedTaxInvoice {
   crop_box?: RecognizedCropBox | null;
   /** 需人工核對欄位（號碼／日期／統編／名稱／金額）所在範圍，審核畫面紅框標示用 */
   fields_box?: RecognizedCropBox | null;
+  /** 字軌期別（發票開頭「115年07-08月」）：民國年；未印或無法辨識為 null／缺欄（舊資料） */
+  period_roc_year?: number | null;
+  /** 字軌期別起月（1–12） */
+  period_start_month?: number | null;
+  /** 字軌期別迄月（1–12） */
+  period_end_month?: number | null;
+  /** 進項憑證格式代號：25 三聯收銀機／電子發票、21 手開三聯式、22 二聯收銀機（內含稅）；無法判斷 null */
+  format_code?: "21" | "22" | "25" | null;
+  /** 各欄位概略範圍，審核畫面欄位級高亮／放大裁切用；無法定位或 PDF 為 null／缺欄（舊資料） */
+  field_boxes?: RecognizedFieldBoxes | null;
 }
+
+/** 單一欄位範圍的 Claude JSON Schema（可為 null） */
+function claudeBoxSchema(desc: string) {
+  return {
+    type: ["object", "null"],
+    description: `${desc}在照片中的範圍（0–1000 標準化座標）；找不到則 null`,
+    additionalProperties: false,
+    required: ["x0", "y0", "x1", "y1"],
+    properties: {
+      x0: { type: "number" },
+      y0: { type: "number" },
+      x1: { type: "number" },
+      y1: { type: "number" },
+    },
+  };
+}
+
+/** 單一欄位範圍的 Gemini responseSchema（可為 null） */
+function geminiBoxSchema(desc: string) {
+  return {
+    type: "OBJECT",
+    nullable: true,
+    description: `${desc}在照片中的範圍（0–1000 標準化座標）；找不到則 null`,
+    required: ["x0", "y0", "x1", "y1"],
+    properties: {
+      x0: { type: "NUMBER" },
+      y0: { type: "NUMBER" },
+      x1: { type: "NUMBER" },
+      y1: { type: "NUMBER" },
+    },
+  };
+}
+
+const FIELD_BOX_KEYS = [
+  "invoice_number",
+  "invoice_date",
+  "seller_name",
+  "seller_tax_id",
+  "buyer_tax_id",
+  "amount_ex_tax",
+  "tax_amount",
+  "amount_inc_tax",
+] as const;
+
+const FIELD_BOX_LABELS: Record<(typeof FIELD_BOX_KEYS)[number], string> = {
+  invoice_number: "發票號碼",
+  invoice_date: "發票日期",
+  seller_name: "賣方名稱",
+  seller_tax_id: "賣方統編",
+  buyer_tax_id: "買方統編",
+  amount_ex_tax: "銷售額（未稅）",
+  tax_amount: "營業稅額",
+  amount_inc_tax: "總計（含稅）",
+};
 
 const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 type SupportedImageType = (typeof SUPPORTED_IMAGE_TYPES)[number];
@@ -150,6 +226,17 @@ const TAX_RECOGNITION_PROMPT = `這是一張台灣的統一發票（可能是三
 - fields_box：包住所有需人工核對欄位（發票號碼、日期、賣方名稱與統編、買方統編、
   未稅／稅額／總計金額）的最小範圍，同樣 0–1000 標準化座標；
   寧可框大一點也不要切到這些欄位；無法判斷或是 PDF 時輸出 null
+- 字軌期別：發票標題附近常印「115年07-08月」這類期別，請拆成
+  period_roc_year（民國年，如 115）、period_start_month（起月，如 7）、period_end_month（迄月，如 8）；
+  沒印期別或無法辨識時三個都輸出 null。注意這是期別區間，不是發票日期
+- format_code（進項憑證格式代號）依票面型式判斷：
+  「25」＝電子發票證明聯：57mm 熱感紙、下方有兩個 QR code＋一維條碼、標題印「電子發票證明聯」；
+  「21」＝手開／手寫發票：欄位為手寫字跡、表格式票面、常有複寫痕跡；
+  「22」＝傳統收銀機發票：長條型紙卷、常為粉紅／黃等有色紙、整張機器列印、沒有 QR code；
+  無法判斷時輸出 null
+- field_boxes：上述每個欄位各自在照片中的範圍（0–1000 標準化座標），
+  給審核畫面做欄位級放大核對用；寧可框大一點也不要切到該欄位的文字；
+  某欄位在發票上不存在、無法定位或是 PDF 時該欄輸出 null
 
 日期特別注意：
 - 台灣發票常用民國紀年，民國年＝西元年－1911。兩、三位數的年份幾乎都是民國年，
@@ -175,6 +262,11 @@ const CLAUDE_TAX_OUTPUT_SCHEMA = {
     "amount_inc_tax",
     "crop_box",
     "fields_box",
+    "period_roc_year",
+    "period_start_month",
+    "period_end_month",
+    "format_code",
+    "field_boxes",
   ],
   properties: {
     invoice_number: { type: ["string", "null"], description: "發票號碼：2 碼英文＋8 碼數字，去除空白與連字號" },
@@ -209,6 +301,20 @@ const CLAUDE_TAX_OUTPUT_SCHEMA = {
         y1: { type: "number", description: "右下角 Y（0–1000）" },
       },
     },
+    period_roc_year: { type: ["number", "null"], description: "字軌期別民國年（如 115）；未印則 null" },
+    period_start_month: { type: ["number", "null"], description: "字軌期別起月（1–12）；未印則 null" },
+    period_end_month: { type: ["number", "null"], description: "字軌期別迄月（1–12）；未印則 null" },
+    format_code: {
+      type: ["string", "null"],
+      description: "格式代號：25＝電子發票證明聯、21＝手開／手寫發票、22＝傳統收銀機長條發票；無法判斷 null",
+    },
+    field_boxes: {
+      type: ["object", "null"],
+      description: "各欄位在照片中的概略範圍；完全無法定位或 PDF 則整個 null",
+      additionalProperties: false,
+      required: [...FIELD_BOX_KEYS],
+      properties: Object.fromEntries(FIELD_BOX_KEYS.map((k) => [k, claudeBoxSchema(FIELD_BOX_LABELS[k])])),
+    },
   },
 } as const;
 
@@ -225,6 +331,11 @@ const GEMINI_TAX_OUTPUT_SCHEMA = {
     "amount_inc_tax",
     "crop_box",
     "fields_box",
+    "period_roc_year",
+    "period_start_month",
+    "period_end_month",
+    "format_code",
+    "field_boxes",
   ],
   properties: {
     invoice_number: { type: "STRING", nullable: true, description: "發票號碼：2 碼英文＋8 碼數字，去除空白與連字號" },
@@ -258,6 +369,21 @@ const GEMINI_TAX_OUTPUT_SCHEMA = {
         x1: { type: "NUMBER", description: "右下角 X（0–1000）" },
         y1: { type: "NUMBER", description: "右下角 Y（0–1000）" },
       },
+    },
+    period_roc_year: { type: "NUMBER", nullable: true, description: "字軌期別民國年（如 115）；未印則 null" },
+    period_start_month: { type: "NUMBER", nullable: true, description: "字軌期別起月（1–12）；未印則 null" },
+    period_end_month: { type: "NUMBER", nullable: true, description: "字軌期別迄月（1–12）；未印則 null" },
+    format_code: {
+      type: "STRING",
+      nullable: true,
+      description: "格式代號：25＝電子發票證明聯、21＝手開／手寫發票、22＝傳統收銀機長條發票；無法判斷 null",
+    },
+    field_boxes: {
+      type: "OBJECT",
+      nullable: true,
+      description: "各欄位在照片中的概略範圍；完全無法定位或 PDF 則整個 null",
+      required: [...FIELD_BOX_KEYS],
+      properties: Object.fromEntries(FIELD_BOX_KEYS.map((k) => [k, geminiBoxSchema(FIELD_BOX_LABELS[k])])),
     },
   },
 } as const;
