@@ -34,6 +34,7 @@ import {
   ListChecks,
   Receipt,
   RefreshCw,
+  Send,
   Upload,
   Users,
 } from "lucide-react";
@@ -46,6 +47,7 @@ import {
 import { EmployeesPage } from "@/components/employees-page";
 import { PerformanceBonusPage } from "@/components/performance-bonus-page";
 import { CompanyAssignmentsAdmin } from "@/components/company-assignments-admin";
+import { TelegramBotUsersPage } from "@/components/telegram-bot-users-page";
 import {
   formatLeaveUpdatedAtDisplay,
   leaveRequestRowWasUpdated,
@@ -241,7 +243,8 @@ type MainSection =
   | "payroll"
   | "paid_history"
   | "bonus"
-  | "employees";
+  | "employees"
+  | "telegram";
 
 type HeaderIcon =
   | typeof Clock
@@ -251,7 +254,8 @@ type HeaderIcon =
   | typeof Receipt
   | typeof Award
   | typeof Users
-  | typeof ListChecks;
+  | typeof ListChecks
+  | typeof Send;
 
 export function LeaveApprovalsPage() {
   const router = useRouter();
@@ -605,6 +609,14 @@ export function LeaveApprovalsPage() {
           Icon: Users,
           showLeaveRefresh: false,
         };
+      case "telegram":
+        return {
+          title: "Telegram Bot",
+          description:
+            "管理可使用 ERP Telegram bot 的帳號與權限：手動新增 chat_id 或產生邀請碼；管理者可用全功能，員工僅限查詢。",
+          Icon: Send,
+          showLeaveRefresh: false,
+        };
     }
   }, [mainSection, attendanceSubTab, tab]);
 
@@ -730,6 +742,19 @@ export function LeaveApprovalsPage() {
           <Users className="h-4 w-4 shrink-0 opacity-90" />
           員工資料
         </button>
+        <button
+          type="button"
+          onClick={() => setMainSection("telegram")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "telegram"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <Send className="h-4 w-4 shrink-0 opacity-90" />
+          Telegram Bot
+        </button>
       </div>
 
       {mainSection === "attendance" && (
@@ -748,6 +773,8 @@ export function LeaveApprovalsPage() {
       {mainSection === "bonus" && <PerformanceBonusPage />}
 
       {mainSection === "employees" && <EmployeesPage />}
+
+      {mainSection === "telegram" && <TelegramBotUsersPage />}
 
       {mainSection === "leave" && !isSupabaseConfigured && (
         <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
