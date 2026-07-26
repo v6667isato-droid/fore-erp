@@ -10,7 +10,7 @@ import {
   type DragEvent,
 } from "react";
 import { toast } from "sonner";
-import { Upload, Loader2, ListFilter, CalendarPlus } from "lucide-react";
+import { Upload, Loader2, ListFilter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -41,7 +41,6 @@ import {
   type WarRoomRow,
 } from "@/lib/attendance-war-room";
 import { WeekendOvertimeApprovalDialog } from "@/components/weekend-overtime-approval-dialog";
-import { ManualOvertimeDialog } from "@/components/manual-overtime-dialog";
 import {
   isSupabaseConfigured,
   supabase,
@@ -484,7 +483,6 @@ export function AttendanceImporterPanel({
   const [overtimeKeys, setOvertimeKeys] = useState<Set<string>>(() => new Set());
   const [overtimeKeysLoading, setOvertimeKeysLoading] = useState(false);
   const [approvalRow, setApprovalRow] = useState<WarRoomRow | null>(null);
-  const [manualOvertimeOpen, setManualOvertimeOpen] = useState(false);
   const [overtimeHoursByKey, setOvertimeHoursByKey] = useState<Map<string, number | null>>(
     () => new Map(),
   );
@@ -964,33 +962,19 @@ export function AttendanceImporterPanel({
       )}
 
       {ym && (
-        <div className="flex flex-col gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <span className="font-medium">{hasCsv ? "本月分析目標：" : "預覽月份："}</span>
-            <span className="tabular-nums">{ymLabel}</span>
-            <span className="text-muted-foreground">
-              {hasCsv
-                ? `（${filtered.length} 筆，已排除其他月份）`
-                : "（尚未匯入 CSV；先顯示本月假日與核准假單，匯入後自動切換為資料最多之月份並帶入打卡分析）"}
+        <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-foreground">
+          <span className="font-medium">{hasCsv ? "本月分析目標：" : "預覽月份："}</span>
+          <span className="tabular-nums">{ymLabel}</span>
+          <span className="text-muted-foreground">
+            {hasCsv
+              ? `（${filtered.length} 筆，已排除其他月份）`
+              : "（尚未匯入 CSV；先顯示本月假日與核准假單，匯入後自動切換為資料最多之月份並帶入打卡分析）"}
+          </span>
+          {dbLoading && (
+            <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              同步員工、假單與國定假日…
             </span>
-            {dbLoading && (
-              <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                同步員工、假單與國定假日…
-              </span>
-            )}
-          </div>
-          {isSupabaseConfigured && (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-8 shrink-0 gap-1.5 self-start px-3 text-xs font-semibold sm:self-auto"
-              disabled={dbLoading || activeEmployees.length === 0}
-              onClick={() => setManualOvertimeOpen(true)}
-            >
-              <CalendarPlus className="h-3.5 w-3.5" />
-              手動補登加班（出差／未打卡）
-            </Button>
           )}
         </div>
       )}
@@ -1190,12 +1174,6 @@ export function AttendanceImporterPanel({
         onApproved={() => void refreshOvertimeKeys()}
       />
 
-      <ManualOvertimeDialog
-        open={manualOvertimeOpen}
-        onOpenChange={setManualOvertimeOpen}
-        employees={activeEmployees}
-        onSaved={() => void refreshOvertimeKeys()}
-      />
     </div>
   );
 }

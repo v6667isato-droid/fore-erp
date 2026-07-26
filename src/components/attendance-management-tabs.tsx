@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AttendanceHistoryPanel } from "@/components/attendance-history-panel";
 import { AttendanceImporterPanel } from "@/components/attendance-importer-panel";
+import { ManualOvertimeAdminCard } from "@/components/manual-overtime-admin-card";
 import { PublicHolidaysAdminCard } from "@/components/public-holidays-admin-card";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ export function AttendanceManagementTabs({
   return (
     <div className="flex flex-col gap-5">
       <PublicHolidaysAdminCard onMutate={() => setHolidayRefreshTick((n) => n + 1)} />
+      <ManualOvertimeAdminCard onMutate={() => setHolidayRefreshTick((n) => n + 1)} />
       <div
         className="inline-flex rounded-xl border border-border bg-muted/30 p-1 shadow-inner"
         role="tablist"
