@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_VARIANTS, TABLE_PRODUCT_SERIES } from "@/lib/products-db";
+import { TABLE_PRODUCT_VARIANTS, TABLE_PRODUCT_SERIES, WOOD_TYPE_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { X } from "lucide-react";
@@ -228,10 +228,9 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
                 placeholder="例：白橡木"
               />
               <datalist id="edit-variant-wood-list">
-                <option value="白橡木" />
-                <option value="胡桃木" />
-                <option value="柚木" />
-                <option value="雞翅木" />
+                {WOOD_TYPE_OPTIONS.map((o) => (
+                  <option key={o} value={o} />
+                ))}
               </datalist>
             </div>
             <div className="grid grid-cols-3 gap-2">

@@ -9,6 +9,7 @@ import {
   type CustomCaseKind,
   type CustomCaseRow,
 } from "@/lib/custom-cases-db";
+import { WOOD_TYPE_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { X, Globe, Images } from "lucide-react";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
@@ -27,6 +28,8 @@ export interface CustomCaseFormDialogProps {
   onSuccess: () => void;
   /** 既有資料的分類（供類別建議清單合併顯示；輸入新分類即成為新的大分類） */
   categorySuggestions?: string[];
+  /** 既有資料的材質／木種（供材質建議清單合併顯示；輸入新材質即加入清單） */
+  materialSuggestions?: string[];
 }
 
 type FormTab = "basic" | "images" | "website";
@@ -39,6 +42,7 @@ export function CustomCaseFormDialog({
   row,
   onSuccess,
   categorySuggestions,
+  materialSuggestions,
 }: CustomCaseFormDialogProps) {
   const isEdit = row != null;
   const kindLabel = CUSTOM_CASE_KIND_LABEL[kind];
@@ -90,6 +94,15 @@ export function CustomCaseFormDialog({
     setError(null);
     setTimeout(() => firstRef.current?.focus(), 0);
   }, [open, row]);
+
+  // 年份選單：今年往前到 2000；若編輯的舊資料年份不在範圍內，仍保留為選項避免被清掉
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({ length: currentYear - 2000 + 1 }, (_, i) =>
+    String(currentYear - i)
+  );
+  if (completedYear && !yearOptions.includes(completedYear)) {
+    yearOptions.unshift(completedYear);
+  }
 
   function parseNum(v: string): number | null {
     const t = v.trim();
@@ -277,12 +290,20 @@ export function CustomCaseFormDialog({
                     </label>
                     <input
                       id="case-form-material"
+                      list="case-form-material-list"
                       type="text"
                       value={material}
                       onChange={(e) => setMaterial(e.target.value)}
                       className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="例：白橡木、藤編門片"
                     />
+                    <datalist id="case-form-material-list">
+                      {[
+                        ...new Set([...WOOD_TYPE_OPTIONS, ...(materialSuggestions ?? [])]),
+                      ].map((o) => (
+                        <option key={o} value={o} />
+                      ))}
+                    </datalist>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">尺寸（mm）</span>
@@ -353,14 +374,19 @@ export function CustomCaseFormDialog({
                     <label htmlFor="case-form-year" className="text-xs text-muted-foreground">
                       完成年份
                     </label>
-                    <input
+                    <select
                       id="case-form-year"
-                      type="text"
                       value={completedYear}
                       onChange={(e) => setCompletedYear(e.target.value)}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder="例：2023"
-                    />
+                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="">未選擇</option>
+                      {yearOptions.map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="case-form-notes" className="text-xs text-muted-foreground">

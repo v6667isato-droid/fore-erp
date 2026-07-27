@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_VARIANTS } from "@/lib/products-db";
+import { TABLE_PRODUCT_VARIANTS, WOOD_TYPE_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { Plus, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -135,10 +135,9 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                 placeholder="例：白橡木"
               />
               <datalist id="add-variant-wood-list">
-                <option value="白橡木" />
-                <option value="胡桃木" />
-                <option value="柚木" />
-                <option value="雞翅木" />
+                {WOOD_TYPE_OPTIONS.map((o) => (
+                  <option key={o} value={o} />
+                ))}
               </datalist>
             </div>
             <div className="grid grid-cols-3 gap-2">

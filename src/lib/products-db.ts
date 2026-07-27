@@ -33,6 +33,9 @@ export const SERIES_SELECT_MINIMAL = "id, name:series_name, category, notes";
 export const VARIANT_SELECT_MINIMAL =
   "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url, is_custom_order";
 
+/** 木種基本選項（variant 與訂製案例共用；datalist 會再合併資料庫既有值） */
+export const WOOD_TYPE_OPTIONS = ["白橡木", "胡桃木", "柚木", "雞翅木"] as const;
+
 /** product_series 文案欄位（編輯文案用，須與表內欄位一致） */
 export const SERIES_CONTENT_COLUMNS = [
   "design_concept",

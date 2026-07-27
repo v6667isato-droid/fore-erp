@@ -70,6 +70,12 @@ export function CustomCasesPanel({ kind }: { kind: CustomCaseKind }) {
     );
   }, [rows]);
 
+  const materials = useMemo(() => {
+    return [...new Set(rows.map((r) => r.material).filter((m): m is string => Boolean(m)))].sort(
+      (a, b) => a.localeCompare(b)
+    );
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     if (!filterCategory) return rows;
     return rows.filter((r) => r.category === filterCategory);
@@ -322,6 +328,7 @@ export function CustomCasesPanel({ kind }: { kind: CustomCaseKind }) {
         kind={kind}
         row={null}
         categorySuggestions={categories}
+        materialSuggestions={materials}
         onSuccess={() => void fetchData()}
       />
       <CustomCaseFormDialog
@@ -330,6 +337,7 @@ export function CustomCasesPanel({ kind }: { kind: CustomCaseKind }) {
         kind={kind}
         row={editRow}
         categorySuggestions={categories}
+        materialSuggestions={materials}
         onSuccess={() => {
           setEditRow(null);
           void fetchData();
