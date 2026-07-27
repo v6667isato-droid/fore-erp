@@ -551,7 +551,7 @@ export default function DashboardShell() {
 
           {activePage === "dashboard" && (
             <>
-              <DashboardOverview />
+              <DashboardOverview canEditLeadTimeParams={userRole === "admin"} />
               <section className="mt-10 lg:mt-12 pt-8 border-t border-border scroll-mt-6" aria-labelledby="dashboard-calendar-heading">
                 <h2
                   id="dashboard-calendar-heading"
