@@ -19,12 +19,16 @@ function todayIsoDate(): string {
 export function CompanyAnnouncementsBlock({
   items,
   subtitle,
+  todayItems: todayItemsProp,
 }: {
   items: CompanyAnnouncementItem[];
   subtitle?: string;
+  /** 今日摘要內容（含所有分類，如請假、假日、訂單交期）；未提供時退回以公告日期比對 */
+  todayItems?: string[];
 }) {
   const today = todayIsoDate();
-  const todayItems = items.filter((a) => a.published_at === today);
+  const todayItems =
+    todayItemsProp ?? items.filter((a) => a.published_at === today).map((a) => a.title);
   const upcomingItems = items.filter((a) => a.published_at > today);
 
   return (
@@ -48,9 +52,9 @@ export function CompanyAnnouncementsBlock({
           <p className="mt-1 text-sm text-muted-foreground">今日無安排事項</p>
         ) : (
           <ul className="mt-1 space-y-1">
-            {todayItems.map((a) => (
-              <li key={a.id} className="text-[15px] font-medium text-foreground">
-                {a.title}
+            {todayItems.map((t, i) => (
+              <li key={`${i}-${t}`} className="text-[15px] font-medium text-foreground">
+                {t}
               </li>
             ))}
           </ul>

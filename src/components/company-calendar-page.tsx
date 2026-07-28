@@ -344,6 +344,15 @@ export function CompanyCalendarPage() {
     return m;
   }, [rows]);
 
+  /** 今日摘要：當日所有分類（假日、請假、訂單交期、公司事件）；瀏覽其他月份時保留最後結果 */
+  const [todaySummary, setTodaySummary] = useState<string[]>([]);
+  useEffect(() => {
+    const todayKey = todayIsoDate();
+    if (todayKey >= range.start && todayKey <= range.end) {
+      setTodaySummary((cellItemsByDay.get(todayKey) ?? []).map((c) => c.title));
+    }
+  }, [cellItemsByDay, range.start, range.end]);
+
   const sortedCurrentMonthEvents = useMemo(() => {
     const monthStart = formatDateKey(viewYear, viewMonth, 1);
     const lastDay = new Date(viewYear, viewMonth, 0).getDate();
@@ -389,7 +398,7 @@ export function CompanyCalendarPage() {
 
   return (
     <div className="space-y-6">
-      <CompanyAnnouncementsBlock items={announcements} />
+      <CompanyAnnouncementsBlock items={announcements} todayItems={todaySummary} />
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
