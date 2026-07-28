@@ -15,7 +15,6 @@ import {
   UserCircle2,
   ClipboardCheck,
   BarChart3,
-  TrendingUp,
   Receipt,
   Newspaper,
 } from "lucide-react";
@@ -33,9 +32,8 @@ import { LeaveApprovalsPage } from "@/components/leave-approvals-page";
 import { FeedbackPage } from "@/components/feedback-page";
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompanyCalendarPage } from "@/components/company-calendar-page";
-import { CostStatisticsPage } from "@/components/cost-statistics-page";
+import { CostStatisticsTabs } from "@/components/cost-statistics-tabs";
 import { AccountingPage } from "@/components/accounting/accounting-page";
-import { SalesStatisticsPage } from "@/components/sales-statistics-page";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   getSupabaseSession,
@@ -55,7 +53,6 @@ type Page =
   | "kanban"
   | "procurement"
   | "accounting"
-  | "sales_statistics"
   | "cost_statistics"
   | "products"
   | "journal"
@@ -79,7 +76,6 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "kanban", label: "生產管理", icon: Package },
   { id: "procurement", label: "採購管理", icon: ShoppingCart },
   { id: "accounting", label: "會計管理", icon: Receipt },
-  { id: "sales_statistics", label: "銷售統計", icon: TrendingUp },
   { id: "cost_statistics", label: "成本統計", icon: BarChart3 },
   { id: "leave_approvals", label: "員工管理", icon: ClipboardCheck },
   { id: "feedback", label: "使用回饋", icon: MessageSquare },
@@ -117,7 +113,7 @@ function SidebarNav({
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
-        if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "sales_statistics" || item.id === "accounting") && userRole !== "admin") {
+        if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting") && userRole !== "admin") {
           return null;
         }
         const Icon = item.icon;
@@ -251,7 +247,7 @@ function MobileHeader({
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
-                  if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "sales_statistics" || item.id === "accounting") && userRole !== "admin") {
+                  if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting") && userRole !== "admin") {
                     return null;
                   }
                   const Icon = item.icon;
@@ -323,6 +319,7 @@ export default function DashboardShell() {
     if (pageParam === "channels") return "customers";
     if (pageParam === "calendar") return "dashboard";
     if (pageParam === "orders_overview") return "orders";
+    if (pageParam === "sales_statistics") return "cost_statistics";
     return pageParam && PAGE_IDS.has(pageParam as Page)
       ? (pageParam as Page)
       : "dashboard";
@@ -368,6 +365,11 @@ export default function DashboardShell() {
     if (p === "orders_overview") {
       router.replace("/?page=orders");
       setActivePage("orders");
+      return;
+    }
+    if (p === "sales_statistics") {
+      router.replace("/?page=cost_statistics&statisticsTab=sales");
+      setActivePage("cost_statistics");
       return;
     }
     if (p && PAGE_IDS.has(p as Page)) setActivePage(p as Page);
@@ -486,7 +488,6 @@ export default function DashboardShell() {
       userRole !== "admin" &&
       (activePage === "leave_approvals" ||
         activePage === "cost_statistics" ||
-        activePage === "sales_statistics" ||
         activePage === "accounting")
     ) {
       setActivePage("dashboard");
@@ -583,8 +584,7 @@ export default function DashboardShell() {
             <ProcurementPage isAdmin={isErpEditorRole(userRole)} />
           )}
           {activePage === "accounting" && userRole === "admin" && <AccountingPage />}
-          {activePage === "sales_statistics" && userRole === "admin" && <SalesStatisticsPage />}
-          {activePage === "cost_statistics" && userRole === "admin" && <CostStatisticsPage />}
+          {activePage === "cost_statistics" && userRole === "admin" && <CostStatisticsTabs />}
           {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
           {activePage === "journal" && <JournalPage />}
           {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
