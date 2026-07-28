@@ -1,12 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database.types";
+import { normalizeWorkOrderStage, workOrderStageSortIndex } from "@/lib/work-order-stages";
 
 /**
  * 訂單水位與交期預估。
  * 抽成純 lib：總覽頁（client）之外，之後官網 API／展覽模式也會重用。
  *
  * backlog 口徑（與使用者確認）：
- * - 訂單狀態在「繪圖中～已完工之前」（只有確認生產才會到繪圖中），不看付款狀態
+ * - 第一層看訂單狀態：在「繪圖中～已完工之前」（只有確認生產才會到繪圖中），不看付款狀態
+ * - 第二層看品項工站：工單全部到「塗裝後製程(組配、編織)」（含）以後即視為已完成，不計水位
  * - 金額按 order_items 明細（quantity × unit_price）依品類分別加總，運費不計
  * - 椅子＝品類 椅、凳（餐椅、板凳），但 CH04 搖椅歸「其他」（產線不同）
  * - 分類不明一律歸「其他」（保守估計）
@@ -27,6 +29,9 @@ export const CHAIR_CATEGORIES = ["椅", "凳"] as const;
 
 /** CH04 搖椅家族與椅凳產線不同，歸「其他」水位 */
 export const CHAIR_EXCLUDED_SERIES_PREFIX = "CH04";
+
+/** 品項工站達此站別（含）以後視為已完成，不計水位；「暫停」除外 */
+export const LEAD_TIME_COMPLETED_STAGE = "塗裝後製程(組配、編織)";
 
 /** 自家庫存製作的客戶名（Føre／FORE 等寫法都排除，ø 視同 O） */
 export function isStockCustomerName(name: string | null | undefined): boolean {
@@ -117,6 +122,7 @@ interface BacklogItemRow {
     | { product_code: string | null; product_series: SeriesRel }
     | { product_code: string | null; product_series: SeriesRel }[]
     | null;
+  work_orders: { stage: string | null }[] | { stage: string | null } | null;
 }
 
 function relSeries(rel: SeriesRel): { category: string | null; series_name: string | null } | null {
@@ -150,6 +156,24 @@ function isCh04Family(item: BacklogItemRow): boolean {
 /** 椅子水位：品類 椅、凳，排除 CH04 搖椅 */
 export function isChairBacklogItem(item: BacklogItemRow): boolean {
   return isChairCategory(resolveItemCategory(item)) && !isCh04Family(item);
+}
+
+/** 工站達「塗裝後製程(組配、編織)」（含）以後即算完成；「暫停」不算 */
+function isCompletedStage(stageRaw: string | null): boolean {
+  const stage = normalizeWorkOrderStage(stageRaw);
+  if (stage === "暫停") return false;
+  return workOrderStageSortIndex(stage) >= workOrderStageSortIndex(LEAD_TIME_COMPLETED_STAGE);
+}
+
+/**
+ * 品項是否已完成（不計水位）：
+ * 有工單、且全部工單的工站都達完成線。沒開工單的品項一律視為未完成。
+ */
+export function isItemProductionCompleted(item: BacklogItemRow): boolean {
+  const rel = item.work_orders;
+  const workOrders = rel == null ? [] : Array.isArray(rel) ? rel : [rel];
+  if (workOrders.length === 0) return false;
+  return workOrders.every((wo) => isCompletedStage(wo.stage));
 }
 
 function toFiniteNumber(value: unknown): number | null {
@@ -211,7 +235,8 @@ export async function getLeadTimeEstimates(
            quantity,
            unit_price,
            custom_category,
-           product_variants(product_code, product_series(category, series_name))
+           product_variants(product_code, product_series(category, series_name)),
+           work_orders(stage)
          )`,
       )
       .in("status", [...LEAD_TIME_BACKLOG_STATUSES])
@@ -233,6 +258,7 @@ export async function getLeadTimeEstimates(
         const unitPrice = toFiniteNumber(item.unit_price) ?? 0;
         const amount = quantity * unitPrice;
         if (amount <= 0) continue;
+        if (isItemProductionCompleted(item)) continue;
         if (isChairBacklogItem(item)) chairBacklog += amount;
         else otherBacklog += amount;
       }

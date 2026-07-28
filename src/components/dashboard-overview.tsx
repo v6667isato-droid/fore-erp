@@ -306,7 +306,7 @@ export function DashboardOverview({
             </div>
             {canEditLeadTimeParams && (
               <span className="max-w-[min(100%,14rem)] shrink-0 text-right text-[9px] leading-snug text-muted-foreground">
-                繪圖中～暫停之未完工訂單，按明細品類拆分；不含 Føre 庫存單
+                繪圖中～暫停之未完工訂單，按明細品類拆分；品項達塗裝後製程（含）即不計；不含 Føre 庫存單
               </span>
             )}
           </div>
