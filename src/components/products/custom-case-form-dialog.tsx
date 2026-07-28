@@ -298,8 +298,12 @@ export function CustomCaseFormDialog({
                       placeholder="例：白橡木、藤編門片"
                     />
                     <datalist id="case-form-material-list">
+                      {/* 基本木種只給訂製案例；加工區僅顯示自己累積的材質 */}
                       {[
-                        ...new Set([...WOOD_TYPE_OPTIONS, ...(materialSuggestions ?? [])]),
+                        ...new Set([
+                          ...(kind === "custom" ? WOOD_TYPE_OPTIONS : []),
+                          ...(materialSuggestions ?? []),
+                        ]),
                       ].map((o) => (
                         <option key={o} value={o} />
                       ))}
