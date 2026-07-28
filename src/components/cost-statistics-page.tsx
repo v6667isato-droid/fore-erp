@@ -218,6 +218,7 @@ export function CostStatisticsPage() {
         supabase
           .from("orders")
           .select("order_date,total_amount,status")
+          .is("deleted_at", null)
           .gte("order_date", start)
           .lte("order_date", end),
         supabase
@@ -746,7 +747,7 @@ export function CostStatisticsPage() {
     <section className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {year} 年年初至今（截至 {computed.ytdCutoffLabel}）；採購／薪資／訂單依實際日期或發薪月份，設攤提之採購按月分攤列於「攤提」欄（含往年採購當年度分攤額），租金與公司貸款利息依年額按月分攤（當月按日比例），稅金為訂單營收之 {REVENUE_TAX_RATE * 100}%。營收排除「報價中」訂單；採購不含已刪除紀錄。
+          {year} 年年初至今（截至 {computed.ytdCutoffLabel}）；採購／薪資／訂單依實際日期或發薪月份，設攤提之採購按月分攤列於「攤提」欄（含往年採購當年度分攤額），租金與公司貸款利息依年額按月分攤（當月按日比例），稅金為訂單營收之 {REVENUE_TAX_RATE * 100}%。營收排除「報價中」與已刪除訂單；採購不含已刪除紀錄。
         </p>
         <div className="inline-flex rounded-lg border border-border bg-muted/30 p-1">
           <Button

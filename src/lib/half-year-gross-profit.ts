@@ -120,6 +120,7 @@ export async function fetchHalfYearGrossProfit(
     supabase
       .from("orders")
       .select("order_date,total_amount,status")
+      .is("deleted_at", null)
       .gte("order_date", start)
       .lte("order_date", end),
     supabase
