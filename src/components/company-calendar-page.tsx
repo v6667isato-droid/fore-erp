@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarCheck, ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { epSection } from "@/lib/employee-portal-section-styles";
 import {
   buildCalendarMonthGrid,
   formatDateKey,
@@ -15,6 +16,7 @@ import {
   companyEventBadgePrefix,
   companyEventCategoryLabel,
   deleteCompanyEvent,
+  fetchAssigneeNamesForEvents,
   fetchCompanyAnnouncementsFromEvents,
   fetchCompanyEventsBetween,
   type CompanyEventCategory,
@@ -345,13 +347,54 @@ export function CompanyCalendarPage() {
   }, [rows]);
 
   /** 今日摘要：當日所有分類（假日、請假、訂單交期、公司事件）；瀏覽其他月份時保留最後結果 */
-  const [todaySummary, setTodaySummary] = useState<string[]>([]);
+  const [todayCells, setTodayCells] = useState<CalendarCellItem[]>([]);
   useEffect(() => {
     const todayKey = todayIsoDate();
     if (todayKey >= range.start && todayKey <= range.end) {
-      setTodaySummary((cellItemsByDay.get(todayKey) ?? []).map((c) => c.title));
+      setTodayCells(cellItemsByDay.get(todayKey) ?? []);
     }
   }, [cellItemsByDay, range.start, range.end]);
+
+  /** 今日公司事件的負責人員姓名，key = company_event_id */
+  const [todayAssignees, setTodayAssignees] = useState<Map<string, string[]>>(new Map());
+  useEffect(() => {
+    const ids = todayCells.filter((c) => c.kind === "company").map((c) => c.id);
+    if (ids.length === 0) {
+      setTodayAssignees(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const m = await fetchAssigneeNamesForEvents(ids);
+        if (!cancelled) setTodayAssignees(m);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [todayCells]);
+
+  function openTodayItem(item: CalendarCellItem) {
+    if (item.kind === "company") {
+      const full = eventById.get(item.id);
+      if (full) {
+        setOverviewOrderId(null);
+        setViewingEvent(full);
+      }
+      return;
+    }
+    if (item.kind === "orderDue") {
+      if (item.detail.id.startsWith("demo-")) {
+        toast.info("試用假資料無訂單總覽，請連線資料庫後再試");
+        return;
+      }
+      setViewingEvent(null);
+      setOverviewOrderId(item.detail.id);
+    }
+  }
 
   const sortedCurrentMonthEvents = useMemo(() => {
     const monthStart = formatDateKey(viewYear, viewMonth, 1);
@@ -398,7 +441,60 @@ export function CompanyCalendarPage() {
 
   return (
     <div className="space-y-6">
-      <CompanyAnnouncementsBlock items={announcements} todayItems={todaySummary} />
+      <section className={epSection.card}>
+        <div className={cn(epSection.headerRow, "mb-3")}>
+          <div className={epSection.iconBoxPrimary}>
+            <CalendarCheck className="h-4 w-4" />
+          </div>
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <h3 className={epSection.title}>今日摘要</h3>
+            <span className="text-xs tabular-nums text-muted-foreground">{todayIsoDate()}</span>
+          </div>
+        </div>
+        {todayCells.length === 0 ? (
+          <p className="text-sm text-muted-foreground">今日無安排事項</p>
+        ) : (
+          <ul className="divide-y divide-border/60">
+            {todayCells.map((item) => {
+              const assignees =
+                item.kind === "company" ? (todayAssignees.get(item.id) ?? []) : [];
+              const clickable = item.kind === "company" || item.kind === "orderDue";
+              const inner = (
+                <>
+                  <span className="text-[15px] font-medium text-foreground">{item.title}</span>
+                  {assignees.length > 0 ? (
+                    <span className="shrink-0 text-sm text-muted-foreground">
+                      負責：{assignees.join("、")}
+                    </span>
+                  ) : null}
+                </>
+              );
+              return (
+                <li key={`${item.kind}-${item.id}`}>
+                  {clickable ? (
+                    <button
+                      type="button"
+                      onClick={() => openTodayItem(item)}
+                      className="flex w-full cursor-pointer flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 rounded-md px-1 py-2 text-left transition-colors hover:bg-muted/40"
+                    >
+                      {inner}
+                    </button>
+                  ) : (
+                    <div
+                      className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 px-1 py-2"
+                      title={"tooltip" in item ? item.tooltip : undefined}
+                    >
+                      {inner}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <CompanyAnnouncementsBlock items={announcements} />
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">

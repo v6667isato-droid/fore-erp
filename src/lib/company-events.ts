@@ -291,6 +291,29 @@ export async function fetchAllCompanyEventAssignees(): Promise<
   return { ok: true, rows };
 }
 
+/** 多事件負責人姓名（employees.name），key = company_event_id */
+export async function fetchAssigneeNamesForEvents(
+  eventIds: string[],
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (!isSupabaseConfigured || eventIds.length === 0) return map;
+  const { data, error } = await supabase
+    .from(CEA_TABLE)
+    .select("company_event_id, employees(name)")
+    .in("company_event_id", eventIds);
+  if (error) throw error;
+  for (const r of (data ?? []) as Record<string, unknown>[]) {
+    const evId = String(r.company_event_id ?? "");
+    const emp = (r.employees ?? null) as { name?: unknown } | null;
+    const name = emp && typeof emp.name === "string" ? emp.name : "";
+    if (!evId || !name) continue;
+    const list = map.get(evId) ?? [];
+    list.push(name);
+    map.set(evId, list);
+  }
+  return map;
+}
+
 export async function fetchCompanyEventAssigneeIds(
   companyEventId: string,
 ): Promise<string[]> {
