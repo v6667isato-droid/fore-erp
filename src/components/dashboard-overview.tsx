@@ -295,13 +295,25 @@ export function DashboardOverview({
                 </button>
               )}
             </div>
-            <span className="max-w-[min(100%,14rem)] shrink-0 text-right text-[9px] leading-snug text-muted-foreground">
-              繪圖中～暫停之未完工訂單，按明細品類拆分；不含 Føre 庫存單
-            </span>
+            {canEditLeadTimeParams && (
+              <span className="max-w-[min(100%,14rem)] shrink-0 text-right text-[9px] leading-snug text-muted-foreground">
+                繪圖中～暫停之未完工訂單，按明細品類拆分；不含 Føre 庫存單
+              </span>
+            )}
           </div>
           <div className="flex flex-col gap-3">
-            <LeadTimeWaterLevelRow label="椅子" sublabel="餐椅、板凳，不含搖椅" estimate={leadTime.chair} />
-            <LeadTimeWaterLevelRow label="其他" sublabel="桌、櫃、搖椅等" estimate={leadTime.other} />
+            <LeadTimeWaterLevelRow
+              label="椅子"
+              sublabel="餐椅、板凳，不含搖椅"
+              estimate={leadTime.chair}
+              showAmount={canEditLeadTimeParams}
+            />
+            <LeadTimeWaterLevelRow
+              label="其他"
+              sublabel="桌、櫃、搖椅等"
+              estimate={leadTime.other}
+              showAmount={canEditLeadTimeParams}
+            />
           </div>
           {canEditLeadTimeParams && (
             <LeadTimeParamsDialog
@@ -408,10 +420,13 @@ function LeadTimeWaterLevelRow({
   label,
   sublabel,
   estimate,
+  showAmount = false,
 }: {
   label: string;
   sublabel?: string;
   estimate: LeadTimeCategoryEstimate;
+  /** admin 才顯示 backlog 金額與公式細節 */
+  showAmount?: boolean;
 }) {
   // 刻度＝當月起 4 個月產能，每格一個月；超過基準交期的水位以警示色顯示
   const scaleMax = estimate.capacityPerMonth * LEAD_TIME_SCALE_MONTHS;
@@ -431,9 +446,11 @@ function LeadTimeWaterLevelRow({
             <span className="ml-1 text-[9px] font-normal text-muted-foreground">{sublabel}</span>
           )}
         </span>
-        <span className="text-xs font-semibold text-foreground">
-          NT$ {Math.round(estimate.backlogAmount).toLocaleString()}
-        </span>
+        {showAmount && (
+          <span className="text-xs font-semibold text-foreground">
+            NT$ {Math.round(estimate.backlogAmount).toLocaleString()}
+          </span>
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary">
@@ -465,7 +482,11 @@ function LeadTimeWaterLevelRow({
       </div>
       <div
         className="shrink-0 text-xs text-foreground sm:w-36 sm:text-right"
-        title={`原始值 ${estimate.rawMonths.toFixed(2)} 個月＝max(基準 ${estimate.baseMonths} 個月, backlog ÷ 月產能 ${wanLabel(estimate.capacityPerMonth)})`}
+        title={
+          showAmount
+            ? `原始值 ${estimate.rawMonths.toFixed(2)} 個月＝max(基準 ${estimate.baseMonths} 個月, backlog ÷ 月產能 ${wanLabel(estimate.capacityPerMonth)})`
+            : undefined
+        }
       >
         預估交期：
         <span className={`font-semibold ${overloaded ? "text-amber-600 dark:text-amber-400" : ""}`}>
