@@ -86,14 +86,19 @@ export async function fetchCompanyEventsBetween(
   return (data ?? []).map((r) => normalizeRow(r as Record<string, unknown>)).filter(Boolean) as CompanyEventRow[];
 }
 
-/** 員工儀表板「公司公告」：僅 company 類別；匿名 policy 亦只開放此類別 */
+/** 員工儀表板「公司公告」：僅 company 類別；匿名 policy 亦只開放此類別。只取今日（含）以後，由近到遠 */
 export async function fetchCompanyAnnouncementsFromEvents(): Promise<CompanyAnnouncementDto[]> {
   if (!isSupabaseConfigured) return [];
+  const t = new Date();
+  const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(
+    t.getDate()
+  ).padStart(2, "0")}`;
   const { data, error } = await supabase
     .from(COMPANY_EVENT_TABLE)
     .select("id,title,description,event_date")
     .eq("category", "company")
-    .order("event_date", { ascending: false })
+    .gte("event_date", todayIso)
+    .order("event_date", { ascending: true })
     .limit(40);
 
   if (error) throw error;

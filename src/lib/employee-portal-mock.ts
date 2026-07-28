@@ -451,5 +451,5 @@ export async function fetchEmployeePortalData(): Promise<EmployeePortalPayload> 
 }
 
 export function activeAnnouncements(rows: AnnouncementRow[]): AnnouncementRow[] {
-  return rows.filter((a) => a.is_active).sort((a, b) => (a.published_at < b.published_at ? 1 : -1));
+  return rows.filter((a) => a.is_active).sort((a, b) => (a.published_at > b.published_at ? 1 : -1));
 }

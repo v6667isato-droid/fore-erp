@@ -9,6 +9,13 @@ export interface CompanyAnnouncementItem {
   published_at: string;
 }
 
+function todayIsoDate(): string {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(
+    t.getDate()
+  ).padStart(2, "0")}`;
+}
+
 export function CompanyAnnouncementsBlock({
   items,
   subtitle,
@@ -16,9 +23,13 @@ export function CompanyAnnouncementsBlock({
   items: CompanyAnnouncementItem[];
   subtitle?: string;
 }) {
+  const today = todayIsoDate();
+  const todayItems = items.filter((a) => a.published_at === today);
+  const upcomingItems = items.filter((a) => a.published_at > today);
+
   return (
     <section className={epSection.card}>
-      <div className={epSection.headerRow}>
+      <div className={cn(epSection.headerRow, "mb-3")}>
         <div className={epSection.iconBox}>
           <Megaphone className="h-4 w-4" />
         </div>
@@ -27,27 +38,40 @@ export function CompanyAnnouncementsBlock({
           {subtitle ? <p className={cn("mt-0.5", epSection.subtitle)}>{subtitle}</p> : null}
         </div>
       </div>
-      <div className="max-h-64 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
-        <ul className="space-y-4 pr-2">
-          {items.length === 0 ? (
-            <li className="text-sm text-muted-foreground">目前沒有公司公告。</li>
-          ) : (
-            items.map((a) => (
-              <li
-                key={a.id}
-                className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 transition-colors hover:bg-muted/35"
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="font-medium text-foreground">{a.title}</span>
-                  <time className="text-xs tabular-nums text-muted-foreground">{a.published_at}</time>
-                </div>
-                {a.body ? (
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{a.body}</p>
-                ) : null}
+
+      <div className="mb-3 rounded-xl border border-primary/25 bg-primary/5 px-4 py-2.5">
+        <div className="flex items-baseline gap-2">
+          <span className="shrink-0 text-xs font-semibold tracking-wide text-primary">今日</span>
+          <span className="text-xs tabular-nums text-muted-foreground">{today}</span>
+        </div>
+        {todayItems.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">今日無安排事項</p>
+        ) : (
+          <ul className="mt-1 space-y-1">
+            {todayItems.map((a) => (
+              <li key={a.id} className="text-[15px] font-medium text-foreground">
+                {a.title}
               </li>
-            ))
-          )}
-        </ul>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="max-h-56 overflow-y-auto overflow-x-hidden pr-1 [scrollbar-gutter:stable]">
+        {upcomingItems.length === 0 ? (
+          <p className="py-1.5 text-sm text-muted-foreground">近期沒有公司公告。</p>
+        ) : (
+          <ul className="divide-y divide-border/60 pr-2">
+            {upcomingItems.map((a) => (
+              <li key={a.id} className="flex items-baseline justify-between gap-3 py-2">
+                <span className="text-[15px] font-medium text-foreground">{a.title}</span>
+                <time className="shrink-0 text-sm tabular-nums text-muted-foreground">
+                  {a.published_at}
+                </time>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );

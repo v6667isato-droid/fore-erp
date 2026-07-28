@@ -389,10 +389,7 @@ export function CompanyCalendarPage() {
 
   return (
     <div className="space-y-6">
-      <CompanyAnnouncementsBlock
-        items={announcements}
-        subtitle="company_event · 類別為「公司」"
-      />
+      <CompanyAnnouncementsBlock items={announcements} />
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
