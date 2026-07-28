@@ -1281,6 +1281,7 @@ export default function PortalPage() {
                   monthsLoad={leadTime.chair.months_load}
                   baseMonths={leadTime.chair.base_months}
                   displayMonths={leadTime.chair.display_months}
+                  size="md"
                 />
                 <LeadTimeWaterLevelRow
                   label="其他"
@@ -1288,6 +1289,7 @@ export default function PortalPage() {
                   monthsLoad={leadTime.other.months_load}
                   baseMonths={leadTime.other.base_months}
                   displayMonths={leadTime.other.display_months}
+                  size="md"
                 />
               </div>
             </section>

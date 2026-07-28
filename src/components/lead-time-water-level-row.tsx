@@ -28,6 +28,8 @@ export interface LeadTimeWaterLevelRowProps {
   amountText?: string;
   /** 有值才掛 hover 公式細節（ERP admin 專用） */
   detailTitle?: string;
+  /** sm＝ERP 總覽緊湊卡；md＝通路商下單頁（與表單標籤同級的 text-sm） */
+  size?: "sm" | "md";
 }
 
 export function LeadTimeWaterLevelRow({
@@ -38,6 +40,7 @@ export function LeadTimeWaterLevelRow({
   displayMonths,
   amountText,
   detailTitle,
+  size = "sm",
 }: LeadTimeWaterLevelRowProps) {
   // 刻度＝當月起 4 個月，每格一個月；超過基準交期的水位以警示色顯示
   const cappedLoad = Math.max(0, Math.min(monthsLoad, LEAD_TIME_SCALE_MONTHS));
@@ -46,22 +49,26 @@ export function LeadTimeWaterLevelRow({
   const excessPct = (Math.max(0, cappedLoad - cappedBase) / LEAD_TIME_SCALE_MONTHS) * 100;
   const overloaded = monthsLoad > cappedBase;
   const monthLabels = upcomingMonthLabels(LEAD_TIME_SCALE_MONTHS);
+  const md = size === "md";
+  const textCls = md ? "text-sm" : "text-xs";
+  const subTextCls = md ? "text-xs" : "text-[9px]";
+  const tickTextCls = md ? "text-[11px]" : "text-[9px]";
 
   return (
     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
       <div className="flex items-baseline justify-between gap-2 sm:w-40 sm:shrink-0 sm:flex-col sm:gap-0.5">
-        <span className="text-xs font-medium text-foreground">
+        <span className={`${textCls} font-medium text-foreground`}>
           {label}
           {sublabel && (
-            <span className="ml-1 text-[9px] font-normal text-muted-foreground">{sublabel}</span>
+            <span className={`ml-1 ${subTextCls} font-normal text-muted-foreground`}>{sublabel}</span>
           )}
         </span>
         {amountText && (
-          <span className="text-xs font-semibold text-foreground">{amountText}</span>
+          <span className={`${textCls} font-semibold text-foreground`}>{amountText}</span>
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary">
+        <div className={`relative ${md ? "h-3.5" : "h-3"} w-full overflow-hidden rounded-full bg-secondary`}>
           <div className="absolute inset-y-0 left-0 flex w-full">
             <div
               className="h-full bg-[var(--badge-progress)] transition-all"
@@ -80,7 +87,7 @@ export function LeadTimeWaterLevelRow({
             />
           ))}
         </div>
-        <div className="mt-0.5 flex text-[9px] text-muted-foreground">
+        <div className={`mt-0.5 flex ${tickTextCls} text-muted-foreground`}>
           {monthLabels.map((m) => (
             <span key={m} className="w-1/4 text-center">
               {m}
@@ -88,7 +95,7 @@ export function LeadTimeWaterLevelRow({
           ))}
         </div>
       </div>
-      <div className="shrink-0 text-xs text-foreground sm:w-36 sm:text-right" title={detailTitle}>
+      <div className={`shrink-0 ${textCls} text-foreground sm:w-36 sm:text-right`} title={detailTitle}>
         預估交期：
         <span className={`font-semibold ${overloaded ? "text-amber-600 dark:text-amber-400" : ""}`}>
           {displayMonths.toFixed(1)} 個月
