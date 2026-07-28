@@ -88,7 +88,7 @@ export function ViewCustomCaseDialog({ open, onOpenChange, row }: ViewCustomCase
                   value={row.base_price != null ? row.base_price.toLocaleString() : null}
                 />
               )}
-              <Field label="完成年份" value={row.completed_year} />
+              {row.kind === "custom" && <Field label="完成年份" value={row.completed_year} />}
             </div>
 
             {row.kind === "custom" && (row.story_zh || row.story_en) && (

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN } from "@/lib/products-db";
+import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { ProductImagesDropzone } from "@/components/products/product-images-dropzone";
@@ -20,7 +20,7 @@ export interface EditSeriesDialogProps {
   onSuccess: () => void;
 }
 
-const CATEGORY_OPTIONS = ["桌", "椅", "櫃", "層架", "其他"];
+const CATEGORY_OPTIONS = PRODUCT_CATEGORY_OPTIONS;
 
 const CONTENT_FIELDS: { key: (typeof SERIES_CONTENT_COLUMNS)[number]; label: string }[] = [
   { key: "design_concept", label: "設計理念" },

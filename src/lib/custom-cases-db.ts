@@ -4,6 +4,8 @@
  * kind = 'processing' 加工區（維修保養項目，僅內部使用，官網 RLS 擋下 anon 讀取）
  */
 
+import { PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
+
 /** Supabase 表名：訂製案例與加工區共用 */
 export const TABLE_CUSTOM_CASES = "custom_cases";
 
@@ -79,9 +81,9 @@ export function formatCaseDimensions(row: CustomCaseRow): string {
   return `W:${fmt(row.dimension_w)} x D:${fmt(row.dimension_d)} x H:${fmt(row.dimension_h)}`;
 }
 
-/** 各分頁的類別建議選項（與產品資料的類別對照，加工區另有維修保養類） */
+/** 各分頁的類別建議選項：訂製案例直接沿用產品區類別；加工區類別獨立維護 */
 export const CUSTOM_CASE_CATEGORY_OPTIONS: Record<CustomCaseKind, string[]> = {
-  custom: ["桌", "椅", "櫃", "層架", "其他"],
+  custom: PRODUCT_CATEGORY_OPTIONS,
   processing: ["維修", "保養", "加工", "翻新", "改裝", "其他"],
 };
 

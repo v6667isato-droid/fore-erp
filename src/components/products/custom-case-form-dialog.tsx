@@ -132,7 +132,7 @@ export function CustomCaseFormDialog({
       dimension_d: parseNum(dimD),
       dimension_h: parseNum(dimH),
       dimensions_note: dimensionsNote.trim() || null,
-      completed_year: completedYear.trim() || null,
+      completed_year: kind === "custom" ? completedYear.trim() || null : null,
       base_price: kind === "processing" ? parseNum(basePrice) : (row?.base_price ?? null),
       notes: notes.trim() || null,
       story_zh: storyZh.trim() || null,
@@ -370,24 +370,26 @@ export function CustomCaseFormDialog({
                       />
                     </div>
                   )}
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="case-form-year" className="text-xs text-muted-foreground">
-                      完成年份
-                    </label>
-                    <select
-                      id="case-form-year"
-                      value={completedYear}
-                      onChange={(e) => setCompletedYear(e.target.value)}
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      <option value="">未選擇</option>
-                      {yearOptions.map((y) => (
-                        <option key={y} value={y}>
-                          {y}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {kind === "custom" && (
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="case-form-year" className="text-xs text-muted-foreground">
+                        完成年份
+                      </label>
+                      <select
+                        id="case-form-year"
+                        value={completedYear}
+                        onChange={(e) => setCompletedYear(e.target.value)}
+                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        <option value="">未選擇</option>
+                        {yearOptions.map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="case-form-notes" className="text-xs text-muted-foreground">
                       內部備註

@@ -215,7 +215,9 @@ export function CustomCasesPanel({ kind }: { kind: CustomCaseKind }) {
               {kind === "processing" && (
                 <TableHead className="text-xs font-semibold p-2">{sortButton("base_price", "定價")}</TableHead>
               )}
-              <TableHead className="text-xs font-semibold p-2">{sortButton("completed_year", "完成年份")}</TableHead>
+              {kind === "custom" && (
+                <TableHead className="text-xs font-semibold p-2">{sortButton("completed_year", "完成年份")}</TableHead>
+              )}
               {kind === "custom" && (
                 <TableHead className="text-xs font-semibold p-2">{sortButton("published", "官網")}</TableHead>
               )}
@@ -277,7 +279,9 @@ export function CustomCasesPanel({ kind }: { kind: CustomCaseKind }) {
                       {row.base_price != null ? row.base_price.toLocaleString() : "—"}
                     </TableCell>
                   )}
-                  <TableCell className="text-sm text-muted-foreground p-2">{row.completed_year || "—"}</TableCell>
+                  {kind === "custom" && (
+                    <TableCell className="text-sm text-muted-foreground p-2">{row.completed_year || "—"}</TableCell>
+                  )}
                   {kind === "custom" && (
                     <TableCell className="p-2">
                       <button

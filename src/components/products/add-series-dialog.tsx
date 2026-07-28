@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN } from "@/lib/products-db";
+import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { Plus, X, FileText, MessageCircle, Globe } from "lucide-react";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
@@ -14,7 +14,7 @@ export interface AddSeriesDialogProps {
   onSuccess: () => void;
 }
 
-const CATEGORY_OPTIONS = ["桌", "椅", "櫃", "層架", "其他"];
+const CATEGORY_OPTIONS = PRODUCT_CATEGORY_OPTIONS;
 
 /** 文案欄位設定，key 必須與 product_series 表欄位名稱一致 */
 const CONTENT_FIELDS: { key: (typeof SERIES_CONTENT_COLUMNS)[number]; label: string }[] = [
