@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -53,6 +54,8 @@ import {
   paymentStatusStyles,
   manualOrderStatusOptions,
   PAYMENT_STATUS_OPTIONS,
+  PRODUCTION_STATUSES,
+  COMPLETED_OPEN_STATUSES,
 } from "@/components/orders/order-helpers";
 
 function StatusBadge({ status }: { status: OrderStatus }) {
@@ -63,14 +66,29 @@ function StatusBadge({ status }: { status: OrderStatus }) {
   );
 }
 
-type StatusFilterValue = OrderStatus | "全部" | "非報價中" | "已結案";
+type StatusFilterValue =
+  | OrderStatus
+  | "全部"
+  | "非報價中"
+  | "已結案"
+  | "生產中訂單"
+  | "完成未結案";
 
 const STATUS_FILTER_OPTIONS: StatusFilterValue[] = [
   "全部",
   "報價中",
+  "生產中訂單",
+  "完成未結案",
   "非報價中",
   "已結案",
 ];
+
+/** 總覽三卡點擊 → /?page=orders&ordersStatus=<key>；集合定義與卡片計數共用 order-helpers */
+const ORDERS_STATUS_PARAM_TO_FILTER: Record<string, StatusFilterValue> = {
+  quote: "報價中",
+  production: "生產中訂單",
+  completed_open: "完成未結案",
+};
 
 export function OrdersPage({
   mode = "order",
@@ -89,9 +107,19 @@ export function OrdersPage({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [customerFilter, setCustomerFilter] = useState("");
+  const searchParams = useSearchParams();
+  const ordersStatusParam = searchParams.get("ordersStatus");
+  const lifecycleFilter = ordersStatusParam
+    ? ORDERS_STATUS_PARAM_TO_FILTER[ordersStatusParam]
+    : undefined;
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>(
-    mode === "quotation" ? "報價中" : "非報價中"
+    lifecycleFilter ?? (mode === "quotation" ? "報價中" : "非報價中")
   );
+
+  // 總覽卡片點擊時頁面可能已掛載，參數變更需同步 filter
+  useEffect(() => {
+    if (lifecycleFilter) setStatusFilter(lifecycleFilter);
+  }, [lifecycleFilter]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [variants, setVariants] = useState<VariantOption[]>([]);
   const [editingOrder, setEditingOrder] = useState<OrderRow | null>(null);
@@ -439,6 +467,10 @@ export function OrdersPage({
           ? o.status !== "報價中" && o.status !== "結案"
           : statusFilter === "已結案"
           ? o.status === "結案"
+          : statusFilter === "生產中訂單"
+          ? PRODUCTION_STATUSES.includes(o.status)
+          : statusFilter === "完成未結案"
+          ? COMPLETED_OPEN_STATUSES.includes(o.status)
           : o.status === statusFilter;
       const matchMonth =
         !monthFilter || !o.order_date

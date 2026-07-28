@@ -39,6 +39,27 @@ export function isOrderAdminReadOnly(order: Pick<OrderRow, "status">): boolean {
   return order.status === "結案";
 }
 
+/**
+ * 訂單生命週期三集合（總覽三卡與訂單列表 filter 共用；每個 status 僅屬一個集合）：
+ * 報價中｜生產中（繪圖中→完成前，含暫停）｜已完成未結案（已完工、已出貨）；「結案」三者皆不計。
+ */
+export const QUOTE_STATUSES: OrderStatus[] = ["報價中"];
+export const PRODUCTION_STATUSES: OrderStatus[] = [
+  "繪圖中",
+  "排程中",
+  "繪製製作圖",
+  "生產中",
+  "暫停",
+];
+export const COMPLETED_OPEN_STATUSES: OrderStatus[] = ["已完工", "已出貨"];
+
+/** 已收齊款項的 payment_status；其餘（未付款、部分付款、已付訂金）視為未收齊 */
+export const SETTLED_PAYMENT_STATUS: PaymentStatus = "已結清";
+
+export function isPaymentUnsettled(paymentStatus: string | null | undefined): boolean {
+  return paymentStatus !== SETTLED_PAYMENT_STATUS;
+}
+
 /** 手動可選（不含「暫停」— 僅由生產工序帶入） */
 const ORDER_STATUS_OPTIONS: OrderStatus[] = [
   "報價中",

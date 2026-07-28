@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ClipboardList, Clock, Package, Settings2, TrendingUp, Waves, X } from "lucide-react";
+import { ChevronDown, ClipboardList, FileText, Hammer, PackageCheck, Settings2, Waves, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { normalizeWorkOrderStage } from "@/lib/work-order-stages";
+import {
+  QUOTE_STATUSES,
+  PRODUCTION_STATUSES,
+  COMPLETED_OPEN_STATUSES,
+  SETTLED_PAYMENT_STATUS,
+  isPaymentUnsettled,
+} from "@/components/orders/order-helpers";
 import {
   getLeadTimeEstimates,
   LEAD_TIME_SETTING_KEYS,
@@ -36,21 +43,10 @@ const paymentStatusStyles: Record<string, string> = {
   已結清: "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-100 dark:border-emerald-800",
 };
 
-/** 總覽「待付訂」KPI：仍須收款之訂單（與 orders 表欄位一致） */
-const PAYMENT_PENDING_FOR_KPI = ["未付款", "部分付款"] as const;
-
 type NameRel = { name: string } | { name: string }[] | null | undefined;
 
-/**
- * 將工單站別歸入總覽三區（與 work_orders.stage／生產管理工單一致）：
- * 待排程｜進行中（備料中～待出貨、含暫停）｜已出貨
- */
-function bucketWorkOrderStage(stageRaw: string | null | undefined): "scheduled" | "running" | "shipped" {
-  const s = normalizeWorkOrderStage(stageRaw);
-  if (s === "已出貨") return "shipped";
-  if (s === "待排程") return "scheduled";
-  return "running";
-}
+/** 近期訂單 accordion 展開狀態（記住使用者偏好） */
+const RECENT_ORDERS_OPEN_KEY = "dashboard:recent-orders-open";
 
 function localDateString(d: Date): string {
   const y = d.getFullYear();
@@ -80,19 +76,34 @@ function PaymentStatusBadge({ paymentStatus }: { paymentStatus: string }) {
   );
 }
 
+/**
+ * 訂單生命週期三卡（報價中｜生產中｜已完成未結案）。
+ * 集合定義與訂單列表 filter 共用 order-helpers；點擊跳轉至訂單列表並套用對應 filter。
+ */
 function DashboardStatsRow({
-  activeOrders,
-  inProgressOrders,
-  pendingPayments,
+  quote,
+  production,
+  completedOpen,
+  completedUnpaid,
+  onNavigate,
 }: {
-  activeOrders: number | null;
-  inProgressOrders: number | null;
-  pendingPayments: number | null;
+  quote: number | null;
+  production: number | null;
+  completedOpen: number | null;
+  completedUnpaid: number | null;
+  onNavigate?: (ordersStatus: "quote" | "production" | "completed_open") => void;
 }) {
   const stats = [
-    { label: "生產中訂單", sub: "orders.status＝生產中", value: activeOrders, unit: "件", icon: Package },
-    { label: "進行中訂單", sub: "orders.status∈生產中、暫停", value: inProgressOrders, unit: "件", icon: TrendingUp },
-    { label: "待付訂", sub: "orders.payment_status∈未付款、部分付款", value: pendingPayments, unit: "件", icon: Clock },
+    { key: "quote" as const, label: "報價中", sub: null, subWarning: false, value: quote, icon: FileText },
+    { key: "production" as const, label: "生產中", sub: "繪圖中 → 完成前", subWarning: false, value: production, icon: Hammer },
+    {
+      key: "completed_open" as const,
+      label: "已完成(未結案)",
+      sub: completedUnpaid != null && completedUnpaid > 0 ? `${completedUnpaid} 筆待收尾款` : null,
+      subWarning: true,
+      value: completedOpen,
+      icon: PackageCheck,
+    },
   ];
 
   return (
@@ -101,7 +112,13 @@ function DashboardStatsRow({
         const Icon = s.icon;
         const display = s.value === null ? "—" : s.value;
         return (
-          <div key={s.label} className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2">
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => onNavigate?.(s.key)}
+            className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:border-primary/40 hover:bg-accent/20"
+            title="檢視對應訂單列表"
+          >
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-secondary">
               <Icon className="h-3.5 w-3.5 text-primary" />
             </div>
@@ -109,11 +126,19 @@ function DashboardStatsRow({
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
               <p className="text-base font-semibold leading-tight text-foreground">
                 {display}
-                <span className="ml-0.5 text-xs font-normal text-muted-foreground">{s.unit}</span>
+                <span className="ml-0.5 text-xs font-normal text-muted-foreground">件</span>
               </p>
-              <p className="text-[9px] text-muted-foreground/90 leading-snug break-words">{s.sub}</p>
+              {s.sub && (
+                <p
+                  className={`text-[9px] leading-snug break-words ${
+                    s.subWarning ? "font-medium text-amber-600 dark:text-amber-400" : "text-muted-foreground/90"
+                  }`}
+                >
+                  {s.sub}
+                </p>
+              )}
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -126,11 +151,12 @@ export function DashboardOverview({
   /** admin 才能調整水位參數（產能門檻、基準交期） */
   canEditLeadTimeParams?: boolean;
 }) {
+  const router = useRouter();
   const [recentOrders, setRecentOrders] = useState<
     Array<{ id: string; order_number: string; customer_name: string; total_amount: number; status: string; payment_status: string }>
   >([]);
-  const [workOrderCounts, setWorkOrderCounts] = useState({ scheduled: 0, running: 0, shipped: 0 });
   const [portalOrdersToday, setPortalOrdersToday] = useState<number>(0);
+  const [recentOpen, setRecentOpen] = useState(false);
   const [leadTime, setLeadTime] = useState<LeadTimeEstimates | null>(null);
   const [leadTimeDialogOpen, setLeadTimeDialogOpen] = useState(false);
 
@@ -138,11 +164,37 @@ export function DashboardOverview({
     setLeadTime(await getLeadTimeEstimates(supabase));
   };
   const [kpi, setKpi] = useState<{
-    activeOrders: number | null;
-    inProgressOrders: number | null;
-    pendingPayments: number | null;
-  }>({ activeOrders: null, inProgressOrders: null, pendingPayments: null });
+    quote: number | null;
+    production: number | null;
+    completedOpen: number | null;
+    completedUnpaid: number | null;
+  }>({ quote: null, production: null, completedOpen: null, completedUnpaid: null });
   const [loading, setLoading] = useState(true);
+
+  // 展開偏好存 localStorage（首繪一律收合，避免 SSR/CSR 不一致）
+  useEffect(() => {
+    try {
+      setRecentOpen(localStorage.getItem(RECENT_ORDERS_OPEN_KEY) === "1");
+    } catch {
+      // localStorage 不可用時維持預設收合
+    }
+  }, []);
+
+  function toggleRecentOpen() {
+    setRecentOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(RECENT_ORDERS_OPEN_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
+
+  function goToOrders(ordersStatus: "quote" | "production" | "completed_open") {
+    router.push(`/?page=orders&ordersStatus=${ordersStatus}`);
+  }
 
   useEffect(() => {
     async function fetchOverview() {
@@ -152,25 +204,25 @@ export function DashboardOverview({
       from.setDate(from.getDate() - 13);
       const twoWeeksStartStr = localDateString(from);
 
-      const [ordersRes, workOrdersRes, portalRes, producingRes, inProgressOrdersRes, paymentPendingRes, leadTimeRes] =
+      const [ordersRes, portalRes, quoteRes, productionRes, completedOpenRes, completedUnpaidRes, leadTimeRes] =
         await Promise.all([
           supabase
             .from("orders")
             .select("id, order_number, total_amount, status, payment_status, customers(name)")
+            .is("deleted_at", null)
             .gte("order_date", twoWeeksStartStr)
             .lte("order_date", todayStr)
             .order("order_date", { ascending: false }),
-          supabase.from("work_orders").select(`
-          id,
-          stage,
-          order_items(
-            orders( id, status, deleted_at )
-          )
-        `),
           supabase.from("orders").select("id", { count: "exact", head: true }).eq("source", "portal").gte("order_date", todayStr).lte("order_date", todayStr),
-          supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", "生產中"),
-          supabase.from("orders").select("id", { count: "exact", head: true }).in("status", ["生產中", "暫停"]),
-          supabase.from("orders").select("id", { count: "exact", head: true }).in("payment_status", [...PAYMENT_PENDING_FOR_KPI]),
+          supabase.from("orders").select("id", { count: "exact", head: true }).is("deleted_at", null).in("status", QUOTE_STATUSES),
+          supabase.from("orders").select("id", { count: "exact", head: true }).is("deleted_at", null).in("status", PRODUCTION_STATUSES),
+          supabase.from("orders").select("id", { count: "exact", head: true }).is("deleted_at", null).in("status", COMPLETED_OPEN_STATUSES),
+          supabase
+            .from("orders")
+            .select("id", { count: "exact", head: true })
+            .is("deleted_at", null)
+            .in("status", COMPLETED_OPEN_STATUSES)
+            .or(`payment_status.is.null,payment_status.neq.${SETTLED_PAYMENT_STATUS}`),
           getLeadTimeEstimates(supabase),
         ]);
 
@@ -196,57 +248,13 @@ export function DashboardOverview({
       } else {
         setRecentOrders([]);
       }
-      if (!workOrdersRes.error && workOrdersRes.data) {
-        const rows = workOrdersRes.data as Array<{
-          id: string;
-          stage: string | null;
-          order_items:
-            | {
-                orders:
-                  | { id: string; status: string | null; deleted_at?: string | null }
-                  | { id: string; status: string | null; deleted_at?: string | null }[]
-                  | null;
-              }
-            | Array<{
-                orders:
-                  | { id: string; status: string | null; deleted_at?: string | null }
-                  | { id: string; status: string | null; deleted_at?: string | null }[]
-                  | null;
-              }>
-            | null;
-        }>;
-        let scheduled = 0;
-        let running = 0;
-        let shipped = 0;
-        for (const row of rows) {
-          const oi = Array.isArray(row.order_items) ? row.order_items[0] : row.order_items;
-          const orderRel = oi?.orders;
-          const orderObj = Array.isArray(orderRel) ? orderRel[0] : orderRel;
-          // 與生產管理工單列表慣例：已軟刪除、報價中／結案訂單不計入
-          if (
-            !orderObj ||
-            orderObj.deleted_at ||
-            orderObj.status === "報價中" ||
-            orderObj.status === "結案"
-          ) {
-            continue;
-          }
-          const bucket = bucketWorkOrderStage(row.stage);
-          if (bucket === "scheduled") scheduled++;
-          else if (bucket === "running") running++;
-          else shipped++;
-        }
-        setWorkOrderCounts({ scheduled, running, shipped });
-      } else {
-        setWorkOrderCounts({ scheduled: 0, running: 0, shipped: 0 });
-      }
-
+      const countOf = (res: { count: number | null; error: unknown }) =>
+        typeof res.count === "number" && !res.error ? res.count : 0;
       setKpi({
-        activeOrders: typeof producingRes.count === "number" && !producingRes.error ? producingRes.count : 0,
-        inProgressOrders:
-          typeof inProgressOrdersRes.count === "number" && !inProgressOrdersRes.error ? inProgressOrdersRes.count : 0,
-        pendingPayments:
-          typeof paymentPendingRes.count === "number" && !paymentPendingRes.error ? paymentPendingRes.count : 0,
+        quote: countOf(quoteRes),
+        production: countOf(productionRes),
+        completedOpen: countOf(completedOpenRes),
+        completedUnpaid: countOf(completedUnpaidRes),
       });
       if (!portalRes.error && typeof portalRes.count === "number") {
         setPortalOrdersToday(portalRes.count);
@@ -257,13 +265,12 @@ export function DashboardOverview({
     fetchOverview();
   }, []);
 
-  const totalWorkOrders =
-    workOrderCounts.scheduled + workOrderCounts.running + workOrderCounts.shipped;
+  const recentUnpaidCount = recentOrders.filter((o) => isPaymentUnsettled(o.payment_status)).length;
 
   if (loading) {
     return (
       <div className="space-y-3">
-        <DashboardStatsRow activeOrders={null} inProgressOrders={null} pendingPayments={null} />
+        <DashboardStatsRow quote={null} production={null} completedOpen={null} completedUnpaid={null} />
         <div className="rounded-lg border border-border bg-card p-4 text-center text-sm text-muted-foreground">
           載入總覽中…
         </div>
@@ -274,9 +281,11 @@ export function DashboardOverview({
   return (
     <div className="space-y-3">
       <DashboardStatsRow
-        activeOrders={kpi.activeOrders}
-        inProgressOrders={kpi.inProgressOrders}
-        pendingPayments={kpi.pendingPayments}
+        quote={kpi.quote}
+        production={kpi.production}
+        completedOpen={kpi.completedOpen}
+        completedUnpaid={kpi.completedUnpaid}
+        onNavigate={goToOrders}
       />
       {leadTime && (
         <div className="rounded-lg border border-border bg-card p-3">
@@ -325,24 +334,33 @@ export function DashboardOverview({
           )}
         </div>
       )}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr]">
-        {portalOrdersToday > 0 && (
-          <div className="col-span-full flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 lg:col-span-2">
-            <span className="text-xs font-medium text-foreground">今日通路下單</span>
-            <span className="text-sm font-semibold text-primary">{portalOrdersToday} 筆</span>
+      {portalOrdersToday > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+          <span className="text-xs font-medium text-foreground">今日通路下單</span>
+          <span className="text-sm font-semibold text-primary">{portalOrdersToday} 筆</span>
+        </div>
+      )}
+      <div className="rounded-lg border border-border bg-card">
+        <button
+          type="button"
+          onClick={toggleRecentOpen}
+          aria-expanded={recentOpen}
+          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <ClipboardList className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <h3 className="text-xs font-semibold text-card-foreground">近期訂單</h3>
           </div>
-        )}
-        <div className="rounded-lg border border-border bg-card">
-          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <ClipboardList className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <h3 className="text-xs font-semibold text-card-foreground">近期訂單</h3>
-            </div>
-            <span className="shrink-0 text-right text-[10px] text-muted-foreground">
-              近 2 週內 · 共 {recentOrders.length} 筆
-            </span>
-          </div>
-          <div className="max-h-[9.5rem] overflow-y-auto">
+          <span className="flex shrink-0 items-center gap-1 text-right text-[10px] text-muted-foreground">
+            近 2 週 {recentOrders.length} 筆
+            {recentUnpaidCount > 0 && ` · ${recentUnpaidCount} 筆未付款`}
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${recentOpen ? "rotate-180" : ""}`}
+            />
+          </span>
+        </button>
+        {recentOpen && (
+          <div className="max-h-[9.5rem] overflow-y-auto border-t border-border">
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
@@ -378,23 +396,7 @@ export function DashboardOverview({
               </TableBody>
             </Table>
           </div>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-3">
-          <div className="mb-2 flex items-start justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <h3 className="text-xs font-semibold text-card-foreground">生產進度</h3>
-            </div>
-            <span className="max-w-[min(100%,12rem)] shrink-0 text-right text-[9px] leading-snug text-muted-foreground">
-              依工單站別；不含報價中／結案
-            </span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <ProgressRow label="待排程" count={workOrderCounts.scheduled} total={totalWorkOrders} color="bg-[var(--badge-pending)]" />
-            <ProgressRow label="進行中" count={workOrderCounts.running} total={totalWorkOrders} color="bg-[var(--badge-progress)]" />
-            <ProgressRow label="已出貨" count={workOrderCounts.shipped} total={totalWorkOrders} color="bg-[var(--badge-done)]" />
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -601,30 +603,5 @@ function LeadTimeParamsDialog({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-}
-
-function ProgressRow({
-  label,
-  count,
-  total,
-  color,
-}: {
-  label: string;
-  count: number;
-  total: number;
-  color: string;
-}) {
-  const pct = total > 0 ? (count / total) * 100 : 0;
-  return (
-    <div className="flex flex-col gap-0.5">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-foreground">{label}</span>
-        <span className="text-xs font-semibold text-foreground">{count}</span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
   );
 }
