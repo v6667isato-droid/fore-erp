@@ -10,6 +10,7 @@ import type { Database } from "@/types/database.types";
  * - 金額按 order_items 明細（quantity × unit_price）依品類分別加總，運費不計
  * - 椅子＝品類 椅、凳（餐椅、板凳），但 CH04 搖椅歸「其他」（產線不同）
  * - 分類不明一律歸「其他」（保守估計）
+ * - 排除客戶「Føre」的訂單（自家庫存製作，非客戶交期）
  */
 
 /** 已確認生產、尚未完工的訂單狀態（報價中之前、已完工之後皆不計入） */
@@ -26,6 +27,12 @@ export const CHAIR_CATEGORIES = ["椅", "凳"] as const;
 
 /** CH04 搖椅家族與椅凳產線不同，歸「其他」水位 */
 export const CHAIR_EXCLUDED_SERIES_PREFIX = "CH04";
+
+/** 自家庫存製作的客戶名（Føre／FORE 等寫法都排除，ø 視同 O） */
+export function isStockCustomerName(name: string | null | undefined): boolean {
+  const normalized = (name ?? "").trim().toUpperCase().replace(/Ø/g, "O");
+  return normalized === "FORE";
+}
 
 export const LEAD_TIME_SETTING_KEYS = {
   chairCapacityPerMonth: "lead_time_chair_capacity_per_month",
@@ -56,7 +63,7 @@ export interface LeadTimeCategoryEstimate {
   capacityPerMonth: number;
   /** 基準交期（月） */
   baseMonths: number;
-  /** 原始交期 = base × max(1, backlog ÷ capacity)，debug 用 */
+  /** 原始交期 = max(基準交期, backlog ÷ 月產能)，debug 用 */
   rawMonths: number;
   /** 對外報價交期：無條件進位到 0.5 個月 */
   displayMonths: number;
@@ -72,13 +79,14 @@ export function roundUpToHalfMonth(months: number): number {
   return Math.ceil(months * 2) / 2;
 }
 
+/** 交期（月）＝max(基準交期, backlog ÷ 月產能)；水位不足月產能時維持基準交期 */
 export function computeLeadTimeMonths(
   backlogAmount: number,
   capacityPerMonth: number,
   baseMonths: number,
 ): number {
   if (!(capacityPerMonth > 0)) return baseMonths;
-  return baseMonths * Math.max(1, backlogAmount / capacityPerMonth);
+  return Math.max(baseMonths, backlogAmount / capacityPerMonth);
 }
 
 function buildEstimate(
@@ -198,6 +206,7 @@ export async function getLeadTimeEstimates(
       .from("orders")
       .select(
         `id,
+         customers(name),
          order_items(
            quantity,
            unit_price,
@@ -215,6 +224,9 @@ export async function getLeadTimeEstimates(
     console.error("[lead-time] 查詢未完工訂單失敗，backlog 以 0 計", backlogRes.error);
   } else {
     for (const order of backlogRes.data ?? []) {
+      const customerRel = order.customers as { name: string | null } | { name: string | null }[] | null;
+      const customer = Array.isArray(customerRel) ? customerRel[0] : customerRel;
+      if (isStockCustomerName(customer?.name)) continue;
       const items = (order.order_items ?? []) as BacklogItemRow[];
       for (const item of items) {
         const quantity = toFiniteNumber(item.quantity) ?? 0;

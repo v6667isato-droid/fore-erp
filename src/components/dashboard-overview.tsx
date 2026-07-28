@@ -296,7 +296,7 @@ export function DashboardOverview({
               )}
             </div>
             <span className="max-w-[min(100%,14rem)] shrink-0 text-right text-[9px] leading-snug text-muted-foreground">
-              繪圖中～暫停之未完工訂單，按明細品類拆分
+              繪圖中～暫停之未完工訂單，按明細品類拆分；不含 Føre 庫存單
             </span>
           </div>
           <div className="flex flex-col gap-3">
@@ -395,6 +395,15 @@ function wanLabel(amount: number): string {
   return `${Number.isInteger(rounded) ? Math.round(rounded) : rounded}萬`;
 }
 
+/** 滿水位＝當月起 4 個月（一季）的產能 */
+const LEAD_TIME_SCALE_MONTHS = 4;
+
+/** 當月起連續 monthCount 個月的「N月」標籤 */
+function upcomingMonthLabels(monthCount: number): string[] {
+  const now = new Date();
+  return Array.from({ length: monthCount }, (_, i) => `${((now.getMonth() + i) % 12) + 1}月`);
+}
+
 function LeadTimeWaterLevelRow({
   label,
   sublabel,
@@ -404,12 +413,14 @@ function LeadTimeWaterLevelRow({
   sublabel?: string;
   estimate: LeadTimeCategoryEstimate;
 }) {
-  // 刻度 0 ～ 產能門檻 × 2；滿載線在門檻處（50%）
-  const scaleMax = estimate.capacityPerMonth * 2;
+  // 刻度＝當月起 4 個月產能，每格一個月；超過基準交期的水位以警示色顯示
+  const scaleMax = estimate.capacityPerMonth * LEAD_TIME_SCALE_MONTHS;
+  const baseAmount = Math.min(estimate.baseMonths * estimate.capacityPerMonth, scaleMax);
   const cappedBacklog = Math.max(0, Math.min(estimate.backlogAmount, scaleMax));
-  const normalPct = (Math.min(cappedBacklog, estimate.capacityPerMonth) / scaleMax) * 100;
-  const excessPct = (Math.max(0, cappedBacklog - estimate.capacityPerMonth) / scaleMax) * 100;
-  const overloaded = estimate.backlogAmount > estimate.capacityPerMonth;
+  const normalPct = (Math.min(cappedBacklog, baseAmount) / scaleMax) * 100;
+  const excessPct = (Math.max(0, cappedBacklog - baseAmount) / scaleMax) * 100;
+  const overloaded = estimate.backlogAmount > baseAmount;
+  const monthLabels = upcomingMonthLabels(LEAD_TIME_SCALE_MONTHS);
 
   return (
     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
@@ -435,20 +446,26 @@ function LeadTimeWaterLevelRow({
               <div className="h-full bg-amber-500 transition-all" style={{ width: `${excessPct}%` }} />
             )}
           </div>
-          {/* 滿載基準線（門檻＝刻度中點） */}
-          <div className="absolute inset-y-0 left-1/2 w-px bg-foreground/50" />
+          {/* 月分隔線（每格＝一個月產能） */}
+          {monthLabels.slice(1).map((_, i) => (
+            <div
+              key={i}
+              className="absolute inset-y-0 w-px bg-foreground/30"
+              style={{ left: `${((i + 1) / LEAD_TIME_SCALE_MONTHS) * 100}%` }}
+            />
+          ))}
         </div>
-        <div className="mt-0.5 flex justify-between text-[9px] text-muted-foreground">
-          <span>0</span>
-          <span className={overloaded ? "font-semibold text-amber-600 dark:text-amber-400" : ""}>
-            滿載 {wanLabel(estimate.capacityPerMonth)}
-          </span>
-          <span>{wanLabel(scaleMax)}</span>
+        <div className="mt-0.5 flex text-[9px] text-muted-foreground">
+          {monthLabels.map((m) => (
+            <span key={m} className="w-1/4 text-center">
+              {m}
+            </span>
+          ))}
         </div>
       </div>
       <div
         className="shrink-0 text-xs text-foreground sm:w-36 sm:text-right"
-        title={`原始值 ${estimate.rawMonths.toFixed(2)} 個月（基準 ${estimate.baseMonths} 個月 × max(1, backlog ÷ ${wanLabel(estimate.capacityPerMonth)})）`}
+        title={`原始值 ${estimate.rawMonths.toFixed(2)} 個月＝max(基準 ${estimate.baseMonths} 個月, backlog ÷ 月產能 ${wanLabel(estimate.capacityPerMonth)})`}
       >
         預估交期：
         <span className={`font-semibold ${overloaded ? "text-amber-600 dark:text-amber-400" : ""}`}>
@@ -528,7 +545,7 @@ function LeadTimeParamsDialog({
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">調整水位參數</Dialog.Title>
               <p id="lead-time-params-desc" className="mt-1 text-sm text-muted-foreground">
-                交期（月）＝基準交期 × max(1, backlog ÷ 產能門檻)；刻度上限為門檻 × 2
+                交期（月）＝max(基準交期, backlog ÷ 月產能)，進位到 0.5；刻度為當月起 4 個月產能
               </p>
             </div>
             <Dialog.Close asChild>
