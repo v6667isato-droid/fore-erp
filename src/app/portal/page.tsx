@@ -36,6 +36,7 @@ import {
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
 import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-payment-status";
+import { LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
 
 function resolvePortalSeatHeight(v: {
   seat_height_cm?: number | null;
@@ -294,6 +295,11 @@ export default function PortalPage() {
 
   const [myOrders, setMyOrders] = useState<MyOrderRow[]>([]);
   const [myOrdersLoading, setMyOrdersLoading] = useState(false);
+  /** 目前接單水位與交期（去金額化，由 /api/portal/lead-time 提供） */
+  const [leadTime, setLeadTime] = useState<{
+    chair: { months_load: number; base_months: number; display_months: number };
+    other: { months_load: number; base_months: number; display_months: number };
+  } | null>(null);
   const [myOrdersScopeTab, setMyOrdersScopeTab] = useState<MyOrdersScopeTab>("ongoing");
   /** 目前登入通路之「系列 → 折扣 %」與訂單新增相同資料來源 */
   const [portalSeriesDiscountPct, setPortalSeriesDiscountPct] = useState<Map<string, number>>(
@@ -445,6 +451,34 @@ export default function PortalPage() {
   useEffect(() => {
     if (session?.delivery_address != null) setShippingAddress(session.delivery_address);
   }, [session?.customer_id, session?.delivery_address]);
+
+  // 目前接單水位與交期（僅顯示水位條與交期，無金額）；失敗時整塊隱藏
+  useEffect(() => {
+    if (!session?.portal_token) {
+      setLeadTime(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/lead-time", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: session.portal_token }),
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && json?.chair && json?.other) {
+          setLeadTime({ chair: json.chair, other: json.other });
+        }
+      } catch {
+        /* 隱藏區塊即可 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.portal_token]);
 
   const fetchMyOrders = useCallback(async () => {
     if (!session?.customer_id) return;
@@ -1233,6 +1267,30 @@ export default function PortalPage() {
                 您可在下方「我的訂單」查看，或於內部 ERP 訂單管理與工單列表查詢。
               </p>
             </div>
+          )}
+
+          {leadTime && (
+            <section className="mb-6 space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                目前接單水位與預估交期
+              </h3>
+              <div className="flex flex-col gap-3">
+                <LeadTimeWaterLevelRow
+                  label="椅子"
+                  sublabel="餐椅、板凳，不含搖椅"
+                  monthsLoad={leadTime.chair.months_load}
+                  baseMonths={leadTime.chair.base_months}
+                  displayMonths={leadTime.chair.display_months}
+                />
+                <LeadTimeWaterLevelRow
+                  label="其他"
+                  sublabel="桌、櫃、搖椅等"
+                  monthsLoad={leadTime.other.months_load}
+                  baseMonths={leadTime.other.base_months}
+                  displayMonths={leadTime.other.display_months}
+                />
+              </div>
+            </section>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-6">

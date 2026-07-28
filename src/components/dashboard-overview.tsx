@@ -29,6 +29,7 @@ import {
   type LeadTimeCategoryEstimate,
   type LeadTimeEstimates,
 } from "@/lib/lead-time-estimates";
+import { LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
 
 const statusStyles: Record<string, string> = {
   生產中: "bg-[var(--badge-progress)] text-[var(--badge-progress-fg)] border-transparent",
@@ -311,13 +312,13 @@ export function DashboardOverview({
             )}
           </div>
           <div className="flex flex-col gap-3">
-            <LeadTimeWaterLevelRow
+            <DashboardLeadTimeRow
               label="椅子"
               sublabel="餐椅、板凳，不含搖椅"
               estimate={leadTime.chair}
               showAmount={canEditLeadTimeParams}
             />
-            <LeadTimeWaterLevelRow
+            <DashboardLeadTimeRow
               label="其他"
               sublabel="桌、櫃、搖椅等"
               estimate={leadTime.other}
@@ -409,16 +410,8 @@ function wanLabel(amount: number): string {
   return `${Number.isInteger(rounded) ? Math.round(rounded) : rounded}萬`;
 }
 
-/** 滿水位＝當月起 4 個月（一季）的產能 */
-const LEAD_TIME_SCALE_MONTHS = 4;
-
-/** 當月起連續 monthCount 個月的「N月」標籤 */
-function upcomingMonthLabels(monthCount: number): string[] {
-  const now = new Date();
-  return Array.from({ length: monthCount }, (_, i) => `${((now.getMonth() + i) % 12) + 1}月`);
-}
-
-function LeadTimeWaterLevelRow({
+/** 共用水位條的 dashboard 包裝：金額口徑 → 月數負載；admin 才帶金額與公式細節 */
+function DashboardLeadTimeRow({
   label,
   sublabel,
   estimate,
@@ -430,72 +423,22 @@ function LeadTimeWaterLevelRow({
   /** admin 才顯示 backlog 金額與公式細節 */
   showAmount?: boolean;
 }) {
-  // 刻度＝當月起 4 個月產能，每格一個月；超過基準交期的水位以警示色顯示
-  const scaleMax = estimate.capacityPerMonth * LEAD_TIME_SCALE_MONTHS;
-  const baseAmount = Math.min(estimate.baseMonths * estimate.capacityPerMonth, scaleMax);
-  const cappedBacklog = Math.max(0, Math.min(estimate.backlogAmount, scaleMax));
-  const normalPct = (Math.min(cappedBacklog, baseAmount) / scaleMax) * 100;
-  const excessPct = (Math.max(0, cappedBacklog - baseAmount) / scaleMax) * 100;
-  const overloaded = estimate.backlogAmount > baseAmount;
-  const monthLabels = upcomingMonthLabels(LEAD_TIME_SCALE_MONTHS);
-
+  const monthsLoad =
+    estimate.capacityPerMonth > 0 ? estimate.backlogAmount / estimate.capacityPerMonth : 0;
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-      <div className="flex items-baseline justify-between gap-2 sm:w-40 sm:shrink-0 sm:flex-col sm:gap-0.5">
-        <span className="text-xs font-medium text-foreground">
-          {label}
-          {sublabel && (
-            <span className="ml-1 text-[9px] font-normal text-muted-foreground">{sublabel}</span>
-          )}
-        </span>
-        {showAmount && (
-          <span className="text-xs font-semibold text-foreground">
-            NT$ {Math.round(estimate.backlogAmount).toLocaleString()}
-          </span>
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary">
-          <div className="absolute inset-y-0 left-0 flex w-full">
-            <div
-              className="h-full bg-[var(--badge-progress)] transition-all"
-              style={{ width: `${normalPct}%` }}
-            />
-            {excessPct > 0 && (
-              <div className="h-full bg-amber-500 transition-all" style={{ width: `${excessPct}%` }} />
-            )}
-          </div>
-          {/* 月分隔線（每格＝一個月產能） */}
-          {monthLabels.slice(1).map((_, i) => (
-            <div
-              key={i}
-              className="absolute inset-y-0 w-px bg-foreground/30"
-              style={{ left: `${((i + 1) / LEAD_TIME_SCALE_MONTHS) * 100}%` }}
-            />
-          ))}
-        </div>
-        <div className="mt-0.5 flex text-[9px] text-muted-foreground">
-          {monthLabels.map((m) => (
-            <span key={m} className="w-1/4 text-center">
-              {m}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div
-        className="shrink-0 text-xs text-foreground sm:w-36 sm:text-right"
-        title={
-          showAmount
-            ? `原始值 ${estimate.rawMonths.toFixed(2)} 個月＝max(基準 ${estimate.baseMonths} 個月, backlog ÷ 月產能 ${wanLabel(estimate.capacityPerMonth)})`
-            : undefined
-        }
-      >
-        預估交期：
-        <span className={`font-semibold ${overloaded ? "text-amber-600 dark:text-amber-400" : ""}`}>
-          {estimate.displayMonths.toFixed(1)} 個月
-        </span>
-      </div>
-    </div>
+    <LeadTimeWaterLevelRow
+      label={label}
+      sublabel={sublabel}
+      monthsLoad={monthsLoad}
+      baseMonths={estimate.baseMonths}
+      displayMonths={estimate.displayMonths}
+      amountText={showAmount ? `NT$ ${Math.round(estimate.backlogAmount).toLocaleString()}` : undefined}
+      detailTitle={
+        showAmount
+          ? `原始值 ${estimate.rawMonths.toFixed(2)} 個月＝max(基準 ${estimate.baseMonths} 個月, backlog ÷ 月產能 ${wanLabel(estimate.capacityPerMonth)})`
+          : undefined
+      }
+    />
   );
 }
 
