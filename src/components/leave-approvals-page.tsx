@@ -57,6 +57,15 @@ import {
   type HolidayLookupRow,
 } from "@/lib/leave-holiday-conflict";
 import { LEAVE_WORK_DAY_HOURS, formatDayDecimalAsDayHour } from "@/lib/employee-leave-time";
+import {
+  SICK_ANNUAL_LIMIT_DAYS,
+  SICK_PROTECTION_LINE_DAYS,
+  fetchAllLeaveTypes,
+  getLeaveAttachmentSignedUrl,
+  sickCountedDays,
+  type LeaveTypeRow,
+  type YearlyLeaveUsageMap,
+} from "@/lib/leave-types";
 
 interface LeaveRequestAdminRow {
   id: string;
@@ -70,6 +79,9 @@ interface LeaveRequestAdminRow {
   /** leave_requests.updated_at（核准／退回或內容修改） */
   updated_at: string | null;
   status_raw: string;
+  reason: string | null;
+  /** leave-attachments bucket 內的物件路徑 */
+  attachment_url: string | null;
 }
 
 /** 產生最近 N 個月的 YYYY-MM（含當月），供歷史假單月份下拉使用 */
@@ -210,7 +222,36 @@ function mapRowToAdminRow(
     created_at: created,
     updated_at: updated,
     status_raw: String(r.status ?? ""),
+    reason: r.reason != null && String(r.reason).trim() ? String(r.reason) : null,
+    attachment_url:
+      r.attachment_url != null && String(r.attachment_url).trim()
+        ? String(r.attachment_url)
+        : null,
   };
+}
+
+/** 假別規則（description 給員工看的說明＋approval_notes 審核須知），供審核者展開查閱 */
+function LeaveTypeRulePanel({ lt }: { lt: LeaveTypeRow | undefined }) {
+  if (!lt || (!lt.description && !lt.approval_notes)) return null;
+  return (
+    <details className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-xs">
+      <summary className="cursor-pointer select-none font-medium text-foreground">
+        假別規則與審核須知（{lt.name}）
+      </summary>
+      {lt.description ? (
+        <p className="mt-2 leading-relaxed text-muted-foreground">
+          <span className="font-medium text-foreground">規則說明：</span>
+          {lt.description}
+        </p>
+      ) : null}
+      {lt.approval_notes ? (
+        <p className="mt-2 leading-relaxed text-amber-950 dark:text-amber-100">
+          <span className="font-medium">審核須知：</span>
+          {lt.approval_notes}
+        </p>
+      ) : null}
+    </details>
+  );
 }
 
 /** 特休以「X 天 Y 小時」顯示（total_days 為小數日）；其他假別維持「X 天」 */
@@ -271,6 +312,59 @@ export function LeaveApprovalsPage() {
   const [error, setError] = useState<string | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
   const [holidayRows, setHolidayRows] = useState<HolidayLookupRow[]>([]);
+  /** 假別主檔（含停用），供顯示規則說明與審核須知 */
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await fetchAllLeaveTypes();
+        if (!cancelled) setLeaveTypes(list);
+      } catch (e) {
+        console.warn("[leave-approvals] leave_types 載入失敗", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const leaveTypeByName = useMemo(() => {
+    const m = new Map<string, LeaveTypeRow>();
+    for (const lt of leaveTypes) m.set(lt.name, lt);
+    return m;
+  }, [leaveTypes]);
+
+  /** 本年度已核准天數：員工 → （假別名稱 → 天數）；由已載入的全部假單彙總 */
+  const yearlyUsageByEmployee = useMemo(() => {
+    const yearPrefix = `${new Date().getFullYear()}-`;
+    const m = new Map<string, Map<string, number>>();
+    for (const r of rows) {
+      if (normalizeStatus(r.status_raw) !== "approved") continue;
+      if (!r.start_date.startsWith(yearPrefix)) continue;
+      let inner = m.get(r.employee_id);
+      if (!inner) {
+        inner = new Map();
+        m.set(r.employee_id, inner);
+      }
+      inner.set(
+        r.leave_type_label,
+        (inner.get(r.leave_type_label) ?? 0) + r.days,
+      );
+    }
+    return m;
+  }, [rows]);
+
+  async function openAttachment(path: string) {
+    const res = await getLeaveAttachmentSignedUrl(path);
+    if (!res.ok) {
+      toast.error(res.message);
+      return;
+    }
+    window.open(res.url, "_blank", "noopener");
+  }
 
   useEffect(() => {
     (async () => {
@@ -332,6 +426,8 @@ export function LeaveApprovalsPage() {
         hours_count,
         created_at,
         updated_at,
+        reason,
+        attachment_url,
         employees ( name )
       `;
 
@@ -356,7 +452,7 @@ export function LeaveApprovalsPage() {
         let plain = await supabase
           .from("leave_requests")
           .select(
-            "id, employee_id, leave_type, start_date, end_date, status, total_days, hours_count, created_at, updated_at",
+            "id, employee_id, leave_type, start_date, end_date, status, total_days, hours_count, created_at, updated_at, reason, attachment_url",
           )
           .order("created_at", { ascending: false });
 
@@ -581,7 +677,7 @@ export function LeaveApprovalsPage() {
         return {
           title: "薪資結算中心",
           description:
-            "橫向捲動檢視；核准假單區分事假、病假與特休（leave_type＝特休）；發放時同步寫入 payslips 與特休餘額。",
+            "橫向捲動檢視；核准假單依假別 pay_ratio（leave_types）計算扣薪，特休另行結算；發放時同步寫入 payslips 與特休餘額。",
           Icon: Banknote,
           showLeaveRefresh: false,
         };
@@ -906,7 +1002,70 @@ export function LeaveApprovalsPage() {
                           </span>
                         </p>
                       ) : null}
+                      {row.reason ? (
+                        <p className="sm:col-span-2">
+                          <span className="text-xs uppercase tracking-wide">
+                            事由／備註
+                          </span>
+                          <br />
+                          <span className="whitespace-pre-wrap text-foreground">
+                            {row.reason}
+                          </span>
+                        </p>
+                      ) : null}
                     </div>
+                    {(() => {
+                      const usage = (yearlyUsageByEmployee.get(row.employee_id) ??
+                        new Map()) as YearlyLeaveUsageMap;
+                      const label = row.leave_type_label.trim();
+                      const fmt = (n: number) =>
+                        n.toLocaleString("zh-TW", { maximumFractionDigits: 2 });
+                      if (label === "病假" || label === "生理假") {
+                        const counted = sickCountedDays(usage);
+                        return (
+                          <p className="text-xs text-muted-foreground">
+                            今年已核准病假（含生理假逾 3 日部分）：
+                            <span className="tabular-nums font-medium text-foreground">
+                              {fmt(counted)} 日
+                            </span>
+                            {counted > SICK_ANNUAL_LIMIT_DAYS ? (
+                              <span className="ml-2 inline-flex items-center rounded-full border border-red-700/30 bg-red-100/90 px-2 py-0.5 text-[11px] font-medium text-red-950 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-100">
+                                已超過 {SICK_ANNUAL_LIMIT_DAYS} 日半薪上限
+                              </span>
+                            ) : counted > SICK_PROTECTION_LINE_DAYS ? (
+                              <span className="ml-2 inline-flex items-center rounded-full border border-amber-700/30 bg-amber-100/90 px-2 py-0.5 text-[11px] font-medium text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
+                                已超過 {SICK_PROTECTION_LINE_DAYS} 日（超出不利處分保護線）
+                              </span>
+                            ) : (
+                              <span className="ml-2 text-[11px]">
+                                （10 日內受不利處分保護；{SICK_ANNUAL_LIMIT_DAYS} 日內半薪）
+                              </span>
+                            )}
+                          </p>
+                        );
+                      }
+                      const used = usage.get(label) ?? 0;
+                      if (used <= 0) return null;
+                      return (
+                        <p className="text-xs text-muted-foreground">
+                          今年已核准{label}：
+                          <span className="tabular-nums font-medium text-foreground">
+                            {fmt(used)} 日
+                          </span>
+                        </p>
+                      );
+                    })()}
+                    <LeaveTypeRulePanel lt={leaveTypeByName.get(row.leave_type_label.trim())} />
+                    {row.attachment_url ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 gap-1.5 px-3 text-xs"
+                        onClick={() => void openAttachment(row.attachment_url!)}
+                      >
+                        📎 檢視附件
+                      </Button>
+                    ) : null}
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:w-40 sm:justify-center">
                     <Button
@@ -1059,19 +1218,31 @@ export function LeaveApprovalsPage() {
                           {showUpdated ? formatLeaveUpdatedAtDisplay(row.updated_at) : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-sm">
-                          {st === "approved" ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
-                              disabled={actingId === row.id}
-                              onClick={() => void revoke(row.id)}
-                            >
-                              撤銷
-                            </Button>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
+                          <span className="inline-flex items-center gap-1.5">
+                            {row.attachment_url ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => void openAttachment(row.attachment_url!)}
+                              >
+                                📎 附件
+                              </Button>
+                            ) : null}
+                            {st === "approved" ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
+                                disabled={actingId === row.id}
+                                onClick={() => void revoke(row.id)}
+                              >
+                                撤銷
+                              </Button>
+                            ) : row.attachment_url ? null : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </span>
                         </TableCell>
                       </TableRow>
                     );

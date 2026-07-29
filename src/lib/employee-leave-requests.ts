@@ -29,6 +29,8 @@ export type InsertEmployeeLeaveInput = {
   hoursCount: number | null;
   daysCount: number;
   reason: string | null;
+  /** leave-attachments bucket 內的物件路徑（無附件時為 null） */
+  attachmentUrl?: string | null;
 };
 
 function isUnknownColumnError(message: string): boolean {
@@ -56,6 +58,7 @@ export async function insertEmployeeLeaveRequest(
     total_days: input.daysCount,
     status: "pending",
     reason: input.reason,
+    ...(input.attachmentUrl ? { attachment_url: input.attachmentUrl } : {}),
   };
 
   const withLegacyHours: Record<string, unknown> = {

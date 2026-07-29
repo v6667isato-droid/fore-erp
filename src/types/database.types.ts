@@ -248,6 +248,75 @@ export type Database = {
           },
         ]
       }
+      bom_items: {
+        Row: {
+          created_at: string | null
+          id: string
+          notes: string | null
+          parent_part_id: string | null
+          part_id: string
+          quantity: number
+          unit: string | null
+          variant_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          parent_part_id?: string | null
+          part_id: string
+          quantity: number
+          unit?: string | null
+          variant_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          parent_part_id?: string | null
+          part_id?: string
+          quantity?: number
+          unit?: string | null
+          variant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bom_items_parent_part_id_fkey"
+            columns: ["parent_part_id"]
+            isOneToOne: false
+            referencedRelation: "part_stock_status"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bom_items_parent_part_id_fkey"
+            columns: ["parent_part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bom_items_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "part_stock_status"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bom_items_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bom_items_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "product_variants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       channels: {
         Row: {
           code: string | null
@@ -889,6 +958,7 @@ export type Database = {
       }
       leave_requests: {
         Row: {
+          attachment_url: string | null
           created_at: string | null
           employee_id: string
           end_date: string
@@ -902,6 +972,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          attachment_url?: string | null
           created_at?: string | null
           employee_id: string
           end_date: string
@@ -915,6 +986,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          attachment_url?: string | null
           created_at?: string | null
           employee_id?: string
           end_date?: string
@@ -936,6 +1008,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      leave_types: {
+        Row: {
+          active: boolean
+          annual_limit_days: number | null
+          approval_notes: string | null
+          category: string
+          code: string
+          description: string | null
+          name: string
+          pay_ratio: number
+          proof_required: string
+          proof_threshold_days: number | null
+          sort_order: number
+          statutory_days: number | null
+          tracks_balance: boolean
+        }
+        Insert: {
+          active?: boolean
+          annual_limit_days?: number | null
+          approval_notes?: string | null
+          category: string
+          code: string
+          description?: string | null
+          name: string
+          pay_ratio?: number
+          proof_required?: string
+          proof_threshold_days?: number | null
+          sort_order?: number
+          statutory_days?: number | null
+          tracks_balance?: boolean
+        }
+        Update: {
+          active?: boolean
+          annual_limit_days?: number | null
+          approval_notes?: string | null
+          category?: string
+          code?: string
+          description?: string | null
+          name?: string
+          pay_ratio?: number
+          proof_required?: string
+          proof_threshold_days?: number | null
+          sort_order?: number
+          statutory_days?: number | null
+          tracks_balance?: boolean
+        }
+        Relationships: []
       }
       order_items: {
         Row: {
@@ -1151,6 +1271,140 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      part_make_tasks: {
+        Row: {
+          assignee_id: string
+          completed: boolean
+          completed_at: string | null
+          created_at: string | null
+          due_date: string | null
+          id: string
+          instructions: string | null
+          items: Json
+        }
+        Insert: {
+          assignee_id: string
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          id?: string
+          instructions?: string | null
+          items?: Json
+        }
+        Update: {
+          assignee_id?: string
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          id?: string
+          instructions?: string | null
+          items?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "part_make_tasks_assignee_id_fkey"
+            columns: ["assignee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parts: {
+        Row: {
+          attachment_urls: Json
+          category: string
+          created_at: string | null
+          deleted_at: string | null
+          dim_length_mm: number | null
+          dim_thickness_mm: number | null
+          dim_width_mm: number | null
+          drawing_url: string | null
+          id: string
+          is_component: boolean
+          name: string
+          notes: string | null
+          part_no: string
+          procurement_material_id: string | null
+          procurement_type: string
+          reference_unit_price: number | null
+          reorder_point: number
+          safety_stock: number
+          sop: string | null
+          source_type: string
+          unit: string
+          vendor_id: string | null
+          wood_species: string | null
+        }
+        Insert: {
+          attachment_urls?: Json
+          category: string
+          created_at?: string | null
+          deleted_at?: string | null
+          dim_length_mm?: number | null
+          dim_thickness_mm?: number | null
+          dim_width_mm?: number | null
+          drawing_url?: string | null
+          id?: string
+          is_component?: boolean
+          name: string
+          notes?: string | null
+          part_no: string
+          procurement_material_id?: string | null
+          procurement_type?: string
+          reference_unit_price?: number | null
+          reorder_point?: number
+          safety_stock?: number
+          sop?: string | null
+          source_type?: string
+          unit?: string
+          vendor_id?: string | null
+          wood_species?: string | null
+        }
+        Update: {
+          attachment_urls?: Json
+          category?: string
+          created_at?: string | null
+          deleted_at?: string | null
+          dim_length_mm?: number | null
+          dim_thickness_mm?: number | null
+          dim_width_mm?: number | null
+          drawing_url?: string | null
+          id?: string
+          is_component?: boolean
+          name?: string
+          notes?: string | null
+          part_no?: string
+          procurement_material_id?: string | null
+          procurement_type?: string
+          reference_unit_price?: number | null
+          reorder_point?: number
+          safety_stock?: number
+          sop?: string | null
+          source_type?: string
+          unit?: string
+          vendor_id?: string | null
+          wood_species?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parts_procurement_material_id_fkey"
+            columns: ["procurement_material_id"]
+            isOneToOne: false
+            referencedRelation: "procurement_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
             referencedColumns: ["id"]
           },
         ]
@@ -2182,6 +2436,125 @@ export type Database = {
           },
         ]
       }
+      stock_movements: {
+        Row: {
+          created_at: string | null
+          employee_id: string | null
+          id: string
+          movement_date: string
+          movement_type: string
+          notes: string | null
+          order_id: string | null
+          part_id: string
+          quantity: number
+          work_order_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          employee_id?: string | null
+          id?: string
+          movement_date?: string
+          movement_type: string
+          notes?: string | null
+          order_id?: string | null
+          part_id: string
+          quantity: number
+          work_order_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          employee_id?: string | null
+          id?: string
+          movement_date?: string
+          movement_type?: string
+          notes?: string | null
+          order_id?: string | null
+          part_id?: string
+          quantity?: number
+          work_order_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_movements_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "part_stock_status"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stocktake_tasks: {
+        Row: {
+          assignee_id: string
+          category: string | null
+          completed: boolean
+          completed_at: string | null
+          created_at: string | null
+          due_date: string | null
+          id: string
+          instructions: string | null
+          part_ids: string[] | null
+        }
+        Insert: {
+          assignee_id: string
+          category?: string | null
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          id?: string
+          instructions?: string | null
+          part_ids?: string[] | null
+        }
+        Update: {
+          assignee_id?: string
+          category?: string | null
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          id?: string
+          instructions?: string | null
+          part_ids?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stocktake_tasks_assignee_id_fkey"
+            columns: ["assignee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       telegram_bot_invites: {
         Row: {
           code: string
@@ -2602,7 +2975,33 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      part_stock_status: {
+        Row: {
+          below_safety: boolean | null
+          category: string | null
+          current_stock: number | null
+          id: string | null
+          is_component: boolean | null
+          name: string | null
+          needs_reorder: boolean | null
+          part_no: string | null
+          procurement_type: string | null
+          reorder_point: number | null
+          safety_stock: number | null
+          source_type: string | null
+          unit: string | null
+          vendor_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parts_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       approve_overtime_to_comp_leave: {

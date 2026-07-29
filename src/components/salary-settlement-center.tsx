@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchAllLeaveTypes, type LeaveTypeRow } from "@/lib/leave-types";
 import {
   getSupabaseSession,
   isSupabaseConfigured,
@@ -174,14 +175,56 @@ function leaveTypeRaw(row: Record<string, unknown>): string {
   return String(row.leave_type ?? row.type_label ?? row.type ?? "").trim();
 }
 
-/** 事假／病假（文字包含） */
-function classifySickOrPersonal(
-  row: Record<string, unknown>,
-): "personal" | "sick" | null {
-  const t = leaveTypeRaw(row);
-  if (t.includes("事假")) return "personal";
-  if (t.includes("病假")) return "sick";
-  return null;
+/**
+ * 扣薪比例 = 1 − leave_types.pay_ratio（全薪 0、半薪 0.5、不給薪 1）。
+ * leave_types 未載入或查無該假別時退回舊規則：事假全扣、病假半薪、其餘不扣。
+ * 注意：產假 pay_ratio 存 1.0（未滿一年半薪需依年資人工用「調整」欄處理）。
+ */
+function leaveDeductionRatio(
+  name: string,
+  typeByName: Map<string, LeaveTypeRow> | null,
+): number {
+  const t = name.trim();
+  if (!t) return 0;
+  const lt = typeByName?.get(t);
+  if (lt) {
+    const r = 1 - lt.pay_ratio;
+    return Number.isFinite(r) ? Math.min(1, Math.max(0, r)) : 0;
+  }
+  if (t.includes("事假")) return 1;
+  if (t.includes("病假")) return 0.5;
+  return 0;
+}
+
+/** 單一員工當月請假統計（特休另行結算；deductible 僅收扣薪比例 > 0 的假別） */
+type LeaveMonthStats = {
+  specialThisMonth: number;
+  /** 假別名稱 → 本月天數 */
+  deductibleByType: Map<string, number>;
+  /** Σ 天數 × 扣薪比例 */
+  weightedDeductionDays: number;
+};
+
+function emptyLeaveMonthStats(): LeaveMonthStats {
+  return {
+    specialThisMonth: 0,
+    deductibleByType: new Map(),
+    weightedDeductionDays: 0,
+  };
+}
+
+function computeLeaveDeduction(
+  monthlyWage: number,
+  st: LeaveMonthStats,
+): { total: number; leaveDaysTotal: number; breakdownLabel: string } {
+  const total = Math.round((monthlyWage / 30) * st.weightedDeductionDays);
+  let leaveDaysTotal = 0;
+  const parts: string[] = [];
+  for (const [name, days] of st.deductibleByType) {
+    leaveDaysTotal += days;
+    parts.push(`${name} ${days} 天`);
+  }
+  return { total, leaveDaysTotal, breakdownLabel: parts.join(" · ") };
 }
 
 /** leave_type 為「特休」 */
@@ -371,6 +414,31 @@ export function SalarySettlementCenter() {
     Record<string, SemiAnnualBonusDetail>
   >({});
   const [importingBonus, setImportingBonus] = useState(false);
+  /** 假別主檔（pay_ratio 扣薪比例）；載入失敗時為 null → 退回舊規則（事假全扣、病假半薪） */
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[] | null>(null);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await fetchAllLeaveTypes();
+        if (!cancelled && list.length > 0) setLeaveTypes(list);
+      } catch (e) {
+        console.warn("[salary-settlement] leave_types 載入失敗，退回預設扣薪規則", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const leaveTypeByName = useMemo(() => {
+    if (!leaveTypes) return null;
+    const m = new Map<string, LeaveTypeRow>();
+    for (const lt of leaveTypes) m.set(lt.name, lt);
+    return m;
+  }, [leaveTypes]);
 
   const bounds = useMemo(() => monthBounds(payPeriod), [payPeriod]);
 
@@ -381,10 +449,7 @@ export function SalarySettlementCenter() {
   );
 
   const leaveStatsByEmployee = useMemo(() => {
-    const map = new Map<
-      string,
-      { personal: number; sick: number; specialThisMonth: number }
-    >();
+    const map = new Map<string, LeaveMonthStats>();
     if (!bounds) return map;
     for (const raw of leaveRows) {
       if (!isLeaveApproved(String(raw.status ?? ""))) continue;
@@ -394,11 +459,7 @@ export function SalarySettlementCenter() {
       const end = String(raw.end_date ?? raw.end ?? start).slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
 
-      const cur = map.get(eid) ?? {
-        personal: 0,
-        sick: 0,
-        specialThisMonth: 0,
-      };
+      const cur = map.get(eid) ?? emptyLeaveMonthStats();
 
       if (isSpecialAnnualLeave(raw)) {
         // 特休：以「假單建立日」落在結算月份為準（已核准），天數為該筆申請總天數——
@@ -409,14 +470,20 @@ export function SalarySettlementCenter() {
       } else {
         const days = overlapInclusiveDays(start, end, bounds.start, bounds.end);
         if (days <= 0) continue;
-        const kind = classifySickOrPersonal(raw);
-        if (kind === "personal") cur.personal += days;
-        else if (kind === "sick") cur.sick += days;
+        const name = leaveTypeRaw(raw) || "請假";
+        const ratio = leaveDeductionRatio(name, leaveTypeByName);
+        if (ratio > 0) {
+          cur.deductibleByType.set(
+            name,
+            (cur.deductibleByType.get(name) ?? 0) + days,
+          );
+          cur.weightedDeductionDays += days * ratio;
+        }
       }
       map.set(eid, cur);
     }
     return map;
-  }, [leaveRows, bounds, payPeriod]);
+  }, [leaveRows, bounds, payPeriod, leaveTypeByName]);
 
   const load = useCallback(async (): Promise<boolean> => {
     if (!isSupabaseConfigured) {
@@ -962,15 +1029,13 @@ export function SalarySettlementCenter() {
         ? String((existingSlip as { id: string }).id)
         : null;
 
-    const st = leaveStatsByEmployee.get(emp.id) ?? {
-      personal: 0,
-      sick: 0,
-      specialThisMonth: 0,
-    };
+    const st = leaveStatsByEmployee.get(emp.id) ?? emptyLeaveMonthStats();
     const inp = inputs[emp.id] ?? defaultRowInputs();
-    const personalDed = Math.round((emp.monthly_wage / 30) * st.personal);
-    const sickDed = Math.round((emp.monthly_wage / 30) * 0.5 * st.sick);
-    const leaveDedTotal = personalDed + sickDed;
+    const {
+      total: leaveDedTotal,
+      leaveDaysTotal,
+      breakdownLabel: leaveBreakdown,
+    } = computeLeaveDeduction(emp.monthly_wage, st);
     const otRate = emp.overtime_rate != null && emp.overtime_rate > 0 ? emp.overtime_rate : 0;
     const overtimeAmt = inp.settleOvertimeAsCompOff ? 0 : otRate * inp.overtimeDays;
     const semiBonus = inp.semiAnnualBonus ?? 0;
@@ -995,6 +1060,11 @@ export function SalarySettlementCenter() {
     if (semiBonus > 0) {
       confirmLines.push(
         `含獎金：NT$ ${semiBonus.toLocaleString("zh-TW")}${bonusImportLabel ? `（${bonusImportLabel}）` : ""}`,
+      );
+    }
+    if (leaveDedTotal > 0) {
+      confirmLines.push(
+        `請假扣薪：NT$ ${leaveDedTotal.toLocaleString("zh-TW")}（${leaveBreakdown}）`,
       );
     }
     confirmLines.push(
@@ -1031,7 +1101,7 @@ export function SalarySettlementCenter() {
       overtime_days: inp.overtimeDays,
       special_leave_days_settled: st.specialThisMonth,
       special_leave_remaining_after: settledRemaining,
-      leave_days: st.personal + st.sick,
+      leave_days: leaveDaysTotal,
       payroll_bonus: semiBonus,
       other_adjust: inp.otherAdjust,
       notes,
@@ -1369,19 +1439,10 @@ export function SalarySettlementCenter() {
             <tbody className="[&_td]:px-1 [&_td]:py-1.5 md:[&_td]:whitespace-normal">
               {employees.map((emp) => {
                 const paid = paidIds.has(emp.id);
-                const st = leaveStatsByEmployee.get(emp.id) ?? {
-                  personal: 0,
-                  sick: 0,
-                  specialThisMonth: 0,
-                };
+                const st = leaveStatsByEmployee.get(emp.id) ?? emptyLeaveMonthStats();
                 const inp = inputs[emp.id] ?? defaultRowInputs();
-                const personalDed = Math.round(
-                  (emp.monthly_wage / 30) * st.personal,
-                );
-                const sickDed = Math.round(
-                  (emp.monthly_wage / 30) * 0.5 * st.sick,
-                );
-                const leaveDedTotal = personalDed + sickDed;
+                const { total: leaveDedTotal, breakdownLabel: leaveBreakdown } =
+                  computeLeaveDeduction(emp.monthly_wage, st);
                 const otRate =
                   emp.overtime_rate != null && emp.overtime_rate > 0
                     ? emp.overtime_rate
@@ -1478,7 +1539,7 @@ export function SalarySettlementCenter() {
                       ) : null}
                     </td>
                     <td
-                      title={`事 ${st.personal} 天 · 病 ${st.sick} 天`}
+                      title={leaveBreakdown || "本月無影響薪資之請假"}
                       className="text-right text-xs tabular-nums text-red-600 dark:text-red-400"
                     >
                       −{leaveDedTotal.toLocaleString("zh-TW")}

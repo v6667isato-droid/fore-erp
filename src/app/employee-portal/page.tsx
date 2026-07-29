@@ -20,6 +20,20 @@ import {
 } from "@/lib/employee-portal-mock";
 import { insertEmployeeLeaveRequest } from "@/lib/employee-leave-requests";
 import {
+  FALLBACK_LEAVE_TYPES,
+  PERSONAL_FAMILY_ANNUAL_LIMIT_DAYS,
+  SICK_ANNUAL_LIMIT_DAYS,
+  attachmentModeFor,
+  fetchActiveLeaveTypes,
+  fetchYearlyApprovedLeaveDays,
+  findLeaveTypeByName,
+  personalFamilyCombinedDays,
+  sickCountedDays,
+  uploadLeaveAttachment,
+  type LeaveTypeRow,
+  type YearlyLeaveUsageMap,
+} from "@/lib/leave-types";
+import {
   computeLeaveHolidayConflict,
   type HolidayLookupRow,
 } from "@/lib/leave-holiday-conflict";
@@ -485,6 +499,14 @@ function deductsSalaryForLeaveType(type: string): boolean {
   return type === "事假" || type === "病假";
 }
 
+/** 假別下拉分組標題（leave_types.category） */
+const LEAVE_CATEGORY_LABELS: Record<string, string> = {
+  balance: "額度假（依剩餘時數）",
+  general: "一般假",
+  event: "婚喪・公務",
+  maternity: "生育・育兒",
+};
+
 function leaveDurationTableLabel(row: LeaveRequestRow): string {
   if (row.hours_count != null && row.hours_count > 0) {
     const { days, hours } = hoursToDayHourParts(row.hours_count);
@@ -577,6 +599,12 @@ export default function EmployeePortalPage() {
   const [expandedPayslipId, setExpandedPayslipId] = useState<string | null>(null);
   const [leaveForm, setLeaveForm] = useState<LeaveFormState>({ ...LEAVE_FORM_INITIAL });
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  /** 假別主檔（leave_types）；離線／載入失敗時退回既有四種 */
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>(FALLBACK_LEAVE_TYPES);
+  /** 假單附件（診斷證明等）；依假別 proof_required 決定顯示與必填 */
+  const [leaveAttachmentFile, setLeaveAttachmentFile] = useState<File | null>(null);
+  /** 本年度已核准假單天數（依假別加總；開啟申請視窗時載入） */
+  const [yearlyLeaveUsage, setYearlyLeaveUsage] = useState<YearlyLeaveUsageMap>(new Map());
   /** 請假計算：國定／特殊假日（is_workday=false 不計；補班 is_workday=true 計入）；未連線時僅排除週末 */
   const [leaveHolidayLookup, setLeaveHolidayLookup] = useState<
     Map<string, { is_workday: boolean }> | undefined
@@ -619,6 +647,44 @@ export default function EmployeePortalPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await fetchActiveLeaveTypes();
+        if (!cancelled && list.length > 0) setLeaveTypes(list);
+      } catch (e) {
+        console.warn("[employee-portal] leave_types 載入失敗，使用預設假別", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 開啟申請視窗時載入本年度已核准累計（事假 14 日、病假 30 日等提醒用） */
+  useEffect(() => {
+    if (!leaveOpen || !isSupabaseConfigured) return;
+    const employeeId = data?.employee.id;
+    if (!employeeId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const usage = await fetchYearlyApprovedLeaveDays(
+          employeeId,
+          new Date().getFullYear(),
+        );
+        if (!cancelled) setYearlyLeaveUsage(usage);
+      } catch (e) {
+        console.warn("[employee-portal] 年度請假累計載入失敗", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [leaveOpen, data?.employee.id]);
 
   /** Mock 模式顯示技術說明便於開發；連線時僅 admin */
   const showAdminFieldHints = useMemo(
@@ -860,11 +926,77 @@ export default function EmployeePortalPage() {
     return timedLeaveHourPreview.totalHours > rem;
   }, [leaveForm.type, data?.employee.comp_leave_remaining, timedLeaveHourPreview]);
 
+  const selectedLeaveType = useMemo(
+    () => findLeaveTypeByName(leaveTypes, leaveForm.type),
+    [leaveTypes, leaveForm.type],
+  );
+
+  /** 假別下拉依 category 分組（維持 sort_order 順序），17 種平鋪太難找 */
+  const leaveTypeGroups = useMemo(() => {
+    const order: string[] = [];
+    const byCat = new Map<string, LeaveTypeRow[]>();
+    for (const lt of leaveTypes) {
+      let bucket = byCat.get(lt.category);
+      if (!bucket) {
+        bucket = [];
+        byCat.set(lt.category, bucket);
+        order.push(lt.category);
+      }
+      bucket.push(lt);
+    }
+    return order.map((category) => ({ category, items: byCat.get(category)! }));
+  }, [leaveTypes]);
+
+  /** 本次申請換算天數（附件門檻與年度累計提醒共用） */
+  const requestDays = useMemo(
+    () =>
+      timedLeaveHourPreview
+        ? timedLeaveHourPreview.totalHours / LEAVE_WORK_DAY_HOURS
+        : null,
+    [timedLeaveHourPreview],
+  );
+
+  const leaveAttachmentMode = useMemo(
+    () => attachmentModeFor(selectedLeaveType, requestDays),
+    [selectedLeaveType, requestDays],
+  );
+
+  /**
+   * 事假（含家庭照顧假）14 日、病假 30 日的年度累計提醒。
+   * 超過僅警告不擋送出；警告文字會併入假單備註供審核者參考。
+   */
+  const yearlyLimitWarning = useMemo((): string | null => {
+    if (!selectedLeaveType || requestDays == null) return null;
+    const t = selectedLeaveType.name;
+    const fmt = (n: number) =>
+      n.toLocaleString("zh-TW", { maximumFractionDigits: 2 });
+    if (t === "事假" || t === "家庭照顧假") {
+      const used = personalFamilyCombinedDays(yearlyLeaveUsage);
+      const after = used + requestDays;
+      if (after > PERSONAL_FAMILY_ANNUAL_LIMIT_DAYS) {
+        return `年度事假＋家庭照顧假累計將達 ${fmt(after)} 日，超過 ${PERSONAL_FAMILY_ANNUAL_LIMIT_DAYS} 日上限（已核准 ${fmt(used)} 日）`;
+      }
+      return null;
+    }
+    if (t === "病假" || t === "生理假") {
+      const used = sickCountedDays(yearlyLeaveUsage);
+      const after = used + (t === "病假" ? requestDays : 0);
+      if (after > SICK_ANNUAL_LIMIT_DAYS) {
+        return `年度病假累計將達 ${fmt(after)} 日，超過 ${SICK_ANNUAL_LIMIT_DAYS} 日上限（已核准計入 ${fmt(used)} 日）`;
+      }
+      return null;
+    }
+    return null;
+  }, [selectedLeaveType, requestDays, yearlyLeaveUsage]);
+
   async function submitLeaveRequest(e: React.FormEvent) {
     e.preventDefault();
     if (!data || leaveSubmitting) return;
 
-    const deducts = deductsSalaryForLeaveType(leaveForm.type);
+    // pay_ratio < 1（不給薪／半薪）視為影響薪資；假別主檔沒載到時退回舊判斷
+    const deducts = selectedLeaveType
+      ? selectedLeaveType.pay_ratio < 1
+      : deductsSalaryForLeaveType(leaveForm.type);
 
     if (!leaveForm.start || !leaveForm.end) {
       toast.error("請選擇請假起始日與結束日");
@@ -902,6 +1034,16 @@ export default function EmployeePortalPage() {
     const sameDay = s2 == null;
     const daysEq = hrs / LEAVE_WORK_DAY_HOURS;
 
+    const attachmentRule = attachmentModeFor(selectedLeaveType, daysEq);
+    if (attachmentRule === "required" && !leaveAttachmentFile) {
+      toast.error(
+        selectedLeaveType?.proof_required === "over_n_days"
+          ? `本次申請超過 ${selectedLeaveType.proof_threshold_days} 日，須上傳證明文件後才能送出。`
+          : "此假別須上傳證明文件後才能送出。",
+      );
+      return;
+    }
+
     if (leaveForm.type === "特休") {
       const rem = data.employee.annual_leave_remaining;
       if (rem != null && Number.isFinite(rem)) {
@@ -926,6 +1068,16 @@ export default function EmployeePortalPage() {
       }
     }
 
+    // 年度上限（事假＋家庭照顧假 14 日、病假 30 日）超過時僅警告不擋送出，
+    // 並將警告寫入備註供審核者參考
+    let finalReason = leaveForm.reason.trim();
+    if (yearlyLimitWarning) {
+      toast.warning(yearlyLimitWarning);
+      finalReason = finalReason
+        ? `${finalReason}\n【系統提醒】${yearlyLimitWarning}`
+        : `【系統提醒】${yearlyLimitWarning}`;
+    }
+
     const newRow: LeaveRequestRow = {
       id: `local-${Date.now()}`,
       type_label: leaveForm.type,
@@ -939,7 +1091,7 @@ export default function EmployeePortalPage() {
       end_day_start_hour: sameDay ? null : s2,
       end_day_end_hour: sameDay ? null : e2,
       hours_count: hrs,
-      reason: leaveForm.reason.trim() || null,
+      reason: finalReason || null,
     };
 
     if (!isSupabaseConfigured) {
@@ -949,6 +1101,7 @@ export default function EmployeePortalPage() {
       toast.success("假單已建立（Mock，未寫入資料庫）");
       setLeaveOpen(false);
       setLeaveForm({ ...LEAVE_FORM_INITIAL });
+      setLeaveAttachmentFile(null);
       return;
     }
 
@@ -963,6 +1116,16 @@ export default function EmployeePortalPage() {
     }
 
     setLeaveSubmitting(true);
+    let attachmentPath: string | null = null;
+    if (leaveAttachmentFile) {
+      const up = await uploadLeaveAttachment(leaveAttachmentFile);
+      if (!up.ok) {
+        setLeaveSubmitting(false);
+        toast.error(up.message);
+        return;
+      }
+      attachmentPath = up.path;
+    }
     const ins = await insertEmployeeLeaveRequest({
       employeeId: data.employee.id,
       leaveType: leaveForm.type,
@@ -976,7 +1139,8 @@ export default function EmployeePortalPage() {
       endDayEndHour: e2,
       hoursCount: hrs,
       daysCount: daysEq,
-      reason: leaveForm.reason.trim() || null,
+      reason: finalReason || null,
+      attachmentUrl: attachmentPath,
     });
     setLeaveSubmitting(false);
     if (!ins.ok) {
@@ -986,6 +1150,7 @@ export default function EmployeePortalPage() {
     toast.success("假單已送出，狀態為待審核");
     setLeaveOpen(false);
     setLeaveForm({ ...LEAVE_FORM_INITIAL });
+    setLeaveAttachmentFile(null);
     await load();
   }
 
@@ -1853,7 +2018,10 @@ export default function EmployeePortalPage() {
         open={leaveOpen}
         onOpenChange={(open) => {
           setLeaveOpen(open);
-          if (!open) setLeaveForm({ ...LEAVE_FORM_INITIAL });
+          if (!open) {
+            setLeaveForm({ ...LEAVE_FORM_INITIAL });
+            setLeaveAttachmentFile(null);
+          }
         }}
       >
         <Dialog.Portal>
@@ -1914,11 +2082,6 @@ export default function EmployeePortalPage() {
                   )}
                 </div>
               </div>
-              {leaveForm.type === "補休" ? (
-                <p className="text-xs text-muted-foreground">
-                  補休假單之有效請假時數不可超過上方「補休剩餘」總時數；超額無法送出。
-                </p>
-              ) : null}
               <div>
                 <label htmlFor="leave-type" className="mb-1.5 block text-sm font-medium text-foreground">
                   假別
@@ -1928,6 +2091,7 @@ export default function EmployeePortalPage() {
                   value={leaveForm.type}
                   onChange={(e) => {
                     const t = e.target.value;
+                    setLeaveAttachmentFile(null);
                     setLeaveForm((f) => ({
                       ...f,
                       type: t,
@@ -1937,12 +2101,111 @@ export default function EmployeePortalPage() {
                   }}
                   className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
-                  <option value="特休">特休</option>
-                  <option value="事假">事假</option>
-                  <option value="病假">病假</option>
-                  <option value="補休">補休</option>
+                  {leaveTypeGroups.map((g) => (
+                    <optgroup
+                      key={g.category}
+                      label={LEAVE_CATEGORY_LABELS[g.category] ?? "其他"}
+                    >
+                      {g.items.map((lt) => (
+                        <option key={lt.code} value={lt.name}>
+                          {lt.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
+
+              {leaveForm.type === "補休" ? (
+                <p className="text-xs text-muted-foreground">
+                  補休假單之有效請假時數不可超過上方「補休剩餘」總時數；超額無法送出。
+                </p>
+              ) : null}
+
+              {selectedLeaveType?.description ? (
+                <div className="rounded-lg bg-muted/40 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+                  {selectedLeaveType.description}
+                </div>
+              ) : null}
+
+              {selectedLeaveType && !selectedLeaveType.tracks_balance ? (
+                selectedLeaveType.statutory_days != null ? (
+                  <p className="text-xs text-muted-foreground">
+                    本次申請{" "}
+                    <span className="tabular-nums font-medium text-foreground">
+                      {requestDays != null
+                        ? requestDays.toLocaleString("zh-TW", { maximumFractionDigits: 2 })
+                        : "—"}
+                    </span>{" "}
+                    日／法定{" "}
+                    <span className="tabular-nums font-medium text-foreground">
+                      {selectedLeaveType.statutory_days}
+                    </span>{" "}
+                    日
+                  </p>
+                ) : selectedLeaveType.annual_limit_days != null && isSupabaseConfigured ? (
+                  <p className="text-xs text-muted-foreground">
+                    今年已核准{" "}
+                    <span className="tabular-nums font-medium text-foreground">
+                      {(selectedLeaveType.name === "事假" ||
+                      selectedLeaveType.name === "家庭照顧假"
+                        ? personalFamilyCombinedDays(yearlyLeaveUsage)
+                        : selectedLeaveType.name === "病假"
+                          ? sickCountedDays(yearlyLeaveUsage)
+                          : (yearlyLeaveUsage.get(selectedLeaveType.name) ?? 0)
+                      ).toLocaleString("zh-TW", { maximumFractionDigits: 2 })}
+                    </span>{" "}
+                    日／年度上限{" "}
+                    <span className="tabular-nums font-medium text-foreground">
+                      {selectedLeaveType.annual_limit_days}
+                    </span>{" "}
+                    日
+                    {selectedLeaveType.name === "事假" ||
+                    selectedLeaveType.name === "家庭照顧假"
+                      ? "（事假與家庭照顧假合併計算）"
+                      : null}
+                  </p>
+                ) : null
+              ) : null}
+
+              {yearlyLimitWarning ? (
+                <p className="rounded-md border border-amber-700/25 bg-amber-100/70 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/35 dark:text-amber-100">
+                  ⚠️ {yearlyLimitWarning}。仍可送出，警告將寫入備註供審核者參考。
+                </p>
+              ) : null}
+
+              {leaveAttachmentMode !== "hidden" ? (
+                <div>
+                  <label
+                    htmlFor="leave-attachment"
+                    className="mb-1.5 block text-sm font-medium text-foreground"
+                  >
+                    證明文件
+                    {leaveAttachmentMode === "required" ? (
+                      <span className="ml-1 text-xs font-normal text-destructive">（必填）</span>
+                    ) : (
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">（選填）</span>
+                    )}
+                  </label>
+                  <input
+                    id="leave-attachment"
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setLeaveAttachmentFile(e.target.files?.[0] ?? null)}
+                    className="block w-full rounded-lg border border-input bg-background text-sm text-muted-foreground file:mr-3 file:h-10 file:cursor-pointer file:border-0 file:bg-muted file:px-3 file:text-sm file:font-medium file:text-foreground"
+                  />
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                    {selectedLeaveType?.name.includes("病假") ||
+                    selectedLeaveType?.name === "生理假"
+                      ? "就醫證明僅需診斷證明或就醫收據，請勿上傳病歷內容。"
+                      : "請上傳相關證明文件（照片或 PDF）。"}
+                    {selectedLeaveType?.proof_required === "over_n_days" &&
+                    leaveAttachmentMode === "optional"
+                      ? `目前為選填；連續超過 ${selectedLeaveType.proof_threshold_days} 日時須檢附。`
+                      : null}
+                  </p>
+                </div>
+              ) : null}
 
               <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3">
                 <p className="text-xs font-medium text-foreground">請假起始（日＋時間）</p>
