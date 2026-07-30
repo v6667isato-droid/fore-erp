@@ -26,7 +26,7 @@ import {
   VARIANT_SELECT_MINIMAL,
   SERIES_CONTENT_COLUMNS,
 } from "@/lib/products-db";
-import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download, Copy, FileText } from "lucide-react";
+import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download, Copy, FileText, Settings2 } from "lucide-react";
 import { AddSeriesDialog } from "@/components/products/add-series-dialog";
 import { AddVariantDialog } from "@/components/products/add-variant-dialog";
 import { EditSeriesDialog } from "@/components/products/edit-series-dialog";
@@ -35,6 +35,7 @@ import { EditVariantDialog } from "@/components/products/edit-variant-dialog";
 import { ViewSeriesDialog } from "@/components/products/view-series-dialog";
 import { ViewVariantDialog } from "@/components/products/view-variant-dialog";
 import { EditSeriesChannelDiscountDialog } from "@/components/products/edit-series-channel-discount-dialog";
+import { SeriesOptionsDialog } from "@/components/products/series-options-dialog";
 import type { ChannelOption } from "@/components/products/edit-series-channel-discount-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
@@ -119,6 +120,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [viewSeries, setViewSeries] = useState<SeriesRow | null>(null);
   const [editSeries, setEditSeries] = useState<SeriesRow | null>(null);
   const [addVariantSeries, setAddVariantSeries] = useState<SeriesRow | null>(null);
+  const [optionsSeries, setOptionsSeries] = useState<SeriesRow | null>(null);
   const [editDiscountSeries, setEditDiscountSeries] = useState<SeriesRow | null>(null);
   const [viewVariant, setViewVariant] = useState<VariantRow | null>(null);
   const [editVariant, setEditVariant] = useState<VariantRow | null>(null);
@@ -745,7 +747,17 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                           style={{ maxHeight: isExpanded ? "80vh" : 0 }}
                         >
                           <div className="bg-muted/20 px-4 pb-4 pt-2 max-h-[70vh] overflow-y-auto">
-                            <div className="flex items-center justify-end gap-2 mb-2">
+                            <div className="flex flex-wrap items-center justify-end gap-2 mb-2">
+                              {isAdmin && (
+                                <Button
+                                  variant="outline"
+                                  className="h-8 px-3 gap-1.5 text-xs"
+                                  onClick={() => setOptionsSeries(series)}
+                                >
+                                  <Settings2 className="h-3.5 w-3.5" />
+                                  選項設定
+                                </Button>
+                              )}
                               <Button
                                 variant="outline"
                                 className="h-8 px-3 gap-1.5 text-xs"
@@ -1020,6 +1032,11 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         onSuccess={() => {
           setEditDiscountSeries(null);
         }}
+      />
+      <SeriesOptionsDialog
+        open={optionsSeries != null}
+        onOpenChange={(open) => !open && setOptionsSeries(null)}
+        series={optionsSeries}
       />
       <AddVariantDialog
         open={addVariantSeries != null}

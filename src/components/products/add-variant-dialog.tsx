@@ -44,6 +44,7 @@ interface AxisGroup {
 
 /** product_options join option_values join option_types 的查詢回傳列 */
 interface ProductOptionJoinRow {
+  price_delta_override: number | null;
   option_values: {
     id: string;
     code: string;
@@ -97,6 +98,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     cushion: new Set(),
   });
   const [genCustom, setGenCustom] = useState(false);
+  /** 預覽逐列手動調價（key＝comboKey，value＝輸入字串；空字串＝用自動計價） */
+  const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!(open && series)) return;
@@ -120,6 +123,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     setExistingCombos(new Set());
     setSelected({ wood: new Set(), size: new Set(), cushion: new Set() });
     setGenCustom(false);
+    setPriceEdits({});
 
     let cancelled = false;
     (async () => {
@@ -128,7 +132,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         supabase
           .from("product_options")
           .select(
-            "option_values(id, code, name_zh, price_delta, sort_order, option_types(code, name_zh, sort_order))"
+            "price_delta_override, option_values(id, code, name_zh, price_delta, sort_order, option_types(code, name_zh, sort_order))"
           )
           .eq("series_id", series.id),
         supabase
@@ -166,7 +170,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
           id: v.id,
           code: v.code,
           name_zh: v.name_zh,
-          price_delta: v.price_delta,
+          // 有效價差＝此系列覆寫（product_options.price_delta_override）優先，否則用全域價差
+          price_delta: row.price_delta_override ?? v.price_delta,
           sort_order: v.sort_order,
         });
       }
@@ -193,6 +198,11 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       cancelled = true;
     };
   }, [open, series]);
+
+  // 勾選變動重新產生組合時，重設逐列手動調價
+  useEffect(() => {
+    setPriceEdits({});
+  }, [selected, genCustom]);
 
   useEffect(() => {
     if (open && mode === "manual" && firstRef.current)
@@ -240,6 +250,20 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
 
   const newCombos = combos.filter((c) => !c.exists);
   const skippedCount = combos.length - newCombos.length;
+
+  function comboEditKey(c: Combo): string {
+    return comboKey(c.wood?.id ?? null, c.size?.id ?? null, c.cushion?.id ?? null);
+  }
+
+  /** 該列最終寫入的定價：有手動輸入取整數輸入值，否則用自動計價 */
+  function effectivePrice(c: Combo): number | null {
+    const raw = (priceEdits[comboEditKey(c)] ?? "").trim();
+    if (raw !== "") {
+      const num = Number(raw);
+      if (Number.isFinite(num)) return Math.round(num);
+    }
+    return c.price;
+  }
 
   function toggleValue(axisCode: AxisCode, valueId: string) {
     setSelected((prev) => {
@@ -302,7 +326,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       product_code: c.code,
       wood_type: c.wood?.name_zh ?? null,
       spec1: c.cushion ? `${c.cushion.name_zh}-${c.cushion.code}` : null,
-      base_price: c.price,
+      base_price: effectivePrice(c),
       wood_value_id: c.wood?.id ?? null,
       size_value_id: c.size?.id ?? null,
       cushion_value_id: c.cushion?.id ?? null,
@@ -421,7 +445,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                   </p>
                 ) : (
                   <p className="text-[11px] text-muted-foreground">
-                    基礎價 NT$ {basePrice.toLocaleString()}，定價＝基礎價＋各選項加價自動計算；代碼與定價唯讀。
+                    基礎價 NT$ {basePrice.toLocaleString()}，定價＝基礎價＋各選項加價自動計算，可於預覽逐列修改；代碼唯讀。
                   </p>
                 )}
                 <div className="flex flex-col gap-1.5">
@@ -435,20 +459,40 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                     </p>
                   ) : (
                     <ul className="max-h-48 overflow-y-auto rounded-lg border border-border divide-y divide-border">
-                      {combos.map((c) => (
-                        <li
-                          key={c.code}
-                          className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-3 py-1.5 text-xs ${c.exists ? "text-muted-foreground/60" : "text-foreground"}`}
-                        >
-                          <span className="font-mono">{c.code}</span>
-                          <span className="flex items-center gap-2">
-                            <span>{c.price == null ? "未設基礎價" : `NT$ ${c.price.toLocaleString()}`}</span>
-                            {c.exists && (
-                              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">已存在，略過</span>
-                            )}
-                          </span>
-                        </li>
-                      ))}
+                      {combos.map((c) => {
+                        const editKey = comboEditKey(c);
+                        return (
+                          <li
+                            key={c.code}
+                            className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-3 py-1.5 text-xs ${c.exists ? "text-muted-foreground/60" : "text-foreground"}`}
+                          >
+                            <span className="font-mono">{c.code}</span>
+                            <span className="flex items-center gap-2">
+                              {c.exists ? (
+                                <>
+                                  <span>{c.price == null ? "未設基礎價" : `NT$ ${c.price.toLocaleString()}`}</span>
+                                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">已存在，略過</span>
+                                </>
+                              ) : c.price == null ? (
+                                <span>未設基礎價</span>
+                              ) : (
+                                <>
+                                  <span className="text-muted-foreground">NT$</span>
+                                  <input
+                                    type="number"
+                                    value={priceEdits[editKey] ?? String(c.price)}
+                                    onChange={(e) =>
+                                      setPriceEdits((prev) => ({ ...prev, [editKey]: e.target.value }))
+                                    }
+                                    className="h-7 w-24 rounded-md border border-input bg-background px-2 text-right text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                                    aria-label={`定價 ${c.code}`}
+                                  />
+                                </>
+                              )}
+                            </span>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>

@@ -1988,14 +1988,17 @@ export type Database = {
       product_options: {
         Row: {
           option_value_id: string
+          price_delta_override: number | null
           series_id: string
         }
         Insert: {
           option_value_id: string
+          price_delta_override?: number | null
           series_id: string
         }
         Update: {
           option_value_id?: string
+          price_delta_override?: number | null
           series_id?: string
         }
         Relationships: [
