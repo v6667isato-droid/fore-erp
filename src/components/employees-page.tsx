@@ -552,7 +552,7 @@ function EmployeeForm({
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <label
                   htmlFor="emp-primary-role"
@@ -584,7 +584,7 @@ function EmployeeForm({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <label
                   htmlFor="emp-phone"
@@ -748,7 +748,7 @@ function EmployeeForm({
         )}
 
         {tab === "salary" && isAdmin && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <label
                 htmlFor="emp-monthly"
@@ -1363,7 +1363,7 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     基本資料
                   </h3>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">姓名</span>
                       <span className="font-medium text-foreground">
@@ -1405,7 +1405,7 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                       </span>
                     </div>
                     {isAdmin && (
-                      <div className="col-span-2 flex justify-between gap-4">
+                      <div className="flex justify-between gap-4 sm:col-span-2">
                         <span className="shrink-0 text-muted-foreground">
                           留職停薪月份
                         </span>
@@ -1425,7 +1425,7 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     聯絡方式
                   </h3>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">信箱</span>
                       <span className="text-foreground break-all">
@@ -1454,7 +1454,7 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       薪資與保險（僅 Admin 可見）
                     </h3>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                    <div className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                       <div className="flex justify-between gap-4">
                         <span className="text-muted-foreground">月薪</span>
                         <span className="text-foreground tabular-nums">
