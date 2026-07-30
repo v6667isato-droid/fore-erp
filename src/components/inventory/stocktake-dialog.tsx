@@ -16,6 +16,7 @@ interface StocktakePart {
   name: string;
   unit: string;
   category: string;
+  wood_species: string | null;
   current_stock: number;
 }
 
@@ -62,7 +63,7 @@ export function StocktakeDialog({
       const [partsRes, stockRes, empRes] = await Promise.all([
         supabase
           .from("parts")
-          .select("id, part_no, name, unit, category")
+          .select("id, part_no, name, unit, category, wood_species")
           .is("deleted_at", null)
           .order("part_no"),
         supabase.from("part_stock_status").select("id, current_stock"),
@@ -100,7 +101,10 @@ export function StocktakeDialog({
     const q = search.trim().toLowerCase();
     if (!q) return parts;
     return parts.filter(
-      (p) => p.part_no.toLowerCase().includes(q) || p.name.toLowerCase().includes(q),
+      (p) =>
+        p.part_no.toLowerCase().includes(q) ||
+        p.name.toLowerCase().includes(q) ||
+        (p.wood_species ?? "").toLowerCase().includes(q),
     );
   }, [parts, search]);
 
@@ -195,7 +199,7 @@ export function StocktakeDialog({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜尋料號、名稱…"
+              placeholder="搜尋料號、名稱、材種…"
               className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               aria-label="搜尋零件"
             />
@@ -222,11 +226,12 @@ export function StocktakeDialog({
               <table className="w-full">
                 <thead className="sticky top-0 bg-card">
                   <tr className="border-b border-border text-left">
-                    <th className="p-2 text-xs font-semibold text-muted-foreground">料號</th>
-                    <th className="p-2 text-xs font-semibold text-muted-foreground">名稱</th>
-                    <th className="p-2 text-right text-xs font-semibold text-muted-foreground">帳面</th>
-                    <th className="p-2 text-right text-xs font-semibold text-muted-foreground w-[110px]">實際數量</th>
-                    <th className="p-2 text-right text-xs font-semibold text-muted-foreground w-[80px]">差額</th>
+                    <th className="p-1.5 text-xs font-semibold text-muted-foreground sm:p-2">料號</th>
+                    <th className="hidden p-2 text-xs font-semibold text-muted-foreground sm:table-cell">名稱</th>
+                    <th className="hidden p-2 text-xs font-semibold text-muted-foreground sm:table-cell">材種</th>
+                    <th className="whitespace-nowrap p-1.5 text-right text-xs font-semibold text-muted-foreground sm:p-2">帳面</th>
+                    <th className="whitespace-nowrap p-1.5 text-right text-xs font-semibold text-muted-foreground sm:w-[110px] sm:p-2">實際數量</th>
+                    <th className="whitespace-nowrap p-1.5 text-right text-xs font-semibold text-muted-foreground sm:w-[80px] sm:p-2">差額</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -237,24 +242,33 @@ export function StocktakeDialog({
                       actual != null && Number.isFinite(actual) ? actual - p.current_stock : null;
                     return (
                       <tr key={p.id} className="border-b border-border">
-                        <td className="p-2 text-sm font-medium whitespace-nowrap">{p.part_no}</td>
-                        <td className="p-2 text-sm">{p.name}</td>
-                        <td className="p-2 text-right text-sm tabular-nums text-muted-foreground">
+                        <td className="p-1.5 text-sm font-medium sm:p-2">
+                          <span className="whitespace-nowrap">{p.part_no}</span>
+                          <span className="mt-0.5 block max-w-[38vw] truncate text-xs font-normal text-muted-foreground sm:hidden">
+                            {p.name}
+                            {p.wood_species ? `・${p.wood_species}` : ""}
+                          </span>
+                        </td>
+                        <td className="hidden whitespace-nowrap p-2 text-sm sm:table-cell">{p.name}</td>
+                        <td className="hidden whitespace-nowrap p-2 text-sm text-muted-foreground sm:table-cell">
+                          {p.wood_species ?? "—"}
+                        </td>
+                        <td className="whitespace-nowrap p-1.5 text-right text-sm tabular-nums text-muted-foreground sm:p-2">
                           {p.current_stock} {p.unit}
                         </td>
-                        <td className="p-2 text-right">
+                        <td className="p-1.5 text-right sm:p-2">
                           <input
                             type="number"
                             min="0"
                             step="any"
                             value={raw}
                             onChange={(e) => setCounts((c) => ({ ...c, [p.id]: e.target.value }))}
-                            className="h-8 w-24 rounded-lg border border-input bg-background px-2 text-right text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            className="h-8 w-16 rounded-lg border border-input bg-background px-2 text-right text-sm focus:outline-none focus:ring-2 focus:ring-ring sm:w-24"
                             placeholder="未盤"
                             aria-label={`${p.name} 實際數量`}
                           />
                         </td>
-                        <td className="p-2 text-right text-sm tabular-nums">
+                        <td className="whitespace-nowrap p-1.5 text-right text-sm tabular-nums sm:p-2">
                           {diff == null ? (
                             <span className="text-muted-foreground">—</span>
                           ) : diff === 0 ? (
@@ -270,7 +284,7 @@ export function StocktakeDialog({
                   })}
                   {visibleParts.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="p-6 text-center text-sm text-muted-foreground">
+                      <td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">
                         {parts.length === 0 ? "沒有可盤點的零件" : "無符合搜尋的零件"}
                       </td>
                     </tr>
