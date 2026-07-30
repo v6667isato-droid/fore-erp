@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarCheck, ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { CalendarCheck, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -121,6 +122,33 @@ const ORDER_DUE_STYLES = {
   hover: "hover:bg-teal-100/90 dark:hover:bg-teal-900/35",
 };
 
+/** 手機月曆格內圓點顏色，對應圖例配色 */
+function cellItemDotClass(item: CalendarCellItem): string {
+  if (item.kind === "holiday") return item.isWorkday ? "bg-amber-400" : "bg-red-500";
+  if (item.kind === "leave") return "bg-violet-400";
+  if (item.kind === "orderDue") return "bg-teal-500";
+  switch (item.category) {
+    case "delivery":
+      return "bg-yellow-400";
+    case "visit":
+      return "bg-sky-400";
+    case "task":
+      return "bg-rose-400";
+    case "company":
+      return "bg-green-500";
+    default:
+      return "bg-stone-400";
+  }
+}
+
+const MAX_MOBILE_DOTS = 4;
+
+function formatDayViewLabel(dateKey: string): string {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const weekday = WEEKDAY_LABELS[(new Date(y, m - 1, d).getDay() + 6) % 7];
+  return `${m}月${d}日（${weekday}）`;
+}
+
 function groupEventsByDay(rows: CompanyEventRow[]): Map<string, CalendarEventItem[]> {
   const map = new Map<string, CalendarEventItem[]>();
   for (const r of rows) {
@@ -173,6 +201,8 @@ export function CompanyCalendarPage() {
   /** 新增事件預設日期 YYYY-MM-DD（點當月格子或「新增事件」時寫入） */
   const [selectedDate, setSelectedDate] = useState("");
   const [viewingEvent, setViewingEvent] = useState<CompanyEventRow | null>(null);
+  /** 手機版：點日期開啟的「當日事件清單」底部面板（YYYY-MM-DD） */
+  const [dayViewDate, setDayViewDate] = useState<string | null>(null);
   /** 與訂單管理「訂單總覽」相同之 OrderOverviewDialog */
   const [overviewOrderId, setOverviewOrderId] = useState<string | null>(null);
   /** Supabase：orders 預計交貨日；未連線時由 useMemo 改為假資料 */
@@ -430,6 +460,18 @@ export function CompanyCalendarPage() {
     };
   }, [todayCells]);
 
+  /** 點月曆格子：手機開當日事件清單，桌面直接開新增事件 */
+  function openDayCell(dateKey: string) {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches) {
+      setDayViewDate(dateKey);
+      return;
+    }
+    setSelectedDate(dateKey);
+    setAddOpen(true);
+  }
+
+  const dayViewItems = dayViewDate ? (cellItemsByDay.get(dayViewDate) ?? []) : [];
+
   function openTodayItem(item: CalendarCellItem) {
     if (item.kind === "company") {
       const full = eventById.get(item.id);
@@ -645,26 +687,20 @@ export function CompanyCalendarPage() {
                 role={cell.isCurrentMonth ? "button" : undefined}
                 tabIndex={cell.isCurrentMonth ? 0 : undefined}
                 onClick={
-                  cell.isCurrentMonth
-                    ? () => {
-                        setSelectedDate(key);
-                        setAddOpen(true);
-                      }
-                    : undefined
+                  cell.isCurrentMonth ? () => openDayCell(key) : undefined
                 }
                 onKeyDown={
                   cell.isCurrentMonth
                     ? (e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          setSelectedDate(key);
-                          setAddOpen(true);
+                          openDayCell(key);
                         }
                       }
                     : undefined
                 }
                 className={cn(
-                  "flex min-h-[120px] flex-col gap-1 p-1.5 sm:p-2 transition-colors",
+                  "flex min-h-[64px] flex-col gap-1 p-1.5 transition-colors sm:min-h-[120px] sm:p-2",
                   !cell.isCurrentMonth && "bg-muted/25 text-muted-foreground/70",
                   cell.isCurrentMonth &&
                     "cursor-pointer bg-card/60 hover:bg-[#F5F2E9] dark:bg-card/20 dark:hover:bg-muted/35"
@@ -684,7 +720,22 @@ export function CompanyCalendarPage() {
                     {cell.day}
                   </span>
                 </div>
-                <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+                {dayItems.length > 0 && (
+                  <div className="flex flex-wrap content-start items-center gap-1 px-0.5 sm:hidden">
+                    {dayItems.slice(0, MAX_MOBILE_DOTS).map((item) => (
+                      <span
+                        key={item.id}
+                        className={cn("h-1.5 w-1.5 rounded-full", cellItemDotClass(item))}
+                      />
+                    ))}
+                    {dayItems.length > MAX_MOBILE_DOTS && (
+                      <span className="text-[9px] leading-none text-muted-foreground">
+                        +{dayItems.length - MAX_MOBILE_DOTS}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="hidden min-h-0 flex-1 flex-col gap-0.5 overflow-hidden sm:flex">
                   {dayItems.map((item) => {
                     if (item.kind === "holiday") {
                       const styles = item.isWorkday ? HOLIDAY_WORK_STYLES : HOLIDAY_REST_STYLES;
@@ -940,6 +991,132 @@ export function CompanyCalendarPage() {
           </div>
         )}
       </div>
+
+      {/* 手機版：點月曆日期開啟的當日事件清單（底部面板） */}
+      <Dialog.Root
+        open={dayViewDate != null}
+        onOpenChange={(open) => {
+          if (!open) setDayViewDate(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]" />
+          <Dialog.Content
+            aria-describedby={undefined}
+            className="fixed inset-x-0 bottom-0 z-50 max-h-[75vh] overflow-y-auto rounded-t-2xl border-t border-border bg-card p-4 pb-6 shadow-xl focus:outline-none sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border"
+          >
+            <div className="flex items-center justify-between">
+              <Dialog.Title className="font-serif text-base font-semibold tracking-tight text-foreground">
+                {dayViewDate ? formatDayViewLabel(dayViewDate) : ""}
+              </Dialog.Title>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
+                  aria-label="關閉"
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </Dialog.Close>
+            </div>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {dayViewItems.length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  這天沒有安排事項
+                </p>
+              ) : (
+                dayViewItems.map((item) => {
+                  if (item.kind === "holiday") {
+                    const styles = item.isWorkday ? HOLIDAY_WORK_STYLES : HOLIDAY_REST_STYLES;
+                    return (
+                      <div
+                        key={item.id}
+                        className={cn(
+                          "rounded-lg px-3 py-2 text-sm font-semibold leading-snug",
+                          styles.badge,
+                        )}
+                      >
+                        {item.title}
+                      </div>
+                    );
+                  }
+                  if (item.kind === "leave") {
+                    return (
+                      <div
+                        key={item.id}
+                        className={cn(
+                          "rounded-lg px-3 py-2 text-sm font-medium leading-snug",
+                          APPROVED_LEAVE_STYLES.badge,
+                        )}
+                      >
+                        {item.title}
+                      </div>
+                    );
+                  }
+                  if (item.kind === "orderDue") {
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          if (item.detail.id.startsWith("demo-")) {
+                            toast.info("試用假資料無訂單總覽，請連線資料庫後再試");
+                            return;
+                          }
+                          setDayViewDate(null);
+                          setViewingEvent(null);
+                          setOverviewOrderId(item.detail.id);
+                        }}
+                        className={cn(
+                          "w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm font-medium leading-snug",
+                          ORDER_DUE_STYLES.badge,
+                          ORDER_DUE_STYLES.hover,
+                        )}
+                      >
+                        {item.title}
+                      </button>
+                    );
+                  }
+                  const styles = EVENT_STYLES[item.category];
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        const full = eventById.get(item.id);
+                        if (full) {
+                          setDayViewDate(null);
+                          setOverviewOrderId(null);
+                          setViewingEvent(full);
+                        }
+                      }}
+                      className={cn(
+                        "w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm leading-snug",
+                        styles.badge,
+                        styles.hover,
+                      )}
+                    >
+                      {item.title}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <Button
+              type="button"
+              className="mt-3 w-full bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+              onClick={() => {
+                if (dayViewDate) setSelectedDate(dayViewDate);
+                setDayViewDate(null);
+                setAddOpen(true);
+              }}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              新增事件
+            </Button>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <CompanyCalendarAddEventDialog
         open={addOpen}
