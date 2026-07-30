@@ -9,6 +9,11 @@
       "autoPort": true
     },
     {
+      "name": "fore-erp-attach",
+      "url": "http://localhost:3000",
+      "port": 3000
+    },
+    {
       "name": "fore-erp-3003",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "-p", "3003"],
@@ -19,6 +24,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start", "--", "-p", "3006"],
       "port": 3006
+    },
+    {
+      "name": "fore-erp-cloudflare",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["opennextjs-cloudflare", "preview", "--", "--port", "8787"],
+      "port": 8787
     },
     {
       "name": "fore-website",

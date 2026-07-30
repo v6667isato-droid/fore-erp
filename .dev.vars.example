@@ -1,0 +1,24 @@
+# Cloudflare Workers 本機預覽（npm run cf:preview）用的環境變數。
+# 複製為 .dev.vars 後，把 .env.local 內「伺服器端」變數搬過來。
+# 注意：NEXT_PUBLIC_* 是 next build 時就內嵌進前端的，來源仍是 .env.local，不用寫在這裡。
+NEXTJS_ENV=development
+
+# 伺服器端變數（與 .env.local 相同值）
+# SUPABASE_SERVICE_ROLE_KEY=
+# LINE_CHANNEL_SECRET=
+# LINE_CHANNEL_ACCESS_TOKEN=
+# ANTHROPIC_API_KEY=
+# GEMINI_API_KEY=
+# GMAIL_CLIENT_ID=
+# GMAIL_CLIENT_SECRET=
+# GMAIL_REFRESH_TOKEN=
+# GMAIL_REFRESH_TOKEN_2=
+# RESEND_API_KEY=
+# RESEND_FROM_EMAIL=
+# MANAGER_EMAIL=
+# CRON_SECRET=
+# PORTAL_TOKEN_SECRET=
+# WEBSITE_ORIGIN=
+# LINE_LOGIN_CHANNEL_ID=
+# LINE_CHANNEL_ID=
+# LINE_RICH_MENU_CRAFTSMAN_ID=

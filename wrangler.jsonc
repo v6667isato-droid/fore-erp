@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fore-erp",
+  "main": "custom-worker.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "fore-erp"
+    }
+  ],
+  // 對應 vercel.json 的兩個排程（UTC，與 Vercel 相同時區基準）；
+  // 路徑對應寫在 custom-worker.ts 的 CRON_ROUTES。
+  // ⚠️ 與 Vercel 並行期間先保持註解（避免週報寄兩封、Gmail 匯入跑兩次）；
+  // 正式切換到 Cloudflare 時解除註解，並移除 vercel.json 的 crons。
+  // "triggers": {
+  //   "crons": ["0 1 * * 1", "0 0 1,16 * *"]
+  // }
+}
