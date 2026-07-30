@@ -133,6 +133,10 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const [newSizes, setNewSizes] = useState<{ code: string; w: number; d: number | null }[]>([]);
   const [sizeW, setSizeW] = useState("");
   const [sizeD, setSizeD] = useState("");
+  /** 本批統一套用的尺寸（無尺寸軸時提供寬深高；有尺寸軸時僅高） */
+  const [batchW, setBatchW] = useState("");
+  const [batchD, setBatchD] = useState("");
+  const [batchH, setBatchH] = useState("");
   /** 預覽中被使用者移除的組合（key＝comboEditKey） */
   const [removedKeys, setRemovedKeys] = useState<Set<string>>(new Set());
 
@@ -162,6 +166,9 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     setNewSizes([]);
     setSizeW("");
     setSizeD("");
+    setBatchW("");
+    setBatchD("");
+    setBatchH("");
     setRemovedKeys(new Set());
 
     let cancelled = false;
@@ -323,6 +330,11 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const removedCount = combos.length - visibleCombos.length;
   const newCombos = visibleCombos.filter((c) => !c.exists);
   const skippedCount = visibleCombos.length - newCombos.length;
+  /** 尚未有有效定價（正整數）的新增列數；未設基礎價時需逐列輸入 */
+  const missingPriceCount = newCombos.filter((c) => {
+    const p = effectivePrice(c);
+    return p == null || p <= 0;
+  }).length;
 
   function comboEditKey(c: Combo): string {
     return comboKey(
@@ -341,6 +353,28 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       if (Number.isFinite(num)) return Math.round(num);
     }
     return c.price;
+  }
+
+  /** 預覽列的中文組成說明：木種・尺寸・坐墊・構型，價差非 0 附（+N） */
+  function comboLabel(c: Combo): string {
+    const fmt = (name: string, delta: number) =>
+      delta === 0
+        ? name
+        : `${name}（${delta > 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString()}）`;
+    const parts: string[] = [];
+    if (c.wood) parts.push(fmt(c.wood.name_zh, c.wood.price_delta));
+    if (c.size) parts.push(fmt(c.size.code, c.size.price_delta));
+    if (c.cushion) parts.push(fmt(c.cushion.name_zh, c.cushion.price_delta));
+    if (c.config) parts.push(fmt(c.config.name_zh, c.config.price_delta));
+    return parts.join("・");
+  }
+
+  /** 批次尺寸輸入轉數值（空字串或非正數＝不套用） */
+  function batchDim(s: string): number | null {
+    const t = s.trim();
+    if (t === "") return null;
+    const n = Number(t);
+    return Number.isFinite(n) && n > 0 ? n : null;
   }
 
   function toggleValue(axisCode: AxisCode, valueId: string) {
@@ -428,12 +462,12 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
 
   async function submitGenerate() {
     if (!series) return;
-    if (basePrice == null) {
-      setError("此系列未設基礎價，無法自動計價");
-      return;
-    }
     if (newCombos.length === 0) {
       setError(combos.length > 0 ? "勾選的組合皆已存在或已移除" : "請先勾選要生成的選項");
+      return;
+    }
+    if (missingPriceCount > 0) {
+      setError("請為每列填入定價");
       return;
     }
     setAdding(true);
@@ -517,8 +551,10 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       size_value_id: c.size ? (c.size.id ?? sizeIdByCode.get(c.size.code) ?? null) : null,
       cushion_value_id: c.cushion?.id ?? null,
       config_value_id: c.config?.id ?? null,
-      dimension_w: c.size?.w ?? null,
-      dimension_d: c.size?.d ?? null,
+      // 尺寸來源：有尺寸碼取尺寸碼寬深，否則用本批統一輸入；高一律用本批統一輸入
+      dimension_w: c.size?.w ?? batchDim(batchW),
+      dimension_d: c.size?.d ?? batchDim(batchD),
+      dimension_h: batchDim(batchH),
       is_custom_order: genCustom,
       ...(showSeatHeight ? { seat_height_cm: DEFAULT_SEAT_HEIGHT_CM } : {}),
     }));
@@ -555,7 +591,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const sizeAxis = axes.find((a) => a.typeCode === "size");
   const showSizeBlock = isNonChair || Boolean(sizeAxis);
   const hasOptions = axes.length > 0 || isNonChair;
-  const generateDisabled = adding || basePrice == null || newCombos.length === 0;
+  const generateDisabled = adding || newCombos.length === 0 || missingPriceCount > 0;
 
   const axisCheckbox = (axisCode: AxisCode, v: AxisValue) => {
     const checked = selected[axisCode].has(v.id);
@@ -648,9 +684,23 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         <Button type="button" variant="outline" className="h-9 px-3 text-xs" onClick={addNewSize}>
           加入尺寸
         </Button>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="gen-batch-h" className="text-[11px] text-muted-foreground">高 H（cm，選填，套用到本批）</label>
+          <input
+            id="gen-batch-h"
+            type="number"
+            value={batchH}
+            onChange={(e) => setBatchH(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
+            className={`${inputCls} w-24`}
+            placeholder="選填"
+          />
+        </div>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        輸入寬深按「加入尺寸」加入本批；生成時自動建檔為尺寸選項並掛入此系列。代碼：寬＋深 → W60D35，僅寬 → 60。
+        輸入寬深按「加入尺寸」加入本批；生成時自動建檔為尺寸選項並掛入此系列。代碼：寬＋深 → W60D35，僅寬 → 60。高不列入代碼，僅寫入本批每列的尺寸。
       </p>
     </fieldset>
   );
@@ -722,9 +772,49 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                   if (showSizeBlock && !sizeAxis) items.push({ sort: 2, node: sizeBlock });
                   return items.sort((a, b) => a.sort - b.sort).map((i) => i.node);
                 })()}
+                {!showSizeBlock && (
+                  <fieldset className="flex flex-col gap-1.5">
+                    <legend className="text-xs text-muted-foreground">尺寸（cm，選填，套用到本批）</legend>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="flex flex-col gap-1">
+                        <label htmlFor="gen-batch-dim-w" className="text-[11px] text-muted-foreground">寬 W</label>
+                        <input
+                          id="gen-batch-dim-w"
+                          type="number"
+                          value={batchW}
+                          onChange={(e) => setBatchW(e.target.value)}
+                          className={`${inputCls} w-24`}
+                          placeholder="選填"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label htmlFor="gen-batch-dim-d" className="text-[11px] text-muted-foreground">深 D</label>
+                        <input
+                          id="gen-batch-dim-d"
+                          type="number"
+                          value={batchD}
+                          onChange={(e) => setBatchD(e.target.value)}
+                          className={`${inputCls} w-24`}
+                          placeholder="選填"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label htmlFor="gen-batch-dim-h" className="text-[11px] text-muted-foreground">高 H</label>
+                        <input
+                          id="gen-batch-dim-h"
+                          type="number"
+                          value={batchH}
+                          onChange={(e) => setBatchH(e.target.value)}
+                          className={`${inputCls} w-24`}
+                          placeholder="選填"
+                        />
+                      </div>
+                    </div>
+                  </fieldset>
+                )}
                 {basePrice == null ? (
-                  <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">
-                    此系列未設基礎價，無法自動計價；請先於編輯系列設定基礎價後再生成。
+                  <p className="text-[11px] text-muted-foreground">
+                    未設基礎價：請直接於預覽逐列輸入定價（或到選項設定填基礎價自動計價）。
                   </p>
                 ) : (
                   <p className="text-[11px] text-muted-foreground">
@@ -750,26 +840,28 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                             key={c.code}
                             className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-3 py-1.5 text-xs ${c.exists ? "text-muted-foreground/60" : "text-foreground"}`}
                           >
-                            <span className="font-mono">{c.code}</span>
+                            <span className="flex min-w-0 flex-col gap-0.5">
+                              <span className="font-mono">{c.code}</span>
+                              <span className="text-xs text-muted-foreground break-words">{comboLabel(c)}</span>
+                            </span>
                             <span className="flex items-center gap-2">
                               {c.exists ? (
                                 <>
-                                  <span>{c.price == null ? "未設基礎價" : `NT$ ${c.price.toLocaleString()}`}</span>
+                                  <span>{c.price == null ? "—" : `NT$ ${c.price.toLocaleString()}`}</span>
                                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">已存在，略過</span>
                                 </>
-                              ) : c.price == null ? (
-                                <span>未設基礎價</span>
                               ) : (
                                 <>
                                   <span className="text-muted-foreground">NT$</span>
                                   <input
                                     type="number"
-                                    value={priceEdits[editKey] ?? String(c.price)}
+                                    value={priceEdits[editKey] ?? (c.price == null ? "" : String(c.price))}
                                     onChange={(e) =>
                                       setPriceEdits((prev) => ({ ...prev, [editKey]: e.target.value }))
                                     }
                                     className="h-7 w-24 rounded-md border border-input bg-background px-2 text-right text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                                     aria-label={`定價 ${c.code}`}
+                                    placeholder={c.price == null ? "輸入定價" : undefined}
                                   />
                                 </>
                               )}
@@ -795,6 +887,9 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                         );
                       })}
                     </ul>
+                  )}
+                  {missingPriceCount > 0 && (
+                    <p className="text-[11px] text-destructive">請為每列填入定價</p>
                   )}
                 </div>
                 <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
