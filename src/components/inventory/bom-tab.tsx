@@ -15,6 +15,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Plus, Trash2, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { PART_CATEGORIES } from "@/types/inventory";
 
 interface SeriesOption {
   id: string;
@@ -34,6 +35,7 @@ interface PartOption {
   part_no: string;
   name: string;
   unit: string;
+  category: string;
   wood_species: string | null;
 }
 
@@ -72,6 +74,9 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
   const [loadingItems, setLoadingItems] = useState(false);
   const [newPartId, setNewPartId] = useState("");
   const [newQty, setNewQty] = useState("1");
+  /** 加入零件的篩選：分類＋關鍵字（料號／名稱／材種） */
+  const [newPartCategory, setNewPartCategory] = useState("");
+  const [newPartSearch, setNewPartSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [deleteItem, setDeleteItem] = useState<BomItemWithPart | null>(null);
   const [copySourceId, setCopySourceId] = useState("");
@@ -91,7 +96,7 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
           .select("id, series_id, product_code, wood_type, spec1")
           .is("deleted_at", null)
           .order("product_code"),
-        supabase.from("parts").select("id, part_no, name, unit, wood_species").is("deleted_at", null).order("part_no"),
+        supabase.from("parts").select("id, part_no, name, unit, category, wood_species").is("deleted_at", null).order("part_no"),
       ]);
       if (cancelled) return;
       setSeries((seriesRes.data as SeriesOption[]) ?? []);
@@ -161,7 +166,26 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
   }, [copyCandidates, copySourceId]);
 
   const usedPartIds = useMemo(() => new Set(items.map((it) => it.part_id)), [items]);
-  const addableParts = useMemo(() => parts.filter((p) => !usedPartIds.has(p.id)), [parts, usedPartIds]);
+  const addableParts = useMemo(() => {
+    const q = newPartSearch.trim().toLowerCase();
+    return parts.filter((p) => {
+      if (usedPartIds.has(p.id)) return false;
+      if (newPartCategory && p.category !== newPartCategory) return false;
+      if (!q) return true;
+      return (
+        p.part_no.toLowerCase().includes(q) ||
+        p.name.toLowerCase().includes(q) ||
+        (p.wood_species ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [parts, usedPartIds, newPartCategory, newPartSearch]);
+
+  // 篩選改變後，已選零件若被濾掉就清空選擇
+  useEffect(() => {
+    if (newPartId && !addableParts.some((p) => p.id === newPartId)) {
+      setNewPartId("");
+    }
+  }, [addableParts, newPartId]);
 
   async function addItem() {
     if (!variantId || !newPartId) return;
@@ -430,10 +454,35 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
 
           {isAdmin && (
             <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-card p-3">
+              <div className="flex w-[calc(50%-0.25rem)] flex-col gap-1.5 sm:w-36">
+                <label htmlFor="bom-part-filter-category" className="text-xs text-muted-foreground">篩選分類</label>
+                <select
+                  id="bom-part-filter-category"
+                  value={newPartCategory}
+                  onChange={(e) => setNewPartCategory(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">全部分類</option>
+                  {PART_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex w-[calc(50%-0.25rem)] flex-col gap-1.5 sm:min-w-[10rem] sm:flex-1">
+                <label htmlFor="bom-part-filter-search" className="text-xs text-muted-foreground">篩選零件</label>
+                <input
+                  id="bom-part-filter-search"
+                  type="search"
+                  value={newPartSearch}
+                  onChange={(e) => setNewPartSearch(e.target.value)}
+                  placeholder="搜尋料號、名稱、材種…"
+                  className={inputCls}
+                />
+              </div>
               <div className="flex min-w-[16rem] flex-1 flex-col gap-1.5">
                 <label htmlFor="bom-new-part" className="text-xs text-muted-foreground">加入零件</label>
                 <select id="bom-new-part" value={newPartId} onChange={(e) => setNewPartId(e.target.value)} className={inputCls}>
-                  <option value="">選擇零件…</option>
+                  <option value="">選擇零件…（{addableParts.length} 顆符合）</option>
                   {addableParts.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.part_no}｜{p.name}
