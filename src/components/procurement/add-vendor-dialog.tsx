@@ -7,7 +7,7 @@ import { Plus, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { VendorCategoryPicker } from "@/components/procurement/vendor-category-picker";
-import type { VendorCategoryGroup } from "@/lib/vendor-category-groups";
+import { assignCategoryToGroup, type VendorCategoryGroup } from "@/lib/vendor-category-groups";
 
 export interface AddVendorDialogProps {
   onSuccess: () => void;
@@ -23,6 +23,7 @@ export function AddVendorDialog({ onSuccess, categoryOptions = DEFAULT_CATEGORIE
   const [open, setOpen] = useState(false);
   const firstRef = useRef<HTMLInputElement>(null);
   const [mainCategory, setMainCategory] = useState("");
+  const [customGroupId, setCustomGroupId] = useState("");
   const [name, setName] = useState("");
   const [contactPerson, setContactPerson] = useState("");
   const [address, setAddress] = useState("");
@@ -40,6 +41,7 @@ export function AddVendorDialog({ onSuccess, categoryOptions = DEFAULT_CATEGORIE
   useEffect(() => {
     if (open) {
       setMainCategory("");
+      setCustomGroupId("");
       setName("");
       setContactPerson("");
       setAddress("");
@@ -85,6 +87,10 @@ export function AddVendorDialog({ onSuccess, categoryOptions = DEFAULT_CATEGORIE
       setError(err.message || "新增廠商失敗");
       return;
     }
+    if (customGroupId && mainCategory.trim()) {
+      const assignErr = await assignCategoryToGroup(mainCategory, customGroupId);
+      if (assignErr) toast.error(`廠商已新增，但歸入主類別失敗：${assignErr}`);
+    }
     toast.success("已新增廠商");
     setOpen(false);
     onSuccess();
@@ -129,6 +135,8 @@ export function AddVendorDialog({ onSuccess, categoryOptions = DEFAULT_CATEGORIE
                 categories={categoryList}
                 groups={categoryGroups}
                 open={open}
+                customGroupId={customGroupId}
+                onCustomGroupChange={setCustomGroupId}
               />
             </div>
             <div className="flex flex-col gap-1.5">

@@ -8,7 +8,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { VendorRow } from "@/types/procurement";
 import { VendorCategoryPicker } from "@/components/procurement/vendor-category-picker";
-import type { VendorCategoryGroup } from "@/lib/vendor-category-groups";
+import { assignCategoryToGroup, type VendorCategoryGroup } from "@/lib/vendor-category-groups";
 
 export interface EditVendorDialogProps {
   open: boolean;
@@ -25,6 +25,7 @@ const DEFAULT_CATEGORIES = ["木材", "五金", "其他", "雜項"];
 export function EditVendorDialog({ open, onOpenChange, row, onSuccess, categoryOptions = DEFAULT_CATEGORIES, categoryGroups = [] }: EditVendorDialogProps) {
   const firstRef = useRef<HTMLInputElement>(null);
   const [mainCategory, setMainCategory] = useState("");
+  const [customGroupId, setCustomGroupId] = useState("");
   const [name, setName] = useState("");
   const [contactPerson, setContactPerson] = useState("");
   const [address, setAddress] = useState("");
@@ -42,6 +43,7 @@ export function EditVendorDialog({ open, onOpenChange, row, onSuccess, categoryO
   useEffect(() => {
     if (open && row) {
       setMainCategory(row.main_category ?? "");
+      setCustomGroupId("");
       setName(row.name ?? "");
       setContactPerson(row.contact_person ?? "");
       setAddress(row.address ?? "");
@@ -86,6 +88,10 @@ export function EditVendorDialog({ open, onOpenChange, row, onSuccess, categoryO
       setError(err.message || "更新廠商失敗");
       return;
     }
+    if (customGroupId && mainCategory.trim()) {
+      const assignErr = await assignCategoryToGroup(mainCategory, customGroupId);
+      if (assignErr) toast.error(`廠商已更新，但歸入主類別失敗：${assignErr}`);
+    }
     toast.success("已更新廠商");
     onOpenChange(false);
     onSuccess();
@@ -123,6 +129,8 @@ export function EditVendorDialog({ open, onOpenChange, row, onSuccess, categoryO
                 categories={categoryList}
                 groups={categoryGroups}
                 open={open}
+                customGroupId={customGroupId}
+                onCustomGroupChange={setCustomGroupId}
               />
             </div>
             <div className="flex flex-col gap-1.5">

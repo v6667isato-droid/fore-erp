@@ -43,6 +43,28 @@ export function groupVendorCategories(
   return { grouped, ungrouped };
 }
 
+/** 把副類別歸入指定主類別（會自動從其他主類別移除，維持單一歸屬）；groupId 空字串 = 改為未分類。回傳錯誤訊息或 null */
+export async function assignCategoryToGroup(category: string, groupId: string): Promise<string | null> {
+  const cat = category.trim();
+  if (!cat) return null;
+  const { data, error } = await supabase.from("vendor_category_groups").select("id, subcategories");
+  if (error || !data) return error?.message ?? "讀取主類別失敗";
+  for (const row of data) {
+    const subs = Array.isArray(row.subcategories) ? row.subcategories.map(String) : [];
+    const isTarget = String(row.id) === groupId;
+    const has = subs.includes(cat);
+    const next = isTarget ? (has ? null : [...subs, cat]) : has ? subs.filter((s) => s !== cat) : null;
+    if (next) {
+      const { error: updateError } = await supabase
+        .from("vendor_category_groups")
+        .update({ subcategories: next })
+        .eq("id", row.id);
+      if (updateError) return updateError.message;
+    }
+  }
+  return null;
+}
+
 /** 查某副類別所屬的主類別名稱；未分組回傳 null */
 export function findGroupName(category: string, groups: VendorCategoryGroup[]): string | null {
   if (!category) return null;

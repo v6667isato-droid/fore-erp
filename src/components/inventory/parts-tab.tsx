@@ -199,7 +199,9 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
     void fetchParts();
   }
 
-  if (loading) {
+  // 只在首次載入時整頁顯示載入中；重抓（存檔後刷新）保留表格與已掛載的 dialog，
+  // 否則存檔後的「同步到其他材種」確認視窗會隨元件卸載而消失
+  if (loading && records.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground" role="status">
         載入零件主檔中…

@@ -231,10 +231,9 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
       return;
     }
     toast.success(isEdit ? "已更新零件" : "已新增零件");
-    onSaved();
-    onOpenChange(false);
 
-    // 同名（不同材種）零件存在時，詢問是否同步尺寸/SOP/圖面
+    // 同名（不同材種）零件存在時，詢問是否同步尺寸/SOP/圖面。
+    // 先查好並設定提示、再通知父層刷新，避免刷新造成的重繪把提示吃掉。
     const savedId = savedRes.data?.id ?? row?.id;
     if (savedId) {
       const { data: siblings } = await supabase
@@ -257,6 +256,8 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
         });
       }
     }
+    onSaved();
+    onOpenChange(false);
   }
 
   async function performSync() {

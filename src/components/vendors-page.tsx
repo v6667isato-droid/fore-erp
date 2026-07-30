@@ -21,6 +21,7 @@ import { ManageVendorCategoriesDialog } from "@/components/procurement/manage-ve
 import { exportVendorsCsv } from "@/components/procurement/export-vendors-csv";
 import {
   GROUP_FILTER_PREFIX,
+  assignCategoryToGroup,
   fetchVendorCategoryGroups,
   findGroupName,
   groupVendorCategories,
@@ -233,7 +234,7 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <AddVendorDialog onSuccess={fetchVendors} categoryOptions={categories} categoryGroups={categoryGroups} />
+          <AddVendorDialog onSuccess={() => { fetchVendors(); refreshCategoryGroups(); }} categoryOptions={categories} categoryGroups={categoryGroups} />
           <ManageVendorCategoriesDialog categories={categories} groups={categoryGroups} onSuccess={refreshCategoryGroups} />
           {isAdmin && (
             <Button
@@ -280,6 +281,28 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
               ))
             )}
           </select>
+          {filterCategory && !filterCategory.startsWith(GROUP_FILTER_PREFIX) && (
+            <select
+              value={categoryGroups.find((g) => g.subcategories.includes(filterCategory))?.id ?? ""}
+              onChange={async (e) => {
+                const err = await assignCategoryToGroup(filterCategory, e.target.value);
+                if (err) {
+                  toast.error(err);
+                  return;
+                }
+                toast.success(`已更新「${filterCategory}」的主類別歸屬`);
+                refreshCategoryGroups();
+              }}
+              className="h-8 min-w-[9rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label={`把「${filterCategory}」歸入主類別`}
+              title={`把「${filterCategory}」歸入主類別`}
+            >
+              <option value="">歸入主類別：未分類</option>
+              {categoryGroups.map((g) => (
+                <option key={g.id} value={g.id}>歸入主類別：{g.name}</option>
+              ))}
+            </select>
+          )}
           <input
             type="text"
             value={searchQuery}
@@ -399,7 +422,7 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       </div>
 
       <ViewVendorDialog open={viewRow != null} onOpenChange={(open) => !open && setViewRow(null)} row={viewRow} categoryGroups={categoryGroups} />
-      <EditVendorDialog open={editRow != null} onOpenChange={(open) => !open && setEditRow(null)} row={editRow} onSuccess={() => { fetchVendors(); setEditRow(null); }} categoryOptions={categories} categoryGroups={categoryGroups} />
+      <EditVendorDialog open={editRow != null} onOpenChange={(open) => !open && setEditRow(null)} row={editRow} onSuccess={() => { fetchVendors(); refreshCategoryGroups(); setEditRow(null); }} categoryOptions={categories} categoryGroups={categoryGroups} />
 
       <ConfirmDialog
         open={deleteConfirmRow != null}
