@@ -117,7 +117,7 @@ function SidebarNav({
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
-        if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting") && userRole !== "admin") {
+        if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting" || item.id === "inventory") && userRole !== "admin") {
           return null;
         }
         const Icon = item.icon;
@@ -251,7 +251,7 @@ function MobileHeader({
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
-                  if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting") && userRole !== "admin") {
+                  if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting" || item.id === "inventory") && userRole !== "admin") {
                     return null;
                   }
                   const Icon = item.icon;
@@ -492,7 +492,8 @@ export default function DashboardShell() {
       userRole !== "admin" &&
       (activePage === "leave_approvals" ||
         activePage === "cost_statistics" ||
-        activePage === "accounting")
+        activePage === "accounting" ||
+        activePage === "inventory")
     ) {
       setActivePage("dashboard");
       router.replace("/?page=dashboard");
@@ -584,8 +585,8 @@ export default function DashboardShell() {
             />
           )}
           {activePage === "kanban" && <WorkOrdersPage />}
-          {activePage === "inventory" && (
-            <InventoryPage isAdmin={isErpEditorRole(userRole)} />
+          {activePage === "inventory" && userRole === "admin" && (
+            <InventoryPage isAdmin />
           )}
           {activePage === "procurement" && (
             <ProcurementPage isAdmin={isErpEditorRole(userRole)} />
