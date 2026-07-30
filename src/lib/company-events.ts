@@ -11,7 +11,7 @@ export interface CompanyAnnouncementDto {
   published_at: string;
 }
 
-export type CompanyEventCategory = "company" | "production" | "event" | "memo";
+export type CompanyEventCategory = "delivery" | "visit" | "task" | "company" | "other";
 
 export interface CompanyEventRow {
   id: string;
@@ -25,37 +25,66 @@ export interface CompanyEventRow {
 export const COMPANY_EVENT_CATEGORY_OPTIONS: {
   value: CompanyEventCategory;
   label: string;
+  description: string;
 }[] = [
-  { value: "company", label: "公司" },
-  { value: "production", label: "生產" },
-  { value: "event", label: "事件" },
-  { value: "memo", label: "備忘" },
+  {
+    value: "delivery",
+    label: "家具運送",
+    description: "家具出貨、運送與安裝行程",
+  },
+  {
+    value: "visit",
+    label: "參觀預約",
+    description: "客戶或訪客到廠參觀的預約行程；僅指派的負責人會看到",
+  },
+  {
+    value: "task",
+    label: "交辦事項",
+    description: "指派給特定同仁處理的工作；僅指派的負責人會看到",
+  },
+  {
+    value: "company",
+    label: "公司公告",
+    description: "全公司周知的重要訊息；全體員工都會在公告看到",
+  },
+  {
+    value: "other",
+    label: "其他事項",
+    description: "不屬於以上類別的事項；僅指派的負責人會看到",
+  },
 ];
 
 export const companyEventCategoryLabel: Record<CompanyEventCategory, string> = {
-  company: "公司",
-  production: "生產",
-  event: "事件",
-  memo: "備忘",
+  delivery: "家具運送",
+  visit: "參觀預約",
+  task: "交辦事項",
+  company: "公司公告",
+  other: "其他事項",
 };
 
 export function companyEventBadgePrefix(category: CompanyEventCategory): string {
   return `[${companyEventCategoryLabel[category]}]`;
 }
 
-function isCompanyEventCategory(v: string): v is CompanyEventCategory {
-  return v === "company" || v === "production" || v === "event" || v === "memo";
+/** 舊類別值相容：production(Telegram 交辦，bot 改版前仍會寫入)→task；event/memo→other */
+export function normalizeCompanyEventCategory(v: unknown): CompanyEventCategory | null {
+  if (v === "delivery" || v === "visit" || v === "task" || v === "company" || v === "other") {
+    return v;
+  }
+  if (v === "production") return "task";
+  if (v === "event" || v === "memo") return "other";
+  return null;
 }
 
 function normalizeRow(row: Record<string, unknown>): CompanyEventRow | null {
   const id = row.id;
   const title = row.title;
   const event_date = row.event_date;
-  const category = row.category;
+  const category = normalizeCompanyEventCategory(row.category);
   if (typeof id !== "string" || typeof title !== "string" || typeof event_date !== "string") {
     return null;
   }
-  if (typeof category !== "string" || !isCompanyEventCategory(category)) {
+  if (category === null) {
     return null;
   }
   const description = row.description;
@@ -86,7 +115,7 @@ export async function fetchCompanyEventsBetween(
   return (data ?? []).map((r) => normalizeRow(r as Record<string, unknown>)).filter(Boolean) as CompanyEventRow[];
 }
 
-/** 員工儀表板「公司公告」：僅 company 類別；匿名 policy 亦只開放此類別。只取今日（含）以後，由近到遠 */
+/** 員工儀表板「公司公告」：僅 company 公司公告；匿名 policy 亦只開放此類別。只取今日（含）以後，由近到遠 */
 export async function fetchCompanyAnnouncementsFromEvents(): Promise<CompanyAnnouncementDto[]> {
   if (!isSupabaseConfigured) return [];
   const t = new Date();
@@ -236,9 +265,7 @@ export async function fetchCompanyEventAssignmentsForEmployee(
 
   const rows: CompanyEventAssigneeRow[] = (data ?? []).map((r: Record<string, unknown>) => {
     const ev = (r.company_event ?? {}) as Record<string, unknown>;
-    const cat = typeof ev.category === "string" && isCompanyEventCategory(ev.category)
-      ? ev.category
-      : "company";
+    const cat = normalizeCompanyEventCategory(ev.category) ?? "other";
     return {
       id: String(r.id ?? ""),
       company_event_id: String(r.company_event_id ?? ""),
@@ -272,9 +299,7 @@ export async function fetchAllCompanyEventAssignees(): Promise<
 
   const rows: CompanyEventAssigneeRow[] = (data ?? []).map((r: Record<string, unknown>) => {
     const ev = (r.company_event ?? {}) as Record<string, unknown>;
-    const cat = typeof ev.category === "string" && isCompanyEventCategory(ev.category)
-      ? ev.category
-      : "company";
+    const cat = normalizeCompanyEventCategory(ev.category) ?? "other";
     return {
       id: String(r.id ?? ""),
       company_event_id: String(r.company_event_id ?? ""),

@@ -17,6 +17,7 @@ import {
   BarChart3,
   Receipt,
   Newspaper,
+  Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { OrdersPage } from "@/components/orders-page";
 import { WorkOrdersPage } from "@/components/work-orders-page";
 import { ProcurementPage } from "@/components/procurement-page";
+import { InventoryPage } from "@/components/inventory-page";
 import { ProductsPage } from "@/components/products-page";
 import { JournalPage } from "@/components/journal-page";
 import { CustomersPage } from "@/components/customers-page";
@@ -51,6 +53,7 @@ type Page =
   | "quotes"
   | "orders"
   | "kanban"
+  | "inventory"
   | "procurement"
   | "accounting"
   | "cost_statistics"
@@ -74,6 +77,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "quotes", label: "報價管理", icon: ClipboardList },
   { id: "orders", label: "訂單管理", icon: ShoppingCart },
   { id: "kanban", label: "生產管理", icon: Package },
+  { id: "inventory", label: "零件庫存", icon: Boxes },
   { id: "procurement", label: "採購管理", icon: ShoppingCart },
   { id: "accounting", label: "會計管理", icon: Receipt },
   { id: "cost_statistics", label: "成本統計", icon: BarChart3 },
@@ -580,6 +584,9 @@ export default function DashboardShell() {
             />
           )}
           {activePage === "kanban" && <WorkOrdersPage />}
+          {activePage === "inventory" && (
+            <InventoryPage isAdmin={isErpEditorRole(userRole)} />
+          )}
           {activePage === "procurement" && (
             <ProcurementPage isAdmin={isErpEditorRole(userRole)} />
           )}

@@ -128,6 +128,7 @@ async function loadRemoteEvents(
   }
 
   // 排除所屬訂單已被軟刪除者
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const workOrders = ((woResult.data ?? []) as any[]).filter((wo) => {
     const oi = Array.isArray(wo.order_items) ? wo.order_items[0] : wo.order_items;
     const ord = Array.isArray(oi?.orders) ? oi.orders[0] : oi?.orders;
@@ -207,6 +208,144 @@ async function loadRemoteEvents(
   return merged;
 }
 
+interface TodaySummaryItem {
+  id: string;
+  kind: DataKind;
+  title: string;
+  sub?: string;
+}
+
+function addDaysKey(base: Date, days: number): string {
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + days);
+  return formatDateKey(d.getFullYear(), d.getMonth() + 1, d.getDate());
+}
+
+function diffDays(fromKey: string, toKey: string): number {
+  const toDate = (s: string) => {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  };
+  return Math.round((toDate(toKey).getTime() - toDate(fromKey).getTime()) / 86_400_000);
+}
+
+/** 今日摘要：當日假日／休假／交辦＋生產交辦（工單交貨日在今日前後 7 天內） */
+async function loadTodaySummary(employeeId: string): Promise<TodaySummaryItem[]> {
+  const now = new Date();
+  const todayKey = formatDateKey(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  const woStart = addDaysKey(now, -7);
+  const woEnd = addDaysKey(now, 7);
+
+  const [holidays, leaves, assignmentsResult, calendarAssignResult, woResult] = await Promise.all([
+    fetchCalendarPublicHolidaysBetween(todayKey, todayKey),
+    fetchCalendarApprovedLeavesOverlapping(todayKey, todayKey),
+    fetchMeetingAssignmentsForEmployee(employeeId),
+    fetchCompanyEventAssignmentsForEmployee(employeeId),
+    supabase
+      .from("work_orders")
+      .select(`
+        id, stage, planned_end_date,
+        order_items!inner(
+          custom_name, quantity,
+          orders!inner(deleted_at, customers(name, alias)),
+          product_variants(product_code)
+        )
+      `)
+      .eq("assignee_id", employeeId)
+      .neq("stage", "已出貨")
+      .gte("planned_end_date", woStart)
+      .lte("planned_end_date", woEnd),
+  ]);
+  const selfId = String(employeeId ?? "").trim();
+
+  const items: TodaySummaryItem[] = [];
+
+  // 生產交辦：客戶，品項 ×數量，離交貨還有 N 天／已到期 N 天
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const workOrders = ((woResult.data ?? []) as any[])
+    .filter((wo) => {
+      const oi = Array.isArray(wo.order_items) ? wo.order_items[0] : wo.order_items;
+      const ord = Array.isArray(oi?.orders) ? oi.orders[0] : oi?.orders;
+      return !ord?.deleted_at;
+    })
+    .sort((a, b) =>
+      String(a.planned_end_date ?? "").localeCompare(String(b.planned_end_date ?? "")),
+    );
+  for (const wo of workOrders) {
+    const dKey = String(wo.planned_end_date ?? "").slice(0, 10);
+    if (!dKey) continue;
+    const oi = Array.isArray(wo.order_items) ? wo.order_items[0] : wo.order_items;
+    const ord = Array.isArray(oi?.orders) ? oi.orders[0] : oi?.orders;
+    const custRel = ord?.customers;
+    const cust = Array.isArray(custRel) ? custRel[0] : custRel;
+    const custName =
+      (typeof cust?.alias === "string" && cust.alias.trim()) ||
+      (typeof cust?.name === "string" && cust.name.trim()) ||
+      "—";
+    const pv = Array.isArray(oi?.product_variants) ? oi.product_variants[0] : oi?.product_variants;
+    const itemName =
+      (typeof oi?.custom_name === "string" && oi.custom_name.trim()) ||
+      (typeof pv?.product_code === "string" && pv.product_code.trim()) ||
+      "品項";
+    const qty = Number(oi?.quantity ?? 0) || 0;
+    const diff = diffDays(todayKey, dKey);
+    const dueLabel =
+      diff > 0 ? `離交貨還有 ${diff} 天` : diff === 0 ? "今日交貨" : `已到期 ${-diff} 天`;
+    items.push({
+      id: `wo-${wo.id}`,
+      kind: "work_order",
+      title: `${custName}，${itemName} ×${qty}，${dueLabel}`,
+      sub: `生產交辦 · ${wo.stage ?? "待排程"}`,
+    });
+  }
+
+  for (const h of holidays) {
+    const isWork = h.is_workday === true;
+    items.push({
+      id: `h-${todayKey}-${h.name}-${isWork ? "w" : "r"}`,
+      kind: isWork ? "workday" : "holiday",
+      title: isWork ? `${h.name}（補班日）` : h.name,
+      sub: isWork ? "補班" : "放假",
+    });
+  }
+
+  const byLeave = groupApprovedLeavesByDateKey(leaves, todayKey, todayKey);
+  for (const L of byLeave.get(todayKey) ?? []) {
+    const isMine = Boolean(selfId && String(L.employee_id ?? "").trim() === selfId);
+    items.push({
+      id: `l-${L.id}`,
+      kind: isMine ? "leave" : "leave_other",
+      title: isMine ? L.leaveType : `${L.leaveType} · ${L.employeeName}`,
+      sub: isMine ? "我的休假 · 已核准" : "同仁休假 · 已核准",
+    });
+  }
+
+  if (assignmentsResult.ok) {
+    for (const a of assignmentsResult.rows) {
+      if (a.meeting_date?.slice(0, 10) !== todayKey) continue;
+      items.push({
+        id: `asg-${a.assignment_id}`,
+        kind: "assignment",
+        title: a.content,
+        sub: `開會交辦 · ${a.completed ? "已完成" : "待辦"}`,
+      });
+    }
+  }
+
+  if (calendarAssignResult.ok) {
+    for (const ca of calendarAssignResult.rows) {
+      if (ca.event_date?.slice(0, 10) !== todayKey) continue;
+      items.push({
+        id: `cea-${ca.id}`,
+        kind: "calendar_event",
+        title: ca.event_title,
+        sub: `行事曆交辦 · ${ca.completed ? "已完成" : "待辦"}`,
+      });
+    }
+  }
+
+  return items;
+}
+
 export function EmployeePortalMiniCalendar({
   employeeId,
   showSubtitleHints = true,
@@ -226,6 +365,32 @@ export function EmployeePortalMiniCalendar({
 
   const [remoteByDate, setRemoteByDate] = useState<Record<string, CalendarEventItem[]>>({});
   const [remoteLoading, setRemoteLoading] = useState(false);
+
+  /** 展開前顯示的今日摘要（僅本人可見範圍） */
+  const [todayItems, setTodayItems] = useState<TodaySummaryItem[]>([]);
+  const [todayLoading, setTodayLoading] = useState(false);
+  useEffect(() => {
+    if (!useDb) {
+      setTodayItems([]);
+      return;
+    }
+    let cancelled = false;
+    setTodayLoading(true);
+    (async () => {
+      try {
+        const items = await loadTodaySummary(String(employeeId).trim());
+        if (!cancelled) setTodayItems(items);
+      } catch (e) {
+        console.warn("[EmployeePortalMiniCalendar] today summary", e);
+        if (!cancelled) setTodayItems([]);
+      } finally {
+        if (!cancelled) setTodayLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [useDb, employeeId]);
 
   const reloadRemote = useCallback(async () => {
     if (!useDb) {
@@ -290,7 +455,7 @@ export function EmployeePortalMiniCalendar({
 
   return (
     <section className={epSection.cardRing}>
-      <details className="group">
+      <details className="group peer">
         <summary
           className={cn(
             "flex cursor-pointer list-none items-start gap-2 rounded-lg outline-none",
@@ -517,6 +682,38 @@ export function EmployeePortalMiniCalendar({
           </div>
         </div>
       </details>
+
+      {useDb ? (
+        <div className="mt-3 border-t border-border/60 pt-3 peer-open:hidden">
+          <p className="flex items-baseline gap-2 text-xs font-medium text-muted-foreground">
+            今日摘要
+            <span className="tabular-nums">{todayKey}</span>
+            {todayLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            ) : null}
+          </p>
+          {todayItems.length === 0 ? (
+            todayLoading ? null : (
+              <p className="mt-2 text-sm text-muted-foreground">今日無安排事項</p>
+            )
+          ) : (
+            <ul className="mt-2 space-y-1.5">
+              {todayItems.map((ev) => (
+                <li key={ev.id} className="flex items-start gap-2 text-sm">
+                  <span
+                    className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", KIND_DOT[ev.kind])}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1 leading-snug text-foreground">{ev.title}</span>
+                  {ev.sub ? (
+                    <span className="shrink-0 text-xs text-muted-foreground">{ev.sub}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

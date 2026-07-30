@@ -1,5 +1,9 @@
 import { formatDateKey } from "@/lib/calendar-month";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import {
+  normalizeWorkOrderStage,
+  workOrderStageSortIndex,
+} from "@/lib/work-order-stages";
 
 /** 與訂單列表 ORDER_STATUS_SORT_ORDER 一致：行事曆僅顯示 排程中～已完工（含暫停） */
 export const CALENDAR_ORDER_STATUSES = [
@@ -36,6 +40,12 @@ export interface CalendarOrderDueItem {
   status?: string | null;
   payment_status?: string | null;
   total_amount?: number | null;
+  /** 品項摘要（order_items：名稱＋數量），今日摘要顯示用 */
+  items?: { name: string; quantity: number }[];
+  /** 工單負責人姓名（去重；未出貨工單優先），今日摘要顯示用 */
+  assignee_names?: string[];
+  /** 工單目前工序（去重、依站別順序；未出貨工單優先），今日摘要顯示用 */
+  stages?: string[];
 }
 
 function parseCustomerRel(customers: unknown): {
@@ -69,6 +79,93 @@ export function formatCalendarOrderDueTitle(row: CalendarOrderDueItem): string {
   return `[交期]「${contact}」訂單`;
 }
 
+/** 距交貨天數標籤：>0 離交貨還有 N 天；0 今日交貨；<0 已到期 N 天 */
+export function formatDueCountdownLabel(expectedIso: string, todayIso: string): string {
+  const toDate = (s: string) => {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  };
+  const diff = Math.round(
+    (toDate(expectedIso).getTime() - toDate(todayIso).getTime()) / 86_400_000,
+  );
+  if (diff > 0) return `離交貨還有 ${diff} 天`;
+  if (diff === 0) return "今日交貨";
+  return `已到期 ${-diff} 天`;
+}
+
+/** 今日摘要條目：[交期] 客戶，品項 ×數量，離交貨還有 N 天／已到期 N 天 */
+export function formatCalendarOrderDueSummaryTitle(
+  row: CalendarOrderDueItem,
+  todayIso: string,
+): string {
+  const ship = row.shipping_contact_name?.trim();
+  const cust = row.customer_contact_person?.trim();
+  const contact = ship || cust || row.customer_short?.trim() || row.order_number || "—";
+  const items = row.items ?? [];
+  const itemsText = items.length
+    ? items.map((it) => `${it.name} ×${it.quantity}`).join("、")
+    : "—";
+  return `[交期] ${contact}，${itemsText}，${formatDueCountdownLabel(row.expected_date, todayIso)}`;
+}
+
+function parseOrderItemsRel(raw: unknown): { name: string; quantity: number }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { name: string; quantity: number }[] = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as { custom_name?: unknown; quantity?: unknown; product_variants?: unknown };
+    const pv = Array.isArray(o.product_variants) ? o.product_variants[0] : o.product_variants;
+    const code =
+      pv && typeof pv === "object" ? (pv as { product_code?: unknown }).product_code : null;
+    const name =
+      typeof o.custom_name === "string" && o.custom_name.trim()
+        ? o.custom_name.trim()
+        : typeof code === "string" && code.trim()
+          ? code.trim()
+          : "品項";
+    const qty = Number(o.quantity ?? 0) || 0;
+    out.push({ name, quantity: qty });
+  }
+  return out;
+}
+
+/** 各品項工單的負責人與工序（未出貨工單優先；全部已出貨時才顯示已出貨） */
+function parseWorkOrderMeta(orderItemsRaw: unknown): {
+  assignee_names: string[];
+  stages: string[];
+} {
+  const entries: { stage: string; name: string | null }[] = [];
+  if (Array.isArray(orderItemsRaw)) {
+    for (const it of orderItemsRaw) {
+      if (!it || typeof it !== "object") continue;
+      const wos = (it as { work_orders?: unknown }).work_orders;
+      const list = Array.isArray(wos) ? wos : wos ? [wos] : [];
+      for (const wo of list) {
+        if (!wo || typeof wo !== "object") continue;
+        const o = wo as { stage?: unknown; employees?: unknown };
+        const emp = Array.isArray(o.employees) ? o.employees[0] : o.employees;
+        const name =
+          emp && typeof emp === "object" && typeof (emp as { name?: unknown }).name === "string"
+            ? ((emp as { name: string }).name.trim() || null)
+            : null;
+        entries.push({
+          stage: normalizeWorkOrderStage(typeof o.stage === "string" ? o.stage : null),
+          name,
+        });
+      }
+    }
+  }
+  const active = entries.filter((e) => e.stage !== "已出貨");
+  const scope = active.length > 0 ? active : entries;
+  const stages = [...new Set(scope.map((e) => e.stage))].sort(
+    (a, b) => workOrderStageSortIndex(a) - workOrderStageSortIndex(b),
+  );
+  const assignee_names = [
+    ...new Set(scope.map((e) => e.name).filter((n): n is string => Boolean(n))),
+  ];
+  return { assignee_names, stages };
+}
+
 function numOrNull(v: unknown): number | null {
   if (v == null) return null;
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -92,7 +189,7 @@ export async function fetchOrdersExpectedDeliveryBetween(
   const { data, error } = await supabase
     .from("orders")
     .select(
-      "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, shipping_contact_name, customers(name, alias, contact_person)"
+      "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, shipping_contact_name, customers(name, alias, contact_person), order_items(custom_name, quantity, product_variants(product_code), work_orders(stage, employees!assignee_id(name)))"
     )
     .is("deleted_at", null)
     .not("expected_delivery_date", "is", null)
@@ -129,6 +226,8 @@ export async function fetchOrdersExpectedDeliveryBetween(
       status: st,
       payment_status: typeof r.payment_status === "string" ? r.payment_status : null,
       total_amount: numOrNull(r.total_amount),
+      items: parseOrderItemsRel(r.order_items),
+      ...parseWorkOrderMeta(r.order_items),
     });
   }
   return out;
@@ -168,6 +267,7 @@ export function mockOrderDuesBetween(startIso: string, endIso: string): Calendar
         status: "生產中",
         payment_status: "已付訂金",
         total_amount: 128000 + idx * 24000,
+        items: [{ name: ["大板椅", "圈椅", "長凳"][idx], quantity: idx + 1 }],
       });
     }
     cur.setDate(cur.getDate() + 1);

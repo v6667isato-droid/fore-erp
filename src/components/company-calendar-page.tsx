@@ -32,6 +32,7 @@ import {
 } from "@/lib/company-calendar-extra";
 import {
   fetchOrdersExpectedDeliveryBetween,
+  formatCalendarOrderDueSummaryTitle,
   formatCalendarOrderDueTitle,
   mockOrderDuesBetween,
   type CalendarOrderDueItem,
@@ -73,19 +74,23 @@ const EVENT_STYLES: Record<
   CompanyEventCategory,
   { badge: string; hover: string }
 > = {
+  delivery: {
+    badge: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/35 dark:text-yellow-200",
+    hover: "hover:bg-yellow-100/90 dark:hover:bg-yellow-900/30",
+  },
+  visit: {
+    badge: "bg-sky-50 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
+    hover: "hover:bg-sky-100/90 dark:hover:bg-sky-900/35",
+  },
+  task: {
+    badge: "bg-rose-50 text-rose-700 dark:bg-rose-950/35 dark:text-rose-200",
+    hover: "hover:bg-rose-100/90 dark:hover:bg-rose-900/30",
+  },
   company: {
     badge: "bg-green-50 text-green-700 dark:bg-green-950/35 dark:text-green-200",
     hover: "hover:bg-green-100/90 dark:hover:bg-green-900/30",
   },
-  production: {
-    badge: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/35 dark:text-yellow-200",
-    hover: "hover:bg-yellow-100/90 dark:hover:bg-yellow-900/30",
-  },
-  event: {
-    badge: "bg-sky-50 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
-    hover: "hover:bg-sky-100/90 dark:hover:bg-sky-900/35",
-  },
-  memo: {
+  other: {
     badge: "bg-stone-100 text-stone-700 dark:bg-stone-900/50 dark:text-stone-200",
     hover: "hover:bg-stone-200/80 dark:hover:bg-stone-800/50",
   },
@@ -144,6 +149,12 @@ function isTodayCell(cell: MonthDayCell): boolean {
 function todayIsoDate(): string {
   const t = new Date();
   return formatDateKey(t.getFullYear(), t.getMonth() + 1, t.getDate());
+}
+
+function addDaysIso(days: number): string {
+  const t = new Date();
+  const d = new Date(t.getFullYear(), t.getMonth(), t.getDate() + days);
+  return formatDateKey(d.getFullYear(), d.getMonth() + 1, d.getDate());
 }
 
 export function CompanyCalendarPage() {
@@ -346,14 +357,56 @@ export function CompanyCalendarPage() {
     return m;
   }, [rows]);
 
-  /** 今日摘要：當日所有分類（假日、請假、訂單交期、公司事件）；瀏覽其他月份時保留最後結果 */
+  /** 今日摘要：當日假日、請假、公司事件（交期另以 ±7 天視窗顯示）；瀏覽其他月份時保留最後結果 */
   const [todayCells, setTodayCells] = useState<CalendarCellItem[]>([]);
   useEffect(() => {
     const todayKey = todayIsoDate();
     if (todayKey >= range.start && todayKey <= range.end) {
-      setTodayCells(cellItemsByDay.get(todayKey) ?? []);
+      setTodayCells(
+        (cellItemsByDay.get(todayKey) ?? []).filter((c) => c.kind !== "orderDue"),
+      );
     }
   }, [cellItemsByDay, range.start, range.end]);
+
+  /** 今日摘要「交期」：今日前後 7 天內的生產訂單（不受瀏覽月份影響） */
+  const [todayWindowOrderDues, setTodayWindowOrderDues] = useState<CalendarOrderDueItem[]>([]);
+  useEffect(() => {
+    const start = addDaysIso(-7);
+    const end = addDaysIso(7);
+    if (!isSupabaseConfigured) {
+      setTodayWindowOrderDues(mockOrderDuesBetween(start, end));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await fetchOrdersExpectedDeliveryBetween(start, end);
+        if (!cancelled) setTodayWindowOrderDues(list);
+      } catch (e) {
+        console.error("[company-calendar] today order dues", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  /** 今日摘要清單：±7 天交期在前（依交貨日排序），其後接當日其他分類 */
+  const todaySummaryItems = useMemo((): CalendarCellItem[] => {
+    const todayKey = todayIsoDate();
+    const dues: CalendarCellItem[] = [...todayWindowOrderDues]
+      .sort((a, b) => a.expected_date.localeCompare(b.expected_date))
+      .map((od) => ({
+        kind: "orderDue",
+        id: od.id,
+        title: formatCalendarOrderDueSummaryTitle(od, todayKey),
+        tooltip: isSupabaseConfigured
+          ? `${od.status ?? "—"} · 預計交貨 ${od.expected_date}（點擊開啟訂單總覽）`
+          : "試用預覽（點擊查閱）",
+        detail: od,
+      }));
+    return [...dues, ...todayCells];
+  }, [todayWindowOrderDues, todayCells]);
 
   /** 今日公司事件的負責人員姓名，key = company_event_id */
   const [todayAssignees, setTodayAssignees] = useState<Map<string, string[]>>(new Map());
@@ -451,13 +504,26 @@ export function CompanyCalendarPage() {
             <span className="text-xs tabular-nums text-muted-foreground">{todayIsoDate()}</span>
           </div>
         </div>
-        {todayCells.length === 0 ? (
+        {todaySummaryItems.length === 0 ? (
           <p className="text-sm text-muted-foreground">今日無安排事項</p>
         ) : (
           <ul className="divide-y divide-border/60">
-            {todayCells.map((item) => {
+            {todaySummaryItems.map((item) => {
               const assignees =
                 item.kind === "company" ? (todayAssignees.get(item.id) ?? []) : [];
+              const orderMeta =
+                item.kind === "orderDue"
+                  ? [
+                      item.detail.assignee_names?.length
+                        ? `負責：${item.detail.assignee_names.join("、")}`
+                        : null,
+                      item.detail.stages?.length
+                        ? `工序：${item.detail.stages.join("、")}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : "";
               const clickable = item.kind === "company" || item.kind === "orderDue";
               const inner = (
                 <>
@@ -466,6 +532,8 @@ export function CompanyCalendarPage() {
                     <span className="shrink-0 text-sm text-muted-foreground">
                       負責：{assignees.join("、")}
                     </span>
+                  ) : orderMeta ? (
+                    <span className="shrink-0 text-sm text-muted-foreground">{orderMeta}</span>
                   ) : null}
                 </>
               );

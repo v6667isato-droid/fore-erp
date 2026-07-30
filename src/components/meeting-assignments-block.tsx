@@ -12,6 +12,18 @@ import {
   upsertCompanyEventAssigneeCompleted,
   type CompanyEventAssigneeRow,
 } from "@/lib/company-events";
+import {
+  fetchStocktakeTasksForEmployee,
+  setStocktakeTaskCompleted,
+  type StocktakeTaskRow,
+} from "@/lib/stocktake-tasks";
+import { StocktakeDialog } from "@/components/inventory/stocktake-dialog";
+import {
+  fetchPartMakeTasksForEmployee,
+  setPartMakeTaskCompleted,
+  type PartMakeTaskRow,
+} from "@/lib/part-make-tasks";
+import { CompleteMakeTaskDialog } from "@/components/inventory/complete-make-task-dialog";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Loader2 } from "lucide-react";
@@ -24,7 +36,7 @@ function formatMd(iso: string): string {
   return `${y}/${m}/${day}`;
 }
 
-type UnifiedSource = "meeting" | "calendar";
+type UnifiedSource = "meeting" | "calendar" | "stocktake" | "make";
 
 interface UnifiedItem {
   id: string;
@@ -36,11 +48,19 @@ interface UnifiedItem {
   date: string;
   completed: boolean;
   completedAt: string | null;
+  /** 盤點交辦：限定分類（null＝全部零件） */
+  stocktakeCategory?: string | null;
+  /** 盤點交辦：自選零件清單（非空時優先於分類） */
+  stocktakePartIds?: string[] | null;
+  /** 製作交辦：完整任務列（完成回報視窗用） */
+  makeTask?: PartMakeTaskRow;
 }
 
 function toUnified(
   meetings: MeetingAssignmentForEmployeeRow[],
   calendar: CompanyEventAssigneeRow[],
+  stocktakes: StocktakeTaskRow[],
+  makes: PartMakeTaskRow[],
 ): UnifiedItem[] {
   const items: UnifiedItem[] = [];
   for (const m of meetings) {
@@ -70,6 +90,44 @@ function toUnified(
       completedAt: c.completed ? c.updated_at : null,
     });
   }
+  for (const s of stocktakes) {
+    items.push({
+      id: `s-${s.id}`,
+      source: "stocktake",
+      label: "盤點交辦",
+      content:
+        s.part_ids && s.part_ids.length > 0
+          ? `盤點零件：指定 ${s.part_ids.length} 顆`
+          : s.category
+            ? `盤點零件：${s.category}`
+            : "盤點零件：全部",
+      description: s.instructions,
+      imageUrl: null,
+      date: s.due_date ?? (s.created_at ?? "").slice(0, 10),
+      completed: s.completed,
+      completedAt: s.completed_at,
+      stocktakeCategory: s.category,
+      stocktakePartIds: s.part_ids,
+    });
+  }
+  for (const mk of makes) {
+    const lines = mk.items.map((it) => `${it.part_no}｜${it.name} × ${it.quantity}${it.unit}`);
+    items.push({
+      id: `k-${mk.id}`,
+      source: "make",
+      label: "製作交辦",
+      content:
+        mk.items.length === 1
+          ? `製作零件：${mk.items[0].name} × ${mk.items[0].quantity}`
+          : `製作零件：${mk.items.length} 項`,
+      description: [lines.join("\n"), mk.instructions].filter(Boolean).join("\n\n") || null,
+      imageUrl: null,
+      date: mk.due_date ?? (mk.created_at ?? "").slice(0, 10),
+      completed: mk.completed,
+      completedAt: mk.completed_at,
+      makeTask: mk,
+    });
+  }
   items.sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
     return b.date.localeCompare(a.date);
@@ -90,25 +148,39 @@ export function MeetingAssignmentsBlock({
 }: MeetingAssignmentsBlockProps) {
   const [meetingRows, setMeetingRows] = useState<MeetingAssignmentForEmployeeRow[]>([]);
   const [calendarRows, setCalendarRows] = useState<CompanyEventAssigneeRow[]>([]);
+  const [stocktakeRows, setStocktakeRows] = useState<StocktakeTaskRow[]>([]);
+  const [makeRows, setMakeRows] = useState<PartMakeTaskRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [tab, setTab] = useState<"open" | "done">("open");
+  /** 點「開始盤點」後開啟的盤點視窗（任務 id＋分類範圍） */
+  const [activeStocktake, setActiveStocktake] = useState<{
+    taskId: string;
+    category: string | null;
+    partIds: string[] | null;
+  } | null>(null);
+  /** 點「完成回報」後開啟的製作回報視窗 */
+  const [activeMakeTask, setActiveMakeTask] = useState<PartMakeTaskRow | null>(null);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured || !employeeId) {
       setMeetingRows([]);
       setCalendarRows([]);
+      setStocktakeRows([]);
+      setMakeRows([]);
       setError(null);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const [mRes, cRes] = await Promise.all([
+      const [mRes, cRes, sRes, kRes] = await Promise.all([
         fetchMeetingAssignmentsForEmployee(employeeId),
         fetchCompanyEventAssignmentsForEmployee(employeeId),
+        fetchStocktakeTasksForEmployee(employeeId),
+        fetchPartMakeTasksForEmployee(employeeId),
       ]);
       if (!mRes.ok) {
         setError(mRes.message);
@@ -122,6 +194,18 @@ export function MeetingAssignmentsBlock({
       } else {
         setCalendarRows(cRes.rows);
       }
+      if (!sRes.ok) {
+        setError((prev) => (prev ? `${prev}；${sRes.message}` : sRes.message));
+        setStocktakeRows([]);
+      } else {
+        setStocktakeRows(sRes.rows);
+      }
+      if (!kRes.ok) {
+        setError((prev) => (prev ? `${prev}；${kRes.message}` : kRes.message));
+        setMakeRows([]);
+      } else {
+        setMakeRows(kRes.rows);
+      }
     } finally {
       setLoading(false);
     }
@@ -131,7 +215,7 @@ export function MeetingAssignmentsBlock({
     void load();
   }, [load, meetingDataTick]);
 
-  const unified = toUnified(meetingRows, calendarRows);
+  const unified = toUnified(meetingRows, calendarRows, stocktakeRows, makeRows);
 
   async function toggleCompleted(item: UnifiedItem, completed: boolean) {
     if (!isSupabaseConfigured) {
@@ -155,7 +239,7 @@ export function MeetingAssignmentsBlock({
               : x,
           ),
         );
-      } else {
+      } else if (item.source === "calendar") {
         const rawId = item.id.slice(2);
         const r = await upsertCompanyEventAssigneeCompleted({
           assigneeRowId: rawId,
@@ -166,6 +250,28 @@ export function MeetingAssignmentsBlock({
           prev.map((x) =>
             x.id === rawId
               ? { ...x, completed, updated_at: new Date().toISOString() }
+              : x,
+          ),
+        );
+      } else if (item.source === "stocktake") {
+        const rawId = item.id.slice(2);
+        const r = await setStocktakeTaskCompleted({ taskId: rawId, completed });
+        if (!r.ok) { toast.error(r.message); return; }
+        setStocktakeRows((prev) =>
+          prev.map((x) =>
+            x.id === rawId
+              ? { ...x, completed, completed_at: completed ? new Date().toISOString() : null }
+              : x,
+          ),
+        );
+      } else {
+        const rawId = item.id.slice(2);
+        const r = await setPartMakeTaskCompleted({ taskId: rawId, completed });
+        if (!r.ok) { toast.error(r.message); return; }
+        setMakeRows((prev) =>
+          prev.map((x) =>
+            x.id === rawId
+              ? { ...x, completed, completed_at: completed ? new Date().toISOString() : null }
               : x,
           ),
         );
@@ -258,7 +364,7 @@ export function MeetingAssignmentsBlock({
       {visible.map((item) => {
         const busy = pendingId === item.id;
         const hasDetail =
-          item.source === "calendar" && (item.description || item.imageUrl);
+          item.source !== "meeting" && (item.description || item.imageUrl);
         const isExpanded = expandedId === item.id;
 
         return (
@@ -270,13 +376,13 @@ export function MeetingAssignmentsBlock({
             )}
           >
             <div className="flex gap-3">
-              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
                 <input
                   type="checkbox"
                   checked={item.completed}
                   disabled={busy}
                   onChange={(e) => void toggleCompleted(item, e.target.checked)}
-                  className="mt-0.5 size-4 shrink-0 rounded border-input text-primary focus:ring-ring"
+                  className="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-input text-primary focus:ring-ring"
                 />
                 <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
                   <span className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -285,7 +391,11 @@ export function MeetingAssignmentsBlock({
                         "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-tight",
                         item.source === "meeting"
                           ? "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
-                          : "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
+                          : item.source === "calendar"
+                            ? "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
+                            : item.source === "stocktake"
+                              ? "bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200"
+                              : "bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-200",
                       )}
                     >
                       {item.label}
@@ -321,7 +431,31 @@ export function MeetingAssignmentsBlock({
                     {busy && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />}
                   </span>
                 </span>
-              </label>
+              </div>
+              {item.source === "stocktake" && !item.completed && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveStocktake({
+                      taskId: item.id.slice(2),
+                      category: item.stocktakeCategory ?? null,
+                      partIds: item.stocktakePartIds ?? null,
+                    })
+                  }
+                  className="mt-0.5 shrink-0 self-start whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-800 transition-colors hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200 dark:hover:bg-violet-950/60"
+                >
+                  開始盤點
+                </button>
+              )}
+              {item.source === "make" && !item.completed && item.makeTask && (
+                <button
+                  type="button"
+                  onClick={() => setActiveMakeTask(item.makeTask ?? null)}
+                  className="mt-0.5 shrink-0 self-start whitespace-nowrap rounded-lg border border-orange-300 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-800 transition-colors hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200 dark:hover:bg-orange-950/60"
+                >
+                  完成回報
+                </button>
+              )}
               {hasDetail && (
                 <button
                   type="button"
@@ -367,6 +501,30 @@ export function MeetingAssignmentsBlock({
       })}
     </ul>
       )}
+
+      <StocktakeDialog
+        open={activeStocktake != null}
+        onOpenChange={(o) => !o && setActiveStocktake(null)}
+        categoryFilter={activeStocktake?.category ?? null}
+        partIds={activeStocktake?.partIds ?? null}
+        presetEmployeeId={employeeId}
+        taskId={activeStocktake?.taskId}
+        onSaved={() => {
+          void load();
+          onStatusChanged?.();
+        }}
+      />
+
+      <CompleteMakeTaskDialog
+        open={activeMakeTask != null}
+        onOpenChange={(o) => !o && setActiveMakeTask(null)}
+        task={activeMakeTask}
+        employeeId={employeeId}
+        onSaved={() => {
+          void load();
+          onStatusChanged?.();
+        }}
+      />
     </div>
   );
 }

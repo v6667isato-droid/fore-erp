@@ -31,7 +31,7 @@ export function CompanyCalendarAddEventDialog({
 }) {
   const [title, setTitle] = useState("");
   const [eventDate, setEventDate] = useState(defaultDate);
-  const [category, setCategory] = useState<CompanyEventCategory>("company");
+  const [category, setCategory] = useState<CompanyEventCategory>("delivery");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -115,7 +115,7 @@ export function CompanyCalendarAddEventDialog({
       toast.success(msg);
       setTitle("");
       setDescription("");
-      setCategory("company");
+      setCategory("delivery");
       setSelectedEmployees(new Set());
       setAssigneePanelOpen(false);
       setStaffFilter("");
@@ -194,6 +194,9 @@ export function CompanyCalendarAddEventDialog({
                   </option>
                 ))}
               </select>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {COMPANY_EVENT_CATEGORY_OPTIONS.find((o) => o.value === category)?.description}
+              </p>
             </div>
             <div>
               <label htmlFor="ce-desc" className="mb-1.5 block text-sm font-medium text-foreground">

@@ -7,6 +7,8 @@ import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { VendorRow } from "@/types/procurement";
+import { VendorCategoryPicker } from "@/components/procurement/vendor-category-picker";
+import type { VendorCategoryGroup } from "@/lib/vendor-category-groups";
 
 export interface EditVendorDialogProps {
   open: boolean;
@@ -14,11 +16,13 @@ export interface EditVendorDialogProps {
   row: VendorRow | null;
   onSuccess: () => void;
   categoryOptions?: string[];
+  /** 廠商主類別群組（下拉分組顯示） */
+  categoryGroups?: VendorCategoryGroup[];
 }
 
 const DEFAULT_CATEGORIES = ["木材", "五金", "其他", "雜項"];
 
-export function EditVendorDialog({ open, onOpenChange, row, onSuccess, categoryOptions = DEFAULT_CATEGORIES }: EditVendorDialogProps) {
+export function EditVendorDialog({ open, onOpenChange, row, onSuccess, categoryOptions = DEFAULT_CATEGORIES, categoryGroups = [] }: EditVendorDialogProps) {
   const firstRef = useRef<HTMLInputElement>(null);
   const [mainCategory, setMainCategory] = useState("");
   const [name, setName] = useState("");
@@ -112,24 +116,18 @@ export function EditVendorDialog({ open, onOpenChange, row, onSuccess, categoryO
           <form onSubmit={onSubmit} className="mt-4 space-y-3">
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-vendor-category" className="text-xs text-muted-foreground">類別</label>
-              <input
-                ref={firstRef}
+              <VendorCategoryPicker
                 id="edit-vendor-category"
-                list="edit-vendor-category-list"
-                type="text"
                 value={mainCategory}
-                onChange={(e) => setMainCategory(e.target.value)}
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                onChange={setMainCategory}
+                categories={categoryList}
+                groups={categoryGroups}
+                open={open}
               />
-              <datalist id="edit-vendor-category-list">
-                {categoryList.map((o) => (
-                  <option key={o} value={o} />
-                ))}
-              </datalist>
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-vendor-name" className="text-xs text-muted-foreground">廠商名稱 *</label>
-              <input id="edit-vendor-name" type="text" value={name} onChange={(e) => setName(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />
+              <input ref={firstRef} id="edit-vendor-name" type="text" value={name} onChange={(e) => setName(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-vendor-contact" className="text-xs text-muted-foreground">聯絡人</label>

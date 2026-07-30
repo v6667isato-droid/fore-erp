@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { X, Globe } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { VendorRow } from "@/types/procurement";
+import { findGroupName, type VendorCategoryGroup } from "@/lib/vendor-category-groups";
 import { supabase } from "@/lib/supabase";
 import { formatDate } from "@/lib/utils";
 import {
@@ -19,6 +20,7 @@ export interface ViewVendorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   row: VendorRow | null;
+  categoryGroups?: VendorCategoryGroup[];
 }
 
 /** 廠商採購紀錄一筆（用於總覽內列表） */
@@ -50,7 +52,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogProps) {
+export function ViewVendorDialog({ open, onOpenChange, row, categoryGroups = [] }: ViewVendorDialogProps) {
   const [purchases, setPurchases] = useState<VendorPurchaseItem[]>([]);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
 
@@ -137,7 +139,15 @@ export function ViewVendorDialog({ open, onOpenChange, row }: ViewVendorDialogPr
           <div className="mt-4 space-y-5">
             <Section title="基本資料">
               <div><dt className="text-muted-foreground">廠商名稱</dt><dd className="font-medium">{row.name || "—"}</dd></div>
-              <div><dt className="text-muted-foreground">類別</dt><dd>{row.main_category || "—"}</dd></div>
+              <div>
+                <dt className="text-muted-foreground">類別</dt>
+                <dd>
+                  {(() => {
+                    const groupName = findGroupName(row.main_category, categoryGroups);
+                    return groupName ? `${groupName} / ${row.main_category}` : row.main_category || "—";
+                  })()}
+                </dd>
+              </div>
               {row.contact_person?.trim() && <div><dt className="text-muted-foreground">聯絡人</dt><dd>{row.contact_person}</dd></div>}
             </Section>
             <Section title="聯絡方式">

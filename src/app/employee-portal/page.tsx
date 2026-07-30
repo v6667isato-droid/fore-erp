@@ -1420,7 +1420,7 @@ export default function EmployeePortalPage() {
               subtitle={
                 showAdminFieldHints
                   ? isSupabaseConfigured
-                    ? "company_event · 類別為「公司」"
+                    ? "company_event · 類別為「公司公告」"
                     : "Mock 資料 · 設定 Supabase 後改讀資料庫"
                   : undefined
               }

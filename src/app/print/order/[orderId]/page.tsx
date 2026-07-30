@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
@@ -26,6 +26,7 @@ interface PrintOrder {
   shipping_has_elevator?: boolean | null;
   invoice_title?: string | null;
   invoice_tax_id?: string | null;
+  internal_notes?: string | null;
 }
 
 type ExplanationImage = { url: string; title?: string | null };
@@ -140,7 +141,7 @@ export default function PrintOrderPage() {
         const { data: orderRow, error: orderErr } = await supabase
           .from("orders")
           .select(
-            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, customer_id, customers(name, customer_type)"
+            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, customer_id, customers(name, customer_type)"
           )
           .eq("id", safeOrderId)
           .single();
@@ -403,6 +404,7 @@ export default function PrintOrderPage() {
               : null,
           invoice_title: orderRow.invoice_title ?? null,
           invoice_tax_id: orderRow.invoice_tax_id ?? null,
+          internal_notes: orderRow.internal_notes ?? null,
         });
 
         setItems(mappedItems);
@@ -620,7 +622,8 @@ export default function PrintOrderPage() {
                     .join("\n");
 
                   return (
-                    <tr key={item.id} className="border-b border-gray-200 align-top text-sm">
+                    <Fragment key={item.id}>
+                    <tr className={`${hasNotes ? "" : "border-b border-gray-200 "}align-top text-sm`}>
                       <td className="px-2 py-2">
                         {item.image_url ? (
                           <div className="h-14 w-14 overflow-hidden rounded border border-gray-200 bg-gray-100">
@@ -635,15 +638,8 @@ export default function PrintOrderPage() {
                         )}
                       </td>
                       <td className="px-2 py-2">
-                        <div className="flex h-14 flex-col justify-between">
-                          <div className="font-medium text-gray-900 whitespace-nowrap">
-                            {item.name}
-                          </div>
-                          {hasNotes && (
-                            <div className="whitespace-pre-line text-xs text-gray-500">
-                              備註：{notesContent}
-                            </div>
-                          )}
+                        <div className="font-medium text-gray-900 whitespace-nowrap">
+                          {item.name}
                         </div>
                       </td>
                       <td className="px-2 py-2 text-gray-700 whitespace-nowrap">
@@ -665,6 +661,14 @@ export default function PrintOrderPage() {
                         {lineTotal.toLocaleString()}
                       </td>
                     </tr>
+                    {hasNotes && (
+                      <tr className="border-b border-gray-200">
+                        <td colSpan={8} className="px-2 pb-2 text-xs text-gray-500 whitespace-pre-line">
+                          備註：{notesContent}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })
               )}
@@ -672,8 +676,18 @@ export default function PrintOrderPage() {
           </table>
         </section>
 
-        <section className="mb-8 flex justify-end break-inside-avoid">
-          <div className="w-full max-w-xs break-inside-avoid text-sm leading-relaxed">
+        <section className="mb-8 flex items-start justify-between gap-8 break-inside-avoid">
+          {order.internal_notes?.trim() ? (
+            <div className="min-w-0 flex-1 text-sm leading-relaxed">
+              <p className="mb-1 font-semibold text-gray-900">訂單備註</p>
+              <p className="whitespace-pre-line break-words text-gray-700">
+                {order.internal_notes.trim()}
+              </p>
+            </div>
+          ) : (
+            <div className="flex-1" />
+          )}
+          <div className="w-full max-w-xs shrink-0 break-inside-avoid text-sm leading-relaxed">
             <dl className="space-y-2">
               <div className="flex items-center justify-between">
                 <dt className="text-gray-600">商品總計</dt>
@@ -686,19 +700,19 @@ export default function PrintOrderPage() {
               {showDiscountRow && (
                 <div className="flex items-center justify-between">
                   <dt className="text-gray-600">通路 / 專案折扣</dt>
-                  <dd className="text-gray-900 tabular-nums">{totals.discount.toLocaleString()}</dd>
+                  <dd className="text-gray-900 tabular-nums">-{totals.discount.toLocaleString()}</dd>
                 </div>
               )}
+              <div className="flex items-center justify-between border-t border-gray-200 pt-2">
+                <dt className="font-semibold text-gray-900">總金額</dt>
+                <dd className="font-semibold text-gray-900 tabular-nums">
+                  {totals.total.toLocaleString()}
+                </dd>
+              </div>
               <div className="flex items-center justify-between">
                 <dt className="text-gray-600">已收訂金</dt>
                 <dd className="text-gray-900 tabular-nums">
-                  {order.deposit_amount.toLocaleString()}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between border-t border-gray-200 pt-2">
-                <dt className="font-semibold text-gray-900">報價總金額</dt>
-                <dd className="font-semibold text-gray-900 tabular-nums">
-                  {totals.total.toLocaleString()}
+                  -{order.deposit_amount.toLocaleString()}
                 </dd>
               </div>
               <div className="flex items-center justify-between">
@@ -710,10 +724,6 @@ export default function PrintOrderPage() {
             </dl>
           </div>
         </section>
-
-        <div className="mb-8 space-y-1 text-sm text-gray-600 leading-relaxed">
-          <p>備註：尾款金額請於收到商品確認無誤後，一週內匯款至指定帳戶。</p>
-        </div>
 
         <footer className="pt-6 border-t border-gray-200 space-y-6 text-sm text-gray-800 leading-relaxed">
           {parseExplanationImages(order.explanation_image_url).length > 0 && (
@@ -734,6 +744,10 @@ export default function PrintOrderPage() {
               ))}
             </div>
           )}
+
+          <div className="space-y-2 text-sm text-gray-600 leading-relaxed">
+            <p>尾款金額請於收到商品確認無誤後，一週內匯款至指定帳戶。</p>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
             <div className="space-y-2">

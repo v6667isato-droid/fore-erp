@@ -235,6 +235,9 @@ export function CompanyCalendarEventDetailModal({
                   </option>
                 ))}
               </select>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {COMPANY_EVENT_CATEGORY_OPTIONS.find((o) => o.value === category)?.description}
+              </p>
             </div>
 
             <div>

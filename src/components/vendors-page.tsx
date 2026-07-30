@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { Fragment, useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +17,15 @@ import { formatDate } from "@/lib/utils";
 import { AddVendorDialog } from "@/components/procurement/add-vendor-dialog";
 import { EditVendorDialog } from "@/components/procurement/edit-vendor-dialog";
 import { ViewVendorDialog } from "@/components/procurement/view-vendor-dialog";
+import { ManageVendorCategoriesDialog } from "@/components/procurement/manage-vendor-categories-dialog";
 import { exportVendorsCsv } from "@/components/procurement/export-vendors-csv";
+import {
+  GROUP_FILTER_PREFIX,
+  fetchVendorCategoryGroups,
+  findGroupName,
+  groupVendorCategories,
+  type VendorCategoryGroup,
+} from "@/lib/vendor-category-groups";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 
@@ -42,6 +50,7 @@ function mapVendorRow(r: Record<string, unknown>): VendorRow {
 
 export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [records, setRecords] = useState<VendorRow[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<VendorCategoryGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -57,9 +66,18 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     return [...new Set(records.map((r) => r.main_category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }, [records]);
 
+  const { grouped: groupedCategories, ungrouped: ungroupedCategories } = useMemo(
+    () => groupVendorCategories(categories, categoryGroups),
+    [categories, categoryGroups],
+  );
+
   const filteredRecords = useMemo(() => {
     let list = records;
-    if (filterCategory) list = list.filter((r) => r.main_category === filterCategory);
+    if (filterCategory.startsWith(GROUP_FILTER_PREFIX)) {
+      const groupId = filterCategory.slice(GROUP_FILTER_PREFIX.length);
+      const group = categoryGroups.find((g) => g.id === groupId);
+      list = list.filter((r) => group?.subcategories.includes(r.main_category));
+    } else if (filterCategory) list = list.filter((r) => r.main_category === filterCategory);
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter(
@@ -76,7 +94,7 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       const cmp = av.localeCompare(bv, undefined, { numeric: true });
       return sortAsc ? cmp : -cmp;
     });
-  }, [records, filterCategory, searchQuery, sortBy, sortAsc]);
+  }, [records, filterCategory, categoryGroups, searchQuery, sortBy, sortAsc]);
 
   const totalPages = Math.max(1, Math.ceil((filteredRecords?.length ?? 0) / PAGE_SIZE));
   const start = page * PAGE_SIZE;
@@ -144,8 +162,13 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     setLoading(false);
   }
 
+  async function refreshCategoryGroups() {
+    setCategoryGroups(await fetchVendorCategoryGroups());
+  }
+
   useEffect(() => {
     fetchVendors();
+    refreshCategoryGroups();
   }, []);
 
   function requestDelete(row: VendorRow) {
@@ -210,7 +233,8 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <AddVendorDialog onSuccess={fetchVendors} categoryOptions={categories} />
+          <AddVendorDialog onSuccess={fetchVendors} categoryOptions={categories} categoryGroups={categoryGroups} />
+          <ManageVendorCategoriesDialog categories={categories} groups={categoryGroups} onSuccess={refreshCategoryGroups} />
           {isAdmin && (
             <Button
               variant="outline"
@@ -236,9 +260,25 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
             aria-label="依類別篩選"
           >
             <option value="">類別：全部</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>{c}</option>
+            {groupedCategories.map(({ group, categories: cats }) => (
+              <Fragment key={group.id}>
+                <option value={`${GROUP_FILTER_PREFIX}${group.id}`} className="font-semibold text-foreground">▍{group.name}</option>
+                {cats.map((c) => (
+                  <option key={c} value={c}>　{c}</option>
+                ))}
+              </Fragment>
             ))}
+            {ungroupedCategories.length > 0 && groupedCategories.some((g) => g.categories.length > 0) ? (
+              <optgroup label="未分類" className="font-semibold text-foreground">
+                {ungroupedCategories.map((c) => (
+                  <option key={c} value={c} className="font-normal text-foreground">{c}</option>
+                ))}
+              </optgroup>
+            ) : (
+              ungroupedCategories.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))
+            )}
           </select>
           <input
             type="text"
@@ -297,7 +337,20 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                       ) : null}
                     </button>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">{row.main_category || "—"}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground p-2">
+                    {(() => {
+                      const groupName = findGroupName(row.main_category, categoryGroups);
+                      return groupName ? (
+                        <>
+                          <span className="font-medium text-foreground">{groupName}</span>
+                          <span className="mx-1 text-muted-foreground/60">/</span>
+                          {row.main_category}
+                        </>
+                      ) : (
+                        row.main_category || "—"
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">{row.contact_person ?? "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">{row.phone ?? "—"}</TableCell>
                   <TableCell className="p-2">
@@ -345,8 +398,8 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         )}
       </div>
 
-      <ViewVendorDialog open={viewRow != null} onOpenChange={(open) => !open && setViewRow(null)} row={viewRow} />
-      <EditVendorDialog open={editRow != null} onOpenChange={(open) => !open && setEditRow(null)} row={editRow} onSuccess={() => { fetchVendors(); setEditRow(null); }} categoryOptions={categories} />
+      <ViewVendorDialog open={viewRow != null} onOpenChange={(open) => !open && setViewRow(null)} row={viewRow} categoryGroups={categoryGroups} />
+      <EditVendorDialog open={editRow != null} onOpenChange={(open) => !open && setEditRow(null)} row={editRow} onSuccess={() => { fetchVendors(); setEditRow(null); }} categoryOptions={categories} categoryGroups={categoryGroups} />
 
       <ConfirmDialog
         open={deleteConfirmRow != null}

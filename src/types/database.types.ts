@@ -2788,6 +2788,30 @@ export type Database = {
           },
         ]
       }
+      vendor_category_groups: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+          subcategories: string[]
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+          subcategories?: string[]
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          subcategories?: string[]
+        }
+        Relationships: []
+      }
       vendor_item_aliases: {
         Row: {
           alias_text: string
