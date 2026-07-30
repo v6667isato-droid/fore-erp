@@ -161,19 +161,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       setError(err.message || "更新規格失敗");
       return;
     }
-    for (const ch of channels) {
-      const raw = (channelPrices[ch.id] ?? "").trim();
-      const num = raw === "" ? NaN : Number(raw);
-      if (Number.isFinite(num) && num >= 0) {
-        const { error: upsertErr } = await supabase.from("product_variant_channel_prices").upsert(
-          { variant_id: row.id, channel_id: ch.id, price: num },
-          { onConflict: "variant_id,channel_id" }
-        );
-        if (upsertErr) toast.error(`通路「${ch.name}」售價儲存失敗：${upsertErr.message}`);
-      } else {
-        await supabase.from("product_variant_channel_prices").delete().eq("variant_id", row.id).eq("channel_id", ch.id);
-      }
-    }
+    // 通路價一律現算（定價 × 系列折扣率），不再寫入 product_variant_channel_prices（凍結為歷史表）
     setSaving(false);
     toast.success("已更新規格");
     onOpenChange(false);
