@@ -27,7 +27,8 @@ export async function POST(request: Request) {
     const { data: items, error: itemsErr } = await client
       .from("order_items")
       .select(
-        "id, variant_id, quantity, unit_price, custom_notes, seat_height_cm, product_variants(base_price)",
+        // unit_price / channel_unit_price 為下單當下快照；base_price 僅供舊資料（快照 NULL）回退顯示
+        "id, variant_id, quantity, unit_price, channel_unit_price, custom_notes, seat_height_cm, product_variants(base_price)",
       )
       .eq("order_id", orderId)
       .order("line_order", { ascending: true })

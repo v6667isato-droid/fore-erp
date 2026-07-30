@@ -141,6 +141,10 @@ interface PortalItem {
   notes: string;
   /** 訂單明細約定座高（cm），存入 order_items.seat_height_cm */
   seat_height_cm?: number | null;
+  /** 通路價快照（編輯既有訂單時由 order_items.channel_unit_price 帶回；null＝無通路價） */
+  channel_unit_price?: number | null;
+  /** 編輯既有訂單時的來源 order_items.id；後端據此凍結未改選規格明細的價格快照 */
+  source_item_id?: string | null;
 }
 
 interface MyOrderRow {
@@ -939,15 +943,23 @@ export default function PortalPage() {
       }
       const itemRows = ((res.data.items ?? []) as any[]).map((d, idx) => {
         const pv = d.product_variants as { base_price?: number | null } | null;
+        // 牌價快照：以 order_items.unit_price 為準（下單當下凍結）；僅舊資料（NULL）才回退規格庫現價
         const listPx =
-          d.variant_id && pv?.base_price != null && Number.isFinite(Number(pv.base_price))
+          d.unit_price != null && Number.isFinite(Number(d.unit_price))
+            ? Number(d.unit_price)
+            : d.variant_id && pv?.base_price != null && Number.isFinite(Number(pv.base_price))
             ? Number(pv.base_price)
-            : Number(d.unit_price ?? 0);
+            : 0;
         return {
         id: `edit-item-${idx}-${d.id}`,
         variant_id: d.variant_id ? String(d.variant_id) : "",
         quantity: Number(d.quantity ?? 1),
         unit_price: listPx,
+        channel_unit_price:
+          d.channel_unit_price != null && Number.isFinite(Number(d.channel_unit_price))
+            ? Number(d.channel_unit_price)
+            : null,
+        source_item_id: d.id != null ? String(d.id) : null,
         notes: d.custom_notes ?? "",
         seat_height_cm:
           d.seat_height_cm != null && Number.isFinite(Number(d.seat_height_cm))
@@ -1018,9 +1030,11 @@ export default function PortalPage() {
   }
   function onEditVariantChange(itemId: string, variantId: string) {
     const v = variants.find((x) => x.id === variantId);
+    // 主動改選規格＝依現行牌價／通路折扣重新帶入（既有明細未改選者維持快照，見 orders/update API）
     updateEditItem(itemId, {
       variant_id: variantId,
       unit_price: portalListUnitPrice(v),
+      channel_unit_price: portalChannelUnitPrice(v, portalSeriesDiscountPct),
       seat_height_cm: v ? resolvePortalSeatHeight(v) : null,
     });
   }
@@ -1055,6 +1069,8 @@ export default function PortalPage() {
             it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
               ? Number(it.seat_height_cm)
               : null,
+          // 來源明細 id：後端據此比對 variant 未變者沿用原價格快照（金額仍由後端決定）
+          source_item_id: it.source_item_id ?? null,
         })),
       });
       if (!res.ok) {
@@ -2078,22 +2094,19 @@ export default function PortalPage() {
                                 <div className="flex flex-col gap-0.5">
                                   <span className="text-[11px] text-muted-foreground">牌價</span>
                                   <div className="flex h-8 items-center justify-end rounded-md border border-input bg-muted/30 px-2 text-sm tabular-nums text-muted-foreground">
-                                    {(() => {
-                                      const sel = variants.find((vv) => vv.id === it.variant_id);
-                                      return sel?.base_price != null && Number.isFinite(Number(sel.base_price))
-                                        ? `$${Number(sel.base_price).toLocaleString()}`
-                                        : "—";
-                                    })()}
+                                    {/* 快照優先：顯示明細凍結的牌價，不隨規格庫現價變動 */}
+                                    {Number.isFinite(Number(it.unit_price)) && Number(it.unit_price) > 0
+                                      ? `$${Number(it.unit_price).toLocaleString()}`
+                                      : "—"}
                                   </div>
                                 </div>
                                 <div className="flex flex-col gap-0.5">
                                   <span className="text-[11px] text-muted-foreground">通路價格</span>
                                   <div className="flex h-8 items-center justify-end rounded-lg border border-dashed border-border bg-muted/40 px-2 text-sm tabular-nums text-muted-foreground">
-                                    {(() => {
-                                      const sel = variants.find((vv) => vv.id === it.variant_id);
-                                      const cp = portalChannelUnitPrice(sel, portalSeriesDiscountPct);
-                                      return cp != null ? `$${cp.toLocaleString()}` : "—";
-                                    })()}
+                                    {/* 快照優先：顯示明細凍結的通路價；null＝無通路價（依牌價結算） */}
+                                    {it.channel_unit_price != null && Number(it.channel_unit_price) > 0
+                                      ? `$${Number(it.channel_unit_price).toLocaleString()}`
+                                      : "—"}
                                   </div>
                                 </div>
                               </div>

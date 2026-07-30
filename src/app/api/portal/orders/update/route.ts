@@ -50,6 +50,56 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: priced.error }, { status });
     }
 
+    // 價格快照凍結：明細帶 source_item_id 且 variant 未改選者，沿用原 unit_price／channel_unit_price
+    // （重存訂單不得被現行牌價覆寫）；新明細或改選 variant 者才採用上面重算的現行價。
+    // 金額仍全由後端決定，前端只傳來源明細 id，不信任前端金額。
+    const rawItems = Array.isArray(body?.items) ? (body.items as unknown[]) : [];
+    const sourceIds = rawItems.map((raw) => {
+      const v = (raw as Record<string, unknown>)?.source_item_id;
+      return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+    });
+    const { data: prevRows, error: prevErr } = await client
+      .from("order_items")
+      .select("id, variant_id, unit_price, channel_unit_price")
+      .eq("order_id", orderId);
+    if (prevErr) {
+      console.error("portal orders/update prev items:", prevErr);
+      return NextResponse.json({ error: "query" }, { status: 500 });
+    }
+    const prevById = new Map(
+      ((prevRows ?? []) as Array<{
+        id: string;
+        variant_id: string | null;
+        unit_price: number | null;
+        channel_unit_price: number | null;
+      }>).map((r) => [String(r.id), r]),
+    );
+    const finalItems = priced.items.map((it, i) => {
+      const srcId = sourceIds[i];
+      const prev = srcId != null ? prevById.get(srcId) : undefined;
+      // 僅來源明細存在、variant 未變、且原本有牌價快照（舊資料 NULL 除外）時凍結
+      if (
+        !prev ||
+        String(prev.variant_id ?? "") !== it.variant_id ||
+        prev.unit_price == null ||
+        !Number.isFinite(Number(prev.unit_price))
+      ) {
+        return it;
+      }
+      const list = Number(prev.unit_price);
+      const channel =
+        prev.channel_unit_price != null &&
+        Number.isFinite(Number(prev.channel_unit_price)) &&
+        Number(prev.channel_unit_price) > 0
+          ? Number(prev.channel_unit_price)
+          : null;
+      return { ...it, list_unit_price: list, settlement_unit_price: channel ?? list };
+    });
+    const totalAmount = finalItems.reduce(
+      (sum, it) => sum + it.quantity * it.settlement_unit_price,
+      0,
+    );
+
     const { error: updateErr } = await client
       .from("orders")
       .update({
@@ -57,7 +107,7 @@ export async function POST(request: Request) {
         expected_delivery_date: fields.expected_delivery_date,
         shipping_address: fields.shipping_address,
         internal_notes: fields.internal_notes,
-        total_amount: priced.totalAmount,
+        total_amount: totalAmount,
       })
       .eq("id", orderId)
       .eq("customer_id", identity.customer_id);
@@ -97,7 +147,7 @@ export async function POST(request: Request) {
 
     const { data: insertedItems, error: itemsErr } = await client
       .from("order_items")
-      .insert(portalItemInsertPayload(orderId, priced.items))
+      .insert(portalItemInsertPayload(orderId, finalItems))
       .select("id");
     if (itemsErr) {
       console.error("portal orders/update insert items:", itemsErr);

@@ -760,10 +760,13 @@ export function OrdersPage({
             ? String(pv.series_id)
             : undefined,
         quantity: Number(d.quantity ?? 1),
+        // 牌價快照：以 order_items.unit_price 為準（下單當下凍結）；僅舊資料（NULL）才回退規格庫現價
         unit_price:
-          d.variant_id && pv?.base_price != null && Number.isFinite(Number(pv.base_price))
+          d.unit_price != null && Number.isFinite(Number(d.unit_price))
+            ? Number(d.unit_price)
+            : d.variant_id && pv?.base_price != null && Number.isFinite(Number(pv.base_price))
             ? Number(pv.base_price)
-            : Number(d.unit_price ?? 0),
+            : 0,
         // 通路價快照（規格品自動帶入後可能被手動改過；客製品項為手填），原值帶回表單
         channel_unit_price:
           d.channel_unit_price != null && Number.isFinite(Number(d.channel_unit_price))

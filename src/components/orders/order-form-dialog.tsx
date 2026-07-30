@@ -757,7 +757,7 @@ function OrderFormDialog({
     [resolveChannelUnitPriceFor, customerId]
   );
 
-  /** 產品規格牌價（base_price）；明細 unit_price 一律以此為準 */
+  /** 產品規格「現行」牌價（base_price）；僅供改選規格時帶入與舊資料回退用，既有明細以快照 unit_price 為準 */
   const resolveListUnitPrice = useCallback(
     (variantId: string | null | undefined): number => {
       if (!variantId) return 0;
@@ -859,7 +859,8 @@ function OrderFormDialog({
       }
       // 訂製款：無牌價也無通路折扣基準，直接採用手動輸入的價格
       if (it.kind === "variant" && it.variant_id && !isCustomOrderVariant(it.variant_id)) {
-        return resolveListUnitPrice(it.variant_id) || Number(it.unit_price) || 0;
+        // 快照優先：既有明細沿用下單當下的牌價，僅無快照（舊資料）才回退規格庫現價
+        return Number(it.unit_price) || resolveListUnitPrice(it.variant_id) || 0;
       }
       return Number(it.unit_price) || 0;
     },
@@ -1211,11 +1212,13 @@ function OrderFormDialog({
           line_order: lineIndex,
           variant_id: it.kind === "variant" ? it.variant_id || null : null,
           quantity: it.quantity,
+          // 牌價快照凍結：既有明細沿用載入時的 unit_price（改選規格時 handleVariantSelect 已重帶現價），
+          // 僅無快照（舊資料回填失敗）時才以規格庫現價補上，避免重存訂單被現價覆寫
           unit_price:
             it.kind === "variant" &&
             it.variant_id &&
             !isCustomOrderVariant(it.variant_id)
-              ? resolveListUnitPrice(it.variant_id)
+              ? Number(it.unit_price) || resolveListUnitPrice(it.variant_id)
               : it.unit_price,
           custom_case_id:
             it.kind === "case" || it.kind === "processing"
@@ -1889,7 +1892,8 @@ function OrderFormDialog({
                             {(it.kind === "variant" &&
                             it.variant_id &&
                             !isCustomOrderVariant(it.variant_id)
-                              ? resolveListUnitPrice(it.variant_id)
+                              ? Number(it.unit_price) ||
+                                resolveListUnitPrice(it.variant_id)
                               : Number(it.unit_price) || 0
                             ).toLocaleString()}{" "}
                             ×{" "}
@@ -2116,7 +2120,8 @@ function OrderFormDialog({
                                 value={
                                   it.variant_id &&
                                   !isCustomOrderVariant(it.variant_id)
-                                    ? resolveListUnitPrice(it.variant_id)
+                                    ? Number(it.unit_price) ||
+                                      resolveListUnitPrice(it.variant_id)
                                     : it.unit_price
                                 }
                                 onChange={(e) =>
