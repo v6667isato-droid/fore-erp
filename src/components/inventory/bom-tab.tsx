@@ -43,7 +43,13 @@ interface BomItemWithPart {
   quantity: number;
   unit: string | null;
   notes: string | null;
-  parts: { part_no: string; name: string; unit: string; wood_species: string | null } | null;
+  parts: {
+    part_no: string;
+    name: string;
+    unit: string;
+    wood_species: string | null;
+    deleted_at: string | null;
+  } | null;
 }
 
 export interface BomTabProps {
@@ -110,7 +116,7 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
     setLoadingItems(true);
     const { data, error } = await supabase
       .from("bom_items")
-      .select("id, part_id, quantity, unit, notes, parts!part_id(part_no, name, unit, wood_species)")
+      .select("id, part_id, quantity, unit, notes, parts!part_id(part_no, name, unit, wood_species, deleted_at)")
       .eq("variant_id", vid)
       .order("created_at");
     setLoadingItems(false);
@@ -119,7 +125,12 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
       setItems([]);
       return;
     }
-    setItems((data as unknown as BomItemWithPart[]) ?? []);
+    // 保險：零件主檔已軟刪除者不顯示（刪零件時會連動清 BOM，此處防殘留資料）
+    setItems(
+      (((data as unknown as BomItemWithPart[]) ?? [])).filter(
+        (it) => !it.parts?.deleted_at,
+      ),
+    );
     setQtyDrafts({});
   }, []);
 

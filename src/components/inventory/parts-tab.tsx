@@ -195,7 +195,13 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
       toast.error(error.message || "刪除失敗");
       return;
     }
-    toast.success("已刪除零件");
+    // 連動移除 BOM 引用，避免用料表殘留已刪除零件、工單開工誤扣其庫存
+    const { error: bomErr } = await supabase.from("bom_items").delete().eq("part_id", id);
+    if (bomErr) {
+      toast.error(`零件已刪除，但清除 BOM 引用失敗：${bomErr.message}`);
+    } else {
+      toast.success("已刪除零件（含其 BOM 用料引用）");
+    }
     void fetchParts();
   }
 
@@ -473,7 +479,7 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
             <>
               <p className="font-medium text-foreground">{deleteRow.part_no}｜{deleteRow.name}</p>
               <p className="mt-2 text-muted-foreground text-sm">
-                為軟刪除：歷史庫存異動與整備工單紀錄保留，僅自主檔清單隱藏。
+                為軟刪除：歷史庫存異動與整備工單紀錄保留，僅自主檔清單隱藏；各規格 BOM 中引用此零件的用料列會一併移除。
               </p>
             </>
           ) : null
