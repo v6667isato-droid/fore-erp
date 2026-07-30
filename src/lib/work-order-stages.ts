@@ -177,6 +177,8 @@ export async function syncWorkOrdersToOrderStatus(
  * - 任一品項為「暫停」→ 訂單「暫停」
  * - 全部為「已出貨」→ 訂單「已出貨」
  * - 全部為「包裝管理」或「待出貨」（可混合）→ 訂單「已完工」
+ * - 全部為「待排程」且訂單已進入生產（生產中／暫停／已完工）→ 退回「排程中」
+ *   （零件扣帳不自動回沖，訂單刪除或重啟時以出貨複查／盤點回歸零件數量）
  * - 自「暫停」復原（已無暫停）且不符合上列 →「生產中」
  * - 「已完工」但已不符合上列 → 退回「生產中」
  * 已出貨／結案之訂單不自動變更狀態。
@@ -239,6 +241,14 @@ export async function syncOrderStatusFromWorkOrders(
   } else if (stages.every((st) => STAGES_IMPLY_ORDER_DONE_SET.has(st))) {
     if (orderStatus !== "已完工") {
       nextOrderStatus = "已完工";
+    }
+  } else if (stages.every((st) => st === "待排程")) {
+    if (
+      orderStatus === "生產中" ||
+      orderStatus === "暫停" ||
+      orderStatus === "已完工"
+    ) {
+      nextOrderStatus = "排程中";
     }
   } else {
     if (orderStatus === "暫停") {
