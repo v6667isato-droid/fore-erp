@@ -317,6 +317,84 @@ export type Database = {
           },
         ]
       }
+      bom_lines: {
+        Row: {
+          created_at: string
+          exclusive_group: string | null
+          exclusive_key: string | null
+          id: string
+          line_type: string
+          notes: string | null
+          part_id: string | null
+          part_variant_id: string | null
+          quantity: number
+          series_id: string
+          unit: string | null
+        }
+        Insert: {
+          created_at?: string
+          exclusive_group?: string | null
+          exclusive_key?: string | null
+          id?: string
+          line_type: string
+          notes?: string | null
+          part_id?: string | null
+          part_variant_id?: string | null
+          quantity?: number
+          series_id: string
+          unit?: string | null
+        }
+        Update: {
+          created_at?: string
+          exclusive_group?: string | null
+          exclusive_key?: string | null
+          id?: string
+          line_type?: string
+          notes?: string | null
+          part_id?: string | null
+          part_variant_id?: string | null
+          quantity?: number
+          series_id?: string
+          unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bom_lines_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "part_stock_status"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bom_lines_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bom_lines_part_variant_id_fkey"
+            columns: ["part_variant_id"]
+            isOneToOne: false
+            referencedRelation: "part_variant_stock_status"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bom_lines_part_variant_id_fkey"
+            columns: ["part_variant_id"]
+            isOneToOne: false
+            referencedRelation: "part_variants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bom_lines_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "product_series"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       channels: {
         Row: {
           code: string | null
@@ -1057,6 +1135,30 @@ export type Database = {
         }
         Relationships: []
       }
+      materials: {
+        Row: {
+          aliases: string[]
+          code: string
+          created_at: string
+          name_zh: string
+          sort_order: number
+        }
+        Insert: {
+          aliases?: string[]
+          code: string
+          created_at?: string
+          name_zh: string
+          sort_order?: number
+        }
+        Update: {
+          aliases?: string[]
+          code?: string
+          created_at?: string
+          name_zh?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
       order_items: {
         Row: {
           channel_unit_price: number | null
@@ -1316,6 +1418,61 @@ export type Database = {
           },
         ]
       }
+      part_variants: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          id: string
+          material_code: string | null
+          part_id: string
+          reorder_point_override: number | null
+          safety_stock_override: number | null
+          sku: string
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          material_code?: string | null
+          part_id: string
+          reorder_point_override?: number | null
+          safety_stock_override?: number | null
+          sku: string
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          material_code?: string | null
+          part_id?: string
+          reorder_point_override?: number | null
+          safety_stock_override?: number | null
+          sku?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "part_variants_material_code_fkey"
+            columns: ["material_code"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "part_variants_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "part_stock_status"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_variants_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       parts: {
         Row: {
           attachment_urls: Json
@@ -1326,9 +1483,11 @@ export type Database = {
           dim_thickness_mm: number | null
           dim_width_mm: number | null
           drawing_url: string | null
+          has_material_axis: boolean
           id: string
           is_component: boolean
           name: string
+          name_code: string | null
           notes: string | null
           part_no: string
           procurement_material_id: string | null
@@ -1352,9 +1511,11 @@ export type Database = {
           dim_thickness_mm?: number | null
           dim_width_mm?: number | null
           drawing_url?: string | null
+          has_material_axis?: boolean
           id?: string
           is_component?: boolean
           name: string
+          name_code?: string | null
           notes?: string | null
           part_no: string
           procurement_material_id?: string | null
@@ -1378,9 +1539,11 @@ export type Database = {
           dim_thickness_mm?: number | null
           dim_width_mm?: number | null
           drawing_url?: string | null
+          has_material_axis?: boolean
           id?: string
           is_component?: boolean
           name?: string
+          name_code?: string | null
           notes?: string | null
           part_no?: string
           procurement_material_id?: string | null
@@ -2456,6 +2619,7 @@ export type Database = {
           notes: string | null
           order_id: string | null
           part_id: string
+          part_variant_id: string | null
           quantity: number
           work_order_id: string | null
         }
@@ -2468,6 +2632,7 @@ export type Database = {
           notes?: string | null
           order_id?: string | null
           part_id: string
+          part_variant_id?: string | null
           quantity: number
           work_order_id?: string | null
         }
@@ -2480,6 +2645,7 @@ export type Database = {
           notes?: string | null
           order_id?: string | null
           part_id?: string
+          part_variant_id?: string | null
           quantity?: number
           work_order_id?: string | null
         }
@@ -2510,6 +2676,20 @@ export type Database = {
             columns: ["part_id"]
             isOneToOne: false
             referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_part_variant_id_fkey"
+            columns: ["part_variant_id"]
+            isOneToOne: false
+            referencedRelation: "part_variant_stock_status"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_part_variant_id_fkey"
+            columns: ["part_variant_id"]
+            isOneToOne: false
+            referencedRelation: "part_variants"
             referencedColumns: ["id"]
           },
           {
@@ -3027,6 +3207,66 @@ export type Database = {
           vendor_id: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "parts_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      part_variant_stock_status: {
+        Row: {
+          below_safety: boolean | null
+          category: string | null
+          current_stock: number | null
+          id: string | null
+          is_component: boolean | null
+          material_code: string | null
+          material_name: string | null
+          name: string | null
+          name_code: string | null
+          needs_reorder: boolean | null
+          part_id: string | null
+          procurement_type: string | null
+          reorder_point: number | null
+          safety_stock: number | null
+          series_id: string | null
+          sku: string | null
+          source_type: string | null
+          unit: string | null
+          vendor_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "part_variants_material_code_fkey"
+            columns: ["material_code"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "part_variants_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "part_stock_status"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_variants_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "product_series"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "parts_vendor_id_fkey"
             columns: ["vendor_id"]
