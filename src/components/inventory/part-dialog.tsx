@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
@@ -11,10 +10,10 @@ import {
   PART_CATEGORIES,
   PART_PROCUREMENT_TYPES,
   PART_SOURCE_TYPES,
-  seriesCodeFromName,
-  woodSpeciesCode,
+  type MaterialRow,
   type PartRow,
 } from "@/types/inventory";
+import { buildSku, fetchMaterials } from "@/lib/part-variants";
 
 interface VendorOption {
   id: string;
@@ -26,11 +25,12 @@ interface SeriesOption {
   series_name: string;
 }
 
-interface ExistingPartLite {
+/** 該零件的既有變體（含軟刪除者，供重勾時復原、避免 sku 撞唯一鍵） */
+interface VariantLite {
   id: string;
-  part_no: string;
-  name: string;
-  wood_species: string | null;
+  material_code: string | null;
+  sku: string;
+  deleted_at: string | null;
 }
 
 export interface PartDialogProps {
@@ -38,27 +38,27 @@ export interface PartDialogProps {
   onOpenChange: (open: boolean) => void;
   /** null＝新增；有值＝編輯 */
   row: PartRow | null;
-  /** 新增模式下的預填來源（複製零件用）：帶入全部欄位但料號留白 */
-  copyFrom?: PartRow | null;
   onSaved: () => void;
 }
 
-export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartDialogProps) {
+/** 邏輯零件編輯：零件屬性＋材質變體勾選；SKU 由系統產生、不開放手改 */
+export function PartDialog({ open, onOpenChange, row, onSaved }: PartDialogProps) {
   const isEdit = row != null;
   const firstRef = useRef<HTMLInputElement>(null);
-  const [partNo, setPartNo] = useState("");
-  /** 使用者是否已手動改過料號；未改過時依「系列-木種-名稱」自動帶出 */
-  const [partNoTouched, setPartNoTouched] = useState(false);
   const [name, setName] = useState("");
+  const [nameCode, setNameCode] = useState("");
   const [category, setCategory] = useState<string>(PART_CATEGORIES[0]);
   const [seriesId, setSeriesId] = useState("");
   const [seriesList, setSeriesList] = useState<SeriesOption[]>([]);
   const [unit, setUnit] = useState("個");
   const [procurementType, setProcurementType] = useState<string>("常備");
   const [sourceType, setSourceType] = useState<string>("採購");
+  const [hasMaterialAxis, setHasMaterialAxis] = useState(false);
+  const [selectedMaterials, setSelectedMaterials] = useState<Set<string>>(new Set());
+  const [materials, setMaterials] = useState<MaterialRow[]>([]);
+  const [existingVariants, setExistingVariants] = useState<VariantLite[]>([]);
   const [woodSpecies, setWoodSpecies] = useState("");
   const [speciesList, setSpeciesList] = useState<string[]>([]);
-  const [existingParts, setExistingParts] = useState<ExistingPartLite[]>([]);
   const [dimLength, setDimLength] = useState("");
   const [dimWidth, setDimWidth] = useState("");
   const [dimThickness, setDimThickness] = useState("");
@@ -73,66 +73,52 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
-  /** 存檔後偵測到同名零件時的同步提示：目標 id 清單＋要寫入的欄位 */
-  const [syncPrompt, setSyncPrompt] = useState<{
-    ids: string[];
-    name: string;
-    fields: {
-      dim_length_mm: number | null;
-      dim_width_mm: number | null;
-      dim_thickness_mm: number | null;
-      sop: string | null;
-      drawing_url: string | null;
-    };
-  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    // 編輯帶原列；新增時若有 copyFrom（複製零件）帶入全部欄位但料號留白
-    const src = row ?? copyFrom ?? null;
-    setPartNo(row?.part_no ?? "");
-    setPartNoTouched(row != null);
-    setName(src?.name ?? "");
-    setCategory(src?.category ?? PART_CATEGORIES[0]);
-    setSeriesId(src?.series_id ?? "");
-    setUnit(src?.unit ?? "個");
-    setProcurementType(src?.procurement_type ?? "常備");
-    setSourceType(src?.source_type ?? "採購");
-    setWoodSpecies(src?.wood_species ?? "");
-    setDimLength(src?.dim_length_mm != null ? String(src.dim_length_mm) : "");
-    setDimWidth(src?.dim_width_mm != null ? String(src.dim_width_mm) : "");
-    setDimThickness(src?.dim_thickness_mm != null ? String(src.dim_thickness_mm) : "");
-    setSop(src?.sop ?? "");
-    setSafetyStock(String(src?.safety_stock ?? 0));
-    setReorderPoint(String(src?.reorder_point ?? 0));
-    setVendorId(src?.vendor_id ?? "");
-    setReferencePrice(src?.reference_unit_price != null ? String(src.reference_unit_price) : "");
-    setDrawingUrl(src?.drawing_url ?? "");
-    setIsComponent(src?.is_component ?? false);
-    setNotes(src?.notes ?? "");
+    setName(row?.name ?? "");
+    setNameCode(row?.name_code ?? "");
+    setCategory(row?.category ?? PART_CATEGORIES[0]);
+    setSeriesId(row?.series_id ?? "");
+    setUnit(row?.unit ?? "個");
+    setProcurementType(row?.procurement_type ?? "常備");
+    setSourceType(row?.source_type ?? "採購");
+    setHasMaterialAxis(row?.has_material_axis ?? false);
+    setSelectedMaterials(new Set());
+    setExistingVariants([]);
+    setWoodSpecies(row?.wood_species ?? "");
+    setDimLength(row?.dim_length_mm != null ? String(row.dim_length_mm) : "");
+    setDimWidth(row?.dim_width_mm != null ? String(row.dim_width_mm) : "");
+    setDimThickness(row?.dim_thickness_mm != null ? String(row.dim_thickness_mm) : "");
+    setSop(row?.sop ?? "");
+    setSafetyStock(String(row?.safety_stock ?? 0));
+    setReorderPoint(String(row?.reorder_point ?? 0));
+    setVendorId(row?.vendor_id ?? "");
+    setReferencePrice(row?.reference_unit_price != null ? String(row.reference_unit_price) : "");
+    setDrawingUrl(row?.drawing_url ?? "");
+    setIsComponent(row?.is_component ?? false);
+    setNotes(row?.notes ?? "");
     setError(null);
-  }, [open, row, copyFrom]);
+  }, [open, row]);
 
-  // 既有零件清單（重複建檔即時提示用）＋材種建議清單（零件材種＋產品規格用過的材種）
+  // 下拉選項：系列、供應商、材質對照表、固定材種建議
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     void (async () => {
-      const [partsRes, variantsRes, seriesRes] = await Promise.all([
-        supabase.from("parts").select("id, part_no, name, wood_species").is("deleted_at", null),
-        supabase.from("product_variants").select("wood_type").is("deleted_at", null).not("wood_type", "is", null),
+      const [seriesRes, vendorsRes, materialsRes, speciesRes] = await Promise.all([
         supabase.from("product_series").select("id, series_name").is("deleted_at", null).order("series_name"),
+        supabase.from("vendors").select("id, name").is("deleted_at", null).order("name"),
+        fetchMaterials().catch(() => [] as MaterialRow[]),
+        supabase.from("parts").select("wood_species").is("deleted_at", null).not("wood_species", "is", null),
       ]);
       if (cancelled) return;
-      setExistingParts((partsRes.data as ExistingPartLite[]) ?? []);
       setSeriesList((seriesRes.data as SeriesOption[]) ?? []);
+      setVendors((vendorsRes.data as VendorOption[]) ?? []);
+      setMaterials(materialsRes);
       const set = new Set<string>();
-      for (const r of partsRes.data ?? []) {
+      for (const r of speciesRes.data ?? []) {
         const v = String((r as { wood_species: string | null }).wood_species ?? "").trim();
-        if (v) set.add(v);
-      }
-      for (const r of variantsRes.data ?? []) {
-        const v = String((r as { wood_type: string | null }).wood_type ?? "").trim();
         if (v) set.add(v);
       }
       setSpeciesList([...set].sort((a, b) => a.localeCompare(b, "zh-Hant")));
@@ -142,65 +128,90 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
     };
   }, [open]);
 
-  /** 重複建檔即時比對：同名同材種＝疑似重複（警告）；同名不同材種＝材種版本（提示） */
-  const dupCheck = useMemo(() => {
-    const nameT = name.trim();
-    if (!nameT) return null;
-    const speciesT = woodSpecies.trim();
-    const sameName = existingParts.filter((p) => p.id !== row?.id && p.name === nameT);
-    if (sameName.length === 0) return null;
-    const exact = sameName.filter((p) => (p.wood_species ?? "").trim() === speciesT);
-    if (exact.length > 0) return { level: "warn" as const, parts: exact };
-    return { level: "info" as const, parts: sameName };
-  }, [existingParts, name, woodSpecies, row]);
-
+  // 編輯模式：載入該零件的變體（含軟刪除者），由現存變體推出已勾材質
   useEffect(() => {
-    if (!open) return;
+    if (!open || !row) return;
     let cancelled = false;
-    supabase
-      .from("vendors")
-      .select("id, name")
-      .is("deleted_at", null)
-      .order("name")
-      .then(({ data }) => {
-        if (!cancelled) setVendors((data as VendorOption[]) ?? []);
-      });
+    void (async () => {
+      const { data, error: err } = await supabase
+        .from("part_variants")
+        .select("id, material_code, sku, deleted_at")
+        .eq("part_id", row.id);
+      if (cancelled) return;
+      if (err) {
+        toast.error(err.message || "無法載入零件變體");
+        return;
+      }
+      const all = (data as VariantLite[]) ?? [];
+      setExistingVariants(all);
+      const codes = new Set<string>();
+      for (const v of all) {
+        if (!v.deleted_at && v.material_code) codes.add(v.material_code);
+      }
+      setSelectedMaterials(codes);
+    })();
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, row]);
 
   useEffect(() => {
     if (open && firstRef.current) setTimeout(() => firstRef.current?.focus(), 0);
   }, [open]);
 
-  /** 料號自動帶出：產品系列-木種-零件名稱（如 CH03-O-後腳）；手動改過或編輯模式不覆寫 */
-  useEffect(() => {
-    if (!open || isEdit || partNoTouched) return;
-    const seg: string[] = [];
-    const series = seriesList.find((s) => s.id === seriesId);
-    if (series) {
-      const code = seriesCodeFromName(series.series_name);
-      if (code) seg.push(code);
-    }
-    const wc = woodSpeciesCode(woodSpecies);
-    if (wc) seg.push(wc);
-    const n = name.trim();
-    if (n) seg.push(n);
-    setPartNo(seg.join("-"));
-  }, [open, isEdit, partNoTouched, seriesId, seriesList, woodSpecies, name]);
+  const seriesName = useMemo(
+    () => seriesList.find((s) => s.id === seriesId)?.series_name ?? null,
+    [seriesList, seriesId],
+  );
+
+  const liveVariants = useMemo(() => existingVariants.filter((v) => !v.deleted_at), [existingVariants]);
+
+  /** SKU 預覽：既有變體顯示已存 sku（不重算），新勾選顯示將建立的 sku */
+  const skuPreviews = useMemo(() => {
+    const previewFor = (code: string | null): { sku: string; isNew: boolean } => {
+      const existing = liveVariants.find((v) => (v.material_code ?? null) === code);
+      if (existing) return { sku: existing.sku, isNew: false };
+      return {
+        sku: buildSku({
+          seriesName,
+          materialCode: code,
+          nameCode: nameCode.trim().toUpperCase() || null,
+          fallbackName: name.trim() || "？",
+        }),
+        isNew: true,
+      };
+    };
+    if (!hasMaterialAxis) return [previewFor(null)];
+    return materials.filter((m) => selectedMaterials.has(m.code)).map((m) => previewFor(m.code));
+  }, [hasMaterialAxis, materials, selectedMaterials, liveVariants, seriesName, nameCode, name]);
+
+  function toggleMaterial(code: string, checked: boolean) {
+    setSelectedMaterials((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(code);
+      else next.delete(code);
+      return next;
+    });
+  }
+
+  async function variantHasMovements(variantId: string): Promise<boolean> {
+    const { count } = await supabase
+      .from("stock_movements")
+      .select("id", { count: "exact", head: true })
+      .eq("part_variant_id", variantId);
+    return (count ?? 0) > 0;
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const partNoT = partNo.trim();
     const nameT = name.trim();
-    if (!partNoT) {
-      setError("請輸入料號");
-      return;
-    }
     if (!nameT) {
       setError("請輸入零件名稱");
+      return;
+    }
+    if (hasMaterialAxis && selectedMaterials.size === 0) {
+      setError("有木種變體的零件請至少勾選一個材質");
       return;
     }
     const safety = Number(safetyStock);
@@ -228,16 +239,19 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
       setError("尺寸需為大於 0 的數字（mm）");
       return;
     }
+    const nameCodeT = nameCode.trim().toUpperCase();
     setSaving(true);
     const payload = {
-      part_no: partNoT,
       name: nameT,
+      name_code: nameCodeT || null,
       category,
       unit: unit.trim() || "個",
       procurement_type: procurementType,
       source_type: sourceType,
-      wood_species: woodSpecies.trim() || null,
       series_id: seriesId || null,
+      has_material_axis: hasMaterialAxis,
+      // 材質軸零件的材質記在變體層；固定材種只留給無材質軸零件
+      wood_species: hasMaterialAxis ? null : woodSpecies.trim() || null,
       dim_length_mm: dimL,
       dim_width_mm: dimW,
       dim_thickness_mm: dimT,
@@ -252,65 +266,102 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
     };
     const savedRes = isEdit
       ? await supabase.from("parts").update(payload).eq("id", row.id).select("id").single()
-      : await supabase.from("parts").insert(payload).select("id").single();
-    setSaving(false);
+      : await supabase
+          .from("parts")
+          .insert({
+            ...payload,
+            // part_no 為過渡期唯一欄：新零件填無材質段 SKU 佔位
+            part_no: buildSku({ seriesName, materialCode: null, nameCode: nameCodeT || null, fallbackName: nameT }),
+          })
+          .select("id")
+          .single();
     if (savedRes.error) {
+      setSaving(false);
       const msg = /duplicate key|unique constraint|23505/i.test(savedRes.error.message)
-        ? "此料號已存在，請改用其他料號。"
+        ? "已有相同料號／SKU 的零件，請調整名稱或代碼。"
         : savedRes.error.message || (isEdit ? "儲存失敗" : "新增失敗");
       setError(msg);
       toast.error(msg);
       return;
     }
-    toast.success(isEdit ? "已更新零件" : "已新增零件");
-
-    // 同名（不同材種）零件存在時，詢問是否同步尺寸/SOP/圖面。
-    // 先查好並設定提示、再通知父層刷新，避免刷新造成的重繪把提示吃掉。
-    const savedId = savedRes.data?.id ?? row?.id;
-    if (savedId) {
-      const { data: siblings } = await supabase
-        .from("parts")
-        .select("id")
-        .eq("name", nameT)
-        .is("deleted_at", null)
-        .neq("id", savedId);
-      if (siblings && siblings.length > 0) {
-        setSyncPrompt({
-          ids: siblings.map((s) => s.id),
-          name: nameT,
-          fields: {
-            dim_length_mm: dimL,
-            dim_width_mm: dimW,
-            dim_thickness_mm: dimT,
-            sop: sop.trim() || null,
-            drawing_url: drawingUrl.trim() || null,
-          },
-        });
-      }
-    }
-    onSaved();
-    onOpenChange(false);
-  }
-
-  async function performSync() {
-    if (!syncPrompt) return;
-    const { error: err } = await supabase
-      .from("parts")
-      .update(syncPrompt.fields)
-      .in("id", syncPrompt.ids);
-    if (err) {
-      toast.error(err.message || "同步失敗");
+    const partId = savedRes.data?.id ?? row?.id;
+    if (!partId) {
+      setSaving(false);
+      toast.error("儲存後取不到零件 id");
       return;
     }
-    toast.success(`已同步尺寸／SOP／圖面到 ${syncPrompt.ids.length} 顆「${syncPrompt.name}」`);
+
+    // 變體同步：以勾選狀態為準；已有庫存異動的變體不可勾銷
+    const { data: vData, error: vErr } = await supabase
+      .from("part_variants")
+      .select("id, material_code, sku, deleted_at")
+      .eq("part_id", partId);
+    if (vErr) {
+      setSaving(false);
+      toast.error(`零件已儲存，但同步變體失敗：${vErr.message}`);
+      onSaved();
+      onOpenChange(false);
+      return;
+    }
+    const all = (vData as VariantLite[]) ?? [];
+    const live = all.filter((v) => !v.deleted_at);
+    const desired: (string | null)[] = hasMaterialAxis ? [...selectedMaterials] : [null];
+    const keyOf = (c: string | null) => c ?? "__null__";
+    const desiredSet = new Set(desired.map(keyOf));
+
+    let failed = 0;
+    // 勾銷（含切換 has_material_axis 造成的另一型變體移除）：有異動紀錄則保留並提示
+    for (const v of live) {
+      if (desiredSet.has(keyOf(v.material_code ?? null))) continue;
+      if (await variantHasMovements(v.id)) {
+        failed += 1;
+        toast.error(`勾銷失敗：${v.sku} 已有庫存異動紀錄，仍保留該變體`);
+        continue;
+      }
+      const { error: delErr } = await supabase
+        .from("part_variants")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", v.id);
+      if (delErr) {
+        failed += 1;
+        toast.error(`移除變體失敗（${v.sku}）：${delErr.message}`);
+      }
+    }
+    // 新增勾選：軟刪除過的同材質變體直接復原（沿用原 sku，避免撞唯一鍵）
+    for (const code of desired) {
+      if (live.some((v) => keyOf(v.material_code ?? null) === keyOf(code))) continue;
+      const revive = all.find((v) => v.deleted_at && keyOf(v.material_code ?? null) === keyOf(code));
+      if (revive) {
+        const { error: revErr } = await supabase
+          .from("part_variants")
+          .update({ deleted_at: null })
+          .eq("id", revive.id);
+        if (revErr) {
+          failed += 1;
+          toast.error(`復原變體失敗（${revive.sku}）：${revErr.message}`);
+        }
+        continue;
+      }
+      const sku = buildSku({ seriesName, materialCode: code, nameCode: nameCodeT || null, fallbackName: nameT });
+      const { error: insErr } = await supabase
+        .from("part_variants")
+        .insert({ part_id: partId, material_code: code, sku });
+      if (insErr) {
+        failed += 1;
+        toast.error(`建立變體失敗（${sku}）：${insErr.message}`);
+      }
+    }
+    setSaving(false);
+    if (failed === 0) toast.success(isEdit ? "已更新零件" : "已新增零件");
+    else toast.warning(isEdit ? "零件已更新，但部分變體同步未完成" : "零件已新增，但部分變體同步未完成");
     onSaved();
+    onOpenChange(false);
   }
 
   const inputCls =
     "h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 
   return (
-    <>
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
@@ -325,7 +376,7 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
                 {isEdit ? "編輯零件" : "新增零件"}
               </Dialog.Title>
               <p id="part-dialog-desc" className="mt-1 text-sm text-muted-foreground">
-                目前庫存由庫存異動紀錄自動加總，不在此填寫。
+                SKU 由「系列-材質-代碼」自動產生；目前庫存由庫存異動紀錄自動加總，不在此填寫。
               </p>
             </div>
             <Dialog.Close asChild>
@@ -341,62 +392,30 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
           <form onSubmit={onSubmit} className="mt-4 space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="part-no" className="text-xs text-muted-foreground">料號 *</label>
+                <label htmlFor="part-name" className="text-xs text-muted-foreground">名稱 *</label>
                 <input
                   ref={firstRef}
-                  id="part-no"
+                  id="part-name"
                   type="text"
-                  value={partNo}
-                  onChange={(e) => {
-                    setPartNoTouched(true);
-                    setPartNo(e.target.value);
-                  }}
-                  onBlur={() => setPartNo((s) => s.trim())}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onBlur={() => setName((s) => s.trim())}
                   className={inputCls}
-                  placeholder="依系列-木種-名稱自動帶出，可修改"
+                  placeholder="例如：後腳、銅製把手 — 不含系列"
                   required
                 />
-                {!isEdit && (
-                  <p className="text-[11px] text-muted-foreground">
-                    命名規則：產品系列-木種-零件名稱（白橡木→O、胡桃木→W），可自行修改。
-                  </p>
-                )}
               </div>
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="part-name" className="text-xs text-muted-foreground">名稱 *</label>
-                <input id="part-name" type="text" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setName((s) => s.trim())} className={inputCls} placeholder="例如：櫃體銅製把手" required />
-                {dupCheck && (
-                  <p
-                    className={
-                      dupCheck.level === "warn"
-                        ? "text-[11px] text-amber-700 dark:text-amber-400"
-                        : "text-[11px] text-muted-foreground"
-                    }
-                    role={dupCheck.level === "warn" ? "alert" : undefined}
-                  >
-                    {dupCheck.level === "warn" ? (
-                      <>
-                        ⚠ 疑似重複建檔：已有同名同材種的零件（
-                        {dupCheck.parts.map((p) => p.part_no).join("、")}
-                        ）。若是同一顆請直接編輯既有資料；若為不同材種，請填材種欄位。
-                      </>
-                    ) : (
-                      <>
-                        已有 {dupCheck.parts.length} 顆同名零件（其他材種版本：
-                        {dupCheck.parts.map((p) => `${p.part_no}${p.wood_species ? `・${p.wood_species}` : ""}`).join("、")}
-                        ），存檔後可一鍵同步尺寸／SOP／圖面。
-                      </>
-                    )}
-                  </p>
-                )}
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="part-category" className="text-xs text-muted-foreground">分類 *</label>
-                <select id="part-category" value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
-                  {PART_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+                <label htmlFor="part-name-code" className="text-xs text-muted-foreground">代碼</label>
+                <input
+                  id="part-name-code"
+                  type="text"
+                  value={nameCode}
+                  onChange={(e) => setNameCode(e.target.value)}
+                  onBlur={() => setNameCode((s) => s.trim().toUpperCase())}
+                  className={inputCls}
+                  placeholder="例如：REAR（自動組 SKU 用，建議英文大寫）"
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="part-series" className="text-xs text-muted-foreground">產品系列</label>
@@ -407,30 +426,13 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
                   ))}
                 </select>
               </div>
-              {category === "木料" && (
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="part-wood-species" className="text-xs text-muted-foreground">材種</label>
-                  <input
-                    id="part-wood-species"
-                    list="part-wood-species-suggestions"
-                    type="text"
-                    value={woodSpecies}
-                    onChange={(e) => setWoodSpecies(e.target.value)}
-                    onBlur={() => setWoodSpecies((s) => s.trim())}
-                    autoComplete="off"
-                    className={inputCls}
-                    placeholder="白橡木、胡桃木…"
-                  />
-                  <datalist id="part-wood-species-suggestions">
-                    {speciesList.map((s) => (
-                      <option key={s} value={s} />
-                    ))}
-                  </datalist>
-                </div>
-              )}
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="part-unit" className="text-xs text-muted-foreground">單位</label>
-                <input id="part-unit" type="text" value={unit} onChange={(e) => setUnit(e.target.value)} className={inputCls} placeholder="個、支、片、才…" />
+                <label htmlFor="part-category" className="text-xs text-muted-foreground">分類 *</label>
+                <select id="part-category" value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
+                  {PART_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="part-source-type" className="text-xs text-muted-foreground">來源</label>
@@ -450,6 +452,10 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
+                <label htmlFor="part-unit" className="text-xs text-muted-foreground">單位</label>
+                <input id="part-unit" type="text" value={unit} onChange={(e) => setUnit(e.target.value)} className={inputCls} placeholder="個、支、片、才…" />
+              </div>
+              <div className="flex flex-col gap-1.5">
                 <label htmlFor="part-vendor" className="text-xs text-muted-foreground">供應商</label>
                 <select id="part-vendor" value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={inputCls}>
                   <option value="">（未指定）</option>
@@ -465,7 +471,7 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="part-reorder" className="text-xs text-muted-foreground">發注點</label>
                 <input id="part-reorder" type="number" min="0" step="any" value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} className={inputCls} />
-                <p className="text-[11px] text-muted-foreground">庫存低於發注點時列入補貨提醒。</p>
+                <p className="text-[11px] text-muted-foreground">庫存低於發注點時列入補貨提醒；各材質變體共用此設定。</p>
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="part-price" className="text-xs text-muted-foreground">參考單價</label>
@@ -476,6 +482,78 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
                 <input id="part-drawing" type="url" value={drawingUrl} onChange={(e) => setDrawingUrl(e.target.value)} onBlur={() => setDrawingUrl((s) => s.trim())} className={inputCls} placeholder="https://…（選填）" />
               </div>
             </div>
+
+            <div className="rounded-lg border border-border bg-muted/20 p-3">
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={hasMaterialAxis}
+                  onChange={(e) => setHasMaterialAxis(e.target.checked)}
+                  className="h-4 w-4 rounded border-input accent-[var(--primary)]"
+                />
+                此零件有木種變體（依材質分開庫存）
+              </label>
+              {hasMaterialAxis ? (
+                <div className="mt-3 flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-3">
+                    {materials.map((m) => (
+                      <label key={m.code} className="flex cursor-pointer items-center gap-1.5 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={selectedMaterials.has(m.code)}
+                          onChange={(e) => toggleMaterial(m.code, e.target.checked)}
+                          className="h-4 w-4 rounded border-input accent-[var(--primary)]"
+                        />
+                        {m.code} {m.name_zh}
+                      </label>
+                    ))}
+                  </div>
+                  {skuPreviews.length > 0 && (
+                    <div className="flex flex-col gap-0.5">
+                      <p className="text-[11px] text-muted-foreground">SKU 預覽（系統產生，不可修改）</p>
+                      {skuPreviews.map((p) => (
+                        <p key={p.sku} className="text-xs tabular-nums text-foreground">
+                          {p.sku}
+                          {p.isNew && <span className="ml-1 text-muted-foreground">（將建立）</span>}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="part-wood-species" className="text-xs text-muted-foreground">固定材種</label>
+                    <input
+                      id="part-wood-species"
+                      list="part-wood-species-suggestions"
+                      type="text"
+                      value={woodSpecies}
+                      onChange={(e) => setWoodSpecies(e.target.value)}
+                      onBlur={() => setWoodSpecies((s) => s.trim())}
+                      autoComplete="off"
+                      className={inputCls}
+                      placeholder="樺木…（選填）"
+                    />
+                    <datalist id="part-wood-species-suggestions">
+                      {speciesList.map((s) => (
+                        <option key={s} value={s} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-[11px] text-muted-foreground">SKU 預覽（系統產生，不可修改）</p>
+                    {skuPreviews.map((p) => (
+                      <p key={p.sku} className="text-xs tabular-nums text-foreground">
+                        {p.sku}
+                        {p.isNew && <span className="ml-1 text-muted-foreground">（將建立）</span>}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {(category === "木料" || sourceType === "自製") && (
               <div className="rounded-lg border border-border bg-muted/20 p-3">
                 <p className="mb-2 text-xs font-semibold text-muted-foreground">加工尺寸（mm）</p>
@@ -530,30 +608,5 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-
-    <ConfirmDialog
-      open={syncPrompt != null}
-      onOpenChange={(o) => !o && setSyncPrompt(null)}
-      title="同步到其他材種版本？"
-      description={
-        syncPrompt ? (
-          <>
-            <p>
-              另有 {syncPrompt.ids.length} 顆同名零件「
-              <span className="font-medium text-foreground">{syncPrompt.name}</span>
-              」（其他材種版本）。
-            </p>
-            <p className="mt-2">
-              是否將這次的<span className="font-medium text-foreground">尺寸、SOP、圖面連結</span>一併寫入？
-              材種、料號、庫存與安全庫存設定不會被更動。
-            </p>
-          </>
-        ) : null
-      }
-      confirmLabel="同步"
-      cancelLabel="只改這顆"
-      onConfirm={performSync}
-    />
-    </>
   );
 }

@@ -1,8 +1,10 @@
 import { supabase } from "@/lib/supabase";
 
-/** 製作零件交辦的品項快照（建立當下的零件資訊，避免之後主檔改名影響顯示） */
+/** 製作零件交辦的品項快照（建立當下的零件資訊，避免之後主檔改名影響顯示）
+ *  兩層模型後 part_no＝variant.sku、name 含材質；舊快照無 part_variant_id，入庫時退回只寫 part_id */
 export interface PartMakeTaskItem {
   part_id: string;
+  part_variant_id?: string;
   part_no: string;
   name: string;
   unit: string;
@@ -70,12 +72,13 @@ export async function setPartMakeTaskCompleted(params: {
 export async function completePartMakeTask(params: {
   taskId: string;
   employeeId: string | null;
-  completions: { part_id: string; actual: number }[];
+  completions: { part_id: string; part_variant_id?: string | null; actual: number }[];
 }): Promise<{ ok: true; movements: number } | { ok: false; message: string }> {
   const rows = params.completions
     .filter((c) => Number.isFinite(c.actual) && c.actual > 0)
     .map((c) => ({
       part_id: c.part_id,
+      part_variant_id: c.part_variant_id ?? null,
       movement_type: "進料",
       quantity: c.actual,
       employee_id: params.employeeId,

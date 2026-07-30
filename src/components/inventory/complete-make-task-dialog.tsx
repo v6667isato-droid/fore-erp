@@ -6,7 +6,12 @@ import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { completePartMakeTask, type PartMakeTaskRow } from "@/lib/part-make-tasks";
+import { completePartMakeTask, type PartMakeTaskItem, type PartMakeTaskRow } from "@/lib/part-make-tasks";
+
+/** 品項 key：同一任務可能有同零件不同材質變體，優先用 variant id 區分（舊快照退回 part_id） */
+function itemKey(it: PartMakeTaskItem): string {
+  return it.part_variant_id ?? it.part_id;
+}
 
 export interface CompleteMakeTaskDialogProps {
   open: boolean;
@@ -31,20 +36,20 @@ export function CompleteMakeTaskDialog({
   useEffect(() => {
     if (!open || !task) return;
     const init: Record<string, string> = {};
-    for (const it of task.items) init[it.part_id] = String(it.quantity);
+    for (const it of task.items) init[itemKey(it)] = String(it.quantity);
     setActuals(init);
   }, [open, task]);
 
   async function onSubmit() {
     if (!task) return;
-    const completions: { part_id: string; actual: number }[] = [];
+    const completions: { part_id: string; part_variant_id?: string | null; actual: number }[] = [];
     for (const it of task.items) {
-      const n = Number(actuals[it.part_id] ?? "");
+      const n = Number(actuals[itemKey(it)] ?? "");
       if (!Number.isFinite(n) || n < 0) {
         toast.error(`「${it.name}」的完成數量需為 0 以上的數字`);
         return;
       }
-      completions.push({ part_id: it.part_id, actual: n });
+      completions.push({ part_id: it.part_id, part_variant_id: it.part_variant_id ?? null, actual: n });
     }
     setSaving(true);
     const r = await completePartMakeTask({
@@ -89,7 +94,7 @@ export function CompleteMakeTaskDialog({
 
           <div className="mt-4 flex flex-col gap-2">
             {(task?.items ?? []).map((it) => (
-              <div key={it.part_id} className="flex items-center gap-3 rounded-lg border border-border p-3">
+              <div key={itemKey(it)} className="flex items-center gap-3 rounded-lg border border-border p-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">
                     {it.part_no}｜{it.name}
@@ -103,9 +108,9 @@ export function CompleteMakeTaskDialog({
                     type="number"
                     min="0"
                     step="any"
-                    value={actuals[it.part_id] ?? ""}
+                    value={actuals[itemKey(it)] ?? ""}
                     onChange={(e) =>
-                      setActuals((a) => ({ ...a, [it.part_id]: e.target.value }))
+                      setActuals((a) => ({ ...a, [itemKey(it)]: e.target.value }))
                     }
                     className={cn(
                       "h-9 w-24 rounded-lg border border-input bg-background px-2 text-right text-sm",

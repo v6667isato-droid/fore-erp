@@ -3,54 +3,59 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Plus, Trash2, Copy } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { PART_CATEGORIES } from "@/types/inventory";
+import { PART_CATEGORIES, type BomLineType } from "@/types/inventory";
+import { EXCLUSIVE_KEY_SUGGESTIONS } from "@/lib/part-variants";
 
 interface SeriesOption {
   id: string;
   series_name: string;
 }
 
+/** 隨單材質線的目標候選：有材質軸的邏輯零件 */
+interface AxisPartOption {
+  id: string;
+  name: string;
+  series_id: string | null;
+}
+
+/** 固定零件線的目標候選：part_variant_stock_status 一列 */
 interface VariantOption {
   id: string;
-  series_id: string | null;
-  product_code: string;
-  wood_type: string | null;
-  spec1: string | null;
-}
-
-interface PartOption {
-  id: string;
-  part_no: string;
-  name: string;
-  unit: string;
-  category: string;
-  wood_species: string | null;
-}
-
-interface BomItemWithPart {
-  id: string;
   part_id: string;
+  sku: string;
+  name: string;
+  material_name: string | null;
+  category: string;
+  unit: string;
+}
+
+interface BomLineJoined {
+  id: string;
+  line_type: string;
+  part_id: string | null;
+  part_variant_id: string | null;
   quantity: number;
   unit: string | null;
+  exclusive_group: string | null;
+  exclusive_key: string | null;
   notes: string | null;
   parts: {
-    part_no: string;
     name: string;
+    name_code: string | null;
+    category: string;
     unit: string;
-    wood_species: string | null;
+    has_material_axis: boolean;
     deleted_at: string | null;
+  } | null;
+  part_variants: {
+    sku: string;
+    material_code: string | null;
+    deleted_at: string | null;
+    parts: { name: string; category: string; unit: string; deleted_at: string | null } | null;
   } | null;
 }
 
@@ -58,147 +63,204 @@ export interface BomTabProps {
   isAdmin?: boolean;
 }
 
-function variantLabel(v: VariantOption): string {
-  const extra = [v.wood_type, v.spec1].filter(Boolean).join("・");
-  return extra ? `${v.product_code}（${extra}）` : v.product_code;
+/** 目標＋互斥代碼的唯一鍵：同鍵視為重複線 */
+function lineDupKey(l: Pick<BomLineJoined, "line_type" | "part_id" | "part_variant_id" | "exclusive_key">): string {
+  const target = l.line_type === "by_material" ? l.part_id : l.part_variant_id;
+  return `${l.line_type}:${target ?? ""}:${l.exclusive_key ?? ""}`;
 }
 
-/** 維護 variant ↔ 零件 的單層 BOM（bom_items） */
+function lineCategory(l: BomLineJoined): string {
+  return (l.line_type === "by_material" ? l.parts?.category : l.part_variants?.parts?.category) ?? "";
+}
+
+function lineUnit(l: BomLineJoined): string {
+  return l.unit || (l.line_type === "by_material" ? l.parts?.unit : l.part_variants?.parts?.unit) || "—";
+}
+
+function lineTargetLabel(l: BomLineJoined): string {
+  if (l.line_type === "by_material") return l.parts?.name ?? "（零件已刪除）";
+  const v = l.part_variants;
+  return v ? `${v.sku}｜${v.parts?.name ?? ""}` : "（變體已刪除）";
+}
+
+/** 維護系列層 BOM（bom_lines）：隨單材質線指邏輯零件、固定零件線指具體變體 */
 export function BomTab({ isAdmin = false }: BomTabProps) {
   const [series, setSeries] = useState<SeriesOption[]>([]);
+  const [axisParts, setAxisParts] = useState<AxisPartOption[]>([]);
   const [variants, setVariants] = useState<VariantOption[]>([]);
-  const [parts, setParts] = useState<PartOption[]>([]);
   const [seriesId, setSeriesId] = useState("");
-  const [variantId, setVariantId] = useState("");
-  const [items, setItems] = useState<BomItemWithPart[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
-  const [newPartId, setNewPartId] = useState("");
-  const [newQty, setNewQty] = useState("1");
-  /** 加入零件的篩選：分類＋關鍵字（料號／名稱／材種） */
-  const [newPartCategory, setNewPartCategory] = useState("");
-  const [newPartSearch, setNewPartSearch] = useState("");
+  const [lines, setLines] = useState<BomLineJoined[]>([]);
+  const [loadingLines, setLoadingLines] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const [deleteItem, setDeleteItem] = useState<BomItemWithPart | null>(null);
-  const [copySourceId, setCopySourceId] = useState("");
-  const [copySeriesId, setCopySeriesId] = useState("");
-  const [copySearch, setCopySearch] = useState("");
-  const [copyConfirmOpen, setCopyConfirmOpen] = useState(false);
-  /** 每列數量的編輯值（key=bom_item id）；儲存於 blur */
+  const [deleteLine, setDeleteLine] = useState<BomLineJoined | null>(null);
+  /** 每列用量的編輯值（key=bom_line id）；儲存於 blur */
   const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
+
+  // 加入 BOM 線的表單
+  const [newLineType, setNewLineType] = useState<BomLineType>("by_material");
+  const [newPartId, setNewPartId] = useState("");
+  const [newVariantId, setNewVariantId] = useState("");
+  /** 固定零件的篩選：分類＋關鍵字（SKU／名稱／材質） */
+  const [newVariantCategory, setNewVariantCategory] = useState("");
+  const [newVariantSearch, setNewVariantSearch] = useState("");
+  const [newQty, setNewQty] = useState("1");
+  const [newGroup, setNewGroup] = useState("");
+  const [newKey, setNewKey] = useState("");
+
+  // 從其他系列複製
+  const [copySourceId, setCopySourceId] = useState("");
+  const [copyConfirmOpen, setCopyConfirmOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [seriesRes, variantsRes, partsRes] = await Promise.all([
+      const [seriesRes, partsRes, variantsRes] = await Promise.all([
         supabase.from("product_series").select("id, series_name").is("deleted_at", null).order("series_name"),
         supabase
-          .from("product_variants")
-          .select("id, series_id, product_code, wood_type, spec1")
+          .from("parts")
+          .select("id, name, series_id")
+          .eq("has_material_axis", true)
           .is("deleted_at", null)
-          .order("product_code"),
-        supabase.from("parts").select("id, part_no, name, unit, category, wood_species").is("deleted_at", null).order("part_no"),
+          .order("name"),
+        supabase
+          .from("part_variant_stock_status")
+          .select("id, part_id, sku, name, material_name, category, unit")
+          .order("sku"),
       ]);
       if (cancelled) return;
       setSeries((seriesRes.data as SeriesOption[]) ?? []);
-      setVariants((variantsRes.data as VariantOption[]) ?? []);
-      setParts((partsRes.data as PartOption[]) ?? []);
+      setAxisParts((partsRes.data as AxisPartOption[]) ?? []);
+      setVariants((variantsRes.data as unknown as VariantOption[]) ?? []);
     })();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const seriesVariants = useMemo(
-    () => variants.filter((v) => v.series_id === seriesId),
-    [variants, seriesId],
-  );
-
-  const fetchItems = useCallback(async (vid: string) => {
-    if (!vid) {
-      setItems([]);
+  const fetchLines = useCallback(async (sid: string) => {
+    if (!sid) {
+      setLines([]);
       return;
     }
-    setLoadingItems(true);
+    setLoadingLines(true);
     const { data, error } = await supabase
-      .from("bom_items")
-      .select("id, part_id, quantity, unit, notes, parts!part_id(part_no, name, unit, wood_species, deleted_at)")
-      .eq("variant_id", vid)
+      .from("bom_lines")
+      .select(
+        "id, line_type, part_id, part_variant_id, quantity, unit, exclusive_group, exclusive_key, notes, " +
+          "parts!part_id(name, name_code, category, unit, has_material_axis, deleted_at), " +
+          "part_variants!part_variant_id(sku, material_code, deleted_at, parts!part_id(name, category, unit, deleted_at))",
+      )
+      .eq("series_id", sid)
       .order("created_at");
-    setLoadingItems(false);
+    setLoadingLines(false);
     if (error) {
       toast.error(error.message || "無法載入 BOM");
-      setItems([]);
+      setLines([]);
       return;
     }
-    // 保險：零件主檔已軟刪除者不顯示（刪零件時會連動清 BOM，此處防殘留資料）
-    setItems(
-      (((data as unknown as BomItemWithPart[]) ?? [])).filter(
-        (it) => !it.parts?.deleted_at,
+    // 保險：目標零件／變體已軟刪除者不顯示（刪除時會連動清線，此處防殘留資料）
+    setLines(
+      (((data as unknown as BomLineJoined[]) ?? [])).filter((l) =>
+        l.line_type === "by_material"
+          ? l.parts != null && !l.parts.deleted_at
+          : l.part_variants != null && !l.part_variants.deleted_at && !l.part_variants.parts?.deleted_at,
       ),
     );
     setQtyDrafts({});
   }, []);
 
   useEffect(() => {
-    void fetchItems(variantId);
-  }, [variantId, fetchItems]);
+    void fetchLines(seriesId);
+  }, [seriesId, fetchLines]);
 
-  /** 複製來源候選：排除目前規格，依系列篩選與關鍵字（品號/材種/規格）過濾 */
-  const copyCandidates = useMemo(() => {
-    const q = copySearch.trim().toLowerCase();
+  /** 依目標零件分類分組，PART_CATEGORIES 順序在前、未知分類殿後 */
+  const groups = useMemo(() => {
+    const byCat = new Map<string, BomLineJoined[]>();
+    for (const l of lines) {
+      const cat = lineCategory(l) || "其他";
+      const list = byCat.get(cat) ?? [];
+      list.push(l);
+      byCat.set(cat, list);
+    }
+    const ordered: [string, BomLineJoined[]][] = [];
+    for (const cat of PART_CATEGORIES) {
+      const list = byCat.get(cat);
+      if (list) {
+        ordered.push([cat, list]);
+        byCat.delete(cat);
+      }
+    }
+    for (const [cat, list] of byCat) ordered.push([cat, list]);
+    return ordered;
+  }, [lines]);
+
+  const existingKeys = useMemo(() => new Set(lines.map(lineDupKey)), [lines]);
+
+  const addablePartOptions = useMemo(
+    () => axisParts.filter((p) => p.series_id === seriesId || p.series_id == null),
+    [axisParts, seriesId],
+  );
+
+  const addableVariantOptions = useMemo(() => {
+    const q = newVariantSearch.trim().toLowerCase();
     return variants.filter((v) => {
-      if (v.id === variantId) return false;
-      if (copySeriesId && v.series_id !== copySeriesId) return false;
+      if (newVariantCategory && v.category !== newVariantCategory) return false;
       if (!q) return true;
       return (
-        v.product_code.toLowerCase().includes(q) ||
-        (v.wood_type || "").toLowerCase().includes(q) ||
-        (v.spec1 || "").toLowerCase().includes(q)
+        v.sku.toLowerCase().includes(q) ||
+        v.name.toLowerCase().includes(q) ||
+        (v.material_name ?? "").toLowerCase().includes(q)
       );
     });
-  }, [variants, variantId, copySeriesId, copySearch]);
+  }, [variants, newVariantCategory, newVariantSearch]);
 
-  // 篩選改變後，已選的來源若不在候選內就清掉
+  // 篩選改變後，已選變體若被濾掉就清空選擇
   useEffect(() => {
-    if (copySourceId && !copyCandidates.some((v) => v.id === copySourceId)) {
-      setCopySourceId("");
+    if (newVariantId && !addableVariantOptions.some((v) => v.id === newVariantId)) {
+      setNewVariantId("");
     }
-  }, [copyCandidates, copySourceId]);
+  }, [addableVariantOptions, newVariantId]);
 
-  const usedPartIds = useMemo(() => new Set(items.map((it) => it.part_id)), [items]);
-  const addableParts = useMemo(() => {
-    const q = newPartSearch.trim().toLowerCase();
-    return parts.filter((p) => {
-      if (usedPartIds.has(p.id)) return false;
-      if (newPartCategory && p.category !== newPartCategory) return false;
-      if (!q) return true;
-      return (
-        p.part_no.toLowerCase().includes(q) ||
-        p.name.toLowerCase().includes(q) ||
-        (p.wood_species ?? "").toLowerCase().includes(q)
-      );
+  const seriesNameById = useMemo(() => new Map(series.map((s) => [s.id, s.series_name])), [series]);
+
+  function toggleGroup(cat: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
     });
-  }, [parts, usedPartIds, newPartCategory, newPartSearch]);
+  }
 
-  // 篩選改變後，已選零件若被濾掉就清空選擇
-  useEffect(() => {
-    if (newPartId && !addableParts.some((p) => p.id === newPartId)) {
-      setNewPartId("");
-    }
-  }, [addableParts, newPartId]);
-
-  async function addItem() {
-    if (!variantId || !newPartId) return;
+  async function addLine() {
+    if (!seriesId) return;
+    const targetId = newLineType === "by_material" ? newPartId : newVariantId;
+    if (!targetId) return;
     const qty = Number(newQty);
     if (!Number.isFinite(qty) || qty <= 0) {
       toast.error("用量必須大於 0");
       return;
     }
+    const key = lineDupKey({
+      line_type: newLineType,
+      part_id: newLineType === "by_material" ? targetId : null,
+      part_variant_id: newLineType === "fixed" ? targetId : null,
+      exclusive_key: newKey.trim() || null,
+    });
+    if (existingKeys.has(key)) {
+      toast.error("相同目標與互斥代碼的線已存在，未重複加入");
+      return;
+    }
     setBusy(true);
-    const { error } = await supabase.from("bom_items").insert({
-      variant_id: variantId,
-      part_id: newPartId,
+    const { error } = await supabase.from("bom_lines").insert({
+      series_id: seriesId,
+      line_type: newLineType,
+      part_id: newLineType === "by_material" ? targetId : null,
+      part_variant_id: newLineType === "fixed" ? targetId : null,
       quantity: qty,
+      exclusive_group: newGroup.trim() || null,
+      exclusive_key: newKey.trim() || null,
     });
     setBusy(false);
     if (error) {
@@ -206,98 +268,103 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
       return;
     }
     setNewPartId("");
+    setNewVariantId("");
     setNewQty("1");
-    void fetchItems(variantId);
+    setNewGroup("");
+    setNewKey("");
+    void fetchLines(seriesId);
   }
 
-  async function saveQty(item: BomItemWithPart) {
-    const raw = qtyDrafts[item.id];
+  async function saveQty(line: BomLineJoined) {
+    const raw = qtyDrafts[line.id];
     if (raw == null) return;
     const qty = Number(raw);
     if (!Number.isFinite(qty) || qty <= 0) {
       toast.error("用量必須大於 0");
-      setQtyDrafts((d) => ({ ...d, [item.id]: String(item.quantity) }));
+      setQtyDrafts((d) => ({ ...d, [line.id]: String(line.quantity) }));
       return;
     }
-    if (qty === item.quantity) return;
-    const { error } = await supabase.from("bom_items").update({ quantity: qty }).eq("id", item.id);
+    if (qty === Number(line.quantity)) return;
+    const { error } = await supabase.from("bom_lines").update({ quantity: qty }).eq("id", line.id);
     if (error) {
       toast.error(error.message || "更新用量失敗");
       return;
     }
-    void fetchItems(variantId);
+    void fetchLines(seriesId);
   }
 
   async function performDelete() {
-    if (!deleteItem) return;
-    const id = deleteItem.id;
-    setDeleteItem(null);
-    const { error } = await supabase.from("bom_items").delete().eq("id", id);
+    if (!deleteLine) return;
+    const id = deleteLine.id;
+    setDeleteLine(null);
+    const { error } = await supabase.from("bom_lines").delete().eq("id", id);
     if (error) {
       toast.error(error.message || "刪除失敗");
       return;
     }
-    void fetchItems(variantId);
+    void fetchLines(seriesId);
   }
 
   async function performCopy() {
     setCopyConfirmOpen(false);
-    if (!variantId || !copySourceId) return;
+    if (!seriesId || !copySourceId) return;
     setBusy(true);
     const { data: sourceRows, error } = await supabase
-      .from("bom_items")
-      .select("part_id, quantity, unit, notes")
-      .eq("variant_id", copySourceId);
+      .from("bom_lines")
+      .select("line_type, part_id, part_variant_id, quantity, unit, exclusive_group, exclusive_key, notes")
+      .eq("series_id", copySourceId);
     if (error) {
       setBusy(false);
       toast.error(error.message || "無法讀取來源 BOM");
       return;
     }
     const toInsert = (sourceRows ?? [])
-      .filter((r) => !usedPartIds.has(r.part_id))
+      .filter((r) => !existingKeys.has(lineDupKey(r)))
       .map((r) => ({
-        variant_id: variantId,
+        series_id: seriesId,
+        line_type: r.line_type,
         part_id: r.part_id,
+        part_variant_id: r.part_variant_id,
         quantity: r.quantity,
         unit: r.unit,
+        exclusive_group: r.exclusive_group,
+        exclusive_key: r.exclusive_key,
         notes: r.notes,
       }));
     if (toInsert.length === 0) {
       setBusy(false);
-      toast.info("來源沒有可複製的零件（皆已存在或來源為空）");
+      toast.info("來源沒有可複製的線（皆已存在或來源為空）");
       return;
     }
-    const { error: insErr } = await supabase.from("bom_items").insert(toInsert);
+    const { error: insErr } = await supabase.from("bom_lines").insert(toInsert);
     setBusy(false);
     if (insErr) {
       toast.error(insErr.message || "複製失敗");
       return;
     }
-    toast.success(`已複製 ${toInsert.length} 項零件`);
+    toast.success(`已複製 ${toInsert.length} 條 BOM 線`);
     setCopySourceId("");
-    void fetchItems(variantId);
+    void fetchLines(seriesId);
   }
 
   const inputCls =
     "h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
-  const copySourceVariant = variants.find((v) => v.id === copySourceId);
+  const badgeCls = "rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground whitespace-nowrap";
+  const copySourceSeries = series.find((s) => s.id === copySourceId);
 
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        每個產品規格（variant）維護自己的用料表；接單開整備工單時依此展開零件需求。
+        每個產品系列維護一份用料表；「隨單材質」線依訂單木種自動對應零件變體，「固定零件」線直接指定變體，工單開工時依此自動扣帳。
       </p>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:flex-wrap">
-        <div className="flex min-w-[12rem] flex-col gap-1.5">
+        <div className="flex min-w-[14rem] flex-col gap-1.5">
           <label htmlFor="bom-series" className="text-xs text-muted-foreground">產品系列</label>
           <select
             id="bom-series"
             value={seriesId}
-            onChange={(e) => {
-              setSeriesId(e.target.value);
-              setVariantId("");
-            }}
+            onChange={(e) => setSeriesId(e.target.value)}
             className={inputCls}
           >
             <option value="">選擇系列…</option>
@@ -306,56 +373,22 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
             ))}
           </select>
         </div>
-        <div className="flex min-w-[16rem] flex-col gap-1.5">
-          <label htmlFor="bom-variant" className="text-xs text-muted-foreground">產品規格</label>
-          <select
-            id="bom-variant"
-            value={variantId}
-            onChange={(e) => setVariantId(e.target.value)}
-            className={inputCls}
-            disabled={!seriesId}
-          >
-            <option value="">{seriesId ? "選擇規格…" : "請先選系列"}</option>
-            {seriesVariants.map((v) => (
-              <option key={v.id} value={v.id}>{variantLabel(v)}</option>
-            ))}
-          </select>
-        </div>
-        {isAdmin && variantId && (
+        {isAdmin && seriesId && (
           <div className="flex flex-col gap-1.5 sm:ml-auto">
-            <label htmlFor="bom-copy-source" className="text-xs text-muted-foreground">從其他規格複製</label>
+            <label htmlFor="bom-copy-source" className="text-xs text-muted-foreground">從其他系列複製</label>
             <div className="flex flex-wrap gap-2">
-              <select
-                value={copySeriesId}
-                onChange={(e) => setCopySeriesId(e.target.value)}
-                className={cn(inputCls, "w-[10rem]")}
-                aria-label="來源系列篩選"
-              >
-                <option value="">全部系列</option>
-                {series.map((s) => (
-                  <option key={s.id} value={s.id}>{s.series_name}</option>
-                ))}
-              </select>
-              <input
-                type="search"
-                value={copySearch}
-                onChange={(e) => setCopySearch(e.target.value)}
-                placeholder="搜尋品號、材種…"
-                className={cn(inputCls, "w-[10rem]")}
-                aria-label="搜尋來源規格"
-              />
               <select
                 id="bom-copy-source"
                 value={copySourceId}
                 onChange={(e) => setCopySourceId(e.target.value)}
                 className={cn(inputCls, "min-w-[12rem]")}
               >
-                <option value="">
-                  {copyCandidates.length === 0 ? "無符合的規格" : `選擇來源規格…（${copyCandidates.length}）`}
-                </option>
-                {copyCandidates.map((v) => (
-                  <option key={v.id} value={v.id}>{variantLabel(v)}</option>
-                ))}
+                <option value="">選擇來源系列…</option>
+                {series
+                  .filter((s) => s.id !== seriesId)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>{s.series_name}</option>
+                  ))}
               </select>
               <Button
                 type="button"
@@ -372,160 +405,249 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
         )}
       </div>
 
-      {variantId ? (
+      {seriesId ? (
         <>
           <div className="rounded-xl border border-border bg-card overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent border-b border-border">
-                  <TableHead className="text-xs font-semibold p-2">料號</TableHead>
-                  <TableHead className="text-xs font-semibold p-2">零件名稱</TableHead>
-                  <TableHead className="hidden text-xs font-semibold p-2 sm:table-cell">材種</TableHead>
-                  <TableHead className="text-xs font-semibold p-2 text-right w-[120px]">用量</TableHead>
-                  <TableHead className="text-xs font-semibold p-2 w-[64px]">單位</TableHead>
-                  {isAdmin && <TableHead className="text-xs font-semibold p-2 w-[56px]" aria-label="操作">操作</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loadingItems ? (
-                  <TableRow>
-                    <TableCell colSpan={isAdmin ? 6 : 5} className="h-24 text-center text-muted-foreground text-sm" role="status">
-                      載入 BOM 中…
-                    </TableCell>
-                  </TableRow>
-                ) : items.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={isAdmin ? 6 : 5} className="h-24 text-center text-muted-foreground text-sm">
-                      此規格尚未建立用料，請在下方加入零件
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  items.map((it) => (
-                    <TableRow key={it.id} className="border-b border-border hover:bg-muted/30">
-                      <TableCell className="text-sm p-2 font-medium whitespace-nowrap">{it.parts?.part_no ?? "—"}</TableCell>
-                      <TableCell className="text-sm p-2">
-                        {it.parts?.name ?? "（零件已刪除）"}
-                        {it.parts?.wood_species ? (
-                          <span className="mt-0.5 block text-xs text-muted-foreground sm:hidden">
-                            {it.parts.wood_species}
-                          </span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="hidden whitespace-nowrap text-sm p-2 text-muted-foreground sm:table-cell">
-                        {it.parts?.wood_species ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-sm p-2 text-right">
-                        {isAdmin ? (
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={qtyDrafts[it.id] ?? String(it.quantity)}
-                            onChange={(e) => setQtyDrafts((d) => ({ ...d, [it.id]: e.target.value }))}
-                            onBlur={() => void saveQty(it)}
-                            className="h-8 w-24 rounded-lg border border-input bg-background px-2 text-right text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            aria-label={`${it.parts?.name ?? ""} 用量`}
-                          />
-                        ) : (
-                          <span className="tabular-nums">{it.quantity}</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm p-2 text-muted-foreground">{it.unit || it.parts?.unit || "—"}</TableCell>
-                      {isAdmin && (
-                        <TableCell className="p-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={() => setDeleteItem(it)}
-                            aria-label={`移除 ${it.parts?.name ?? "零件"}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
+            {loadingLines ? (
+              <div className="p-8 text-center text-sm text-muted-foreground" role="status">載入 BOM 中…</div>
+            ) : lines.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                此系列尚未建立用料{isAdmin ? "，請在下方加入 BOM 線" : ""}
+              </div>
+            ) : (
+              groups.map(([cat, groupLines]) => {
+                const isCollapsed = collapsed.has(cat);
+                return (
+                  <div key={cat} className="border-b border-border last:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(cat)}
+                      aria-expanded={!isCollapsed}
+                      className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-foreground hover:bg-muted/30"
+                    >
+                      {isCollapsed ? (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden />
                       )}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                      {cat}（{groupLines.length} 條）
+                    </button>
+                    {!isCollapsed &&
+                      groupLines.map((l) => (
+                        <div
+                          key={l.id}
+                          className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-3 py-2 hover:bg-muted/30 sm:pl-9"
+                        >
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                            {l.line_type === "by_material" ? (
+                              <>
+                                <span className="text-sm font-medium text-foreground">{l.parts?.name ?? "（零件已刪除）"}</span>
+                                <span className={cn(badgeCls, "border-transparent bg-primary/10 text-primary")}>隨單材質</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-sm font-medium text-foreground whitespace-nowrap">{l.part_variants?.sku ?? "—"}</span>
+                                <span className="text-sm text-foreground">{l.part_variants?.parts?.name ?? "（零件已刪除）"}</span>
+                                <span className={badgeCls}>{l.part_variants?.material_code ?? "無材質"}</span>
+                              </>
+                            )}
+                            {l.exclusive_group && (
+                              <span className={cn(badgeCls, "border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-400")}>
+                                {l.exclusive_group}：{l.exclusive_key ?? "—"}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isAdmin ? (
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={qtyDrafts[l.id] ?? String(l.quantity)}
+                                onChange={(e) => setQtyDrafts((d) => ({ ...d, [l.id]: e.target.value }))}
+                                onBlur={() => void saveQty(l)}
+                                className="h-8 w-20 rounded-lg border border-input bg-background px-2 text-right text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                aria-label={`${lineTargetLabel(l)} 用量`}
+                              />
+                            ) : (
+                              <span className="text-sm tabular-nums">{l.quantity}</span>
+                            )}
+                            <span className="w-8 text-sm text-muted-foreground">{lineUnit(l)}</span>
+                            {isAdmin && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                onClick={() => setDeleteLine(l)}
+                                aria-label={`移除 ${lineTargetLabel(l)}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                );
+              })
+            )}
           </div>
 
           {isAdmin && (
-            <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-card p-3">
-              <div className="flex w-[calc(50%-0.25rem)] flex-col gap-1.5 sm:w-36">
-                <label htmlFor="bom-part-filter-category" className="text-xs text-muted-foreground">篩選分類</label>
-                <select
-                  id="bom-part-filter-category"
-                  value={newPartCategory}
-                  onChange={(e) => setNewPartCategory(e.target.value)}
-                  className={inputCls}
-                >
-                  <option value="">全部分類</option>
-                  {PART_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+            <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3">
+              <div className="inline-flex w-fit rounded-lg border border-input p-0.5" role="tablist" aria-label="BOM 線類型">
+                {(
+                  [
+                    ["by_material", "隨單材質"],
+                    ["fixed", "固定零件"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="tab"
+                    aria-selected={newLineType === value}
+                    onClick={() => setNewLineType(value)}
+                    className={cn(
+                      "h-8 rounded-md px-3 text-sm transition-colors",
+                      newLineType === value
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-              <div className="flex w-[calc(50%-0.25rem)] flex-col gap-1.5 sm:min-w-[10rem] sm:flex-1">
-                <label htmlFor="bom-part-filter-search" className="text-xs text-muted-foreground">篩選零件</label>
-                <input
-                  id="bom-part-filter-search"
-                  type="search"
-                  value={newPartSearch}
-                  onChange={(e) => setNewPartSearch(e.target.value)}
-                  placeholder="搜尋料號、名稱、材種…"
-                  className={inputCls}
-                />
+
+              {newLineType === "by_material" ? (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="bom-new-part" className="text-xs text-muted-foreground">邏輯零件（依訂單木種對應變體）</label>
+                  <select id="bom-new-part" value={newPartId} onChange={(e) => setNewPartId(e.target.value)} className={inputCls}>
+                    <option value="">選擇零件…（{addablePartOptions.length} 顆符合）</option>
+                    {addablePartOptions.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}（{p.series_id ? seriesNameById.get(p.series_id) ?? "?" : "共用"}）
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="bom-variant-filter-category" className="text-xs text-muted-foreground">篩選分類</label>
+                    <select
+                      id="bom-variant-filter-category"
+                      value={newVariantCategory}
+                      onChange={(e) => setNewVariantCategory(e.target.value)}
+                      className={inputCls}
+                    >
+                      <option value="">全部分類</option>
+                      {PART_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="bom-variant-filter-search" className="text-xs text-muted-foreground">篩選零件</label>
+                    <input
+                      id="bom-variant-filter-search"
+                      type="search"
+                      value={newVariantSearch}
+                      onChange={(e) => setNewVariantSearch(e.target.value)}
+                      placeholder="搜尋 SKU、名稱、材質…"
+                      className={inputCls}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    <label htmlFor="bom-new-variant" className="text-xs text-muted-foreground">零件變體</label>
+                    <select id="bom-new-variant" value={newVariantId} onChange={(e) => setNewVariantId(e.target.value)} className={inputCls}>
+                      <option value="">選擇變體…（{addableVariantOptions.length} 顆符合）</option>
+                      {addableVariantOptions.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.sku}｜{v.name}
+                          {v.material_name ? `・${v.material_name}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="bom-new-qty" className="text-xs text-muted-foreground">用量</label>
+                  <input
+                    id="bom-new-qty"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={newQty}
+                    onChange={(e) => setNewQty(e.target.value)}
+                    className={cn(inputCls, "text-right")}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="bom-new-group" className="text-xs text-muted-foreground">互斥群組（選填）</label>
+                  <input
+                    id="bom-new-group"
+                    type="text"
+                    value={newGroup}
+                    onChange={(e) => setNewGroup(e.target.value)}
+                    placeholder="例如：seat"
+                    className={inputCls}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="bom-new-key" className="text-xs text-muted-foreground">互斥代碼（選填）</label>
+                  <input
+                    id="bom-new-key"
+                    type="text"
+                    value={newKey}
+                    onChange={(e) => setNewKey(e.target.value)}
+                    list="bom-exclusive-key-suggestions"
+                    placeholder="F / W / P…"
+                    className={inputCls}
+                  />
+                  <datalist id="bom-exclusive-key-suggestions">
+                    {EXCLUSIVE_KEY_SUGGESTIONS.map((s) => (
+                      <option key={s.key} value={s.key}>{`${s.key}（${s.label}）`}</option>
+                    ))}
+                  </datalist>
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    className="h-9"
+                    disabled={busy || (newLineType === "by_material" ? !newPartId : !newVariantId)}
+                    onClick={() => void addLine()}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    加入
+                  </Button>
+                </div>
               </div>
-              <div className="flex min-w-[16rem] flex-1 flex-col gap-1.5">
-                <label htmlFor="bom-new-part" className="text-xs text-muted-foreground">加入零件</label>
-                <select id="bom-new-part" value={newPartId} onChange={(e) => setNewPartId(e.target.value)} className={inputCls}>
-                  <option value="">選擇零件…（{addableParts.length} 顆符合）</option>
-                  {addableParts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.part_no}｜{p.name}
-                      {p.wood_species ? `・${p.wood_species}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="bom-new-qty" className="text-xs text-muted-foreground">用量</label>
-                <input
-                  id="bom-new-qty"
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={newQty}
-                  onChange={(e) => setNewQty(e.target.value)}
-                  className={cn(inputCls, "w-24 text-right")}
-                />
-              </div>
-              <Button type="button" className="h-9" disabled={!newPartId || busy} onClick={() => void addItem()}>
-                <Plus className="h-4 w-4 mr-1" />
-                加入
-              </Button>
+              <p className="text-xs text-muted-foreground">同群組內依訂單座墊代碼只取一條；空＝一律列入。</p>
             </div>
           )}
         </>
       ) : (
         <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-          選擇系列與規格後顯示其用料表
+          選擇產品系列後顯示其用料表
         </div>
       )}
 
       <ConfirmDialog
         open={copyConfirmOpen}
         onOpenChange={setCopyConfirmOpen}
-        title="是否複製此規格的用料表？"
+        title="是否複製此系列的用料表？"
         description={
-          copySourceVariant ? (
+          copySourceSeries ? (
             <>
-              <p className="font-medium text-foreground">{variantLabel(copySourceVariant)}</p>
+              <p className="font-medium text-foreground">{copySourceSeries.series_name}</p>
               <p className="mt-2 text-muted-foreground text-sm">
-                來源的零件會加入目前規格的用料表；已存在的零件會略過、不覆蓋用量。複製後可再逐列調整（例如改成對應材種的木料）。
+                來源的 BOM 線會加入目前系列；相同目標與互斥代碼的線會略過、不覆蓋用量。隨單材質線引用的是邏輯零件，跨系列共用同一顆部件時才適用，複製後請逐條確認。
               </p>
             </>
           ) : null
@@ -535,13 +657,14 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
       />
 
       <ConfirmDialog
-        open={deleteItem != null}
-        onOpenChange={(open) => !open && setDeleteItem(null)}
-        title="是否自用料表移除此零件？"
+        open={deleteLine != null}
+        onOpenChange={(open) => !open && setDeleteLine(null)}
+        title="是否自用料表移除此 BOM 線？"
         description={
-          deleteItem ? (
+          deleteLine ? (
             <p className="font-medium text-foreground">
-              {deleteItem.parts ? `${deleteItem.parts.part_no}｜${deleteItem.parts.name}` : "（零件已刪除）"}
+              {lineTargetLabel(deleteLine)}
+              {deleteLine.line_type === "by_material" ? "（隨單材質）" : ""}
             </p>
           ) : null
         }

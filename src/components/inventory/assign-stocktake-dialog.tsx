@@ -13,9 +13,10 @@ type ScopeMode = "all" | "category" | "custom";
 
 interface PickerPart {
   id: string;
-  part_no: string;
   name: string;
   category: string;
+  /** 零件名稱已不含系列前綴，顯示用系列名稱補上（null＝共用） */
+  series_name: string | null;
 }
 
 export interface AssignStocktakeDialogProps {
@@ -58,13 +59,30 @@ export function AssignStocktakeDialog({ open, onOpenChange }: AssignStocktakeDia
           .order("name"),
         supabase
           .from("parts")
-          .select("id, part_no, name, category")
+          .select("id, name, category, product_series(series_name)")
           .is("deleted_at", null)
-          .order("part_no"),
+          .order("name"),
       ]);
       if (cancelled) return;
       setEmployees((empRes.data as EmployeeOption[]) ?? []);
-      setParts((partsRes.data as PickerPart[]) ?? []);
+      const rows = (
+        ((partsRes.data ?? []) as unknown) as {
+          id: string;
+          name: string;
+          category: string;
+          product_series: { series_name: string } | null;
+        }[]
+      ).map((p) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        series_name: p.product_series?.series_name ?? null,
+      }));
+      rows.sort((a, b) => {
+        const s = (a.series_name ?? "").localeCompare(b.series_name ?? "", "zh-Hant");
+        return s !== 0 ? s : a.name.localeCompare(b.name, "zh-Hant");
+      });
+      setParts(rows);
     })();
     return () => {
       cancelled = true;
@@ -76,8 +94,8 @@ export function AssignStocktakeDialog({ open, onOpenChange }: AssignStocktakeDia
     if (!q) return parts;
     return parts.filter(
       (p) =>
-        p.part_no.toLowerCase().includes(q) ||
         p.name.toLowerCase().includes(q) ||
+        (p.series_name ?? "").toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q),
     );
   }, [parts, partSearch]);
@@ -227,7 +245,7 @@ export function AssignStocktakeDialog({ open, onOpenChange }: AssignStocktakeDia
                       type="search"
                       value={partSearch}
                       onChange={(e) => setPartSearch(e.target.value)}
-                      placeholder="搜尋料號、名稱、分類…"
+                      placeholder="搜尋名稱、系列、分類…"
                       className="h-8 w-full rounded-lg border border-input bg-background pl-8 pr-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       aria-label="搜尋零件"
                     />
@@ -258,7 +276,7 @@ export function AssignStocktakeDialog({ open, onOpenChange }: AssignStocktakeDia
                               onChange={(e) => togglePart(p.id, e.target.checked)}
                               className="h-4 w-4 shrink-0 rounded border-input accent-[var(--primary)]"
                             />
-                            <span className="shrink-0 font-medium">{p.part_no}</span>
+                            <span className="shrink-0 font-medium">{p.series_name ?? "共用"}</span>
                             <span className="min-w-0 flex-1 truncate">{p.name}</span>
                             <span className="shrink-0 text-xs text-muted-foreground">{p.category}</span>
                           </label>

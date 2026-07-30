@@ -52,6 +52,12 @@ import {
   manualOrderStatusOptions,
   PAYMENT_STATUS_OPTIONS,
 } from "./order-helpers";
+import {
+  applicableBomLines,
+  fetchMaterials,
+  resolveMaterialCode,
+  specKeyFromSpec1,
+} from "@/lib/part-variants";
 
 const IMAGE_BUCKET = "product-images";
 const ORDER_EXPLANATION_BUCKET = "order-explanations";
@@ -78,6 +84,68 @@ const ITEM_KIND_OPTIONS: { kind: OrderItemKind; label: string }[] = [
   { kind: "processing", label: "加工項目" },
   { kind: "custom", label: "客製品項" },
 ];
+
+/**
+ * BOM resolve 預檢：隨單材質（by_material）線在訂單材質下必須有對應零件變體。
+ * 與 DB trigger work_orders_auto_deduct_parts 同語義，提前到建單時擋下提示；
+ * 預檢本身查詢失敗時不擋單（開工扣料 trigger 仍會把關）。
+ */
+async function precheckBomResolve(
+  items: { variantId: string; woodType: string | null }[],
+): Promise<{ ok: boolean; message?: string }> {
+  if (items.length === 0) return { ok: true };
+  const variantIds = [...new Set(items.map((i) => i.variantId))];
+  const { data: pvs, error: pvErr } = await supabase
+    .from("product_variants")
+    .select("id, series_id, wood_type, spec1")
+    .in("id", variantIds);
+  if (pvErr || !pvs) return { ok: true };
+  const pvById = new Map(pvs.map((v) => [v.id, v]));
+  const seriesIds = [...new Set(pvs.map((v) => v.series_id).filter(Boolean))] as string[];
+  if (seriesIds.length === 0) return { ok: true };
+  const { data: lines } = await supabase
+    .from("bom_lines")
+    .select("series_id, line_type, part_id, exclusive_key, parts!part_id(name)")
+    .eq("line_type", "by_material")
+    .in("series_id", seriesIds);
+  if (!lines || lines.length === 0) return { ok: true };
+  const materials = await fetchMaterials().catch(() => null);
+  if (!materials) return { ok: true };
+  const partIds = [...new Set(lines.map((l) => l.part_id).filter(Boolean))] as string[];
+  const { data: pvars } = await supabase
+    .from("part_variants")
+    .select("part_id, material_code")
+    .in("part_id", partIds)
+    .is("deleted_at", null);
+  const existing = new Set((pvars ?? []).map((v) => `${v.part_id}|${v.material_code}`));
+  const missing = new Set<string>();
+  for (const it of items) {
+    const pv = pvById.get(it.variantId);
+    if (!pv?.series_id) continue;
+    const woodType = (it.woodType ?? "").trim() || pv.wood_type;
+    const specKey = specKeyFromSpec1(pv.spec1);
+    const seriesLines = applicableBomLines(
+      lines.filter((l) => l.series_id === pv.series_id),
+      specKey,
+    );
+    if (seriesLines.length === 0) continue;
+    const code = resolveMaterialCode(woodType, materials);
+    for (const l of seriesLines) {
+      const partName =
+        (l.parts as unknown as { name: string } | null)?.name ?? "零件";
+      if (!code) {
+        missing.add(`「${partName}」無法對應材質「${woodType ?? "—"}」`);
+      } else if (!existing.has(`${l.part_id}|${code}`)) {
+        missing.add(`「${partName}」缺 ${code} 材質變體`);
+      }
+    }
+  }
+  if (missing.size === 0) return { ok: true };
+  return {
+    ok: false,
+    message: `BOM 缺變體，無法儲存訂單：${[...missing].join("、")}。請先於零件庫存建立變體`,
+  };
+}
 
 /** 挑選下拉的顯示格式：類別 / 品名 / 價格（缺項自動略過） */
 function caseOptionLabel(c: OrderCaseOption): string {
@@ -1050,6 +1118,19 @@ function OrderFormDialog({
 
     setSaving(true);
     try {
+      const resolveCheck = await precheckBomResolve(
+        validItems
+          .filter((it) => it.kind === "variant" && it.variant_id)
+          .map((it) => ({
+            variantId: it.variant_id as string,
+            woodType: it.wood_type ?? null,
+          })),
+      );
+      if (!resolveCheck.ok) {
+        toast.error(resolveCheck.message ?? "BOM 缺變體，請先於零件庫存建立");
+        return;
+      }
+
       const orderPayload = {
         order_number: initialOrder?.order_number ?? draftOrderNumber,
         customer_id: customerId,

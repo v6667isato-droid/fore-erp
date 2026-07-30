@@ -11,16 +11,19 @@ import type { EmployeeOption } from "@/types/inventory";
 import type { PartMakeTaskItem } from "@/lib/part-make-tasks";
 import type { Json } from "@/types/database.types";
 
-interface PickerPart {
+/** 製作對象＝庫存變體（part_variant_stock_status 一列） */
+interface PickerVariant {
   id: string;
-  part_no: string;
+  part_id: string;
+  sku: string;
   name: string;
+  material_name: string | null;
   unit: string;
   source_type: string;
 }
 
 interface DraftItem {
-  part_id: string;
+  variant_id: string;
   quantity: string;
 }
 
@@ -34,22 +37,22 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
   const [assigneeId, setAssigneeId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [items, setItems] = useState<DraftItem[]>([{ part_id: "", quantity: "" }]);
+  const [items, setItems] = useState<DraftItem[]>([{ variant_id: "", quantity: "" }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
-  const [parts, setParts] = useState<PickerPart[]>([]);
+  const [variants, setVariants] = useState<PickerVariant[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setAssigneeId("");
     setDueDate("");
     setInstructions("");
-    setItems([{ part_id: "", quantity: "" }]);
+    setItems([{ variant_id: "", quantity: "" }]);
     setError(null);
     let cancelled = false;
     void (async () => {
-      const [empRes, partsRes] = await Promise.all([
+      const [empRes, variantsRes] = await Promise.all([
         supabase
           .from("employees")
           .select("id, name")
@@ -57,27 +60,26 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
           .or("employment_status.is.null,employment_status.eq.true")
           .order("name"),
         supabase
-          .from("parts")
-          .select("id, part_no, name, unit, source_type")
-          .is("deleted_at", null)
-          .order("part_no"),
+          .from("part_variant_stock_status")
+          .select("id, part_id, sku, name, material_name, unit, source_type")
+          .order("sku"),
       ]);
       if (cancelled) return;
       setEmployees((empRes.data as EmployeeOption[]) ?? []);
       // 自製零件排前面（製作交辦幾乎都是自製件）
-      const list = ((partsRes.data as PickerPart[]) ?? []).slice();
+      const list = ((((variantsRes.data ?? []) as unknown) as PickerVariant[])).slice();
       list.sort((a, b) => {
         if (a.source_type !== b.source_type) return a.source_type === "自製" ? -1 : 1;
-        return a.part_no.localeCompare(b.part_no);
+        return a.sku.localeCompare(b.sku);
       });
-      setParts(list);
+      setVariants(list);
     })();
     return () => {
       cancelled = true;
     };
   }, [open]);
 
-  const partMap = useMemo(() => new Map(parts.map((p) => [p.id, p])), [parts]);
+  const variantMap = useMemo(() => new Map(variants.map((v) => [v.id, v])), [variants]);
 
   function updateItem(idx: number, patch: Partial<DraftItem>) {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
@@ -91,8 +93,8 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
       return;
     }
     const cleaned = items
-      .map((it) => ({ part_id: it.part_id, qty: Number(it.quantity) }))
-      .filter((it) => it.part_id !== "");
+      .map((it) => ({ variant_id: it.variant_id, qty: Number(it.quantity) }))
+      .filter((it) => it.variant_id !== "");
     if (cleaned.length === 0) {
       setError("請至少加入一項零件");
       return;
@@ -103,19 +105,21 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
     }
     const seen = new Set<string>();
     for (const it of cleaned) {
-      if (seen.has(it.part_id)) {
+      if (seen.has(it.variant_id)) {
         setError("同一顆零件重複出現，請合併為一列");
         return;
       }
-      seen.add(it.part_id);
+      seen.add(it.variant_id);
     }
+    // 快照沿用 part_no/name/unit 鍵供既有顯示相容：part_no＝sku、name 含材質
     const snapshot: PartMakeTaskItem[] = cleaned.map((it) => {
-      const p = partMap.get(it.part_id);
+      const v = variantMap.get(it.variant_id);
       return {
-        part_id: it.part_id,
-        part_no: p?.part_no ?? "?",
-        name: p?.name ?? "?",
-        unit: p?.unit ?? "",
+        part_id: v?.part_id ?? "?",
+        part_variant_id: it.variant_id,
+        part_no: v?.sku ?? "?",
+        name: v ? `${v.name}${v.material_name ? `・${v.material_name}` : ""}` : "?",
+        unit: v?.unit ?? "",
         quantity: it.qty,
       };
     });
@@ -186,7 +190,7 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
                   type="button"
                   variant="outline"
                   className="h-8 px-2 text-xs"
-                  onClick={() => setItems((prev) => [...prev, { part_id: "", quantity: "" }])}
+                  onClick={() => setItems((prev) => [...prev, { variant_id: "", quantity: "" }])}
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" />
                   加一列
@@ -195,15 +199,15 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
               {items.map((it, idx) => (
                 <div key={idx} className="flex items-center gap-2">
                   <select
-                    value={it.part_id}
-                    onChange={(e) => updateItem(idx, { part_id: e.target.value })}
+                    value={it.variant_id}
+                    onChange={(e) => updateItem(idx, { variant_id: e.target.value })}
                     className={cn(inputCls, "min-w-0 flex-1")}
                     aria-label={`第 ${idx + 1} 列零件`}
                   >
                     <option value="">選擇零件…</option>
-                    {parts.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.part_no}｜{p.name}{p.source_type === "自製" ? "" : "（採購件）"}
+                    {variants.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.sku}｜{v.name}{v.material_name ? `・${v.material_name}` : ""}{v.source_type === "自製" ? "" : "（採購件）"}
                       </option>
                     ))}
                   </select>

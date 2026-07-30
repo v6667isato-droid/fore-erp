@@ -10,7 +10,7 @@ import { formatDate } from "@/lib/utils";
 import {
   STOCK_MOVEMENT_TYPES,
   type EmployeeOption,
-  type PartWithStock,
+  type PartVariantStockRow,
   type StockMovementRow,
   type StockMovementType,
 } from "@/types/inventory";
@@ -18,7 +18,8 @@ import {
 export interface StockMovementDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  part: PartWithStock | null;
+  /** 異動對象＝庫存變體（part_variant_stock_status 一列） */
+  variant: PartVariantStockRow | null;
   onSaved: () => void;
 }
 
@@ -29,8 +30,8 @@ function todayISO(): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-/** 手動登錄庫存異動（進料／零星領用／盤點調整），並顯示該零件最近異動 */
-export function StockMovementDialog({ open, onOpenChange, part, onSaved }: StockMovementDialogProps) {
+/** 手動登錄庫存異動（進料／零星領用／盤點調整），並顯示該變體最近異動 */
+export function StockMovementDialog({ open, onOpenChange, variant, onSaved }: StockMovementDialogProps) {
   const [movementType, setMovementType] = useState<StockMovementType>("進料");
   const [quantity, setQuantity] = useState("");
   const [movementDate, setMovementDate] = useState(todayISO());
@@ -69,12 +70,12 @@ export function StockMovementDialog({ open, onOpenChange, part, onSaved }: Stock
   }, [open]);
 
   useEffect(() => {
-    if (!open || !part) return;
+    if (!open || !variant) return;
     let cancelled = false;
     supabase
       .from("stock_movements")
       .select("id, part_id, movement_type, quantity, movement_date, employee_id, notes, created_at")
-      .eq("part_id", part.id)
+      .eq("part_variant_id", variant.id)
       .order("created_at", { ascending: false })
       .limit(8)
       .then(({ data }) => {
@@ -83,11 +84,11 @@ export function StockMovementDialog({ open, onOpenChange, part, onSaved }: Stock
     return () => {
       cancelled = true;
     };
-  }, [open, part]);
+  }, [open, variant]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!part) return;
+    if (!variant) return;
     setError(null);
     const qty = Number(quantity);
     if (!Number.isFinite(qty) || qty === 0) {
@@ -100,7 +101,8 @@ export function StockMovementDialog({ open, onOpenChange, part, onSaved }: Stock
     if (movementType === "領用") signed = -Math.abs(qty);
     setSaving(true);
     const { error: err } = await supabase.from("stock_movements").insert({
-      part_id: part.id,
+      part_id: variant.part_id,
+      part_variant_id: variant.id,
       movement_type: movementType,
       quantity: signed,
       movement_date: movementDate,
@@ -134,9 +136,11 @@ export function StockMovementDialog({ open, onOpenChange, part, onSaved }: Stock
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">庫存異動</Dialog.Title>
               <p id="stock-movement-desc" className="mt-1 text-sm text-muted-foreground">
-                {part ? (
+                {variant ? (
                   <>
-                    {part.part_no}｜{part.name}（目前庫存 {part.current_stock} {part.unit}）
+                    {variant.sku}｜{variant.name}
+                    {variant.material_name ? `・${variant.material_name}` : ""}
+                    （目前庫存 {variant.current_stock} {variant.unit}）
                   </>
                 ) : (
                   ""

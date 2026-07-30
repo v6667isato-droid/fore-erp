@@ -10,16 +10,22 @@ export type PartSourceType = (typeof PART_SOURCE_TYPES)[number];
 
 export interface PartRow {
   id: string;
+  /** 舊料號（過渡期保留，僅供歷史對照；新模型以 variant.sku 為顯示碼） */
   part_no: string;
+  /** 部件名稱，不含系列前綴（後腳、木座墊、銅製把手…） */
   name: string;
   category: string;
   unit: string;
   procurement_type: string;
   source_type: string;
-  /** 材種（白橡木/胡桃木…）：分類的子分類，主要用於木料 */
+  /** 材種（過渡期保留；無材質軸零件的固定材質如樺木仍記在此） */
   wood_species: string | null;
   /** 所屬產品系列（product_series.id）；null＝共用/不分系列 */
   series_id: string | null;
+  /** 是否有木種變體（木料自製件 true；板材、五金 false） */
+  has_material_axis: boolean;
+  /** SKU 第三段代碼（REAR/ARM/WSEAT…）；SKU＝系列-材質-name_code */
+  name_code: string | null;
   safety_stock: number;
   reorder_point: number;
   vendor_id: string | null;
@@ -32,6 +38,65 @@ export interface PartRow {
   is_component: boolean;
   notes: string | null;
   created_at: string | null;
+}
+
+/** materials 對照表：材質代碼（O/W…）；aliases＝產品 wood_type 別名（煙燻白橡木→O） */
+export interface MaterialRow {
+  code: string;
+  name_zh: string;
+  aliases: string[];
+  sort_order: number;
+}
+
+/** part_variants：材質層級的實體庫存變體；material_code null＝無材質軸零件的唯一變體 */
+export interface PartVariantRow {
+  id: string;
+  part_id: string;
+  material_code: string | null;
+  sku: string;
+  safety_stock_override: number | null;
+  reorder_point_override: number | null;
+  deleted_at?: string | null;
+}
+
+/** part_variant_stock_status view 一列：變體＋零件屬性＋即時庫存 */
+export interface PartVariantStockRow {
+  id: string;
+  part_id: string;
+  sku: string;
+  material_code: string | null;
+  material_name: string | null;
+  name: string;
+  name_code: string | null;
+  series_id: string | null;
+  category: string;
+  unit: string;
+  procurement_type: string;
+  source_type: string;
+  vendor_id: string | null;
+  is_component: boolean;
+  safety_stock: number;
+  reorder_point: number;
+  current_stock: number;
+  needs_reorder: boolean;
+  below_safety: boolean;
+}
+
+export type BomLineType = "by_material" | "fixed";
+
+/** bom_lines：系列層 BOM 線；by_material 指邏輯零件（下單 resolve），fixed 指具體變體 */
+export interface BomLineRow {
+  id: string;
+  series_id: string;
+  line_type: BomLineType;
+  part_id: string | null;
+  part_variant_id: string | null;
+  quantity: number;
+  unit: string | null;
+  exclusive_group: string | null;
+  /** spec1 尾碼字母（F/L/W/P/R…）；null＝不分規格永遠列入 */
+  exclusive_key: string | null;
+  notes: string | null;
 }
 
 /** 長×寬×厚（mm）顯示字串；三欄皆空回 null */
