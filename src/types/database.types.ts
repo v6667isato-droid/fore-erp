@@ -1159,6 +1159,65 @@ export type Database = {
         }
         Relationships: []
       }
+      option_types: {
+        Row: {
+          code: string
+          id: string
+          name_zh: string
+          sort_order: number
+        }
+        Insert: {
+          code: string
+          id?: string
+          name_zh: string
+          sort_order?: number
+        }
+        Update: {
+          code?: string
+          id?: string
+          name_zh?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      option_values: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          name_zh: string
+          option_type_id: string
+          price_delta: number
+          sort_order: number
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          name_zh: string
+          option_type_id: string
+          price_delta?: number
+          sort_order?: number
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          name_zh?: string
+          option_type_id?: string
+          price_delta?: number
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "option_values_option_type_id_fkey"
+            columns: ["option_type_id"]
+            isOneToOne: false
+            referencedRelation: "option_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           channel_unit_price: number | null
@@ -1926,8 +1985,39 @@ export type Database = {
         }
         Relationships: []
       }
+      product_options: {
+        Row: {
+          option_value_id: string
+          series_id: string
+        }
+        Insert: {
+          option_value_id: string
+          series_id: string
+        }
+        Update: {
+          option_value_id?: string
+          series_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_options_option_value_id_fkey"
+            columns: ["option_value_id"]
+            isOneToOne: false
+            referencedRelation: "option_values"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_options_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "product_series"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_series: {
         Row: {
+          base_price: number | null
           category: string | null
           code_rule: string | null
           created_at: string | null
@@ -1948,6 +2038,7 @@ export type Database = {
           website_article: string | null
         }
         Insert: {
+          base_price?: number | null
           category?: string | null
           code_rule?: string | null
           created_at?: string | null
@@ -1968,6 +2059,7 @@ export type Database = {
           website_article?: string | null
         }
         Update: {
+          base_price?: number | null
           category?: string | null
           code_rule?: string | null
           created_at?: string | null
@@ -2071,6 +2163,7 @@ export type Database = {
         Row: {
           base_price: number | null
           created_at: string | null
+          cushion_value_id: string | null
           deleted_at: string | null
           desktop_area: number | null
           dimension_d: number | null
@@ -2079,15 +2172,19 @@ export type Database = {
           id: string
           image_url: string | null
           is_custom_order: boolean
+          price_override: number | null
           product_code: string
           seat_height_cm: number | null
           series_id: string | null
+          size_value_id: string | null
           spec1: string | null
           wood_type: string | null
+          wood_value_id: string | null
         }
         Insert: {
           base_price?: number | null
           created_at?: string | null
+          cushion_value_id?: string | null
           deleted_at?: string | null
           desktop_area?: number | null
           dimension_d?: number | null
@@ -2096,15 +2193,19 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_custom_order?: boolean
+          price_override?: number | null
           product_code: string
           seat_height_cm?: number | null
           series_id?: string | null
+          size_value_id?: string | null
           spec1?: string | null
           wood_type?: string | null
+          wood_value_id?: string | null
         }
         Update: {
           base_price?: number | null
           created_at?: string | null
+          cushion_value_id?: string | null
           deleted_at?: string | null
           desktop_area?: number | null
           dimension_d?: number | null
@@ -2113,18 +2214,42 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_custom_order?: boolean
+          price_override?: number | null
           product_code?: string
           seat_height_cm?: number | null
           series_id?: string | null
+          size_value_id?: string | null
           spec1?: string | null
           wood_type?: string | null
+          wood_value_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "product_variants_cushion_value_id_fkey"
+            columns: ["cushion_value_id"]
+            isOneToOne: false
+            referencedRelation: "option_values"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "product_variants_series_id_fkey"
             columns: ["series_id"]
             isOneToOne: false
             referencedRelation: "product_series"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_variants_size_value_id_fkey"
+            columns: ["size_value_id"]
+            isOneToOne: false
+            referencedRelation: "option_values"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_variants_wood_value_id_fkey"
+            columns: ["wood_value_id"]
+            isOneToOne: false
+            referencedRelation: "option_values"
             referencedColumns: ["id"]
           },
         ]
@@ -2974,6 +3099,48 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      variant_channel_price_overrides: {
+        Row: {
+          channel_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          price: number
+          variant_id: string
+        }
+        Insert: {
+          channel_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          price: number
+          variant_id: string
+        }
+        Update: {
+          channel_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          price?: number
+          variant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "variant_channel_price_overrides_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "variant_channel_price_overrides_variant_id_fkey"
+            columns: ["variant_id"]
+            isOneToOne: false
+            referencedRelation: "product_variants"
             referencedColumns: ["id"]
           },
         ]
