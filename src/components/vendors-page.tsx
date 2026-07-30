@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,13 +18,14 @@ import { AddVendorDialog } from "@/components/procurement/add-vendor-dialog";
 import { EditVendorDialog } from "@/components/procurement/edit-vendor-dialog";
 import { ViewVendorDialog } from "@/components/procurement/view-vendor-dialog";
 import { ManageVendorCategoriesDialog } from "@/components/procurement/manage-vendor-categories-dialog";
+import { VendorCategoryFilterOptions } from "@/components/procurement/vendor-category-filter-options";
 import { exportVendorsCsv } from "@/components/procurement/export-vendors-csv";
 import {
   GROUP_FILTER_PREFIX,
   assignCategoryToGroup,
   fetchVendorCategoryGroups,
   findGroupName,
-  groupVendorCategories,
+  vendorCategoryFilterMatches,
   type VendorCategoryGroup,
 } from "@/lib/vendor-category-groups";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -67,18 +68,9 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     return [...new Set(records.map((r) => r.main_category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }, [records]);
 
-  const { grouped: groupedCategories, ungrouped: ungroupedCategories } = useMemo(
-    () => groupVendorCategories(categories, categoryGroups),
-    [categories, categoryGroups],
-  );
-
   const filteredRecords = useMemo(() => {
     let list = records;
-    if (filterCategory.startsWith(GROUP_FILTER_PREFIX)) {
-      const groupId = filterCategory.slice(GROUP_FILTER_PREFIX.length);
-      const group = categoryGroups.find((g) => g.id === groupId);
-      list = list.filter((r) => group?.subcategories.includes(r.main_category));
-    } else if (filterCategory) list = list.filter((r) => r.main_category === filterCategory);
+    if (filterCategory) list = list.filter((r) => vendorCategoryFilterMatches(filterCategory, r.main_category, categoryGroups));
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter(
@@ -235,7 +227,7 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         </div>
         <div className="flex items-center gap-2">
           <AddVendorDialog onSuccess={() => { fetchVendors(); refreshCategoryGroups(); }} categoryOptions={categories} categoryGroups={categoryGroups} />
-          <ManageVendorCategoriesDialog categories={categories} groups={categoryGroups} onSuccess={refreshCategoryGroups} />
+          <ManageVendorCategoriesDialog categories={categories} groups={categoryGroups} onSuccess={() => { fetchVendors(); refreshCategoryGroups(); }} />
           {isAdmin && (
             <Button
               variant="outline"
@@ -261,25 +253,7 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
             aria-label="依類別篩選"
           >
             <option value="">類別：全部</option>
-            {groupedCategories.map(({ group, categories: cats }) => (
-              <Fragment key={group.id}>
-                <option value={`${GROUP_FILTER_PREFIX}${group.id}`} className="font-semibold text-foreground">▍{group.name}</option>
-                {cats.map((c) => (
-                  <option key={c} value={c}>　{c}</option>
-                ))}
-              </Fragment>
-            ))}
-            {ungroupedCategories.length > 0 && groupedCategories.some((g) => g.categories.length > 0) ? (
-              <optgroup label="未分類" className="font-semibold text-foreground">
-                {ungroupedCategories.map((c) => (
-                  <option key={c} value={c} className="font-normal text-foreground">{c}</option>
-                ))}
-              </optgroup>
-            ) : (
-              ungroupedCategories.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))
-            )}
+            <VendorCategoryFilterOptions categories={categories} groups={categoryGroups} />
           </select>
           {filterCategory && !filterCategory.startsWith(GROUP_FILTER_PREFIX) && (
             <select

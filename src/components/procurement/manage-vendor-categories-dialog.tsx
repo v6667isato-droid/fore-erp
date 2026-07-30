@@ -27,6 +27,8 @@ export function ManageVendorCategoriesDialog({ categories, groups, onSuccess }: 
   const [draftGroups, setDraftGroups] = useState<DraftGroup[]>([]);
   /** 副類別 → 主類別 key；未分類為 "" */
   const [assignment, setAssignment] = useState<Record<string, string>>({});
+  /** 副類別改名：原名 → 編輯中名稱 */
+  const [renames, setRenames] = useState<Record<string, string>>({});
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -41,6 +43,7 @@ export function ManageVendorCategoriesDialog({ categories, groups, onSuccess }: 
     }
     setDraftGroups(drafts);
     setAssignment(map);
+    setRenames(Object.fromEntries(categories.map((c) => [c, c])));
     setNewName("");
   }, [open, groups, categories]);
 
@@ -78,7 +81,25 @@ export function ManageVendorCategoriesDialog({ categories, groups, onSuccess }: 
       toast.error("主類別名稱重複");
       return;
     }
+    const finalName = (c: string) => (renames[c] ?? c).trim() || c;
+    if (sortedCategories.some((c) => !(renames[c] ?? c).trim())) {
+      toast.error("副類別名稱不可空白");
+      return;
+    }
     setSaving(true);
+    // 先套用副類別改名：把用到舊名的廠商全部改成新名（改成既有名稱＝合併類別）
+    const changed = sortedCategories.filter((c) => finalName(c) !== c);
+    for (const oldName of changed) {
+      const { error } = await supabase
+        .from("vendors")
+        .update({ main_category: finalName(oldName) })
+        .eq("main_category", oldName);
+      if (error) {
+        setSaving(false);
+        toast.error(error.message || `改名「${oldName}」失敗`);
+        return;
+      }
+    }
     const removedIds = groups.filter((g) => !draftGroups.some((d) => d.id === g.id)).map((g) => g.id);
     if (removedIds.length > 0) {
       const { error } = await supabase.from("vendor_category_groups").delete().in("id", removedIds);
@@ -91,7 +112,7 @@ export function ManageVendorCategoriesDialog({ categories, groups, onSuccess }: 
     const payload = draftGroups.map((g, i) => ({
       id: g.id,
       name: g.name.trim(),
-      subcategories: sortedCategories.filter((c) => assignment[c] === g.key),
+      subcategories: [...new Set(sortedCategories.filter((c) => assignment[c] === g.key).map(finalName))],
       sort_order: i,
     }));
     // 混在同一個 upsert 會把缺 id 的列補成 null 而違反 not-null，故新舊分開送
@@ -211,7 +232,14 @@ export function ManageVendorCategoriesDialog({ categories, groups, onSuccess }: 
                 <div className="rounded-lg border border-border divide-y divide-border">
                   {sortedCategories.map((c) => (
                     <div key={c} className="flex items-center justify-between gap-3 px-3 py-2">
-                      <span className="text-sm text-foreground">{c}</span>
+                      <input
+                        type="text"
+                        value={renames[c] ?? c}
+                        onChange={(e) => setRenames((prev) => ({ ...prev, [c]: e.target.value }))}
+                        className="h-8 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-sm text-foreground hover:border-input focus:border-input focus:bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                        aria-label={`副類別名稱（原：${c}）`}
+                        title="可直接改名；存檔時使用此類別的廠商會一併更新"
+                      />
                       <select
                         value={assignment[c] ?? ""}
                         onChange={(e) => setAssignment((prev) => ({ ...prev, [c]: e.target.value }))}

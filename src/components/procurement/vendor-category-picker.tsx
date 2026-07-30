@@ -55,6 +55,7 @@ export function VendorCategoryPicker({ id, value, onChange, categories, groups, 
         className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
       >
         <option value="">（未設定）</option>
+        <option value={CUSTOM_VALUE}>＋ 自訂新類別…</option>
         {grouped.map(({ group, categories: cats }) =>
           cats.length > 0 ? (
             <optgroup key={group.id} label={`▍${group.name}`} className="font-semibold text-foreground">
@@ -75,7 +76,6 @@ export function VendorCategoryPicker({ id, value, onChange, categories, groups, 
             <option key={c} value={c}>{c}</option>
           ))
         )}
-        <option value={CUSTOM_VALUE}>＋ 自訂新類別…</option>
       </select>
       {showInput && (
         <>

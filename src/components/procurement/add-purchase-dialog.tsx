@@ -16,6 +16,12 @@ import { computePurchaseLinePrices } from "@/lib/purchase-tax";
 import { purchaseSpecFromMaterialParts } from "@/lib/procurement-material";
 import { displayPoNumber, generatePoNumber } from "@/lib/purchase-order";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
+import { VendorCategoryFilterOptions } from "@/components/procurement/vendor-category-filter-options";
+import {
+  fetchVendorCategoryGroups,
+  vendorCategoryFilterMatches,
+  type VendorCategoryGroup,
+} from "@/lib/vendor-category-groups";
 
 export interface AddPurchaseDialogProps {
   onSuccess: () => void;
@@ -72,6 +78,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
   /** true=單價欄為已稅；false=未稅（營業稅 5% 固定） */
   const [priceInputIsTaxInclusive, setPriceInputIsTaxInclusive] = useState(false);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<VendorCategoryGroup[]>([]);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [materials, setMaterials] = useState<ProcurementMaterialRow[]>([]);
@@ -90,8 +97,8 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
 
   const vendorsByCategory = useMemo(() => {
     if (!vendorCategory) return vendors;
-    return vendors.filter((v) => v.main_category === vendorCategory);
-  }, [vendors, vendorCategory]);
+    return vendors.filter((v) => vendorCategoryFilterMatches(vendorCategory, v.main_category ?? "", categoryGroups));
+  }, [vendors, vendorCategory, categoryGroups]);
 
   /** 廠商欄 datalist：有選類別時只列該類；未選則列全部（可打字篩選） */
   const vendorDatalistOptions = useMemo(() => {
@@ -106,7 +113,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
   function onVendorCategoryChange(next: string) {
     setVendorCategory(next);
     if (!vendorName.trim()) return;
-    const ok = vendors.some((v) => v.name === vendorName.trim() && (!next || v.main_category === next));
+    const ok = vendors.some((v) => v.name === vendorName.trim() && vendorCategoryFilterMatches(next, v.main_category ?? "", categoryGroups));
     if (!ok) setVendorName("");
   }
 
@@ -168,6 +175,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
       supabase.from("vendors").select("id, name, main_category").then(({ data }) => {
         setVendors((data as VendorOption[]) ?? []);
       });
+      fetchVendorCategoryGroups().then(setCategoryGroups);
       supabase
         .from("procurement_materials")
         .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
@@ -355,11 +363,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                     aria-label="廠商類別"
                   >
                     <option value="">請選擇</option>
-                    {vendorCategories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
+                    <VendorCategoryFilterOptions categories={vendorCategories} groups={categoryGroups} />
                   </select>
                   <Button
                     type="button"

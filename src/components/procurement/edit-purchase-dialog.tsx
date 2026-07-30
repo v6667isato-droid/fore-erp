@@ -15,6 +15,12 @@ import {
 import { computePurchaseLinePrices } from "@/lib/purchase-tax";
 import { purchaseSpecFromMaterialParts, purchaseSpecPartsForDisplay } from "@/lib/procurement-material";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
+import { VendorCategoryFilterOptions } from "@/components/procurement/vendor-category-filter-options";
+import {
+  fetchVendorCategoryGroups,
+  vendorCategoryFilterMatches,
+  type VendorCategoryGroup,
+} from "@/lib/vendor-category-groups";
 
 const FILTER_MATERIAL_UNCATEGORIZED = "__uncategorized__";
 
@@ -43,6 +49,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<VendorCategoryGroup[]>([]);
   const [materials, setMaterials] = useState<ProcurementMaterialRow[]>([]);
   const [materialId, setMaterialId] = useState<string | null>(null);
   const [materialCategoryFilter, setMaterialCategoryFilter] = useState("");
@@ -90,6 +97,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
       .then(({ data }) => {
         setVendors((data as VendorOption[]) ?? []);
       });
+    fetchVendorCategoryGroups().then(setCategoryGroups);
     supabase
       .from("procurement_materials")
       .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
@@ -112,8 +120,8 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
 
   const vendorsByCategory = useMemo(() => {
     if (!vendorCategory) return vendors;
-    return vendors.filter((v) => v.main_category === vendorCategory);
-  }, [vendors, vendorCategory]);
+    return vendors.filter((v) => vendorCategoryFilterMatches(vendorCategory, v.main_category ?? "", categoryGroups));
+  }, [vendors, vendorCategory, categoryGroups]);
 
   const vendorDatalistOptions = useMemo(() => {
     return [...vendorsByCategory].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
@@ -127,7 +135,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
   function onVendorCategoryChange(next: string) {
     setVendorCategory(next);
     if (!vendorName.trim()) return;
-    const ok = vendors.some((v) => v.name === vendorName.trim() && (!next || v.main_category === next));
+    const ok = vendors.some((v) => v.name === vendorName.trim() && vendorCategoryFilterMatches(next, v.main_category ?? "", categoryGroups));
     if (!ok) setVendorName("");
   }
 
@@ -277,11 +285,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
                     aria-label="廠商類別"
                   >
                     <option value="">（不篩選）</option>
-                    {vendorCategories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
+                    <VendorCategoryFilterOptions categories={vendorCategories} groups={categoryGroups} />
                   </select>
                   <Button
                     type="button"

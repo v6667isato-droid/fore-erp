@@ -43,6 +43,20 @@ export function groupVendorCategories(
   return { grouped, ungrouped };
 }
 
+/** 篩選值是否匹配某副類別：支援 __group:{id}（整個主類別）與一般類別值；空值＝不篩選 */
+export function vendorCategoryFilterMatches(
+  filterValue: string,
+  category: string,
+  groups: VendorCategoryGroup[],
+): boolean {
+  if (!filterValue) return true;
+  if (filterValue.startsWith(GROUP_FILTER_PREFIX)) {
+    const groupId = filterValue.slice(GROUP_FILTER_PREFIX.length);
+    return groups.find((g) => g.id === groupId)?.subcategories.includes(category) ?? false;
+  }
+  return category === filterValue;
+}
+
 /** 把副類別歸入指定主類別（會自動從其他主類別移除，維持單一歸屬）；groupId 空字串 = 改為未分類。回傳錯誤訊息或 null */
 export async function assignCategoryToGroup(category: string, groupId: string): Promise<string | null> {
   const cat = category.trim();
