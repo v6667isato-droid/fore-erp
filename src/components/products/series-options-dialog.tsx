@@ -54,8 +54,14 @@ function isDuplicateError(message: string | undefined): boolean {
   return /duplicate|23505|unique/i.test(String(message ?? ""));
 }
 
+/** 各選項軸的補充說明（依 option_types.code） */
+const TYPE_HINTS: Record<string, string> = {
+  size: "生成規格時輸入長寬會自動建檔到這裡",
+  config: "系列專屬變化（抽屜、櫃體配置…）；代碼會直接接在規格代碼尾段",
+};
+
 /**
- * 系列選項設定：管理各選項軸（木種／尺寸／座墊）的選項值、此系列提供哪些值，
+ * 系列選項設定：管理各選項軸（木種／尺寸／座墊／配置）的選項值、此系列提供哪些值，
  * 以及全域價差與此系列覆寫價差。價差只影響之後生成的規格，不回溯已生成規格。
  */
 export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: SeriesOptionsDialogProps) {
@@ -100,7 +106,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
           .eq("series_id", series.id),
         supabase
           .from(TABLE_PRODUCT_VARIANTS)
-          .select("wood_value_id, size_value_id, cushion_value_id")
+          .select("wood_value_id, size_value_id, cushion_value_id, config_value_id")
           .eq("series_id", series.id)
           .is("deleted_at", null),
       ]);
@@ -127,6 +133,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
         if (v.wood_value_id) used.add(v.wood_value_id);
         if (v.size_value_id) used.add(v.size_value_id);
         if (v.cushion_value_id) used.add(v.cushion_value_id);
+        if (v.config_value_id) used.add(v.config_value_id);
       }
       setUsedIds(used);
     })();
@@ -366,10 +373,17 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                 const form = addForms[t.id] ?? EMPTY_ADD_FORM;
                 return (
                   <section key={t.id} className="rounded-lg border border-border">
-                    <h3 className="border-b border-border bg-muted/20 px-3 py-2 text-xs font-semibold text-foreground">
-                      {t.name_zh}
-                      <span className="ml-1.5 font-normal text-muted-foreground">({t.code})</span>
-                    </h3>
+                    <div className="border-b border-border bg-muted/20 px-3 py-2">
+                      <h3 className="text-xs font-semibold text-foreground">
+                        {t.name_zh}
+                        <span className="ml-1.5 font-normal text-muted-foreground">({t.code})</span>
+                      </h3>
+                      {TYPE_HINTS[t.code] && (
+                        <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+                          {TYPE_HINTS[t.code]}
+                        </p>
+                      )}
+                    </div>
                     {typeValues.length === 0 ? (
                       <p className="px-3 py-2 text-xs text-muted-foreground">尚無選項值。</p>
                     ) : (

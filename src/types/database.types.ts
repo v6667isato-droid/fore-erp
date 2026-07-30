@@ -2165,6 +2165,7 @@ export type Database = {
       product_variants: {
         Row: {
           base_price: number | null
+          config_value_id: string | null
           created_at: string | null
           cushion_value_id: string | null
           deleted_at: string | null
@@ -2186,6 +2187,7 @@ export type Database = {
         }
         Insert: {
           base_price?: number | null
+          config_value_id?: string | null
           created_at?: string | null
           cushion_value_id?: string | null
           deleted_at?: string | null
@@ -2207,6 +2209,7 @@ export type Database = {
         }
         Update: {
           base_price?: number | null
+          config_value_id?: string | null
           created_at?: string | null
           cushion_value_id?: string | null
           deleted_at?: string | null
@@ -2227,6 +2230,13 @@ export type Database = {
           wood_value_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "product_variants_config_value_id_fkey"
+            columns: ["config_value_id"]
+            isOneToOne: false
+            referencedRelation: "option_values"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "product_variants_cushion_value_id_fkey"
             columns: ["cushion_value_id"]
