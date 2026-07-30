@@ -79,6 +79,9 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
   const [globalDraft, setGlobalDraft] = useState("");
   const [addForms, setAddForms] = useState<Record<string, AddFormState>>({});
   const [busy, setBusy] = useState(false);
+  /** 系列基礎價草稿（字串；空＝未設定）；生成規格的定價＝基礎價＋Σ有效價差 */
+  const [basePriceDraft, setBasePriceDraft] = useState("");
+  const [basePriceSaved, setBasePriceSaved] = useState("");
 
   useEffect(() => {
     if (!(open && series)) return;
@@ -94,7 +97,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
 
     let cancelled = false;
     (async () => {
-      const [typesRes, valuesRes, optsRes, varsRes] = await Promise.all([
+      const [typesRes, valuesRes, optsRes, varsRes, seriesRes] = await Promise.all([
         supabase.from("option_types").select("id, code, name_zh, sort_order").order("sort_order"),
         supabase
           .from("option_values")
@@ -109,6 +112,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
           .select("wood_value_id, size_value_id, cushion_value_id, config_value_id")
           .eq("series_id", series.id)
           .is("deleted_at", null),
+        supabase.from("product_series").select("base_price").eq("id", series.id).single(),
       ]);
       if (cancelled) return;
       setLoading(false);
@@ -136,11 +140,39 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
         if (v.config_value_id) used.add(v.config_value_id);
       }
       setUsedIds(used);
+      const bp = (seriesRes.data as { base_price: number | null } | null)?.base_price;
+      setBasePriceDraft(bp != null ? String(bp) : "");
+      setBasePriceSaved(bp != null ? String(bp) : "");
     })();
     return () => {
       cancelled = true;
     };
   }, [open, series]);
+
+  async function saveBasePrice() {
+    if (!series) return;
+    const t = basePriceDraft.trim();
+    if (t === basePriceSaved) return;
+    const n = t === "" ? null : Math.round(Number(t));
+    if (t !== "" && (!Number.isFinite(n as number) || (n as number) < 0)) {
+      toast.error("基礎價需為 0 以上的整數");
+      setBasePriceDraft(basePriceSaved);
+      return;
+    }
+    const { error } = await supabase
+      .from("product_series")
+      .update({ base_price: n })
+      .eq("id", series.id);
+    if (error) {
+      toast.error(error.message || "基礎價儲存失敗");
+      setBasePriceDraft(basePriceSaved);
+      return;
+    }
+    setBasePriceSaved(t === "" ? "" : String(n));
+    setBasePriceDraft(t === "" ? "" : String(n));
+    toast.success(n == null ? "已清除基礎價" : `基礎價已更新為 ${n.toLocaleString()}`);
+    onChanged?.();
+  }
 
   async function toggleAttach(v: OptionValueRow) {
     if (!series || busy) return;
@@ -355,6 +387,31 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
               </button>
             </Dialog.Close>
           </div>
+
+          {!loading && !loadError && (
+            <div className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+              <div className="flex flex-col gap-1">
+                <label htmlFor="series-base-price" className="text-xs font-medium text-foreground">
+                  系列基礎價
+                </label>
+                <input
+                  id="series-base-price"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={basePriceDraft}
+                  onChange={(e) => setBasePriceDraft(e.target.value)}
+                  onBlur={() => void saveBasePrice()}
+                  className={`${inputCls} w-36 text-right tabular-nums`}
+                  placeholder="未設定"
+                />
+              </div>
+              <p className="pb-1 text-[11px] leading-snug text-muted-foreground">
+                生成規格的定價＝基礎價＋Σ選項價差（預覽時仍可逐列修改）。
+                未設基礎價的系列無法使用勾選生成。改基礎價不回溯已生成規格。
+              </p>
+            </div>
+          )}
 
           <div className="mt-4 space-y-4">
             {loading && <p className="text-sm text-muted-foreground">載入選項資料中…</p>}
