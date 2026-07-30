@@ -34,6 +34,7 @@ interface PartOption {
   part_no: string;
   name: string;
   unit: string;
+  wood_species: string | null;
 }
 
 interface BomItemWithPart {
@@ -42,7 +43,7 @@ interface BomItemWithPart {
   quantity: number;
   unit: string | null;
   notes: string | null;
-  parts: { part_no: string; name: string; unit: string } | null;
+  parts: { part_no: string; name: string; unit: string; wood_species: string | null } | null;
 }
 
 export interface BomTabProps {
@@ -84,7 +85,7 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
           .select("id, series_id, product_code, wood_type, spec1")
           .is("deleted_at", null)
           .order("product_code"),
-        supabase.from("parts").select("id, part_no, name, unit").is("deleted_at", null).order("part_no"),
+        supabase.from("parts").select("id, part_no, name, unit, wood_species").is("deleted_at", null).order("part_no"),
       ]);
       if (cancelled) return;
       setSeries((seriesRes.data as SeriesOption[]) ?? []);
@@ -109,7 +110,7 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
     setLoadingItems(true);
     const { data, error } = await supabase
       .from("bom_items")
-      .select("id, part_id, quantity, unit, notes, parts!part_id(part_no, name, unit)")
+      .select("id, part_id, quantity, unit, notes, parts!part_id(part_no, name, unit, wood_species)")
       .eq("variant_id", vid)
       .order("created_at");
     setLoadingItems(false);
@@ -344,6 +345,7 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
                 <TableRow className="hover:bg-transparent border-b border-border">
                   <TableHead className="text-xs font-semibold p-2">料號</TableHead>
                   <TableHead className="text-xs font-semibold p-2">零件名稱</TableHead>
+                  <TableHead className="hidden text-xs font-semibold p-2 sm:table-cell">材種</TableHead>
                   <TableHead className="text-xs font-semibold p-2 text-right w-[120px]">用量</TableHead>
                   <TableHead className="text-xs font-semibold p-2 w-[64px]">單位</TableHead>
                   {isAdmin && <TableHead className="text-xs font-semibold p-2 w-[56px]" aria-label="操作">操作</TableHead>}
@@ -352,13 +354,13 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
               <TableBody>
                 {loadingItems ? (
                   <TableRow>
-                    <TableCell colSpan={isAdmin ? 5 : 4} className="h-24 text-center text-muted-foreground text-sm" role="status">
+                    <TableCell colSpan={isAdmin ? 6 : 5} className="h-24 text-center text-muted-foreground text-sm" role="status">
                       載入 BOM 中…
                     </TableCell>
                   </TableRow>
                 ) : items.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={isAdmin ? 5 : 4} className="h-24 text-center text-muted-foreground text-sm">
+                    <TableCell colSpan={isAdmin ? 6 : 5} className="h-24 text-center text-muted-foreground text-sm">
                       此規格尚未建立用料，請在下方加入零件
                     </TableCell>
                   </TableRow>
@@ -366,7 +368,17 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
                   items.map((it) => (
                     <TableRow key={it.id} className="border-b border-border hover:bg-muted/30">
                       <TableCell className="text-sm p-2 font-medium whitespace-nowrap">{it.parts?.part_no ?? "—"}</TableCell>
-                      <TableCell className="text-sm p-2">{it.parts?.name ?? "（零件已刪除）"}</TableCell>
+                      <TableCell className="text-sm p-2">
+                        {it.parts?.name ?? "（零件已刪除）"}
+                        {it.parts?.wood_species ? (
+                          <span className="mt-0.5 block text-xs text-muted-foreground sm:hidden">
+                            {it.parts.wood_species}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="hidden whitespace-nowrap text-sm p-2 text-muted-foreground sm:table-cell">
+                        {it.parts?.wood_species ?? "—"}
+                      </TableCell>
                       <TableCell className="text-sm p-2 text-right">
                         {isAdmin ? (
                           <input
@@ -412,7 +424,10 @@ export function BomTab({ isAdmin = false }: BomTabProps) {
                 <select id="bom-new-part" value={newPartId} onChange={(e) => setNewPartId(e.target.value)} className={inputCls}>
                   <option value="">選擇零件…</option>
                   {addableParts.map((p) => (
-                    <option key={p.id} value={p.id}>{p.part_no}｜{p.name}</option>
+                    <option key={p.id} value={p.id}>
+                      {p.part_no}｜{p.name}
+                      {p.wood_species ? `・${p.wood_species}` : ""}
+                    </option>
                   ))}
                 </select>
               </div>
