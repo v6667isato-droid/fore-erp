@@ -1336,6 +1336,7 @@ export type Database = {
           reference_unit_price: number | null
           reorder_point: number
           safety_stock: number
+          series_id: string | null
           sop: string | null
           source_type: string
           unit: string
@@ -1361,6 +1362,7 @@ export type Database = {
           reference_unit_price?: number | null
           reorder_point?: number
           safety_stock?: number
+          series_id?: string | null
           sop?: string | null
           source_type?: string
           unit?: string
@@ -1386,6 +1388,7 @@ export type Database = {
           reference_unit_price?: number | null
           reorder_point?: number
           safety_stock?: number
+          series_id?: string | null
           sop?: string | null
           source_type?: string
           unit?: string
@@ -1398,6 +1401,13 @@ export type Database = {
             columns: ["procurement_material_id"]
             isOneToOne: false
             referencedRelation: "procurement_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "product_series"
             referencedColumns: ["id"]
           },
           {

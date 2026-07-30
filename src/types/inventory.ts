@@ -18,6 +18,8 @@ export interface PartRow {
   source_type: string;
   /** 材種（白橡木/胡桃木…）：分類的子分類，主要用於木料 */
   wood_species: string | null;
+  /** 所屬產品系列（product_series.id）；null＝共用/不分系列 */
+  series_id: string | null;
   safety_stock: number;
   reorder_point: number;
   vendor_id: string | null;
@@ -47,6 +49,29 @@ export interface PartStockInfo {
 }
 
 export type PartWithStock = PartRow & PartStockInfo & { vendor_name: string | null };
+
+/** 料號自動命名的木種代碼（產品系列-木種-零件名稱）；比對材種字串包含關係 */
+export const WOOD_CODE_RULES: readonly { match: string; code: string }[] = [
+  { match: "白橡", code: "O" },
+  { match: "橡木", code: "O" },
+  { match: "胡桃", code: "W" },
+  { match: "柚木", code: "T" },
+];
+
+/** 材種 → 料號木種代碼（白橡木→O、胡桃木→W…）；未知材種回 null */
+export function woodSpeciesCode(species: string): string | null {
+  const s = species.trim();
+  if (!s) return null;
+  for (const r of WOOD_CODE_RULES) {
+    if (s.includes(r.match)) return r.code;
+  }
+  return null;
+}
+
+/** 系列名稱取料號前綴：取第一段（空白前），如「CH03 扶手椅」→ CH03 */
+export function seriesCodeFromName(seriesName: string): string {
+  return seriesName.trim().split(/\s+/)[0] ?? "";
+}
 
 export const STOCK_MOVEMENT_TYPES = ["進料", "領用", "盤點調整"] as const;
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];

@@ -62,19 +62,22 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
   const [assignMakeOpen, setAssignMakeOpen] = useState(false);
   const [copyRow, setCopyRow] = useState<PartRow | null>(null);
   const [filterSpecies, setFilterSpecies] = useState("");
+  const [filterSeries, setFilterSeries] = useState("");
+  const [seriesList, setSeriesList] = useState<{ id: string; series_name: string }[]>([]);
 
   const fetchParts = useCallback(async () => {
     setLoading(true);
-    const [partsRes, stockRes, vendorsRes] = await Promise.all([
+    const [partsRes, stockRes, vendorsRes, seriesRes] = await Promise.all([
       supabase
         .from("parts")
         .select(
-          "id, part_no, name, category, unit, procurement_type, source_type, wood_species, safety_stock, reorder_point, vendor_id, reference_unit_price, drawing_url, dim_length_mm, dim_width_mm, dim_thickness_mm, sop, is_component, notes, created_at",
+          "id, part_no, name, category, unit, procurement_type, source_type, wood_species, series_id, safety_stock, reorder_point, vendor_id, reference_unit_price, drawing_url, dim_length_mm, dim_width_mm, dim_thickness_mm, sop, is_component, notes, created_at",
         )
         .is("deleted_at", null)
         .order("part_no"),
       supabase.from("part_stock_status").select("id, current_stock, needs_reorder, below_safety"),
       supabase.from("vendors").select("id, name").is("deleted_at", null),
+      supabase.from("product_series").select("id, series_name").is("deleted_at", null).order("series_name"),
     ]);
     setLoading(false);
     if (partsRes.error || stockRes.error) {
@@ -94,6 +97,7 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
     }
     const vendorMap = new Map<string, string>();
     for (const v of vendorsRes.data ?? []) vendorMap.set(v.id, v.name);
+    setSeriesList((seriesRes.data as { id: string; series_name: string }[]) ?? []);
     const merged: PartWithStock[] = ((partsRes.data as PartRow[]) ?? []).map((p) => ({
       ...p,
       current_stock: stockMap.get(p.id)?.current_stock ?? 0,
@@ -119,10 +123,18 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
     return [...set].sort((a, b) => a.localeCompare(b, "zh-Hant"));
   }, [records]);
 
+  const seriesNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of seriesList) m.set(s.id, s.series_name);
+    return m;
+  }, [seriesList]);
+
   const filtered = useMemo(() => {
     let list = records;
     if (filterCategory) list = list.filter((r) => r.category === filterCategory);
     if (filterSpecies) list = list.filter((r) => (r.wood_species || "").trim() === filterSpecies);
+    if (filterSeries === "__none__") list = list.filter((r) => !r.series_id);
+    else if (filterSeries) list = list.filter((r) => r.series_id === filterSeries);
     if (onlyNeedsReorder) list = list.filter((r) => r.needs_reorder);
     const q = search.trim().toLowerCase();
     if (!q) return list;
@@ -134,7 +146,7 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
         (r.vendor_name || "").toLowerCase().includes(q) ||
         (r.notes || "").toLowerCase().includes(q),
     );
-  }, [records, filterCategory, filterSpecies, onlyNeedsReorder, search]);
+  }, [records, filterCategory, filterSpecies, filterSeries, onlyNeedsReorder, search]);
 
   const sortedRows = useMemo(() => {
     const list = [...filtered];
@@ -294,6 +306,22 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
             </select>
           </div>
         )}
+        <div className="flex min-w-[9rem] flex-col gap-1.5 sm:max-w-[13rem]">
+          <label htmlFor="part-filter-series" className="text-xs text-muted-foreground">篩選系列</label>
+          <select
+            id="part-filter-series"
+            value={filterSeries}
+            onChange={(e) => setFilterSeries(e.target.value)}
+            className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="依產品系列篩選"
+          >
+            <option value="">全部系列</option>
+            <option value="__none__">（共用／不分系列）</option>
+            {seriesList.map((s) => (
+              <option key={s.id} value={s.id}>{s.series_name}</option>
+            ))}
+          </select>
+        </div>
         <div className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" aria-hidden />
           <input
@@ -314,6 +342,7 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
               <TableHead className="p-2 align-middle"><SortHeader label="料號" colKey="part_no" /></TableHead>
               <TableHead className="p-2 align-middle"><SortHeader label="名稱" colKey="name" /></TableHead>
               <TableHead className="p-2 align-middle"><SortHeader label="分類" colKey="category" /></TableHead>
+              <TableHead className="text-xs font-semibold p-2">系列</TableHead>
               <TableHead className="text-xs font-semibold p-2">尺寸 (mm)</TableHead>
               <TableHead className="p-2 align-middle"><SortHeader label="採購型態" colKey="procurement_type" /></TableHead>
               <TableHead className="p-2 align-middle text-right"><SortHeader label="目前庫存" colKey="current_stock" /></TableHead>
@@ -327,7 +356,7 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
           <TableBody>
             {sortedRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} className="h-24 text-center text-muted-foreground text-sm">
+                <TableCell colSpan={12} className="h-24 text-center text-muted-foreground text-sm">
                   {emptyMessage}
                 </TableCell>
               </TableRow>
@@ -347,6 +376,9 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
                   <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap">
                     {r.category}
                     {r.wood_species && <span className="text-xs">・{r.wood_species}</span>}
+                  </TableCell>
+                  <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap">
+                    {r.series_id ? (seriesNameById.get(r.series_id) ?? "—") : "—"}
                   </TableCell>
                   <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap tabular-nums">
                     {formatPartDimensions(r) ?? "—"}

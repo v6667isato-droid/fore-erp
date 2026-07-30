@@ -11,12 +11,19 @@ import {
   PART_CATEGORIES,
   PART_PROCUREMENT_TYPES,
   PART_SOURCE_TYPES,
+  seriesCodeFromName,
+  woodSpeciesCode,
   type PartRow,
 } from "@/types/inventory";
 
 interface VendorOption {
   id: string;
   name: string;
+}
+
+interface SeriesOption {
+  id: string;
+  series_name: string;
 }
 
 interface ExistingPartLite {
@@ -40,8 +47,12 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
   const isEdit = row != null;
   const firstRef = useRef<HTMLInputElement>(null);
   const [partNo, setPartNo] = useState("");
+  /** 使用者是否已手動改過料號；未改過時依「系列-木種-名稱」自動帶出 */
+  const [partNoTouched, setPartNoTouched] = useState(false);
   const [name, setName] = useState("");
   const [category, setCategory] = useState<string>(PART_CATEGORIES[0]);
+  const [seriesId, setSeriesId] = useState("");
+  const [seriesList, setSeriesList] = useState<SeriesOption[]>([]);
   const [unit, setUnit] = useState("個");
   const [procurementType, setProcurementType] = useState<string>("常備");
   const [sourceType, setSourceType] = useState<string>("採購");
@@ -80,8 +91,10 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
     // 編輯帶原列；新增時若有 copyFrom（複製零件）帶入全部欄位但料號留白
     const src = row ?? copyFrom ?? null;
     setPartNo(row?.part_no ?? "");
+    setPartNoTouched(row != null);
     setName(src?.name ?? "");
     setCategory(src?.category ?? PART_CATEGORIES[0]);
+    setSeriesId(src?.series_id ?? "");
     setUnit(src?.unit ?? "個");
     setProcurementType(src?.procurement_type ?? "常備");
     setSourceType(src?.source_type ?? "採購");
@@ -105,12 +118,14 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
     if (!open) return;
     let cancelled = false;
     void (async () => {
-      const [partsRes, variantsRes] = await Promise.all([
+      const [partsRes, variantsRes, seriesRes] = await Promise.all([
         supabase.from("parts").select("id, part_no, name, wood_species").is("deleted_at", null),
         supabase.from("product_variants").select("wood_type").is("deleted_at", null).not("wood_type", "is", null),
+        supabase.from("product_series").select("id, series_name").is("deleted_at", null).order("series_name"),
       ]);
       if (cancelled) return;
       setExistingParts((partsRes.data as ExistingPartLite[]) ?? []);
+      setSeriesList((seriesRes.data as SeriesOption[]) ?? []);
       const set = new Set<string>();
       for (const r of partsRes.data ?? []) {
         const v = String((r as { wood_species: string | null }).wood_species ?? "").trim();
@@ -159,6 +174,22 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
     if (open && firstRef.current) setTimeout(() => firstRef.current?.focus(), 0);
   }, [open]);
 
+  /** 料號自動帶出：產品系列-木種-零件名稱（如 CH03-O-後腳）；手動改過或編輯模式不覆寫 */
+  useEffect(() => {
+    if (!open || isEdit || partNoTouched) return;
+    const seg: string[] = [];
+    const series = seriesList.find((s) => s.id === seriesId);
+    if (series) {
+      const code = seriesCodeFromName(series.series_name);
+      if (code) seg.push(code);
+    }
+    const wc = woodSpeciesCode(woodSpecies);
+    if (wc) seg.push(wc);
+    const n = name.trim();
+    if (n) seg.push(n);
+    setPartNo(seg.join("-"));
+  }, [open, isEdit, partNoTouched, seriesId, seriesList, woodSpecies, name]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -206,6 +237,7 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
       procurement_type: procurementType,
       source_type: sourceType,
       wood_species: woodSpecies.trim() || null,
+      series_id: seriesId || null,
       dim_length_mm: dimL,
       dim_width_mm: dimW,
       dim_thickness_mm: dimT,
@@ -310,7 +342,25 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="part-no" className="text-xs text-muted-foreground">料號 *</label>
-                <input ref={firstRef} id="part-no" type="text" value={partNo} onChange={(e) => setPartNo(e.target.value)} onBlur={() => setPartNo((s) => s.trim())} className={inputCls} placeholder="例如：HW-0001" required />
+                <input
+                  ref={firstRef}
+                  id="part-no"
+                  type="text"
+                  value={partNo}
+                  onChange={(e) => {
+                    setPartNoTouched(true);
+                    setPartNo(e.target.value);
+                  }}
+                  onBlur={() => setPartNo((s) => s.trim())}
+                  className={inputCls}
+                  placeholder="依系列-木種-名稱自動帶出，可修改"
+                  required
+                />
+                {!isEdit && (
+                  <p className="text-[11px] text-muted-foreground">
+                    命名規則：產品系列-木種-零件名稱（白橡木→O、胡桃木→W），可自行修改。
+                  </p>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="part-name" className="text-xs text-muted-foreground">名稱 *</label>
@@ -345,6 +395,15 @@ export function PartDialog({ open, onOpenChange, row, copyFrom, onSaved }: PartD
                 <select id="part-category" value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
                   {PART_CATEGORIES.map((c) => (
                     <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="part-series" className="text-xs text-muted-foreground">產品系列</label>
+                <select id="part-series" value={seriesId} onChange={(e) => setSeriesId(e.target.value)} className={inputCls}>
+                  <option value="">（共用／不分系列）</option>
+                  {seriesList.map((s) => (
+                    <option key={s.id} value={s.id}>{s.series_name}</option>
                   ))}
                 </select>
               </div>
