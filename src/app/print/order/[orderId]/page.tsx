@@ -676,52 +676,55 @@ export default function PrintOrderPage() {
           </table>
         </section>
 
-        <section className="mb-8 flex items-start justify-between gap-8 break-inside-avoid">
-          {order.internal_notes?.trim() ? (
-            <div className="min-w-0 flex-1 text-sm leading-relaxed">
-              <p className="mb-1 font-semibold text-gray-900">訂單備註</p>
+        <section className="mb-8 break-inside-avoid">
+          <div className="flex justify-end">
+            <div className="w-full max-w-[340px] break-inside-avoid text-sm leading-relaxed">
+              <dl className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <dt className="text-gray-600">商品總計</dt>
+                  <dd className="text-gray-900 tabular-nums">{totals.original.toLocaleString()}</dd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <dt className="text-gray-600">運費</dt>
+                  <dd className="text-gray-900 tabular-nums">{order.shipping_fee.toLocaleString()}</dd>
+                </div>
+                {showDiscountRow && (
+                  <div className="flex items-center justify-between">
+                    <dt className="text-gray-600">通路 / 專案折扣</dt>
+                    <dd className="text-gray-900 tabular-nums">-{totals.discount.toLocaleString()}</dd>
+                  </div>
+                )}
+                <div className="flex items-center justify-between border-t border-gray-200 pt-2">
+                  <dt className="font-medium text-gray-900">總金額</dt>
+                  <dd className="font-medium text-gray-900 tabular-nums">
+                    {totals.total.toLocaleString()}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <dt className="text-gray-600">已收訂金</dt>
+                  <dd className="text-gray-900 tabular-nums">
+                    -{order.deposit_amount.toLocaleString()}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between text-base">
+                  <dt className="font-bold text-gray-900">尾款金額</dt>
+                  <dd className="font-bold text-gray-900 tabular-nums">
+                    {remainingAmount.toLocaleString()}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+          <div className="mt-6 border-t border-gray-200 pt-4 text-sm leading-relaxed">
+            <p className="mb-1 font-semibold text-gray-900">訂單備註</p>
+            <p className="text-gray-700">
+              尾款金額請於收到商品確認無誤後，一週內匯款至指定帳戶。
+            </p>
+            {order.internal_notes?.trim() ? (
               <p className="whitespace-pre-line break-words text-gray-700">
                 {order.internal_notes.trim()}
               </p>
-            </div>
-          ) : (
-            <div className="flex-1" />
-          )}
-          <div className="w-full max-w-xs shrink-0 break-inside-avoid text-sm leading-relaxed">
-            <dl className="space-y-2">
-              <div className="flex items-center justify-between">
-                <dt className="text-gray-600">商品總計</dt>
-                <dd className="text-gray-900 tabular-nums">{totals.original.toLocaleString()}</dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-gray-600">運費</dt>
-                <dd className="text-gray-900 tabular-nums">{order.shipping_fee.toLocaleString()}</dd>
-              </div>
-              {showDiscountRow && (
-                <div className="flex items-center justify-between">
-                  <dt className="text-gray-600">通路 / 專案折扣</dt>
-                  <dd className="text-gray-900 tabular-nums">-{totals.discount.toLocaleString()}</dd>
-                </div>
-              )}
-              <div className="flex items-center justify-between border-t border-gray-200 pt-2">
-                <dt className="font-semibold text-gray-900">總金額</dt>
-                <dd className="font-semibold text-gray-900 tabular-nums">
-                  {totals.total.toLocaleString()}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-gray-600">已收訂金</dt>
-                <dd className="text-gray-900 tabular-nums">
-                  -{order.deposit_amount.toLocaleString()}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="font-bold text-gray-900">尾款金額</dt>
-                <dd className="font-bold text-gray-900 tabular-nums">
-                  {remainingAmount.toLocaleString()}
-                </dd>
-              </div>
-            </dl>
+            ) : null}
           </div>
         </section>
 
@@ -744,10 +747,6 @@ export default function PrintOrderPage() {
               ))}
             </div>
           )}
-
-          <div className="space-y-2 text-sm text-gray-600 leading-relaxed">
-            <p>尾款金額請於收到商品確認無誤後，一週內匯款至指定帳戶。</p>
-          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
             <div className="space-y-2">
