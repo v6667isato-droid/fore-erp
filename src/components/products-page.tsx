@@ -41,6 +41,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { exportProductsCsv } from "@/components/products/export-products-csv";
 import { PriceListExportDialog } from "@/components/products/price-list-export-dialog";
+import { BomEditor } from "@/components/inventory/bom-editor";
 
 /** 支援 name 或 series_name 欄位（Supabase 表可能用其中一種） */
 function mapSeries(r: Record<string, unknown>): SeriesRow {
@@ -105,7 +106,7 @@ function formatDim(v: VariantRow): string {
   return base;
 }
 
-type SeriesSortKey = "name" | "category" | "variantCount" | "website";
+type SeriesSortKey = "name" | "category" | "variantCount" | "bomCount" | "website";
 type VariantSortKey = "product_code" | "wood_type" | "spec1" | "dimension" | "base_price";
 
 function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
@@ -113,6 +114,8 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [variantsList, setVariantsList] = useState<VariantRow[]>([]);
   const [channels, setChannels] = useState<ChannelOption[]>([]);
   const [seriesDiscounts, setSeriesDiscounts] = useState<Record<string, SeriesDiscount[]>>({});
+  /** 各系列的 BOM 線數（一次查完全表 series_id 後彙總，不逐系列查） */
+  const [bomCountBySeries, setBomCountBySeries] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -177,6 +180,9 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
           const bCount = (variantsBySeries[b.id] ?? []).length;
           return ascFactor * (aCount - bCount);
         }
+        case "bomCount": {
+          return ascFactor * ((bomCountBySeries[a.id] ?? 0) - (bomCountBySeries[b.id] ?? 0));
+        }
         case "website": {
           const aVal = a.website?.trim() || "";
           const bVal = b.website?.trim() || "";
@@ -191,7 +197,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       }
     });
     return base;
-  }, [filteredSeries, seriesSort, variantsBySeries]);
+  }, [filteredSeries, seriesSort, variantsBySeries, bomCountBySeries]);
 
   async function fetchData() {
     setLoading(true);
@@ -318,10 +324,32 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     setSeriesDiscounts(map);
   }
 
+  /** 只抓 series_id 一欄再彙總；BOM 線總量小，不需要每個系列各發一次 count 查詢 */
+  async function fetchBomCounts() {
+    const { data, error } = await supabase.from("bom_lines").select("series_id");
+    if (error) {
+      // 用料表計數讀不到不影響產品列表，展開時仍會各自載入
+      return;
+    }
+    const map: Record<string, number> = {};
+    (data ?? []).forEach((row: { series_id: string | null }) => {
+      const sid = String(row.series_id ?? "");
+      if (!sid) return;
+      map[sid] = (map[sid] ?? 0) + 1;
+    });
+    setBomCountBySeries(map);
+  }
+
+  /** 展開區的 BomEditor 增刪線後即時同步列表計數，免得重抓全表 */
+  const handleBomCountChange = useCallback((sid: string, count: number) => {
+    setBomCountBySeries((prev) => (prev[sid] === count ? prev : { ...prev, [sid]: count }));
+  }, []);
+
   useEffect(() => {
     fetchData();
     fetchChannels();
     fetchSeriesDiscounts();
+    fetchBomCounts();
   }, []);
 
   function toggleExpanded(id: string) {
@@ -623,6 +651,26 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                   className="inline-flex items-center gap-1.5 hover:text-primary"
                   onClick={() =>
                     setSeriesSort((prev) => ({
+                      key: "bomCount",
+                      asc: prev.key === "bomCount" ? !prev.asc : true,
+                    }))
+                  }
+                  aria-label={`依用料表線數排序（目前為${
+                    seriesSort.key === "bomCount" && !seriesSort.asc ? "降冪" : "升冪"
+                  }）`}
+                >
+                  <span>用料表</span>
+                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                    {seriesSort.key === "bomCount" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                  </span>
+                </button>
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 hover:text-primary"
+                  onClick={() =>
+                    setSeriesSort((prev) => ({
                       key: "website",
                       asc: prev.key === "website" ? !prev.asc : true,
                     }))
@@ -645,7 +693,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
           <TableBody>
             {filteredSeries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   <span>{seriesList.length === 0 ? "尚無產品系列，請點「新增系列」建立。" : "無符合篩選條件的系列。"}</span>
                 </TableCell>
               </TableRow>
@@ -653,6 +701,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
               sortedSeries.map((series) => {
                 const isExpanded = expandedIds.has(series.id);
                 const variants = variantsBySeries[series.id] ?? [];
+                const bomCount = bomCountBySeries[series.id] ?? 0;
                 return (
                   <Fragment key={series.id}>
                     <TableRow className="border-b border-border hover:bg-muted/30">
@@ -693,6 +742,13 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground p-2">{series.category || "—"}</TableCell>
                       <TableCell className="text-sm text-muted-foreground p-2">{variants.length}</TableCell>
+                      <TableCell className="text-sm p-2">
+                        {bomCount > 0 ? (
+                          <span className="text-muted-foreground">{bomCount}</span>
+                        ) : (
+                          <span className="text-amber-700 dark:text-amber-400">未建</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-sm p-2 max-w-[180px]">
                         {series.website?.trim() ? (
                           <a
@@ -741,7 +797,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                       </TableCell>
                     </TableRow>
                     <TableRow className="border-b border-border bg-muted/10 hover:bg-muted/10">
-                      <TableCell colSpan={6} className="p-0 align-top">
+                      <TableCell colSpan={7} className="p-0 align-top">
                         <div
                           className="overflow-hidden transition-[max-height] duration-300 ease-out"
                           style={{ maxHeight: isExpanded ? "80vh" : 0 }}
@@ -1010,6 +1066,16 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                 </TableBody>
                               </Table>
                             </div>
+                            {isExpanded && (
+                              <div className="mt-4">
+                                <h4 className="mb-2 text-sm font-semibold text-foreground">用料表</h4>
+                                <BomEditor
+                                  seriesId={series.id}
+                                  isAdmin={isAdmin}
+                                  onCountChange={handleBomCountChange}
+                                />
+                              </div>
+                            )}
                           </div>
                         </div>
                       </TableCell>

@@ -4,13 +4,13 @@ import { useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { PartsTab } from "@/components/inventory/parts-tab";
-import { BomTab } from "@/components/inventory/bom-tab";
+import { PartOptionsTab } from "@/components/inventory/part-options-tab";
 import { ReconciliationTab } from "@/components/inventory/reconciliation-tab";
 
-export type InventoryTab = "parts" | "bom" | "reconciliation";
+export type InventoryTab = "parts" | "options" | "reconciliation";
 
 function parseInventoryTab(raw: string | null): InventoryTab {
-  if (raw === "parts" || raw === "bom" || raw === "reconciliation") return raw;
+  if (raw === "parts" || raw === "options" || raw === "reconciliation") return raw;
   return "parts";
 }
 
@@ -43,7 +43,7 @@ export function InventoryPage({ isAdmin = false }: InventoryPageProps) {
         {(
           [
             { id: "parts" as const, label: "零件主檔" },
-            { id: "bom" as const, label: "BOM 用料表" },
+            { id: "options" as const, label: "變體選項設定" },
             { id: "reconciliation" as const, label: "出貨對帳" },
           ] as const
         ).map((item) => (
@@ -66,7 +66,7 @@ export function InventoryPage({ isAdmin = false }: InventoryPageProps) {
       </div>
 
       {tab === "parts" && <PartsTab isAdmin={isAdmin} />}
-      {tab === "bom" && <BomTab isAdmin={isAdmin} />}
+      {tab === "options" && <PartOptionsTab isAdmin={isAdmin} />}
       {tab === "reconciliation" && <ReconciliationTab isAdmin={isAdmin} />}
     </div>
   );

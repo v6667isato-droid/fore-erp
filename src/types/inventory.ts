@@ -8,6 +8,12 @@ export const PART_PROCUREMENT_TYPES = ["常備", "接單"] as const;
 export const PART_SOURCE_TYPES = ["自製", "採購"] as const;
 export type PartSourceType = (typeof PART_SOURCE_TYPES)[number];
 
+/** 零件單位選項（新增／編輯零件只提供這兩種；舊資料的其他單位在編輯時仍保留） */
+export const PART_UNITS = ["個", "組"] as const;
+
+/** 新零件的預設安全庫存；缺料提醒門檻＝安全庫存 */
+export const DEFAULT_SAFETY_STOCK = 4;
+
 export interface PartRow {
   id: string;
   /** 舊料號（過渡期保留，僅供歷史對照；新模型以 variant.sku 為顯示碼） */
@@ -45,6 +51,25 @@ export interface MaterialRow {
   code: string;
   name_zh: string;
   aliases: string[];
+  sort_order: number;
+}
+
+/** part_option_groups：某零件分類底下的選項「大項」（木料的木材種類另存於 materials） */
+export interface PartOptionGroupRow {
+  id: string;
+  category: string;
+  code: string;
+  name_zh: string;
+  sort_order: number;
+  notes: string | null;
+}
+
+/** part_option_values：大項底下的「細項」；目前為主檔，尚未參與變體生成 */
+export interface PartOptionValueRow {
+  id: string;
+  group_id: string;
+  code: string;
+  name_zh: string;
   sort_order: number;
 }
 

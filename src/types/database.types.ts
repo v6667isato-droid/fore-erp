@@ -1477,6 +1477,77 @@ export type Database = {
           },
         ]
       }
+      part_option_groups: {
+        Row: {
+          category: string
+          code: string
+          created_at: string
+          deleted_at: string | null
+          id: string
+          name_zh: string
+          notes: string | null
+          sort_order: number
+        }
+        Insert: {
+          category: string
+          code: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name_zh: string
+          notes?: string | null
+          sort_order?: number
+        }
+        Update: {
+          category?: string
+          code?: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name_zh?: string
+          notes?: string | null
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      part_option_values: {
+        Row: {
+          code: string
+          created_at: string
+          deleted_at: string | null
+          group_id: string
+          id: string
+          name_zh: string
+          sort_order: number
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          deleted_at?: string | null
+          group_id: string
+          id?: string
+          name_zh: string
+          sort_order?: number
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          deleted_at?: string | null
+          group_id?: string
+          id?: string
+          name_zh?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "part_option_values_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "part_option_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       part_variants: {
         Row: {
           created_at: string
