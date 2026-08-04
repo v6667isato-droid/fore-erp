@@ -1462,23 +1462,25 @@ export function SalarySettlementCenter() {
             尚無在職員工可結算。
           </p>
         ) : (
-          <table className="w-full min-w-[1240px] table-fixed border-collapse text-sm">
+          <table className="w-full min-w-[1440px] table-fixed border-collapse text-sm">
             <colgroup>
+              {/* 欄序：姓名、本月薪資、勞保、健保、請假扣款、原本特休、新增特休、本月申請、結算餘額、加班天、費率、補休、補休結餘、獎金、調整、實發、出勤備註、發放 */}
+              <col className="w-[5rem]" />
               <col className="w-[4.5rem]" />
-              <col className="w-[4rem]" />
-              <col className="w-[3.25rem]" />
-              <col className="w-[3.25rem]" />
-              <col className="w-[4rem]" />
-              <col className="w-[5.5rem]" />
-              <col className="w-[4rem]" />
-              <col className="w-[5.5rem]" />
-              <col className="w-[5.75rem]" />
-              <col className="w-[3.5rem]" />
-              <col className="w-[3rem]" />
-              <col className="w-[2.5rem]" />
-              <col className="w-[4.75rem]" />
-              <col className="w-[4.75rem]" />
               <col className="w-[3.75rem]" />
+              <col className="w-[3.75rem]" />
+              <col className="w-[4.5rem]" />
+              <col className="w-[6rem]" />
+              <col className="w-[4rem]" />
+              <col className="w-[6rem]" />
+              <col className="w-[6rem]" />
+              <col className="w-[3.5rem]" />
+              <col className="w-[3.25rem]" />
+              <col className="w-[2.5rem]" />
+              <col className="w-[3.75rem]" />
+              <col className="w-[5rem]" />
+              <col className="w-[5rem]" />
+              <col className="w-[4.5rem]" />
               <col />
               <col className="w-[3.5rem]" />
             </colgroup>
