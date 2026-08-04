@@ -1,26 +1,5 @@
-import { seniorityFromHire } from "@/lib/employee-seniority";
-import { fetchHalfYearGrossProfit } from "@/lib/half-year-gross-profit";
-import {
-  computePerformanceBonus,
-  halfYearEndDate,
-  halfYearLabel,
-  halfYearTenureRatio,
-  type BonusEmployeeInput,
-} from "@/lib/performance-bonus-compute";
-import {
-  loadPerformanceBonusLastPeriod,
-  loadPerformanceBonusPeriodDraft,
-  mergePerformanceBonusOverrides,
-} from "@/lib/performance-bonus-draft";
-
-export type PayrollBonusEmployee = {
-  id: string;
-  name: string;
-  monthly_wage: number;
-  hire_date: string | null;
-  share_count: number;
-  unpaid_leave_months: string[];
-};
+import { halfYearLabel } from "@/lib/performance-bonus-compute";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 
 export type SemiAnnualBonusDetail = {
   yearEnd: number;
@@ -33,8 +12,27 @@ export type SemiAnnualBonusImportResult = {
   period: { year: number; half: "H1" | "H2"; label: string };
   bonusesByEmployeeId: Record<string, number>;
   detailByEmployeeId: Record<string, SemiAnnualBonusDetail>;
-  profitMeta?: string;
+  /** 來源發放紀錄的說明（發放時間、當期利潤） */
+  issuanceMeta: string;
+  /** 期別非由發薪月份推得，而是退回最近一筆發放紀錄 */
   usedFallbackPeriod: boolean;
+};
+
+const ISSUANCE_SELECT =
+  "id, year, half, profit, issued_at, total_bonus, performance_bonus_issuance_rows (employee_id, year_end_bonus, profit_sharing_bonus, share_bonus, total_bonus)";
+
+type IssuanceQueryRow = {
+  year: number;
+  half: string;
+  profit: number | null;
+  issued_at: string;
+  performance_bonus_issuance_rows: {
+    employee_id: string | null;
+    year_end_bonus: number | null;
+    profit_sharing_bonus: number | null;
+    share_bonus: number | null;
+    total_bonus: number | null;
+  }[];
 };
 
 function parseYm(ym: string): { y: number; m: number } | null {
@@ -44,11 +42,6 @@ function parseYm(ym: string): { y: number; m: number } | null {
   const mo = Number(m[2]);
   if (mo < 1 || mo > 12) return null;
   return { y, m: mo };
-}
-
-function parseNum(s: string, fallback: number): number {
-  const n = Number(String(s).replace(/,/g, "").trim());
-  return Number.isFinite(n) ? n : fallback;
 }
 
 /** 依發薪月份建議對應半年期別：7–8 月 → 當年上半年；1–2 月 → 上一年下半年 */
@@ -76,6 +69,17 @@ export function parsePayrollBonusFromNotes(notes: string | null | undefined): nu
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
 }
 
+/** 備註欄的獎金說明行格式，如「2026年上半年度獎金24,600元」（帶入時去重用） */
+export const SEMI_ANNUAL_BONUS_REMARK_RE = /^\d{4}年[上下]半年度獎金[\d,]+元$/;
+
+export function formatSemiAnnualBonusRemark(
+  period: { year: number; half: "H1" | "H2" },
+  amount: number,
+): string {
+  const halfLabel = period.half === "H1" ? "上" : "下";
+  return `${period.year}年${halfLabel}半年度獎金${Math.round(amount).toLocaleString("zh-TW")}元`;
+}
+
 export function formatSemiAnnualBonusPayrollNote(
   periodLabel: string,
   detail: SemiAnnualBonusDetail,
@@ -94,107 +98,68 @@ export function formatSemiAnnualBonusPayrollNote(
   return `【${periodLabel}獎金】${breakdown}合計 NT$ ${detail.total.toLocaleString("zh-TW")}`;
 }
 
-export async function computeSemiAnnualBonusesForPayroll(
+function num(v: number | null | undefined): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+function formatIssuedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short", hour12: false });
+}
+
+/**
+ * 帶入薪資的獎金一律讀「考績獎金」的發放紀錄，不重算：
+ * 毛利與草稿設定會隨時間變動，重算會與已記錄的發放金額對不上。
+ */
+export async function loadSemiAnnualBonusesForPayroll(
   payPeriodYm: string,
-  employees: PayrollBonusEmployee[],
   options?: { year?: number; half?: "H1" | "H2" },
 ): Promise<SemiAnnualBonusImportResult | { error: string }> {
-  let usedFallbackPeriod = false;
-  let period =
+  if (!isSupabaseConfigured) {
+    return { error: "Supabase 尚未設定，無法讀取獎金發放紀錄。" };
+  }
+
+  const wanted =
     options?.year != null && (options.half === "H1" || options.half === "H2")
-      ? {
-          year: options.year,
-          half: options.half,
-          label: halfYearLabel(options.year, options.half),
-        }
+      ? { year: options.year, half: options.half }
       : suggestBonusPeriodForPayMonth(payPeriodYm);
 
-  if (!period) {
-    const last = loadPerformanceBonusLastPeriod();
-    period = {
-      year: last.year,
-      half: last.half,
-      label: halfYearLabel(last.year, last.half),
-    };
-    usedFallbackPeriod = true;
+  let query = supabase
+    .from("performance_bonus_issuances")
+    .select(ISSUANCE_SELECT)
+    .order("issued_at", { ascending: false })
+    .limit(1);
+  if (wanted) {
+    query = query.eq("year", wanted.year).eq("half", wanted.half);
   }
 
-  const draft = loadPerformanceBonusPeriodDraft(period.year, period.half);
-  if (!draft) {
+  const res = await query;
+  if (res.error) return { error: res.error.message };
+
+  const rec = (res.data ?? [])[0] as IssuanceQueryRow | undefined;
+  if (!rec) {
     return {
-      error: `尚無「${period.label}」考績獎金草稿，請先至「考績獎金」分頁設定考績與分潤比例。`,
+      error: wanted
+        ? `尚無「${halfYearLabel(wanted.year, wanted.half)}」的獎金發放紀錄，請先至「考績獎金」分頁按「確定發放」再回來帶入。`
+        : "尚無任何獎金發放紀錄，請先至「考績獎金」分頁按「確定發放」。",
     };
   }
 
-  let profit: number;
-  let profitMeta: string | undefined;
-  if (draft.profitManual) {
-    profit = Math.max(0, parseNum(draft.profitInput, 0));
-  } else {
-    try {
-      const result = await fetchHalfYearGrossProfit(period.year, period.half);
-      profit = Math.max(0, result.grossProfit);
-      profitMeta = `毛利 NT$ ${Math.round(result.grossProfit).toLocaleString("zh-TW")}（統計至 ${result.cutoffLabel}）`;
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : "半年毛利載入失敗" };
-    }
-  }
-
-  const profitSharingPct = Math.max(0, parseNum(draft.profitSharingPct, 0));
-  const shareBonusPct = Math.max(0, parseNum(draft.shareBonusPct, 0));
-  const profitSharingPool = Math.round((profit * profitSharingPct) / 100);
-  const shareBonusPool = Math.round((profit * shareBonusPct) / 100);
-
-  const overrides = mergePerformanceBonusOverrides(
-    draft.overrides,
-    employees.map((e) => e.id),
-  );
-  const asOf = halfYearEndDate(period.year, period.half);
-
-  const bonusInputs: BonusEmployeeInput[] = employees.map((emp) => {
-    const ov = overrides[emp.id] ?? {
-      performance: 5,
-      participatesInProfitSharing: true,
-      abilityGrade: 5,
-    };
-    const seniority = seniorityFromHire(
-      emp.hire_date,
-      asOf,
-      emp.unpaid_leave_months,
-    ).decimalYears;
-    return {
-      id: emp.id,
-      name: emp.name,
-      ability: Number.isFinite(Number(ov.abilityGrade)) ? Math.max(0, Number(ov.abilityGrade)) : 5,
-      performance: ov.performance,
-      seniority,
-      salary: emp.monthly_wage,
-      shares: emp.share_count,
-      participatesInProfitSharing: ov.participatesInProfitSharing,
-      halfYearTenureRatio: halfYearTenureRatio(emp.hire_date, period!.year, period!.half),
-    };
-  });
-
-  const yearEndBonusSalaryPct = Math.max(0, parseNum(draft.yearEndBonusSalaryPct, 50));
-
-  const computed = computePerformanceBonus(
-    bonusInputs,
-    profitSharingPool,
-    shareBonusPool,
-    draft.weights,
-    draft.issueYearEndBonus,
-    yearEndBonusSalaryPct,
-  );
+  const half: "H1" | "H2" = rec.half === "H2" ? "H2" : "H1";
+  const period = { year: rec.year, half, label: halfYearLabel(rec.year, half) };
 
   const bonusesByEmployeeId: Record<string, number> = {};
   const detailByEmployeeId: Record<string, SemiAnnualBonusDetail> = {};
-  for (const row of computed.rows) {
-    bonusesByEmployeeId[row.id] = row.totalBonus;
-    detailByEmployeeId[row.id] = {
-      yearEnd: row.yearEndBonus,
-      profitSharing: row.profitSharingBonus,
-      share: row.shareBonus,
-      total: row.totalBonus,
+  for (const row of rec.performance_bonus_issuance_rows ?? []) {
+    if (!row.employee_id) continue;
+    bonusesByEmployeeId[row.employee_id] = num(row.total_bonus);
+    detailByEmployeeId[row.employee_id] = {
+      yearEnd: num(row.year_end_bonus),
+      profitSharing: num(row.profit_sharing_bonus),
+      share: num(row.share_bonus),
+      total: num(row.total_bonus),
     };
   }
 
@@ -202,7 +167,7 @@ export async function computeSemiAnnualBonusesForPayroll(
     period,
     bonusesByEmployeeId,
     detailByEmployeeId,
-    profitMeta,
-    usedFallbackPeriod,
+    issuanceMeta: `發放紀錄 ${formatIssuedAt(rec.issued_at)}；當期利潤 NT$ ${num(rec.profit).toLocaleString("zh-TW")}`,
+    usedFallbackPeriod: !wanted,
   };
 }

@@ -425,8 +425,7 @@ export function PerformanceBonusPage() {
         .from("performance_bonus_issuances")
         .select("id")
         .eq("year", year)
-        .eq("half", half)
-        .is("deleted_at", null);
+        .eq("half", half);
       if (existing.error) throw new Error(existing.error.message);
 
       const label = halfYearLabel(year, half);

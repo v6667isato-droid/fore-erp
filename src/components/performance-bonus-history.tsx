@@ -60,7 +60,6 @@ export function PerformanceBonusHistory({ refreshKey }: { refreshKey: number }) 
     const res = await supabase
       .from("performance_bonus_issuances")
       .select("*, performance_bonus_issuance_rows(*)")
-      .is("deleted_at", null)
       .order("issued_at", { ascending: false });
     if (res.error) {
       toast.error(res.error.message);
@@ -75,15 +74,16 @@ export function PerformanceBonusHistory({ refreshKey }: { refreshKey: number }) 
     void load();
   }, [load, refreshKey]);
 
-  async function softDelete(rec: Issuance) {
+  /** 硬刪除：發放紀錄不留軟刪除資料，明細列隨主檔 CASCADE 一併刪除 */
+  async function deleteIssuance(rec: Issuance) {
     const ok = window.confirm(
-      `刪除 ${periodLabel(rec.year, rec.half)}（${formatIssuedAt(rec.issued_at)}）的發放紀錄？\n合計 ${formatMoney(rec.total_bonus)} 元、${rec.performance_bonus_issuance_rows.length} 人`,
+      `刪除 ${periodLabel(rec.year, rec.half)}（${formatIssuedAt(rec.issued_at)}）的發放紀錄？\n合計 ${formatMoney(rec.total_bonus)} 元、${rec.performance_bonus_issuance_rows.length} 人\n\n刪除後無法復原。`,
     );
     if (!ok) return;
     setDeletingId(rec.id);
     const res = await supabase
       .from("performance_bonus_issuances")
-      .update({ deleted_at: new Date().toISOString() })
+      .delete()
       .eq("id", rec.id);
     setDeletingId(null);
     if (res.error) {
@@ -155,7 +155,7 @@ export function PerformanceBonusHistory({ refreshKey }: { refreshKey: number }) 
                     type="button"
                     variant="ghost"
                     className="h-8 w-8 shrink-0 p-0 text-muted-foreground hover:text-destructive"
-                    onClick={() => void softDelete(rec)}
+                    onClick={() => void deleteIssuance(rec)}
                     disabled={deletingId === rec.id}
                     aria-label="刪除發放紀錄"
                   >

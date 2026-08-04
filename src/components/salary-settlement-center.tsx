@@ -15,13 +15,16 @@ import { Banknote, CalendarRange, Eye, Sparkles } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   buildPayslipAttendanceRemarks,
+  swapOvertimeRemarkLines,
   overtimeHoursToHalfDaySteps,
   sumApprovedOvertimeHoursForEmployee,
 } from "@/lib/payslip-attendance-remarks";
 import {
-  computeSemiAnnualBonusesForPayroll,
   formatSemiAnnualBonusPayrollNote,
+  formatSemiAnnualBonusRemark,
+  loadSemiAnnualBonusesForPayroll,
   parsePayrollBonusFromNotes,
+  SEMI_ANNUAL_BONUS_REMARK_RE,
   suggestBonusPeriodForPayMonth,
   type SemiAnnualBonusDetail,
 } from "@/lib/performance-bonus-payroll";
@@ -784,6 +787,7 @@ export function SalarySettlementCenter() {
                 leaveRows: leaveList,
                 overtimeRows: otList,
                 settleOvertimeAsCompOff: settleAsComp,
+                overtimeDailyRate: e.overtime_rate ?? undefined,
                 holidays: monthHolidays,
               });
           initInputs[e.id] = {
@@ -808,6 +812,7 @@ export function SalarySettlementCenter() {
               leaveRows: leaveList,
               overtimeRows: otList,
               settleOvertimeAsCompOff: settleAsComp,
+              overtimeDailyRate: e.overtime_rate ?? undefined,
               holidays: monthHolidays,
             });
         initInputs[e.id] = {
@@ -849,17 +854,7 @@ export function SalarySettlementCenter() {
 
     setImportingBonus(true);
     try {
-      const result = await computeSemiAnnualBonusesForPayroll(
-        payPeriod,
-        employees.map((e) => ({
-          id: e.id,
-          name: e.name,
-          monthly_wage: e.monthly_wage,
-          hire_date: e.hire_date,
-          share_count: e.share_count,
-          unpaid_leave_months: e.unpaid_leave_months,
-        })),
-      );
+      const result = await loadSemiAnnualBonusesForPayroll(payPeriod);
 
       if ("error" in result) {
         toast.error(result.error, { duration: 10000 });
@@ -887,7 +882,19 @@ export function SalarySettlementCenter() {
             totalBonus += bonus;
           }
           const row = next[emp.id] ?? defaultRowInputs();
-          next[emp.id] = { ...row, semiAnnualBonus: bonus };
+          // 備註欄後方附上「YYYY年上/下半年度獎金X元」說明；重複帶入時先移除舊行
+          const cleanedNotes = row.attendanceNotes
+            .split("\n")
+            .filter((line) => !SEMI_ANNUAL_BONUS_REMARK_RE.test(line.trim()))
+            .join("\n")
+            .replace(/\n+$/, "");
+          const nextNotes =
+            bonus > 0
+              ? [cleanedNotes, formatSemiAnnualBonusRemark(result.period, bonus)]
+                  .filter(Boolean)
+                  .join("\n")
+              : cleanedNotes;
+          next[emp.id] = { ...row, semiAnnualBonus: bonus, attendanceNotes: nextNotes };
         }
         return next;
       });
@@ -899,11 +906,9 @@ export function SalarySettlementCenter() {
         `已帶入「${result.period.label}」獎金`,
         `${importedCount} 人、合計 NT$ ${totalBonus.toLocaleString("zh-TW")}`,
       ];
-      if (result.profitMeta) hints.push(result.profitMeta);
+      if (result.issuanceMeta) hints.push(result.issuanceMeta);
       if (result.usedFallbackPeriod) {
-        hints.push("（結算月份非典型發放期，已改用考績獎金頁最近編輯的期別）");
-      } else if (!suggestedBonusPeriod) {
-        hints.push("（建議於 1–2 月或 7–8 月發薪月份使用）");
+        hints.push("（結算月份非典型發放期，已帶入最近一筆發放紀錄）");
       }
       toast.success(hints.join("；"), { duration: 9000 });
     } finally {
@@ -1075,8 +1080,13 @@ export function SalarySettlementCenter() {
     if (!ok) return;
 
     const bonusDetail = bonusDetailByEmp[emp.id];
-    const bonusNote =
-      semiBonus > 0 && bonusImportLabel && bonusDetail
+    // 備註欄已有「YYYY年上/下半年度獎金X元」說明行時不再重複附註
+    const hasBonusRemark = inp.attendanceNotes
+      .split("\n")
+      .some((line) => SEMI_ANNUAL_BONUS_REMARK_RE.test(line.trim()));
+    const bonusNote = hasBonusRemark
+      ? ""
+      : semiBonus > 0 && bonusImportLabel && bonusDetail
         ? formatSemiAnnualBonusPayrollNote(bonusImportLabel, bonusDetail)
         : semiBonus > 0 && bonusImportLabel
           ? `【${bonusImportLabel}獎金】合計 NT$ ${semiBonus.toLocaleString("zh-TW")}`
@@ -1338,8 +1348,8 @@ export function SalarySettlementCenter() {
               disabled={loading || importingBonus || employees.length === 0}
               title={
                 suggestedBonusPeriod
-                  ? `帶入 ${suggestedBonusPeriod.label} 考績獎金（依考績獎金頁草稿計算）`
-                  : "帶入考績獎金頁最近期別的獎金（建議 7–8 月發上半年、1–2 月發下半年）"
+                  ? `帶入 ${suggestedBonusPeriod.label} 考績獎金（讀取考績獎金頁的發放紀錄）`
+                  : "帶入最近一筆考績獎金發放紀錄（建議 7–8 月發上半年、1–2 月發下半年）"
               }
               onClick={() => {
                 void handleImportSemiAnnualBonus();
@@ -1634,11 +1644,19 @@ export function SalarySettlementCenter() {
                           aria-label="加班以轉補休結算不計薪"
                           title="轉補休（不計加班費）"
                           onChange={(e) => {
+                            const checked = e.target.checked;
                             setInputs((p) => ({
                               ...p,
                               [emp.id]: {
                                 ...inp,
-                                settleOvertimeAsCompOff: e.target.checked,
+                                settleOvertimeAsCompOff: checked,
+                                attendanceNotes: swapOvertimeRemarkLines(
+                                  inp.attendanceNotes,
+                                  emp.id,
+                                  overtimeRows,
+                                  checked,
+                                  emp.overtime_rate ?? undefined,
+                                ),
                               },
                             }));
                           }}

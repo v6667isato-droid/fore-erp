@@ -1904,7 +1904,6 @@ export type Database = {
         Row: {
           cost: number | null
           created_at: string | null
-          deleted_at: string | null
           half: string
           id: string
           issue_year_end_bonus: boolean
@@ -1929,7 +1928,6 @@ export type Database = {
         Insert: {
           cost?: number | null
           created_at?: string | null
-          deleted_at?: string | null
           half: string
           id?: string
           issue_year_end_bonus?: boolean
@@ -1954,7 +1952,6 @@ export type Database = {
         Update: {
           cost?: number | null
           created_at?: string | null
-          deleted_at?: string | null
           half?: string
           id?: string
           issue_year_end_bonus?: boolean
@@ -3539,6 +3536,10 @@ export type Database = {
         Returns: Json
       }
       current_employee_id: { Args: never; Returns: string }
+      revoke_overtime_comp_leave: {
+        Args: { p_record_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
