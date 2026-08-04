@@ -27,7 +27,7 @@ import {
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CustomerRow } from "@/types/crm";
-import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt } from "lucide-react";
+import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive } from "lucide-react";
 import { toast } from "sonner";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import {
@@ -56,6 +56,7 @@ import {
   PAYMENT_STATUS_OPTIONS,
   PRODUCTION_STATUSES,
   COMPLETED_OPEN_STATUSES,
+  isPaymentUnsettled,
 } from "@/components/orders/order-helpers";
 
 function StatusBadge({ status }: { status: OrderStatus }) {
@@ -68,20 +69,34 @@ function StatusBadge({ status }: { status: OrderStatus }) {
 
 type StatusFilterValue =
   | OrderStatus
-  | "全部"
-  | "非報價中"
   | "已結案"
   | "生產中訂單"
   | "完成未結案";
 
 const STATUS_FILTER_OPTIONS: StatusFilterValue[] = [
-  "全部",
   "報價中",
   "生產中訂單",
   "完成未結案",
-  "非報價中",
   "已結案",
 ];
+
+/** 狀態卡片的圖示與固定提示（樣式對齊總覽三卡；「完成未結案」的待收尾款於執行時計算） */
+const STATUS_FILTER_CARD_META: Partial<
+  Record<StatusFilterValue, { icon: typeof FileText; hint: string | null }>
+> = {
+  報價中: { icon: FileText, hint: null },
+  生產中訂單: { icon: Hammer, hint: "已收訂金 → 完工前" },
+  完成未結案: { icon: PackageCheck, hint: null },
+  已結案: { icon: Archive, hint: null },
+};
+
+/** 訂單狀態是否符合狀態篩選（表格列與客戶下拉共用同一套判斷） */
+function matchesStatusFilter(status: OrderStatus, filter: StatusFilterValue): boolean {
+  if (filter === "已結案") return status === "結案";
+  if (filter === "生產中訂單") return PRODUCTION_STATUSES.includes(status);
+  if (filter === "完成未結案") return COMPLETED_OPEN_STATUSES.includes(status);
+  return status === filter;
+}
 
 /** 總覽三卡點擊 → /?page=orders&ordersStatus=<key>；集合定義與卡片計數共用 order-helpers */
 const ORDERS_STATUS_PARAM_TO_FILTER: Record<string, StatusFilterValue> = {
@@ -113,7 +128,7 @@ export function OrdersPage({
     ? ORDERS_STATUS_PARAM_TO_FILTER[ordersStatusParam]
     : undefined;
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>(
-    lifecycleFilter ?? (mode === "quotation" ? "報價中" : "非報價中")
+    lifecycleFilter ?? (mode === "quotation" ? "報價中" : "生產中訂單")
   );
 
   // 總覽卡片點擊時頁面可能已掛載，參數變更需同步 filter
@@ -419,7 +434,7 @@ export function OrdersPage({
     return Array.from(set).sort().reverse();
   }, [orders]);
 
-  /** 下拉選單：主檔客戶 + 訂單曾出現但主檔可能缺漏的 customer_id；通路客戶置頂並標示 [通路] */
+  /** 下拉選單：僅列出在目前狀態篩選下有訂單的客戶（含通路，通路置頂並標示 [通路]）；名稱優先取主檔 */
   const customerFilterOptions = useMemo(() => {
     const byId = new Map<string, { name: string; channelId: string | null }>();
     customers.forEach((c) => {
@@ -434,7 +449,14 @@ export function OrdersPage({
         });
       }
     });
+    const visibleIds = new Set<string>();
+    orders.forEach((o) => {
+      if (o.customer_id && matchesStatusFilter(o.status, statusFilter)) {
+        visibleIds.add(o.customer_id);
+      }
+    });
     return Array.from(byId.entries())
+      .filter(([id]) => visibleIds.has(id))
       .map(([id, { name, channelId }]) => {
         const isChannel = channelId != null;
         return {
@@ -448,11 +470,22 @@ export function OrdersPage({
         if (a.isChannel !== b.isChannel) return a.isChannel ? -1 : 1;
         return a.name.localeCompare(b.name, "zh-Hant", { numeric: true });
       });
-  }, [customers, orders]);
+  }, [customers, orders, statusFilter]);
 
-  const filtered = useMemo(() => {
+  // 切換狀態篩選後，若原本選的客戶已不在清單中則清空，避免停在看不見的選項
+  useEffect(() => {
+    if (
+      customerFilter &&
+      !customerFilterOptions.some((c) => c.id === customerFilter)
+    ) {
+      setCustomerFilter("");
+    }
+  }, [customerFilter, customerFilterOptions]);
+
+  /** 搜尋＋客戶＋月份先過濾（不含狀態）；狀態卡片計數與表格列共用，卡片數字＝點下去看到的筆數 */
+  const preStatusFiltered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return orders.filter((o) => {
-      const q = search.trim().toLowerCase();
       const matchSearch =
         !q ||
         o.order_number.toLowerCase().includes(q) ||
@@ -460,25 +493,38 @@ export function OrdersPage({
         (o.shipping_contact_name ?? "").toLowerCase().includes(q);
       const matchCustomer =
         !customerFilter || o.customer_id === customerFilter;
-      const matchStatus =
-        statusFilter === "全部"
-          ? true
-          : statusFilter === "非報價中"
-          ? o.status !== "報價中" && o.status !== "結案"
-          : statusFilter === "已結案"
-          ? o.status === "結案"
-          : statusFilter === "生產中訂單"
-          ? PRODUCTION_STATUSES.includes(o.status)
-          : statusFilter === "完成未結案"
-          ? COMPLETED_OPEN_STATUSES.includes(o.status)
-          : o.status === statusFilter;
       const matchMonth =
         !monthFilter || !o.order_date
           ? !monthFilter
           : o.order_date.slice(0, 7) === monthFilter;
-      return matchSearch && matchCustomer && matchStatus && matchMonth;
+      return matchSearch && matchCustomer && matchMonth;
     });
-  }, [orders, search, customerFilter, statusFilter, monthFilter]);
+  }, [orders, search, customerFilter, monthFilter]);
+
+  const filtered = useMemo(
+    () => preStatusFiltered.filter((o) => matchesStatusFilter(o.status, statusFilter)),
+    [preStatusFiltered, statusFilter]
+  );
+
+  const statusCards = useMemo(() => {
+    return STATUS_FILTER_OPTIONS.map((f) => {
+      const subset = preStatusFiltered.filter((o) =>
+        matchesStatusFilter(o.status, f)
+      );
+      let sub = STATUS_FILTER_CARD_META[f]?.hint ?? null;
+      let subWarning = false;
+      if (f === "完成未結案") {
+        const unpaid = subset.filter((o) =>
+          isPaymentUnsettled(o.payment_status)
+        ).length;
+        if (unpaid > 0) {
+          sub = `${unpaid} 筆待收尾款`;
+          subWarning = true;
+        }
+      }
+      return { key: f, count: subset.length, sub, subWarning };
+    });
+  }, [preStatusFiltered]);
 
   const filteredTotalAmount = useMemo(
     () => filtered.reduce((sum, o) => sum + (o.total_amount || 0), 0),
@@ -486,7 +532,6 @@ export function OrdersPage({
   );
 
   type OrderSortKey =
-    | "order_number"
     | "customer_name"
     | "shipping_contact_name"
     | "order_date"
@@ -612,10 +657,7 @@ export function OrdersPage({
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const fileLabel =
-      monthFilter || statusFilter !== "全部"
-        ? `orders_${monthFilter || "all"}_${statusFilter}`
-        : "orders_all";
+    const fileLabel = `orders_${monthFilter || "all"}_${statusFilter}`;
     a.href = url;
     a.download = `${fileLabel}.csv`;
     a.click();
@@ -894,16 +936,69 @@ export function OrdersPage({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <div className="relative">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {statusCards.map((s) => {
+          const meta = STATUS_FILTER_CARD_META[s.key];
+          const Icon = meta?.icon ?? FileText;
+          const active = statusFilter === s.key;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => setStatusFilter(s.key)}
+              aria-pressed={active}
+              title={`篩選：${s.key}`}
+              className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors ${
+                active
+                  ? "border-primary bg-accent/30"
+                  : "border-border bg-card hover:border-primary/40 hover:bg-accent/20"
+              }`}
+            >
+              <div
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+                  active ? "bg-primary" : "bg-secondary"
+                }`}
+              >
+                <Icon
+                  className={`h-3.5 w-3.5 ${
+                    active ? "text-primary-foreground" : "text-primary"
+                  }`}
+                />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {s.key}
+                </p>
+                <p className="text-base font-semibold leading-tight text-foreground">
+                  {s.count}
+                  <span className="ml-0.5 text-xs font-normal text-muted-foreground">件</span>
+                </p>
+                {s.sub && (
+                  <p
+                    className={`text-[9px] leading-snug break-words ${
+                      s.subWarning
+                        ? "font-medium text-amber-600 dark:text-amber-400"
+                        : "text-muted-foreground/90"
+                    }`}
+                  >
+                    {s.sub}
+                  </p>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               placeholder="搜尋訂單編號、客戶或聯絡人..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-72"
+              className="h-8 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -911,7 +1006,7 @@ export function OrdersPage({
             <select
               value={customerFilter}
               onChange={(e) => setCustomerFilter(e.target.value)}
-              className="h-9 min-w-[10rem] max-w-[min(100vw-2rem,18rem)] rounded-lg border border-input bg-card px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-8 min-w-[10rem] max-w-[min(100vw-2rem,18rem)] rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               aria-label="依客戶篩選"
             >
               <option value="">全部客戶</option>
@@ -940,25 +1035,41 @@ export function OrdersPage({
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex flex-wrap gap-1.5">
-            {STATUS_FILTER_OPTIONS.map((f) => (
-              <button
-                key={f}
-                onClick={() => setStatusFilter(f)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                  statusFilter === f
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-accent/40"
-                }`}
+        <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && (
+            <>
+              <span className="text-xs text-foreground whitespace-nowrap">
+                篩選結果總金額：
+                <span className="font-semibold ml-1">
+                  {filteredTotalAmount.toLocaleString()}
+                </span>
+              </span>
+              <Link
+                href="/print/shipping-marks"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1 h-8 px-3 text-xs font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
+                aria-label="開啟物流警示標列印（新分頁）"
               >
-                {f}
-              </button>
-            ))}
-          </div>
+                <Printer className="h-3.5 w-3.5 shrink-0" />
+                物流警示標
+              </Link>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 px-3 text-xs"
+                onClick={exportFilteredCsv}
+                disabled={!filtered.length}
+                aria-label="匯出篩選後訂單為 CSV"
+              >
+                <Download className="h-3.5 w-3.5 mr-1" />
+                匯出 CSV
+              </Button>
+            </>
+          )}
           <Button
             type="button"
-            className="h-9 px-3 text-xs"
+            className="h-8 px-3 text-xs"
             onClick={() => {
               setEditingOrder(null);
               setEditingItems(undefined);
@@ -971,65 +1082,12 @@ export function OrdersPage({
         </div>
       </div>
 
-      {isAdmin && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-2 text-xs">
-          <div className="text-muted-foreground">
-            {monthFilter ? `目前篩選月份：${monthFilter}` : "目前顯示：全部月份"}
-            {" · "}
-            {customerFilter
-              ? `客戶：${customerFilterOptions.find((c) => c.id === customerFilter)?.label ?? "—"}`
-              : "客戶：全部"}
-            {" · "}
-            {statusFilter === "全部"
-              ? "狀態：全部"
-              : statusFilter === "非報價中"
-              ? "狀態：非報價中"
-              : statusFilter === "已結案"
-              ? "狀態：已結案"
-              : `狀態：${statusFilter}`}
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-foreground">
-              篩選結果總金額：
-              <span className="font-semibold ml-1">
-                {filteredTotalAmount.toLocaleString()}
-              </span>
-            </span>
-            <Link
-              href="/print/shipping-marks"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-1 h-8 px-3 text-xs font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground whitespace-nowrap"
-              aria-label="開啟物流警示標列印（新分頁）"
-            >
-              <Printer className="h-3.5 w-3.5 shrink-0" />
-              物流警示標
-            </Link>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-8 px-3 text-xs"
-              onClick={exportFilteredCsv}
-              disabled={!filtered.length}
-              aria-label="匯出篩選後訂單為 CSV"
-            >
-              <Download className="h-3.5 w-3.5 mr-1" />
-              匯出 CSV
-            </Button>
-          </div>
-        </div>
-      )
-      }
-
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
         <Table className="min-w-[52rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors">
-                <OrderSortHeader label="編號" sortKey="order_number" />
-              </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-24 px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("order_date")}
                 title="點擊排序"
               >
@@ -1043,42 +1101,42 @@ export function OrdersPage({
                 <OrderSortHeader label="客戶" sortKey="customer_name" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-32 px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("expected_delivery_date")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="交期" sortKey="expected_delivery_date" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-24 px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("status")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="狀態" sortKey="status" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-24 px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("payment_status")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="付款" sortKey="payment_status" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-20 px-1.5 text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("deposit_amount")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="訂金" sortKey="deposit_amount" />
               </TableHead>
               <TableHead
-                className="px-1.5 text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-24 px-1.5 text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("total_amount")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="金額" sortKey="total_amount" />
               </TableHead>
               <TableHead
-                className="px-1 text-xs font-semibold text-right whitespace-nowrap"
+                className="w-[9.5rem] px-1 text-xs font-semibold text-right whitespace-nowrap"
                 aria-label="操作"
               >
                 操作
@@ -1106,19 +1164,6 @@ export function OrdersPage({
                   className={rowReadOnly ? "group" : "group cursor-pointer"}
                   onClick={rowReadOnly ? undefined : () => handleEdit(order)}
                 >
-                  <TableCell className="px-1.5 text-sm font-mono text-primary truncate">
-                    <button
-                      type="button"
-                      className="text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded px-0.5 py-0.5"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleEdit(order);
-                      }}
-                    >
-                      {order.order_number ? order.order_number.replace(/^ORD-/i, "") : "—"}
-                    </button>
-                  </TableCell>
                   <TableCell className="px-1.5 text-sm text-muted-foreground tabular-nums">
                     {order.order_date ? order.order_date.replace(/-/g, "/") : "—"}
                   </TableCell>
@@ -1361,7 +1406,7 @@ export function OrdersPage({
                 </TableRow>
                 {isExpanded ? (
                   <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={9} className="p-0">
+                    <TableCell colSpan={8} className="p-0">
                       <div className="border-t border-border bg-muted/20 p-3 sm:p-4">
                         {overview === undefined || overview === "loading" ? (
                           <p className="py-6 text-center text-sm text-muted-foreground">

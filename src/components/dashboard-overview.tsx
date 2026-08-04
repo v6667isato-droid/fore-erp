@@ -96,7 +96,7 @@ function DashboardStatsRow({
 }) {
   const stats = [
     { key: "quote" as const, label: "報價中", sub: null, subWarning: false, value: quote, icon: FileText },
-    { key: "production" as const, label: "生產中", sub: "繪圖中 → 完成前", subWarning: false, value: production, icon: Hammer },
+    { key: "production" as const, label: "生產中", sub: "已收訂金 → 完工前", subWarning: false, value: production, icon: Hammer },
     {
       key: "completed_open" as const,
       label: "已完成(未結案)",
