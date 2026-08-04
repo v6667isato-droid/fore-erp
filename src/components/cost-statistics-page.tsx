@@ -8,6 +8,8 @@ import {
 import {
   DEFAULT_ANNUAL_COMPANY_LOAN,
   DEFAULT_ANNUAL_RENT,
+  fetchAllFixedOverheadRecords,
+  fetchFixedOverheadForYear,
   listFixedOverheadYears,
   listRecordedSnapshotYears,
   loadAllFixedOverheadRecords,
@@ -15,8 +17,8 @@ import {
   computeRevenueTax,
   loadFixedOverheadForYear,
   loadYearSnapshot,
+  persistFixedOverheadForYear,
   REVENUE_TAX_RATE,
-  saveFixedOverheadForYear,
   saveYearSnapshot,
   type CostStatisticsYearSnapshot,
 } from "@/lib/cost-statistics-settings";
@@ -47,7 +49,11 @@ export function CostStatisticsPage() {
   const [exportYear, setExportYear] = useState(() => new Date().getFullYear());
   const [recordedYears, setRecordedYears] = useState<number[]>([]);
   const [snapshotYears, setSnapshotYears] = useState<number[]>([]);
-  const skipNextFixedOverheadSave = useRef(false);
+  const [overheadSaveState, setOverheadSaveState] = useState<
+    { kind: "idle" | "saving" | "saved" } | { kind: "error"; message: string }
+  >({ kind: "idle" });
+  /** 最近一次自儲存載入（或成功寫入）的值；與目前輸入相同時不觸發儲存 */
+  const lastLoadedOverhead = useRef<{ rent: number; loan: number } | null>(null);
   /** 每季「月份明細」是否展開；收合時僅顯示該季小計列 */
   const [quarterMonthOpen, setQuarterMonthOpen] = useState<Record<1 | 2 | 3 | 4, boolean>>({
     1: true,
@@ -63,26 +69,64 @@ export function CostStatisticsPage() {
     setSnapshotYears(listRecordedSnapshotYears());
   }
 
+  /** 首次載入時把 app_settings 內所有年度設定同步進本機快取（歷史表、CSV 匯出用） */
   useEffect(() => {
-    skipNextFixedOverheadSave.current = true;
+    let cancelled = false;
+    void fetchAllFixedOverheadRecords().then(() => {
+      if (!cancelled) refreshRecordedMeta();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setOverheadSaveState({ kind: "idle" });
     const saved = loadFixedOverheadForYear(year);
+    lastLoadedOverhead.current = {
+      rent: saved.annualRent,
+      loan: saved.annualCompanyLoanInterest,
+    };
     setAnnualRent(saved.annualRent);
     setAnnualCompanyLoan(saved.annualCompanyLoanInterest);
     setFixedOverheadReady(true);
     refreshRecordedMeta();
+    void fetchFixedOverheadForYear(year).then((remote) => {
+      if (cancelled) return;
+      lastLoadedOverhead.current = {
+        rent: remote.annualRent,
+        loan: remote.annualCompanyLoanInterest,
+      };
+      setAnnualRent(remote.annualRent);
+      setAnnualCompanyLoan(remote.annualCompanyLoanInterest);
+      refreshRecordedMeta();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [year]);
 
   useEffect(() => {
     if (!fixedOverheadReady) return;
-    if (skipNextFixedOverheadSave.current) {
-      skipNextFixedOverheadSave.current = false;
-      return;
-    }
-    saveFixedOverheadForYear(year, {
-      annualRent,
-      annualCompanyLoanInterest: annualCompanyLoan,
-    });
-    refreshRecordedMeta();
+    const last = lastLoadedOverhead.current;
+    if (last && last.rent === annualRent && last.loan === annualCompanyLoan) return;
+    setOverheadSaveState({ kind: "saving" });
+    const timer = setTimeout(() => {
+      void persistFixedOverheadForYear(year, {
+        annualRent,
+        annualCompanyLoanInterest: annualCompanyLoan,
+      }).then(({ error }) => {
+        if (error) {
+          setOverheadSaveState({ kind: "error", message: error });
+          return;
+        }
+        lastLoadedOverhead.current = { rent: annualRent, loan: annualCompanyLoan };
+        setOverheadSaveState({ kind: "saved" });
+        refreshRecordedMeta();
+      });
+    }, 800);
+    return () => clearTimeout(timer);
   }, [annualRent, annualCompanyLoan, fixedOverheadReady, year]);
 
   const { loading, error, computed } = useCostStatisticsData({
@@ -287,7 +331,18 @@ export function CostStatisticsPage() {
         {fixedOverheadOpen && (
           <div className="space-y-4 border-t border-border px-4 py-4">
             <p className="text-xs text-muted-foreground">
-              各年度設定分開儲存；統計快照保存在此瀏覽器。
+              各年度設定分開儲存並同步至資料庫（各裝置共用）；統計快照保存在此瀏覽器。
+              {overheadSaveState.kind === "saving" && (
+                <span className="ml-2 text-muted-foreground">儲存中…</span>
+              )}
+              {overheadSaveState.kind === "saved" && (
+                <span className="ml-2 text-emerald-600">已儲存</span>
+              )}
+              {overheadSaveState.kind === "error" && (
+                <span className="ml-2 text-destructive">
+                  雲端儲存失敗：{overheadSaveState.message}
+                </span>
+              )}
             </p>
             <div className="flex flex-wrap gap-4">
           <div className="flex min-w-[12rem] flex-col gap-1">

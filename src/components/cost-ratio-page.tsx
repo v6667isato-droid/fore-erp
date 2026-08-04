@@ -1,12 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useCostStatisticsData,
   yearForPreset,
   type YearPreset,
 } from "@/components/cost-statistics/use-cost-statistics-data";
-import { loadFixedOverheadForYear, REVENUE_TAX_RATE } from "@/lib/cost-statistics-settings";
+import {
+  fetchFixedOverheadForYear,
+  loadFixedOverheadForYear,
+  REVENUE_TAX_RATE,
+} from "@/lib/cost-statistics-settings";
 import { spreadPurchaseCostByMonth } from "@/lib/purchase-amortization";
 import { Button } from "@/components/ui/button";
 
@@ -38,7 +42,19 @@ function formatPct(part: number, whole: number): string {
 export function CostRatioPage() {
   const [preset, setPreset] = useState<YearPreset>("this");
   const year = useMemo(() => yearForPreset(preset), [preset]);
-  const overhead = useMemo(() => loadFixedOverheadForYear(year), [year]);
+  const [overhead, setOverhead] = useState(() => loadFixedOverheadForYear(year));
+
+  /** 先用本機快取顯示，再以 app_settings 的共用設定覆蓋 */
+  useEffect(() => {
+    let cancelled = false;
+    setOverhead(loadFixedOverheadForYear(year));
+    void fetchFixedOverheadForYear(year).then((remote) => {
+      if (!cancelled) setOverhead(remote);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [year]);
 
   const { loading, error, computed, purchaseRows } = useCostStatisticsData({
     year,

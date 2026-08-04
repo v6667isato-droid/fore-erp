@@ -1,5 +1,10 @@
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+
 const STORAGE_KEY = "fore-erp:cost-statistics-store";
 const LEGACY_KEY = "fore-erp:cost-statistics-fixed-overhead";
+
+/** app_settings 內年度固定開銷的 key 前綴（後接年度，如 cost_fixed_overhead_2026） */
+const FIXED_OVERHEAD_SETTING_PREFIX = "cost_fixed_overhead_";
 
 /** 公司貸款預設年度支出：29695×12 + 7441×12 + 28037×6 */
 export const DEFAULT_ANNUAL_COMPANY_LOAN = 29695 * 12 + 7441 * 12 + 28037 * 6;
@@ -165,6 +170,94 @@ export function saveFixedOverheadForYear(
     updatedAt: new Date().toISOString(),
   };
   writeStore(store);
+}
+
+function fixedOverheadSettingKey(year: number): string {
+  return `${FIXED_OVERHEAD_SETTING_PREFIX}${year}`;
+}
+
+function yearFromFixedOverheadSettingKey(key: string): number | null {
+  if (!key.startsWith(FIXED_OVERHEAD_SETTING_PREFIX)) return null;
+  const year = Number(key.slice(FIXED_OVERHEAD_SETTING_PREFIX.length));
+  return Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : null;
+}
+
+function parseFixedOverheadValue(value: unknown): CostStatisticsFixedOverhead | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Partial<CostStatisticsFixedOverhead>;
+  return {
+    annualRent: parseNonNegative(v.annualRent, DEFAULT_ANNUAL_RENT),
+    annualCompanyLoanInterest: parseNonNegative(
+      v.annualCompanyLoanInterest,
+      DEFAULT_ANNUAL_COMPANY_LOAN,
+    ),
+  };
+}
+
+/**
+ * 自 app_settings 讀取年度固定開銷（各裝置共用）；查無或讀取失敗時退回本機快取／預設值。
+ * 讀到時同步寫入本機快取，供同步讀取的頁面（成本占比、CSV 匯出）使用。
+ */
+export async function fetchFixedOverheadForYear(
+  year: number,
+): Promise<CostStatisticsFixedOverhead> {
+  if (!isSupabaseConfigured) return loadFixedOverheadForYear(year);
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", fixedOverheadSettingKey(year))
+    .maybeSingle();
+  if (error) return loadFixedOverheadForYear(year);
+  const parsed = parseFixedOverheadValue(data?.value);
+  if (!parsed) return loadFixedOverheadForYear(year);
+  saveFixedOverheadForYear(year, parsed);
+  return parsed;
+}
+
+/** 自 app_settings 讀取所有年度固定開銷，並同步寫入本機快取 */
+export async function fetchAllFixedOverheadRecords(): Promise<
+  Array<{ year: number; settings: CostStatisticsFixedOverhead }>
+> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("key, value")
+    .like("key", `${FIXED_OVERHEAD_SETTING_PREFIX}%`);
+  if (error || !data) return [];
+  const rows: Array<{ year: number; settings: CostStatisticsFixedOverhead }> = [];
+  for (const row of data) {
+    const year = yearFromFixedOverheadSettingKey(row.key);
+    const settings = parseFixedOverheadValue(row.value);
+    if (year == null || !settings) continue;
+    saveFixedOverheadForYear(year, settings);
+    rows.push({ year, settings });
+  }
+  return rows.sort((a, b) => b.year - a.year);
+}
+
+/** 寫入 app_settings（各裝置共用），並同步本機快取；回傳雲端寫入結果 */
+export async function persistFixedOverheadForYear(
+  year: number,
+  settings: CostStatisticsFixedOverhead,
+): Promise<{ error: string | null }> {
+  const normalized: CostStatisticsFixedOverhead = {
+    annualRent: parseNonNegative(settings.annualRent, DEFAULT_ANNUAL_RENT),
+    annualCompanyLoanInterest: parseNonNegative(
+      settings.annualCompanyLoanInterest,
+      DEFAULT_ANNUAL_COMPANY_LOAN,
+    ),
+  };
+  saveFixedOverheadForYear(year, normalized);
+  if (!isSupabaseConfigured) return { error: "Supabase 尚未設定，僅存於此瀏覽器" };
+  const { error } = await supabase.from("app_settings").upsert(
+    {
+      key: fixedOverheadSettingKey(year),
+      value: normalized,
+      description: `成本統計 ${year} 年固定開銷（租金／公司貸款利息，年額）`,
+    },
+    { onConflict: "key" },
+  );
+  return { error: error?.message ?? null };
 }
 
 export function listFixedOverheadYears(): number[] {

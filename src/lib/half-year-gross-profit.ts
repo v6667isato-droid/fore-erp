@@ -2,7 +2,7 @@ import {
   computeRevenueTax,
   DEFAULT_ANNUAL_COMPANY_LOAN,
   DEFAULT_ANNUAL_RENT,
-  loadFixedOverheadForYear,
+  fetchFixedOverheadForYear,
 } from "@/lib/cost-statistics-settings";
 import {
   purchaseCostLookbackStartYear,
@@ -32,8 +32,17 @@ type PayslipRow = {
   period_key?: string | null;
   net_pay?: number | null;
   net_salary?: number | null;
+  payroll_bonus?: number | null;
   status?: string | null;
 };
+
+/** 半年度獎金由盈餘發放，不屬於薪資成本，計算時自實發淨額扣除 */
+function payslipNetExcludingBonus(row: PayslipRow): number {
+  const netPay = Number(row.net_pay ?? row.net_salary ?? 0);
+  if (!Number.isFinite(netPay)) return NaN;
+  const bonus = Number(row.payroll_bonus ?? 0);
+  return netPay - (Number.isFinite(bonus) ? bonus : 0);
+}
 
 type EmployeeBurdenRow = {
   id: string;
@@ -102,7 +111,7 @@ export async function fetchHalfYearGrossProfit(
   const cutoffYm = cutoffStr.slice(0, 7);
   const months = halfYearMonths(half);
 
-  const fixed = loadFixedOverheadForYear(year);
+  const fixed = await fetchFixedOverheadForYear(year);
   const annualRent = fixed.annualRent ?? DEFAULT_ANNUAL_RENT;
   const annualCompanyLoan = fixed.annualCompanyLoanInterest ?? DEFAULT_ANNUAL_COMPANY_LOAN;
 
@@ -125,7 +134,7 @@ export async function fetchHalfYearGrossProfit(
       .lte("order_date", end),
     supabase
       .from("payslips")
-      .select("employee_id,period_key,net_pay,net_salary,status")
+      .select("employee_id,period_key,net_pay,net_salary,payroll_bonus,status")
       .gte("period_key", `${year}-01`)
       .lte("period_key", `${year}-12`),
     supabase
@@ -169,7 +178,7 @@ export async function fetchHalfYearGrossProfit(
     if (row.status && row.status !== "paid") continue;
     const key = row.period_key && row.period_key.length >= 7 ? row.period_key.slice(0, 7) : "";
     if (!key || key > cutoffYm) continue;
-    const netPay = Number(row.net_pay ?? row.net_salary ?? 0);
+    const netPay = payslipNetExcludingBonus(row);
     if (!Number.isFinite(netPay)) continue;
     const burden =
       row.employee_id && burdenByEmployeeId.has(row.employee_id)
@@ -194,7 +203,7 @@ export async function fetchHalfYearGrossProfit(
       const pk = row.period_key && row.period_key.length >= 7 ? row.period_key.slice(0, 7) : "";
       if (pk !== k3) continue;
       if (!row.employee_id || !excludeIds.has(row.employee_id)) continue;
-      const netPay = Number(row.net_pay ?? row.net_salary ?? 0);
+      const netPay = payslipNetExcludingBonus(row);
       if (!Number.isFinite(netPay)) continue;
       const burden = burdenByEmployeeId.has(row.employee_id)
         ? Number(burdenByEmployeeId.get(row.employee_id) ?? 0)
