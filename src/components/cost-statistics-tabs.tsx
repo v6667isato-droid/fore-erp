@@ -4,14 +4,14 @@ import { useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { CostStatisticsPage } from "@/components/cost-statistics-page";
-import { CostRatioPage } from "@/components/cost-ratio-page";
 import { SalesStatisticsPage } from "@/components/sales-statistics-page";
 import { EmployeeCompletionStatisticsPage } from "@/components/employee-completion-statistics-page";
 
-export type StatisticsTab = "cost" | "ratio" | "sales" | "employee";
+export type StatisticsTab = "cost" | "sales" | "employee";
 
 function parseStatisticsTab(raw: string | null): StatisticsTab {
-  if (raw === "ratio" || raw === "sales" || raw === "employee" || raw === "cost") return raw;
+  if (raw === "sales" || raw === "employee" || raw === "cost") return raw;
+  // 舊網址 ?statisticsTab=ratio：成本占比已併入成本統計
   return "cost";
 }
 
@@ -48,7 +48,6 @@ export function CostStatisticsTabs() {
         {(
           [
             { id: "cost" as const, label: "成本統計" },
-            { id: "ratio" as const, label: "成本占比" },
             { id: "sales" as const, label: "銷售統計" },
             { id: "employee" as const, label: "員工完成統計" },
           ] as const
@@ -72,7 +71,6 @@ export function CostStatisticsTabs() {
       </div>
 
       {tab === "cost" && <CostStatisticsPage />}
-      {tab === "ratio" && <CostRatioPage />}
       {tab === "sales" && <SalesStatisticsPage />}
       {tab === "employee" && <EmployeeCompletionStatisticsPage />}
     </div>
