@@ -572,18 +572,6 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
 
             {/* 買方 */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="col-span-2 space-y-1">
-                <label className={labelCls} htmlFor="si-buyer-name">
-                  買方抬頭{invoiceType === "B2B" ? "（必填）" : "（選填）"}
-                </label>
-                <input
-                  id="si-buyer-name"
-                  type="text"
-                  value={buyerName}
-                  onChange={(e) => setBuyerName(e.target.value)}
-                  className={inputCls}
-                />
-              </div>
               {invoiceType === "B2B" && (
                 <div className="space-y-1">
                   <label className={labelCls} htmlFor="si-buyer-tax-id">買方統編（必填）</label>
@@ -593,18 +581,32 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                     inputMode="numeric"
                     maxLength={8}
                     value={buyerTaxId}
-                    onChange={(e) => setBuyerTaxId(e.target.value.replace(/\D/g, ""))}
-                    onBlur={() => {
-                      const ban = buyerTaxId.trim();
-                      if (!/^\d{8}$/.test(ban) || buyerName.trim()) return;
-                      void amegoBanQuery(ban).then((r) => {
-                        if (r.ok && r.name) setBuyerName((prev) => (prev.trim() ? prev : r.name));
-                      });
+                    onChange={(e) => {
+                      const ban = e.target.value.replace(/\D/g, "");
+                      setBuyerTaxId(ban);
+                      // 打滿 8 碼即查光賀帶出公司抬頭（抬頭已有值則不覆蓋）
+                      if (/^\d{8}$/.test(ban)) {
+                        void amegoBanQuery(ban).then((r) => {
+                          if (r.ok && r.name) setBuyerName((prev) => (prev.trim() ? prev : r.name));
+                        });
+                      }
                     }}
                     className={inputCls}
                   />
                 </div>
               )}
+              <div className="col-span-2 space-y-1">
+                <label className={labelCls} htmlFor="si-buyer-name">
+                  買方抬頭{invoiceType === "B2B" ? "（必填，輸入統編自動帶出）" : "（選填）"}
+                </label>
+                <input
+                  id="si-buyer-name"
+                  type="text"
+                  value={buyerName}
+                  onChange={(e) => setBuyerName(e.target.value)}
+                  className={inputCls}
+                />
+              </div>
               <div className={invoiceType === "B2B" ? "space-y-1" : "col-span-2 space-y-1"}>
                 <label className={labelCls} htmlFor="si-buyer-email">寄送 Email</label>
                 <input
