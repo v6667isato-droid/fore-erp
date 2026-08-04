@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CalendarPlus, ChevronDown, Loader2 } from "lucide-react";
+import { CalendarPlus, ChevronDown, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { isSupabaseConfigured, supabase, SUPABASE_CONFIG_HELP } from "@/lib/supabase";
 
@@ -13,6 +12,7 @@ const ERR_ZH: Record<string, string> = {
   invalid_hours: "請輸入大於 0 的加班時數。",
   employee_not_found: "找不到有效員工。",
   already_exists: "該員此日已有加班紀錄（已轉補休）。",
+  record_not_found: "找不到該筆加班紀錄，可能已被刪除。",
 };
 
 type RpcPayload = { ok?: boolean; error?: string };
@@ -65,9 +65,10 @@ export function ManualOvertimeAdminCard({ onMutate }: { onMutate?: () => void })
   const [listLoading, setListLoading] = useState(false);
   const [employeeId, setEmployeeId] = useState("");
   const [dateStr, setDateStr] = useState(todayIsoDate);
-  const [hoursInput, setHoursInput] = useState("");
+  const [hoursInput, setHoursInput] = useState("8");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadEmployees = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -183,7 +184,7 @@ export function ManualOvertimeAdminCard({ onMutate }: { onMutate?: () => void })
         return;
       }
       toast.success("已補登加班並轉入補休金庫。");
-      setHoursInput("");
+      setHoursInput("8");
       setReason("");
       onMutate?.();
       await loadList();
@@ -191,6 +192,41 @@ export function ManualOvertimeAdminCard({ onMutate }: { onMutate?: () => void })
       toast.error(err instanceof Error ? err.message : "補登失敗");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleDelete(row: OvertimeRow) {
+    const name = employeeNameById.get(row.employee_id) ?? "該員工";
+    const hoursText = row.hours != null ? `${row.hours} 小時` : "";
+    if (
+      !window.confirm(
+        `確定刪除 ${row.overtime_date.replace(/-/g, "/")} ${name} 的加班紀錄${hoursText}？\n將同步扣回補休金庫的時數。`,
+      )
+    ) {
+      return;
+    }
+    setDeletingId(row.id);
+    try {
+      const { data, error } = await supabase.rpc("revoke_overtime_comp_leave", {
+        p_record_id: row.id,
+      });
+      if (error) {
+        toast.error(error.message || "刪除失敗");
+        return;
+      }
+      const payload = data as RpcPayload | null;
+      if (payload && payload.ok === false) {
+        const code = typeof payload.error === "string" ? payload.error : "";
+        toast.error((ERR_ZH[code] ?? code) || "刪除失敗");
+        return;
+      }
+      toast.success("已刪除加班紀錄並扣回補休時數。");
+      onMutate?.();
+      await loadList();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "刪除失敗");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -271,8 +307,8 @@ export function ManualOvertimeAdminCard({ onMutate }: { onMutate?: () => void })
                 id="mot-hours"
                 type="number"
                 required
-                min={0.01}
-                step={0.1}
+                min={0.5}
+                step={0.5}
                 value={hoursInput}
                 onChange={(e) => setHoursInput(e.target.value)}
                 placeholder="例：8"
@@ -311,34 +347,58 @@ export function ManualOvertimeAdminCard({ onMutate }: { onMutate?: () => void })
             ) : rows.length === 0 ? (
               <p className="mt-3 text-sm text-muted-foreground">此範圍內尚無資料。</p>
             ) : (
-              <ul className="mt-3 space-y-2">
-                {rows.map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
-                        {r.overtime_date.replace(/-/g, "/")}
-                      </p>
-                      <p className="text-sm text-foreground">
-                        {employeeNameById.get(r.employee_id) ?? "—"}
-                        {r.reason ? (
-                          <span className="text-muted-foreground">（{r.reason}）</span>
-                        ) : null}
-                      </p>
-                      <div>
-                        <Badge
-                          variant="outline"
-                          className="border-emerald-600/40 bg-emerald-100 text-emerald-950 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-50"
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[26rem] text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                      <th className="py-1.5 pr-3 font-medium">姓名</th>
+                      <th className="py-1.5 pr-3 font-medium">日期</th>
+                      <th className="py-1.5 pr-3 text-right font-medium">時數</th>
+                      <th className="py-1.5 pr-3 font-medium">原因</th>
+                      <th className="w-9 py-1.5" aria-label="操作" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.id} className="border-b border-border/50 last:border-0">
+                        <td className="whitespace-nowrap py-1.5 pr-3 text-foreground">
+                          {employeeNameById.get(r.employee_id) ?? "—"}
+                        </td>
+                        <td className="whitespace-nowrap py-1.5 pr-3 font-mono tabular-nums text-foreground">
+                          {r.overtime_date.replace(/-/g, "/")}
+                        </td>
+                        <td className="whitespace-nowrap py-1.5 pr-3 text-right tabular-nums text-foreground">
+                          {r.hours != null ? r.hours : "—"}
+                        </td>
+                        <td
+                          className="max-w-[12rem] truncate py-1.5 pr-3 text-muted-foreground"
+                          title={r.reason ?? undefined}
                         >
-                          💰 已轉補休{r.hours != null ? ` ${r.hours} 小時` : ""}
-                        </Badge>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                          {r.reason ?? "—"}
+                        </td>
+                        <td className="py-0.5 text-right">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            disabled={deletingId != null}
+                            onClick={() => void handleDelete(r)}
+                            aria-label="刪除此筆加班紀錄"
+                            title="刪除（同步扣回補休金庫）"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          >
+                            {deletingId === r.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>

@@ -2,24 +2,6 @@
 
 const MIN_DELTA_MS = 1000;
 
-export function leaveRecordWasUpdated(row: Record<string, unknown>): boolean {
-  const cr = row.created_at;
-  const up = row.updated_at;
-  if (cr == null || up == null) return false;
-  const c = new Date(String(cr)).getTime();
-  const u = new Date(String(up)).getTime();
-  if (Number.isNaN(c) || Number.isNaN(u)) return false;
-  return u - c > MIN_DELTA_MS;
-}
-
-export function appendLeaveRemarkUpdateSuffix(
-  line: string,
-  row: Record<string, unknown>,
-): string {
-  if (!leaveRecordWasUpdated(row)) return line;
-  return `${line}（已更新）`;
-}
-
 export function leaveRequestRowWasUpdated(row: {
   created_at?: string | null;
   updated_at?: string | null;

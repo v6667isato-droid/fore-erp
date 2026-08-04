@@ -6,7 +6,6 @@ import {
   hoursToDayHourParts,
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
-import { appendLeaveRemarkUpdateSuffix } from "@/lib/leave-request-updated";
 
 export type PayslipRemarkBounds = {
   start: string;
@@ -259,16 +258,13 @@ function leaveLineForRow(
         const d1 = formatMdFromIso(ymdFromDate(e));
         datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
       }
-      return appendLeaveRemarkUpdateSuffix(
-        formatSpecialLeaveNoteLine(row, datePart),
-        row,
-      );
+      return formatSpecialLeaveNoteLine(row, datePart);
     }
     if (!hasOverlap) return null;
     const d0 = formatMdFromIso(ymdFromDate(s));
     const d1 = formatMdFromIso(ymdFromDate(e));
     const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
-    return appendLeaveRemarkUpdateSuffix(formatSpecialLeaveNoteLine(row, datePart), row);
+    return formatSpecialLeaveNoteLine(row, datePart);
   }
 
   if (!hasOverlap) return null;
@@ -280,25 +276,20 @@ function leaveLineForRow(
   const hours = num(row.hours_count, 0);
   if (hours > 0) {
     const hDisp = Number.isInteger(hours) ? String(hours) : String(hours);
-    return appendLeaveRemarkUpdateSuffix(
-      `${datePart} ${leaveType} ${hDisp}hr`,
-      row,
-    );
+    return `${datePart} ${leaveType} ${hDisp}hr`;
   }
   const td = num(row.total_days, 0);
   if (td > 0 && td !== 1) {
     const tdDisp = Number.isInteger(td) ? String(td) : String(td);
-    return appendLeaveRemarkUpdateSuffix(
-      `${datePart} ${leaveType} ${tdDisp}天`,
-      row,
-    );
+    return `${datePart} ${leaveType} ${tdDisp}天`;
   }
-  return appendLeaveRemarkUpdateSuffix(`${datePart} ${leaveType}`, row);
+  return `${datePart} ${leaveType}`;
 }
 
 function overtimeLineForRow(
   row: Record<string, unknown>,
   settleOvertimeAsCompOff: boolean,
+  overtimeDailyRate?: number,
 ): string | null {
   const d = String(row.overtime_date ?? "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
@@ -309,7 +300,34 @@ function overtimeLineForRow(
   if (settleOvertimeAsCompOff) {
     return `${md} 假日加班轉補休 ${hDisp}hr`;
   }
+  const rate = overtimeDailyRate ?? 0;
+  if (rate > 0) {
+    const amt = Math.round((rate * h) / 8);
+    return `${md} 假日加班費${amt.toLocaleString("zh-TW")}元`;
+  }
   return `${md} 假日加班 ${hDisp}hr（計薪）`;
+}
+
+/**
+ * 勾選「轉補休」切換時，就地替換備註中該員工的假日加班行文字，
+ * 其餘（含手動編輯）內容保持不動。
+ */
+export function swapOvertimeRemarkLines(
+  notes: string,
+  employeeId: string,
+  overtimeRows: Record<string, unknown>[],
+  settleOvertimeAsCompOff: boolean,
+  overtimeDailyRate?: number,
+): string {
+  let out = notes;
+  for (const row of overtimeRows) {
+    if (String(row.employee_id ?? "") !== employeeId) continue;
+    const from = overtimeLineForRow(row, !settleOvertimeAsCompOff, overtimeDailyRate);
+    const to = overtimeLineForRow(row, settleOvertimeAsCompOff, overtimeDailyRate);
+    if (!from || !to || from === to) continue;
+    out = out.split(from).join(to);
+  }
+  return out;
 }
 
 export function sumApprovedOvertimeHoursForEmployee(
@@ -346,6 +364,8 @@ export function buildPayslipAttendanceRemarks(
     leaveRows: Record<string, unknown>[];
     overtimeRows: Record<string, unknown>[];
     settleOvertimeAsCompOff: boolean;
+    /** 員工的假日加班日費率：取消轉補休時，加班行顯示「M/D假日加班費N元」 */
+    overtimeDailyRate?: number;
     /** 結算月內放假日（is_workday=false）：該日不再列出勤異常，並自動寫入「M/D 假日名」 */
     holidays?: PayslipRemarkHoliday[];
   },
@@ -357,6 +377,7 @@ export function buildPayslipAttendanceRemarks(
     leaveRows,
     overtimeRows,
     settleOvertimeAsCompOff,
+    overtimeDailyRate,
     holidays,
   } = opts;
   const items: SortableRemark[] = [];
@@ -407,7 +428,7 @@ export function buildPayslipAttendanceRemarks(
 
   for (const row of overtimeRows) {
     if (String(row.employee_id ?? "") !== employeeId) continue;
-    const line = overtimeLineForRow(row, settleOvertimeAsCompOff);
+    const line = overtimeLineForRow(row, settleOvertimeAsCompOff, overtimeDailyRate);
     if (!line) continue;
     const sortKey = String(row.overtime_date ?? "").slice(0, 10);
     items.push({ sortKey, text: line });
