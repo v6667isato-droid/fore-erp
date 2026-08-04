@@ -297,6 +297,27 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     ]);
   }
 
+  /** 尾款＝訂單品項總額（含運費）－訂金 */
+  const balanceAmount = useMemo(() => {
+    if (!orderPrefill || orderPrefill.depositAmount <= 0) return 0;
+    const orderTotal = orderPrefill.lines.reduce((acc, l) => acc + lineAmount(l), 0);
+    return Math.round((orderTotal - orderPrefill.depositAmount) * 100) / 100;
+  }, [orderPrefill]);
+
+  /** 拆開尾款開票：明細改為單列「尾款」 */
+  function useBalanceLine() {
+    if (balanceAmount <= 0) return;
+    setLines([
+      {
+        key: nextLineKey(),
+        order_item_id: null,
+        description: `尾款（訂單 ${order?.order_number ?? ""}）`.trim(),
+        quantity: "1",
+        unitPrice: String(balanceAmount),
+      },
+    ]);
+  }
+
   /** 還原為訂單全部品項 */
   function useOrderLines() {
     if (!orderPrefill || orderPrefill.lines.length === 0) return;
@@ -660,6 +681,11 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                   {orderPrefill && orderPrefill.depositAmount > 0 && (
                     <Button type="button" variant="outline" className="h-7 px-2 text-xs" onClick={useDepositLine}>
                       改開訂金 ${orderPrefill.depositAmount.toLocaleString()}
+                    </Button>
+                  )}
+                  {balanceAmount > 0 && (
+                    <Button type="button" variant="outline" className="h-7 px-2 text-xs" onClick={useBalanceLine}>
+                      改開尾款 ${balanceAmount.toLocaleString()}
                     </Button>
                   )}
                   {orderPrefill && orderPrefill.lines.length > 0 && (
