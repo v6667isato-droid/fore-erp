@@ -44,6 +44,13 @@ function num(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** 快照欄位：舊資料（欄位不存在或 NULL）回傳 null 與 0 區分 */
+function numOrNull(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** YYYY-MM */
 function parseYm(ym: string): { y: number; m: number } | null {
   const m = /^(\d{4})-(\d{2})$/.exec(ym.trim());
@@ -1057,7 +1064,15 @@ async function fetchPayslipRows(employeeId: string): Promise<PayslipRow[]> {
       overtime_days: num(row.overtime_days, 0),
       overtime_pay: overtimePay,
       special_leave_days_settled: num(row.special_leave_days_settled ?? row.special_leave_settled, 0),
+      special_leave_remaining_after: numOrNull(row.special_leave_remaining_after),
+      comp_leave_remaining_after: numOrNull(row.comp_leave_remaining_after),
       leave_days: num(row.leave_days ?? row.deductible_leave_days, 0),
+      other_leave_days: num(row.other_leave_days, 0),
+      other_leave_detail:
+        typeof row.other_leave_detail === "string" && row.other_leave_detail.trim()
+          ? row.other_leave_detail.trim()
+          : null,
+      payroll_bonus: num(row.payroll_bonus, 0),
       leave_deduction: deduct,
       other_adjust: num(row.other_adjust, 0),
       net_pay: net,

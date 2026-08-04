@@ -48,6 +48,7 @@ import {
   deriveLegacyHourFieldsForDb,
   formatDayDecimalAsDayHour,
   formatHoursAsDayHour,
+  formatSignedDayDecimalAsDayHour,
   hoursToDayHourParts,
   parseLocalDateTime,
   splitRemainingDaysToDayHour,
@@ -302,7 +303,7 @@ function PayslipBreakdownPanel({
                 <td className={slipVal}>{formatSlipDays(b.overtime_days)}</td>
               </tr>
               <tr className="border-b border-border/55">
-                <td className={slipLabel}>加班費（獎金／加班）</td>
+                <td className={slipLabel}>加班費</td>
                 <td className={slipVal}>
                   {b.overtime_pay > 0 ? (
                     <>+ {formatNtd(b.overtime_pay)}</>
@@ -316,6 +317,23 @@ function PayslipBreakdownPanel({
                 <td className={slipVal}>{formatSlipDays(b.leave_days)}</td>
               </tr>
               <tr className="border-b border-border/55">
+                <td className={cn(slipLabel, "whitespace-normal")}>
+                  <span className="block">其他假期</span>
+                  {b.other_leave_detail ? (
+                    <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                      {b.other_leave_detail}
+                    </span>
+                  ) : null}
+                </td>
+                <td className={slipVal}>
+                  {b.other_leave_days > 0 ? (
+                    formatSlipDays(b.other_leave_days)
+                  ) : (
+                    <span className="font-normal text-muted-foreground">無</span>
+                  )}
+                </td>
+              </tr>
+              <tr className="border-b border-border/55">
                 <td className={slipLabel}>特休請假</td>
                 <td className={slipVal}>
                   {formatDayDecimalAsDayHour(b.special_leave_days_settled)}
@@ -325,14 +343,41 @@ function PayslipBreakdownPanel({
                 <td className={cn(slipLabel, "whitespace-normal")}>
                   <span className="block">特休假剩餘</span>
                   <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                    目前主檔（非該月歷史快照）
+                    {b.special_leave_remaining_after != null
+                      ? "該月結算快照"
+                      : "目前主檔（非該月歷史快照）"}
                   </span>
                 </td>
                 <td className={slipVal}>
-                  {annualLeaveRemaining != null && Number.isFinite(annualLeaveRemaining) ? (
+                  {b.special_leave_remaining_after != null ? (
+                    formatSignedDayDecimalAsDayHour(b.special_leave_remaining_after)
+                  ) : annualLeaveRemaining != null && Number.isFinite(annualLeaveRemaining) ? (
                     formatDayDecimalAsDayHour(annualLeaveRemaining)
                   ) : (
                     <span className="font-normal text-muted-foreground">—</span>
+                  )}
+                </td>
+              </tr>
+              {b.comp_leave_remaining_after != null ? (
+                <tr className="border-b border-border/55">
+                  <td className={cn(slipLabel, "whitespace-normal")}>
+                    <span className="block">補休剩餘</span>
+                    <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                      該月結算快照
+                    </span>
+                  </td>
+                  <td className={slipVal}>
+                    {formatHoursAsDayHour(b.comp_leave_remaining_after)}
+                  </td>
+                </tr>
+              ) : null}
+              <tr className="border-b border-border/55">
+                <td className={slipLabel}>獎金</td>
+                <td className={slipVal}>
+                  {b.payroll_bonus > 0 ? (
+                    <>+ {formatNtd(b.payroll_bonus)}</>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">無</span>
                   )}
                 </td>
               </tr>

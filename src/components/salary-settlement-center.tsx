@@ -204,18 +204,38 @@ function leaveDeductionRatio(
 /** 單一員工當月請假統計（特休另行結算；deductible 僅收扣薪比例 > 0 的假別） */
 type LeaveMonthStats = {
   specialThisMonth: number;
+  /** 本月申請（建立）之補休假總時數：發放時自補休金庫扣除（同特休邏輯） */
+  compThisMonth: number;
   /** 假別名稱 → 本月天數 */
   deductibleByType: Map<string, number>;
   /** Σ 天數 × 扣薪比例 */
   weightedDeductionDays: number;
+  /** 其他假期（非特休、非事假病假：婚假、生理假、公假等）假別名稱 → 本月天數 */
+  otherByType: Map<string, number>;
 };
 
 function emptyLeaveMonthStats(): LeaveMonthStats {
   return {
     specialThisMonth: 0,
+    compThisMonth: 0,
     deductibleByType: new Map(),
     weightedDeductionDays: 0,
+    otherByType: new Map(),
   };
+}
+
+/** 其他假期彙整：{ days: 總天數, detail: 「婚假 2 天、生理假 1 天」} */
+function summarizeOtherLeave(st: LeaveMonthStats): {
+  days: number;
+  detail: string | null;
+} {
+  let days = 0;
+  const parts: string[] = [];
+  for (const [name, d] of st.otherByType) {
+    days += d;
+    parts.push(`${name} ${d.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`);
+  }
+  return { days, detail: parts.length ? parts.join("、") : null };
 }
 
 function computeLeaveDeduction(
@@ -237,6 +257,20 @@ function isSpecialAnnualLeave(row: Record<string, unknown>): boolean {
   const v = row.leave_type;
   if (v == null) return false;
   return String(v).trim() === "特休";
+}
+
+/** leave_type 為「補休」（含「補休假」等變體） */
+function isCompLeave(row: Record<string, unknown>): boolean {
+  const v = row.leave_type;
+  if (v == null) return false;
+  return String(v).trim().startsWith("補休");
+}
+
+/** 該筆補休假總時數：小時制假單（hours_count）優先，否則總天數 × 8 */
+function leaveRequestTotalHours(row: Record<string, unknown>): number {
+  const hc = Number(row.hours_count);
+  if (Number.isFinite(hc) && hc > 0) return hc;
+  return leaveRequestTotalDays(row) * 8;
 }
 
 function leaveEmployeeId(row: Record<string, unknown>): string | null {
@@ -294,7 +328,8 @@ function isPayslipOnConflictTargetError(message: string): boolean {
  * - 識別／期間：employee_id, period_key, pay_period, month_label
  * - 金額：base_salary, net_pay, net_salary, bonus_and_overtime, leave_deduction, other_adjust
  * - 勞健保快照：labor_insurance_employee, health_insurance_employee, health_insured_persons
- * - 假勤／加班：overtime_days, special_leave_days_settled, special_leave_remaining_after, leave_days
+ * - 假勤／加班：overtime_days, special_leave_days_settled, special_leave_remaining_after,
+ *   comp_leave_remaining_after, leave_days, other_leave_days, other_leave_detail
  * - 出勤備註：notes
  * 上述「明細快照」鍵若缺欄會先略過；bonus_and_overtime／leave_deduction 不在此列，fallback 時仍會寫入。
  */
@@ -305,7 +340,10 @@ const PAYSLIP_DETAIL_SNAPSHOT_KEYS = [
   "overtime_days",
   "special_leave_days_settled",
   "special_leave_remaining_after",
+  "comp_leave_remaining_after",
   "leave_days",
+  "other_leave_days",
+  "other_leave_detail",
   "other_adjust",
 ] as const;
 
@@ -476,6 +514,18 @@ export function SalarySettlementCenter() {
         if (createdAtInPayPeriodMonth(raw, payPeriod)) {
           cur.specialThisMonth += leaveRequestTotalDays(raw);
         }
+      } else if (isCompLeave(raw)) {
+        // 補休：同特休邏輯，以假單建立月為準、發放時自補休金庫扣總時數；
+        // 發放前撤銷／退回的假單不列入（僅統計已核准）
+        if (createdAtInPayPeriodMonth(raw, payPeriod)) {
+          cur.compThisMonth += leaveRequestTotalHours(raw);
+        }
+        // 薪資單備註仍照其他假期記錄本月重疊天數
+        const days = overlapInclusiveDays(start, end, bounds.start, bounds.end);
+        if (days > 0) {
+          const name = leaveTypeRaw(raw) || "補休";
+          cur.otherByType.set(name, (cur.otherByType.get(name) ?? 0) + days);
+        }
       } else {
         const days = overlapInclusiveDays(start, end, bounds.start, bounds.end);
         if (days <= 0) continue;
@@ -487,6 +537,11 @@ export function SalarySettlementCenter() {
             (cur.deductibleByType.get(name) ?? 0) + days,
           );
           cur.weightedDeductionDays += days * ratio;
+        }
+        // 其他假期（婚假、生理假、公假等）：不論扣薪與否都記錄假別與天數，
+        // 發放時寫入 payslips.other_leave_days / other_leave_detail 供薪資單備註
+        if (name !== "事假" && name !== "病假") {
+          cur.otherByType.set(name, (cur.otherByType.get(name) ?? 0) + days);
         }
       }
       map.set(eid, cur);
@@ -1091,6 +1146,17 @@ export function SalarySettlementCenter() {
     const compClawbackHours = inp.settleOvertimeAsCompOff
       ? 0
       : Math.min(monthOtHours, inp.overtimeDays * 8);
+    /** 本月申請之補休假：發放時自補休金庫扣除（同特休以建立月為準） */
+    const compLeaveSettleHours = st.compThisMonth;
+    const totalCompDeductHours = compClawbackHours + compLeaveSettleHours;
+
+    /** 補休剩餘快照（小時）：發放當下餘額扣掉本次沖回；主檔無資料時為 null */
+    const compLeaveAfter =
+      emp.comp_leave_remaining != null
+        ? emp.comp_leave_remaining - compClawbackHours
+        : null;
+    /** 其他假期（婚假、生理假等）快照 */
+    const otherLeave = summarizeOtherLeave(st);
 
     const confirmLines = [
       `確定發放「${emp.name}」${bounds.label} 薪資？`,
@@ -1113,6 +1179,11 @@ export function SalarySettlementCenter() {
     if (compClawbackHours > 0) {
       confirmLines.push(
         `加班改計加班費：將自動從補休金庫扣回 ${compClawbackHours} 小時（補登時曾轉入）`,
+      );
+    }
+    if (compLeaveSettleHours > 0) {
+      confirmLines.push(
+        `補休假結算：將自動從補休金庫扣除 ${compLeaveSettleHours} 小時（本月申請之補休假）`,
       );
     }
 
@@ -1151,7 +1222,10 @@ export function SalarySettlementCenter() {
       overtime_days: inp.overtimeDays,
       special_leave_days_settled: st.specialThisMonth,
       special_leave_remaining_after: settledRemaining,
+      comp_leave_remaining_after: compLeaveAfter,
       leave_days: leaveDaysTotal,
+      other_leave_days: otherLeave.days,
+      other_leave_detail: otherLeave.detail,
       payroll_bonus: semiBonus,
       other_adjust: inp.otherAdjust,
       notes,
@@ -1266,9 +1340,10 @@ export function SalarySettlementCenter() {
       return;
     }
 
-    /** 補休金庫沖回：薪資與特休都寫入成功後才執行；失敗不回滾薪資，改提示人工處理 */
-    let compClawbackDone = false;
-    if (compClawbackHours > 0) {
+    /** 補休金庫扣除（改計加班費沖回＋本月補休假結算，合併一次更新）：
+     *  薪資與特休都寫入成功後才執行；失敗不回滾薪資，改提示人工處理 */
+    let compDeductDone = false;
+    if (totalCompDeductHours > 0) {
       const compRead = await supabase
         .from("employees")
         .select("comp_leave_remaining")
@@ -1279,13 +1354,13 @@ export function SalarySettlementCenter() {
           (compRead.data as { comp_leave_remaining?: unknown }).comp_leave_remaining,
           0,
         );
-        const after = current - compClawbackHours;
+        const after = current - totalCompDeductHours;
         const { error: compErr } = await supabase
           .from("employees")
           .update({ comp_leave_remaining: after })
           .eq("id", emp.id);
-        compClawbackDone = !compErr;
-        if (compClawbackDone) {
+        compDeductDone = !compErr;
+        if (compDeductDone) {
           setEmployees((prev) =>
             prev.map((e2) =>
               e2.id === emp.id ? { ...e2, comp_leave_remaining: after } : e2,
@@ -1293,17 +1368,17 @@ export function SalarySettlementCenter() {
           );
         }
       }
-      if (!compClawbackDone) {
+      if (!compDeductDone) {
         toast.warning(
-          `薪資已入帳，但補休金庫扣回失敗，請至員工主檔手動扣 ${compClawbackHours} 小時。`,
+          `薪資已入帳，但補休金庫扣除失敗，請至員工主檔手動扣 ${totalCompDeductHours} 小時。`,
           { duration: 10000 },
         );
       }
     }
 
     toast.success(
-      compClawbackDone
-        ? `已發放：${emp.name}（薪資入帳、特休已更新、補休扣回 ${compClawbackHours} 小時）`
+      compDeductDone
+        ? `已發放：${emp.name}（薪資入帳、特休已更新、補休扣 ${totalCompDeductHours} 小時）`
         : `已發放：${emp.name}（薪資入帳並已更新特休餘額）`,
     );
     if (payslipDetailFallback) {

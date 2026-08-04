@@ -1717,6 +1717,7 @@ export type Database = {
           base_salary: number
           bonus_and_overtime: number
           bonuses: number | null
+          comp_leave_remaining_after: number | null
           created_at: string | null
           employee_id: string
           health_insurance_employee: number
@@ -1732,6 +1733,8 @@ export type Database = {
           net_salary: number
           notes: string | null
           other_adjust: number
+          other_leave_days: number
+          other_leave_detail: string | null
           overtime_days: number
           pay_period: string
           payment_date: string | null
@@ -1745,6 +1748,7 @@ export type Database = {
           base_salary: number
           bonus_and_overtime?: number
           bonuses?: number | null
+          comp_leave_remaining_after?: number | null
           created_at?: string | null
           employee_id: string
           health_insurance_employee?: number
@@ -1760,6 +1764,8 @@ export type Database = {
           net_salary: number
           notes?: string | null
           other_adjust?: number
+          other_leave_days?: number
+          other_leave_detail?: string | null
           overtime_days?: number
           pay_period: string
           payment_date?: string | null
@@ -1773,6 +1779,7 @@ export type Database = {
           base_salary?: number
           bonus_and_overtime?: number
           bonuses?: number | null
+          comp_leave_remaining_after?: number | null
           created_at?: string | null
           employee_id?: string
           health_insurance_employee?: number
@@ -1788,6 +1795,8 @@ export type Database = {
           net_salary?: number
           notes?: string | null
           other_adjust?: number
+          other_leave_days?: number
+          other_leave_detail?: string | null
           overtime_days?: number
           pay_period?: string
           payment_date?: string | null

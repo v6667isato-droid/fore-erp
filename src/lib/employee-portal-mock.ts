@@ -103,8 +103,18 @@ export interface PayslipDetailBreakdown {
   overtime_pay: number;
   /** 本月核准特休天數（結算自餘額扣除） */
   special_leave_days_settled: number;
+  /** 該月結算後剩餘特休快照（payslips.special_leave_remaining_after；舊資料 null） */
+  special_leave_remaining_after: number | null;
+  /** 該月結算後補休剩餘快照（小時，payslips.comp_leave_remaining_after；舊資料 null） */
+  comp_leave_remaining_after: number | null;
   /** 事假／病假等計薪天數（扣款依據；結算月內） */
   leave_days: number;
+  /** 其他假期天數（婚假、生理假等非特休、非事假病假） */
+  other_leave_days: number;
+  /** 其他假期假別明細，如「婚假 2 天、生理假 1 天」 */
+  other_leave_detail: string | null;
+  /** 考績／分潤／年度獎金（payslips.payroll_bonus） */
+  payroll_bonus: number;
   /** 請假扣款：事假／病假等（正數金額，顯示為減項） */
   leave_deduction: number;
   /** 其他加減項（正數加、負數減；0 可省略列） */
@@ -368,7 +378,12 @@ export const employeePortalMock: EmployeePortalPayload = {
         overtime_days: 4,
         overtime_pay: 4800,
         special_leave_days_settled: 1,
+        special_leave_remaining_after: 12.5,
+        comp_leave_remaining_after: 24,
         leave_days: 1,
+        other_leave_days: 2,
+        other_leave_detail: "婚假 2 天",
+        payroll_bonus: 5000,
         leave_deduction: 914,
         other_adjust: 0,
         net_pay: 43800,
@@ -390,7 +405,12 @@ export const employeePortalMock: EmployeePortalPayload = {
         overtime_days: 5,
         overtime_pay: 6120,
         special_leave_days_settled: 0,
+        special_leave_remaining_after: 13.5,
+        comp_leave_remaining_after: 16,
         leave_days: 1,
+        other_leave_days: 0,
+        other_leave_detail: null,
+        payroll_bonus: 0,
         leave_deduction: 914,
         other_adjust: 0,
         net_pay: 45120,
@@ -411,7 +431,12 @@ export const employeePortalMock: EmployeePortalPayload = {
         overtime_days: 3,
         overtime_pay: 3850,
         special_leave_days_settled: 2,
+        special_leave_remaining_after: 13.5,
+        comp_leave_remaining_after: null,
         leave_days: 1,
+        other_leave_days: 1,
+        other_leave_detail: "生理假 1 天",
+        payroll_bonus: 0,
         leave_deduction: 914,
         other_adjust: 0,
         net_pay: 42850,
@@ -432,7 +457,12 @@ export const employeePortalMock: EmployeePortalPayload = {
         overtime_days: 7,
         overtime_pay: 10500,
         special_leave_days_settled: 0,
+        special_leave_remaining_after: null,
+        comp_leave_remaining_after: null,
         leave_days: 3,
+        other_leave_days: 0,
+        other_leave_detail: null,
+        payroll_bonus: 0,
         leave_deduction: 3914,
         other_adjust: 0,
         net_pay: 46500,
