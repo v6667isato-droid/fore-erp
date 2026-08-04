@@ -57,6 +57,8 @@ interface SettlementEmployee {
   health_insured_persons: number | null;
   overtime_rate: number | null;
   annual_leave_remaining: number | null;
+  /** 補休金庫餘額（小時，employees.comp_leave_remaining）；舊 schema 查不到時為 null */
+  comp_leave_remaining: number | null;
   hire_date: string | null;
   share_count: number;
   unpaid_leave_months: string[];
@@ -354,6 +356,10 @@ function mapRowToSettlementEmployee(r: Record<string, unknown>): SettlementEmplo
       r.annual_leave_remaining != null && r.annual_leave_remaining !== ""
         ? num(r.annual_leave_remaining)
         : null,
+    comp_leave_remaining:
+      r.comp_leave_remaining != null && r.comp_leave_remaining !== ""
+        ? num(r.comp_leave_remaining)
+        : null,
     hire_date:
       r.hire_date != null && String(r.hire_date).trim() !== ""
         ? String(r.hire_date).slice(0, 10)
@@ -369,6 +375,7 @@ function mapRowToSettlementEmployee(r: Record<string, unknown>): SettlementEmplo
 }
 
 const EMP_SELECT_ATTEMPTS = [
+  "id, name, email, payroll_notification_email, remittance_bank, remittance_account, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, comp_leave_remaining, hire_date, share_count, unpaid_leave_months, employment_status, deleted_at",
   "id, name, email, payroll_notification_email, remittance_bank, remittance_account, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, hire_date, share_count, unpaid_leave_months, employment_status, deleted_at",
   "id, name, email, payroll_notification_email, remittance_bank, remittance_account, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
   "id, name, email, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
@@ -1250,11 +1257,19 @@ export function SalarySettlementCenter() {
           (compRead.data as { comp_leave_remaining?: unknown }).comp_leave_remaining,
           0,
         );
+        const after = current - compClawbackHours;
         const { error: compErr } = await supabase
           .from("employees")
-          .update({ comp_leave_remaining: current - compClawbackHours })
+          .update({ comp_leave_remaining: after })
           .eq("id", emp.id);
         compClawbackDone = !compErr;
+        if (compClawbackDone) {
+          setEmployees((prev) =>
+            prev.map((e2) =>
+              e2.id === emp.id ? { ...e2, comp_leave_remaining: after } : e2,
+            ),
+          );
+        }
       }
       if (!compClawbackDone) {
         toast.warning(
@@ -1477,6 +1492,12 @@ export function SalarySettlementCenter() {
                 </th>
                 <th className="text-right text-muted-foreground">費率</th>
                 <th className="text-center text-muted-foreground">補休</th>
+                <th
+                  title="補休金庫餘額（小時，employees.comp_leave_remaining）"
+                  className="text-right text-muted-foreground"
+                >
+                  補休結餘
+                </th>
                 <th className="border-l border-border text-right text-foreground">
                   獎金
                 </th>
@@ -1704,6 +1725,14 @@ export function SalarySettlementCenter() {
                           }}
                         />
                       </label>
+                    </td>
+                    <td
+                      className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground"
+                      title="補休金庫餘額（小時）"
+                    >
+                      {emp.comp_leave_remaining != null
+                        ? `${emp.comp_leave_remaining}h`
+                        : "—"}
                     </td>
                     <td className="border-l border-border text-right">
                       <input
