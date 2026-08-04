@@ -3,17 +3,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Ban, Eye, FileDown, FileMinus, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Ban, Eye, FileDown, FileMinus, FileText, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { normalizeInvoiceNumber } from "@/lib/accounting-invoice";
 import {
+  amegoCreateAllowance,
+  amegoInvoiceFileUrl,
+  amegoVoidInvoice,
   fetchSalesInvoices,
   SALES_STATUS_LABELS,
   SYNC_STATUS_LABELS,
   type SalesInvoiceRow,
 } from "@/lib/sales-invoice";
+
+/** 這張發票是否由光賀開立（作廢／折讓需同步到光賀） */
+function isAmegoSynced(r: SalesInvoiceRow): boolean {
+  return r.sync_status === "confirmed" || r.sync_status === "sent";
+}
 import { SalesInvoiceDialog } from "@/components/accounting/sales-invoice-dialog";
 import { ExportSalesTaxMediaDialog } from "@/components/accounting/export-sales-tax-media-dialog";
 
@@ -93,6 +101,20 @@ export function SalesInvoicesPage() {
     }
     return { inc: Math.round(inc * 100) / 100, tax: Math.round(tax * 100) / 100 };
   }, [filtered]);
+
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  /** 開啟光賀發票 PDF（連結 10 分鐘有效）；載具發票依規定中獎後才可下載 */
+  async function openInvoicePdf(row: SalesInvoiceRow) {
+    setDownloadingId(row.id);
+    const res = await amegoInvoiceFileUrl(row.id);
+    setDownloadingId(null);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    window.open(res.file_url, "_blank", "noopener");
+  }
 
   async function performDelete() {
     const row = deleteTarget;
@@ -218,8 +240,8 @@ export function SalesInvoicesPage() {
                   const allowances = r.sales_allowances ?? [];
                   return (
                     <tr key={r.id} className="hover:bg-muted/20">
-                      <td className="px-4 py-2 tabular-nums text-foreground">{r.invoice_date ?? "—"}</td>
-                      <td className="px-2 py-2 font-medium tabular-nums text-foreground">
+                      <td className="whitespace-nowrap px-4 py-2 tabular-nums text-foreground">{r.invoice_date ?? "—"}</td>
+                      <td className="whitespace-nowrap px-2 py-2 font-medium tabular-nums text-foreground">
                         {r.invoice_number ?? <span className="text-muted-foreground">（草稿未取號）</span>}
                         {allowances.length > 0 && (
                           <span
@@ -239,47 +261,47 @@ export function SalesInvoicesPage() {
                         )}
                       </td>
                       <td className="px-2 py-2 text-muted-foreground">{r.invoice_type}</td>
-                      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                      <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-muted-foreground">
                         {r.amount_ex_tax != null ? `$${r.amount_ex_tax.toLocaleString()}` : "—"}
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                      <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-muted-foreground">
                         {r.tax_amount != null ? `$${r.tax_amount.toLocaleString()}` : "—"}
                       </td>
-                      <td className="px-2 py-2 text-right font-medium tabular-nums text-foreground">
+                      <td className="whitespace-nowrap px-2 py-2 text-right font-medium tabular-nums text-foreground">
                         {r.amount_inc_tax != null ? `$${r.amount_inc_tax.toLocaleString()}` : "—"}
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="whitespace-nowrap px-2 py-2">
                         <span
-                          className={`rounded border px-1.5 py-px text-xs font-medium ${STATUS_BADGE_CLS[r.status] ?? ""}`}
+                          className={`whitespace-nowrap rounded border px-1.5 py-px text-xs font-medium ${STATUS_BADGE_CLS[r.status] ?? ""}`}
                           title={r.status === "voided" ? `${r.void_date ?? ""} ${r.void_reason ?? ""}`.trim() : undefined}
                         >
                           {SALES_STATUS_LABELS[r.status]}
                         </span>
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="whitespace-nowrap px-2 py-2">
                         <span
-                          className="rounded border border-border px-1.5 py-px text-xs text-muted-foreground"
+                          className="whitespace-nowrap rounded border border-border px-1.5 py-px text-xs text-muted-foreground"
                           title={r.sync_error ?? undefined}
                         >
                           {SYNC_STATUS_LABELS[r.sync_status] ?? r.sync_status}
                         </span>
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="whitespace-nowrap px-2 py-2">
                         {r.orders ? (
-                          <span className="rounded border border-border px-1.5 py-px text-xs tabular-nums text-muted-foreground">
+                          <span className="whitespace-nowrap rounded border border-border px-1.5 py-px text-xs tabular-nums text-muted-foreground">
                             {r.orders.order_number.replace(/^ORD-/i, "")}
                           </span>
                         ) : (
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-2">
-                        <div className="flex items-center justify-end gap-1">
+                      <td className="whitespace-nowrap px-3 py-2">
+                        <div className="flex items-center justify-end gap-0">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8"
+                            className="h-7 w-7"
                             title="檢視"
                             aria-label={`檢視發票 ${r.invoice_number ?? ""}`}
                             onClick={() => setViewRow(r)}
@@ -290,20 +312,34 @@ export function SalesInvoicesPage() {
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8"
+                            className="h-7 w-7"
                             title="編輯"
                             aria-label={`編輯發票 ${r.invoice_number ?? ""}`}
                             onClick={() => setEditRow(r)}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
+                          {r.status === "issued" && isAmegoSynced(r) && r.invoice_number && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                              title="下載發票 PDF（光賀）"
+                              aria-label={`下載發票 ${r.invoice_number} PDF`}
+                              disabled={downloadingId === r.id}
+                              onClick={() => void openInvoicePdf(r)}
+                            >
+                              <FileText className="h-4 w-4" />
+                            </Button>
+                          )}
                           {r.status === "issued" && (
                             <>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
                                 title="作廢（限當期；跨期請開折讓）"
                                 aria-label={`作廢發票 ${r.invoice_number ?? ""}`}
                                 onClick={() => setVoidTarget(r)}
@@ -314,7 +350,7 @@ export function SalesInvoicesPage() {
                                 type="button"
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
                                 title="開立折讓單"
                                 aria-label={`為發票 ${r.invoice_number ?? ""} 開立折讓單`}
                                 onClick={() => setAllowanceTarget(r)}
@@ -328,7 +364,7 @@ export function SalesInvoicesPage() {
                               type="button"
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
                               title="刪除"
                               aria-label={`刪除發票 ${r.invoice_number ?? ""}`}
                               onClick={() => setDeleteTarget(r)}
@@ -452,6 +488,21 @@ function VoidInvoiceDialog({
       return;
     }
     setSaving(true);
+    if (isAmegoSynced(invoice)) {
+      // 光賀開立的發票：由伺服器端呼叫光賀作廢並回寫
+      const res = await amegoVoidInvoice(invoice.id, voidDate, reason.trim());
+      setSaving(false);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(
+        `發票 ${invoice.invoice_number ?? ""} 已於光賀作廢${res.environment === "test" ? "（測試環境）" : ""}`,
+      );
+      onOpenChange(false);
+      onSaved();
+      return;
+    }
     const { error } = await supabase
       .from("sales_invoices")
       .update({ status: "voided", void_date: voidDate || null, void_reason: reason.trim() })
@@ -571,10 +622,25 @@ function AllowanceDialog({
       toast.error("折讓金額不可大於發票含稅金額");
       return;
     }
+    setSaving(true);
+    if (isAmegoSynced(invoice)) {
+      // 光賀開立的發票：由伺服器端呼叫光賀開折讓（單號自動編）並寫入折讓單
+      const res = await amegoCreateAllowance(invoice.id, inc, allowanceDate, reason.trim());
+      setSaving(false);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(
+        `已於光賀開立折讓 ${res.allowance_number}（$${inc.toLocaleString()}）${res.environment === "test" ? "（測試環境）" : ""}`,
+      );
+      onOpenChange(false);
+      onSaved();
+      return;
+    }
     // 應稅以 5% 內含回推；零稅率／免稅稅額為 0
     const ex = invoice.tax_type === 1 ? Math.round(inc / 1.05) : inc;
     const tax = Math.round((inc - ex) * 100) / 100;
-    setSaving(true);
     const { error } = await supabase.from("sales_allowances").insert({
       invoice_id: invoice.id,
       allowance_number: allowanceNumber.trim() ? normalizeInvoiceNumber(allowanceNumber) : null,
@@ -622,13 +688,17 @@ function AllowanceDialog({
           </p>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground" htmlFor="al-number">折讓單號（選填）</label>
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="al-number">
+                {invoice != null && isAmegoSynced(invoice) ? "折讓單號（光賀自動編）" : "折讓單號（選填）"}
+              </label>
               <input
                 id="al-number"
                 type="text"
                 value={allowanceNumber}
                 onChange={(e) => setAllowanceNumber(e.target.value)}
-                className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                disabled={invoice != null && isAmegoSynced(invoice)}
+                placeholder={invoice != null && isAmegoSynced(invoice) ? "自動產生" : undefined}
+                className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
               />
             </div>
             <div className="space-y-1">

@@ -12,6 +12,8 @@ import {
   TAX_TYPE_OPTIONS,
 } from "@/lib/accounting-invoice";
 import {
+  amegoBanQuery,
+  amegoIssueInvoice,
   calcInvoiceTotals,
   CARRIER_TYPE_OPTIONS,
   fetchSalesInvoiceItems,
@@ -88,6 +90,8 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
   const [loadingPrefill, setLoadingPrefill] = useState(false);
   const [orderPrefill, setOrderPrefill] = useState<OrderPrefill | null>(null);
   const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
+  /** 新開模式下已建立的草稿 id（光賀開立失敗後重試時避免重複建檔） */
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const [invoiceType, setInvoiceType] = useState<SalesInvoiceType>("B2B");
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -110,6 +114,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     setSaving(false);
     setDuplicateOf(null);
     setOrderPrefill(null);
+    setCreatedId(null);
 
     if (invoice) {
       setInvoiceType(invoice.invoice_type);
@@ -313,6 +318,8 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     setError(null);
     const normalized = normalizeInvoiceNumber(invoiceNumber);
     const hasNumber = invoiceNumber.trim().length > 0;
+    /** 開立且未填號碼＝透過光賀自動配號 */
+    const viaAmego = issue && !hasNumber;
 
     if (hasNumber && !isValidInvoiceNumber(normalized)) {
       setError("發票號碼格式應為 2 碼英文＋8 碼數字（如 AB-12345678）");
@@ -322,15 +329,9 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
       setError(`發票號碼 ${normalized} 已登記過（${duplicateOf}）`);
       return;
     }
-    if (issue) {
-      if (!hasNumber) {
-        setError("開立發票需輸入發票號碼（光賀串接前請填入取得的字軌號碼）");
-        return;
-      }
-      if (!invoiceDate.trim()) {
-        setError("開立發票需輸入發票日期");
-        return;
-      }
+    if (issue && !viaAmego && !invoiceDate.trim()) {
+      setError("登記手開發票需輸入發票日期");
+      return;
     }
     if (invoiceType === "B2B") {
       if (!buyerTaxId.trim() || !/^\d{8}$/.test(buyerTaxId.trim())) {
@@ -354,7 +355,8 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
 
     setSaving(true);
     try {
-      const status = issue ? "issued" : invoice?.status ?? "draft";
+      // 光賀配號：先存成草稿，開立成功後由伺服器端回寫號碼與狀態
+      const status = issue && !viaAmego ? "issued" : invoice?.status ?? "draft";
       const payload = {
         order_id: invoice ? invoice.order_id : order?.id ?? null,
         invoice_type: invoiceType,
@@ -372,11 +374,12 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
         tax_amount: totals.tax_amount,
         amount_inc_tax: totals.amount_inc_tax,
         status,
-        issued_at: issue && invoice?.issued_at == null ? new Date().toISOString() : invoice?.issued_at ?? null,
+        issued_at:
+          issue && !viaAmego && invoice?.issued_at == null ? new Date().toISOString() : invoice?.issued_at ?? null,
         notes: notes.trim() || null,
       };
 
-      let invoiceId = invoice?.id ?? null;
+      let invoiceId = invoice?.id ?? createdId;
       if (invoiceId) {
         const { error: updErr } = await supabase.from("sales_invoices").update(payload).eq("id", invoiceId);
         if (updErr) throw updErr;
@@ -390,6 +393,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
           .single();
         if (insErr) throw insErr;
         invoiceId = (data as { id: string }).id;
+        setCreatedId(invoiceId);
       }
 
       const { error: itemsErr } = await supabase.from("sales_invoice_items").insert(
@@ -405,9 +409,25 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
       );
       if (itemsErr) throw itemsErr;
 
+      if (viaAmego) {
+        const res = await amegoIssueInvoice(invoiceId!);
+        if (!res.ok) {
+          setError(res.error);
+          toast.error(res.error);
+          onSaved(); // 草稿已建立，讓列表同步
+          return;
+        }
+        toast.success(
+          `發票 ${res.invoice_number} 已由光賀開立${res.environment === "test" ? "（測試環境）" : ""}`,
+        );
+        onOpenChange(false);
+        onSaved();
+        return;
+      }
+
       toast.success(
         issue
-          ? `發票 ${normalized} 已開立（手開登記；光賀串接後可自動傳送）`
+          ? `發票 ${normalized} 已登記（手開發票）`
           : `發票${hasNumber ? ` ${normalized}` : ""}已儲存為${SALES_STATUS_LABELS[status as keyof typeof SALES_STATUS_LABELS] ?? status}`,
       );
       onOpenChange(false);
@@ -457,7 +477,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                   ? "唯讀檢視；如需修改請從列表按編輯（鉛筆）進入"
                   : isEdit
                     ? "調整發票內容後儲存；已作廢發票僅供檢視"
-                    : "光賀串接前為手開登記：號碼請填實際取得的字軌號碼，草稿可先不填"}
+                    : "號碼留空＝由光賀自動配號開立電子發票；已有紙本手開號碼可直接填入登記"}
               </p>
             </div>
             <Dialog.Close asChild>
@@ -495,7 +515,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                   type="text"
                   value={invoiceNumber}
                   onChange={(e) => setInvoiceNumber(e.target.value)}
-                  placeholder="AB-12345678（草稿可空）"
+                  placeholder="留空＝光賀自動配號"
                   className={inputCls}
                 />
               </div>
@@ -553,6 +573,13 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                     maxLength={8}
                     value={buyerTaxId}
                     onChange={(e) => setBuyerTaxId(e.target.value.replace(/\D/g, ""))}
+                    onBlur={() => {
+                      const ban = buyerTaxId.trim();
+                      if (!/^\d{8}$/.test(ban) || buyerName.trim()) return;
+                      void amegoBanQuery(ban).then((r) => {
+                        if (r.ok && r.name) setBuyerName((prev) => (prev.trim() ? prev : r.name));
+                      });
+                    }}
                     className={inputCls}
                   />
                 </div>
@@ -756,7 +783,13 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                 disabled={saving}
                 onClick={() => void save(invoice?.status !== "issued")}
               >
-                {saving ? "儲存中…" : invoice?.status === "issued" ? "儲存修改" : "開立發票"}
+                {saving
+                  ? "處理中…"
+                  : invoice?.status === "issued"
+                    ? "儲存修改"
+                    : invoiceNumber.trim()
+                      ? "登記手開發票"
+                      : "光賀開立發票"}
               </Button>
             </div>
           )}

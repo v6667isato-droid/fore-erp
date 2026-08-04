@@ -151,6 +151,66 @@ export async function fetchOrderInvoiceCounts(): Promise<Record<string, number>>
   return map;
 }
 
+/** 光賀 API 呼叫結果：ok=false 時 error 為可顯示訊息 */
+export type AmegoResult<T> = ({ ok: true; environment: "test" | "production" } & T) | { ok: false; error: string };
+
+/** 呼叫後端光賀 API route（需登入）；網路錯誤與 API 錯誤都收斂成 ok:false */
+async function callAmegoApi<T>(payload: Record<string, unknown>): Promise<AmegoResult<T>> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return { ok: false, error: "尚未登入，請重新登入後再試" };
+  try {
+    const res = await fetch("/api/amego", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    const json = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: typeof json.error === "string" ? json.error : `光賀操作失敗（HTTP ${res.status}）` };
+    }
+    return { ok: true, ...(json as T & { environment: "test" | "production" }) };
+  } catch {
+    return { ok: false, error: "無法連線伺服器，請稍後再試" };
+  }
+}
+
+/** 光賀開立發票（自動配號）：發票需已存成草稿（無號碼） */
+export function amegoIssueInvoice(invoiceId: string) {
+  return callAmegoApi<{ invoice_number: string; invoice_date: string; random_number: string }>({
+    action: "issue",
+    invoice_id: invoiceId,
+  });
+}
+
+/** 光賀作廢發票（限當期；跨期請開折讓） */
+export function amegoVoidInvoice(invoiceId: string, voidDate: string, reason: string) {
+  return callAmegoApi<{ ok: true }>({ action: "void", invoice_id: invoiceId, void_date: voidDate, reason });
+}
+
+/** 光賀開立折讓（伺服器端會一併寫入 sales_allowances） */
+export function amegoCreateAllowance(invoiceId: string, amountIncTax: number, allowanceDate: string, reason: string) {
+  return callAmegoApi<{ allowance_number: string }>({
+    action: "allowance",
+    invoice_id: invoiceId,
+    amount_inc_tax: amountIncTax,
+    allowance_date: allowanceDate,
+    reason,
+  });
+}
+
+/** 取得發票 PDF 下載連結（10 分鐘有效） */
+export function amegoInvoiceFileUrl(invoiceId: string) {
+  return callAmegoApi<{ file_url: string }>({ action: "file", invoice_id: invoiceId });
+}
+
+/** 統編查公司名稱（自動帶買方抬頭；查不到回空字串） */
+export function amegoBanQuery(ban: string) {
+  return callAmegoApi<{ name: string }>({ action: "ban", ban });
+}
+
 export interface SalesInvoiceTotals {
   amount_ex_tax: number;
   tax_amount: number;
