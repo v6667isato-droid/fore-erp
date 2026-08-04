@@ -375,7 +375,6 @@ function mapRowToSettlementEmployee(r: Record<string, unknown>): SettlementEmplo
 }
 
 const EMP_SELECT_ATTEMPTS = [
-  "id, name, email, payroll_notification_email, remittance_bank, remittance_account, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, comp_leave_remaining, hire_date, share_count, unpaid_leave_months, employment_status, deleted_at",
   "id, name, email, payroll_notification_email, remittance_bank, remittance_account, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, hire_date, share_count, unpaid_leave_months, employment_status, deleted_at",
   "id, name, email, payroll_notification_email, remittance_bank, remittance_account, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
   "id, name, email, basic_salary, monthly_wage, labor_employee_burden, health_employee_burden, health_employee_burden_number, overtime_rate, annual_leave_remaining, employment_status, deleted_at",
@@ -540,6 +539,29 @@ export function SalarySettlementCenter() {
           return da == null;
         })
         .map((r) => mapRowToSettlementEmployee(r as Record<string, unknown>));
+
+      /** 補休金庫餘額另查合併：EMP_SELECT_ATTEMPTS 依實際 schema 逐組 fallback，
+       *  成功的那組不一定含 comp_leave_remaining，故不併入該串避免整組失敗 */
+      const compRes = await supabase
+        .from("employees")
+        .select("id, comp_leave_remaining");
+      if (!compRes.error) {
+        const compById = new Map(
+          (compRes.data ?? []).map((r) => {
+            const rec = r as { id: string; comp_leave_remaining?: unknown };
+            return [
+              String(rec.id),
+              rec.comp_leave_remaining != null && rec.comp_leave_remaining !== ""
+                ? num(rec.comp_leave_remaining)
+                : null,
+            ] as const;
+          }),
+        );
+        for (const e of emps) {
+          const v = compById.get(e.id);
+          if (v !== undefined) e.comp_leave_remaining = v;
+        }
+      }
 
       setEmployees(emps);
 
@@ -1792,7 +1814,7 @@ export function SalarySettlementCenter() {
                       </span>
                     </td>
                     <td className="border-l border-border align-middle">
-                      <div className="flex min-w-0 items-start gap-0.5">
+                      <div className="flex min-w-[11rem] items-start gap-0.5">
                         <label className="sr-only" htmlFor={`attendance-notes-${emp.id}`}>
                           {emp.name || "員工"} 出勤備註
                         </label>

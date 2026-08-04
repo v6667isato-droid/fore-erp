@@ -1825,6 +1825,12 @@ export function EmployeesPage() {
                     月薪
                   </TableHead>
                   <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
+                    特休
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
+                    補休
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
                     事假天數
                   </TableHead>
                   <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
@@ -1841,7 +1847,7 @@ export function EmployeesPage() {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 12 : 9}
+                  colSpan={isAdmin ? 14 : 9}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -1894,6 +1900,16 @@ export function EmployeesPage() {
                       <TableCell className="text-sm text-right p-2 tabular-nums">
                         {row.monthly_wage != null
                           ? row.monthly_wage.toLocaleString()
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-right p-2 tabular-nums text-muted-foreground whitespace-nowrap">
+                        {row.annual_leave_remaining != null
+                          ? formatDayDecimalAsDayHour(row.annual_leave_remaining)
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-right p-2 tabular-nums text-muted-foreground whitespace-nowrap">
+                        {row.comp_leave_remaining != null
+                          ? formatHoursAsDayHour(row.comp_leave_remaining)
                           : "—"}
                       </TableCell>
                       <TableCell className="text-sm text-right p-2 tabular-nums text-muted-foreground">
