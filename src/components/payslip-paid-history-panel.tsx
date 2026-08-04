@@ -175,6 +175,11 @@ function isOvertimeCompOff(row: PaidSlipRow): boolean {
   return row.overtime_days > 0 && row.bonus_and_overtime === 0;
 }
 
+/** 表格空間有限，「X 天 Y 小時」去空格顯示為「X天Y小時」 */
+function compactDayHour(text: string): string {
+  return text.replace(/ /g, "");
+}
+
 function formatOvertimeCell(
   row: PaidSlipRow,
   compact: boolean,
@@ -661,19 +666,19 @@ export function PayslipPaidHistoryPanel() {
           <Table className="max-md:min-w-[1120px] md:min-w-0 md:table-fixed md:w-full">
             <colgroup className="hidden md:table-column-group">
               <col className="w-[4rem]" />
-              <col className="w-[2.5rem]" />
-              <col className="w-[3.25rem]" />
+              <col className="w-[2.25rem]" />
               <col className="w-[3rem]" />
-              <col className="w-[3rem]" />
-              <col className="w-[3rem]" />
-              <col className="w-[2.5rem]" />
-              <col className="w-[3rem]" />
+              <col className="w-[2.75rem]" />
+              <col className="w-[2.75rem]" />
+              <col className="w-[2.75rem]" />
+              <col className="w-[3.5rem]" />
+              <col className="w-[4rem]" />
               <col className="w-[3.75rem]" />
               <col className="w-[3rem]" />
               <col className="w-[3.25rem]" />
               <col className="w-[3.5rem]" />
               <col className="w-[3.5rem]" />
-              <col className="w-[3.5rem]" />
+              <col className="w-[3rem]" />
             </colgroup>
             <TableHeader>
               <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30 md:[&_th]:px-1.5 md:[&_th]:py-1.5 md:[&_th]:whitespace-normal">
@@ -849,7 +854,9 @@ export function PayslipPaidHistoryPanel() {
                     </TableCell>
                     <TableCell className="whitespace-nowrap! text-right text-sm tabular-nums">
                       {row.special_leave_days_settled > 0
-                        ? formatDayDecimalAsDayHour(row.special_leave_days_settled)
+                        ? compactDayHour(
+                            formatDayDecimalAsDayHour(row.special_leave_days_settled),
+                          )
                         : "—"}
                     </TableCell>
                     <TableCell
@@ -857,7 +864,9 @@ export function PayslipPaidHistoryPanel() {
                       className="whitespace-nowrap! text-right text-sm tabular-nums text-muted-foreground"
                     >
                       {row.special_leave_remaining_after != null
-                        ? formatSignedDayDecimalAsDayHour(row.special_leave_remaining_after)
+                        ? compactDayHour(
+                            formatSignedDayDecimalAsDayHour(row.special_leave_remaining_after),
+                          )
                         : "—"}
                     </TableCell>
                     <TableCell

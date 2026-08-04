@@ -251,7 +251,7 @@ function PayslipBreakdownPanel({
       <div
         className={cn(
           "mx-auto w-full",
-          compact ? "max-w-2xl" : "max-w-md sm:max-w-lg",
+          compact ? "max-w-3xl" : "max-w-md sm:max-w-lg",
         )}
       >
         <h3
@@ -1942,7 +1942,7 @@ export default function EmployeePortalPage() {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(90vh,44rem)] w-[calc(100%-1.5rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl focus:outline-none sm:max-w-3xl sm:w-[calc(100%-2.5rem)] lg:max-w-4xl">
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(96vh,80rem)] w-[calc(100%-1.5rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl focus:outline-none sm:max-w-4xl sm:w-[calc(100%-2.5rem)] lg:max-w-5xl xl:max-w-6xl">
             <div className="shrink-0 border-b border-border/70 bg-secondary/20 px-3 py-2 sm:px-4 sm:py-2.5">
               <div className="flex items-start justify-between gap-3">
                 <div>
