@@ -206,12 +206,24 @@ function formatSlipDays(n: number): string {
   return `${s} 天`;
 }
 
+function formatSlipAmount(n: number): string {
+  return Math.abs(n).toLocaleString("zh-TW", { maximumFractionDigits: 0 });
+}
+
+interface SlipItemRow {
+  label: string;
+  /** label 後方的灰色小字補充，如「加班 1 天」「加保 1 人」 */
+  note?: string;
+  amount: number;
+}
+
 function PayslipBreakdownPanel({
   monthLabel,
   periodKey,
   b,
   notes,
   annualLeaveRemaining,
+  status,
   compact = false,
 }: {
   monthLabel: string;
@@ -220,253 +232,370 @@ function PayslipBreakdownPanel({
   notes: string | null;
   /** employees.annual_leave_remaining（目前剩餘，非該月薪資單歷史快照） */
   annualLeaveRemaining: number | null;
+  status?: PayslipStatus;
   /** 對話框內：較矮、較緊湊，減少整體高度 */
   compact?: boolean;
 }) {
   const hp =
     b.health_insured_persons != null && Number.isFinite(b.health_insured_persons)
       ? String(b.health_insured_persons)
-      : "—";
-  const slipLabel = cn(
-    "w-[56%] min-w-0 align-top text-xs leading-snug text-muted-foreground sm:w-[52%]",
-    compact
-      ? "py-1.5 pl-3 pr-1.5 sm:py-2 sm:pl-3.5 sm:pr-2 sm:text-[12px]"
-      : "py-2.5 pl-4 pr-2 sm:py-3 sm:pl-5 sm:pr-3 sm:text-[13px]",
+      : null;
+  const trimmedNotes = notes?.trim() ?? "";
+
+  const otherAdd = b.other_adjust > 0 ? b.other_adjust : 0;
+  const otherDeduct = b.other_adjust < 0 ? -b.other_adjust : 0;
+
+  const paymentRows: SlipItemRow[] = [
+    { label: "底薪", amount: b.base_salary },
+    ...(b.overtime_pay > 0 || b.overtime_days > 0
+      ? [
+          {
+            label: "加班費",
+            note:
+              b.overtime_pay > 0
+                ? `加班 ${formatSlipDays(b.overtime_days)}`
+                : `加班 ${formatSlipDays(b.overtime_days)} · 轉補休`,
+            amount: b.overtime_pay,
+          },
+        ]
+      : []),
+    ...(b.payroll_bonus > 0 ? [{ label: "獎金", amount: b.payroll_bonus }] : []),
+    ...(otherAdd > 0 ? [{ label: "其他加項", amount: otherAdd }] : []),
+  ];
+  const grossTotal = paymentRows.reduce((sum, r) => sum + r.amount, 0);
+
+  const deductionRows: SlipItemRow[] = [
+    { label: "勞保自付額", amount: b.labor_insurance_employee },
+    {
+      label: "健保自付額",
+      note: hp != null ? `加保 ${hp} 人` : undefined,
+      amount: b.health_insurance_employee,
+    },
+    ...(b.leave_deduction > 0
+      ? [{ label: "請假扣款", note: "事／病假", amount: b.leave_deduction }]
+      : []),
+    ...(otherDeduct > 0 ? [{ label: "其他減項", amount: otherDeduct }] : []),
+  ];
+  const deductTotal = deductionRows.reduce((sum, r) => sum + r.amount, 0);
+
+  const attendanceItems: { label: string; value: string; note?: string; deduct?: boolean }[] = [
+    {
+      label: "加班",
+      value: b.overtime_days > 0 ? formatSlipDays(b.overtime_days) : "—",
+    },
+    {
+      label: "特休請假",
+      value:
+        b.special_leave_days_settled > 0
+          ? formatDayDecimalAsDayHour(b.special_leave_days_settled)
+          : "—",
+    },
+    {
+      label: "病、事假",
+      value: b.leave_days > 0 ? formatSlipDays(b.leave_days) : "—",
+    },
+    {
+      label: "特休剩餘",
+      value:
+        b.special_leave_remaining_after != null
+          ? formatSignedDayDecimalAsDayHour(b.special_leave_remaining_after)
+          : annualLeaveRemaining != null && Number.isFinite(annualLeaveRemaining)
+            ? formatDayDecimalAsDayHour(annualLeaveRemaining)
+            : "—",
+      note:
+        b.special_leave_remaining_after == null &&
+        annualLeaveRemaining != null &&
+        Number.isFinite(annualLeaveRemaining)
+          ? "目前主檔，非該月快照"
+          : undefined,
+    },
+    {
+      label: "其他假期",
+      value: b.other_leave_days > 0 ? formatSlipDays(b.other_leave_days) : "—",
+      note: b.other_leave_days > 0 ? (b.other_leave_detail ?? undefined) : undefined,
+    },
+    {
+      label: "請假扣款",
+      value: b.leave_deduction > 0 ? `−${formatSlipAmount(b.leave_deduction)}` : "—",
+      deduct: b.leave_deduction > 0,
+    },
+    ...(b.comp_leave_remaining_after != null
+      ? [
+          {
+            label: "補休剩餘",
+            value: formatHoursAsDayHour(b.comp_leave_remaining_after),
+            note: "該月結算快照",
+          },
+        ]
+      : []),
+  ];
+
+  const sectionPad = compact ? "px-4 py-3 sm:px-5" : "px-4 py-3.5 sm:px-6 sm:py-4";
+  const sectionLabel = cn(
+    "font-semibold tracking-wide text-muted-foreground",
+    compact ? "text-[10px] sm:text-[11px]" : "text-[11px] sm:text-xs",
   );
-  const slipVal = cn(
-    "pl-2 text-right align-top text-xs font-semibold tabular-nums text-foreground",
-    compact
-      ? "py-1.5 pr-3 sm:py-2 sm:pr-3.5 sm:text-[12px]"
-      : "py-2.5 pr-4 sm:py-3 sm:pr-5 sm:text-[13px]",
+  const rowCls = cn(
+    "flex items-baseline justify-between gap-3",
+    compact ? "py-[0.3rem]" : "py-1.5",
   );
-  const slipValMoney = cn(slipVal, "text-primary");
+  const rowLabelCls = cn(
+    "min-w-0 leading-snug text-foreground/90",
+    compact ? "text-xs sm:text-[13px]" : "text-[13px] sm:text-sm",
+  );
+  const rowNoteCls = "font-normal text-muted-foreground";
+  const rowValueCls = cn(
+    "shrink-0 text-right tabular-nums text-foreground",
+    compact ? "text-xs sm:text-[13px]" : "text-[13px] sm:text-sm",
+  );
 
   return (
     <div
       className={cn(
-        "w-full border-t border-border/70 bg-gradient-to-b from-muted/25 via-muted/15 to-muted/10",
-        compact ? "px-3 py-2.5 sm:px-4 sm:py-3" : "px-4 py-4 sm:px-6 sm:py-5",
+        "w-full border-t border-border/70 bg-muted/10",
+        compact ? "px-2 py-2.5 sm:px-4 sm:py-3" : "px-3 py-4 sm:px-6 sm:py-5",
       )}
     >
       <div
         className={cn(
-          "mx-auto w-full",
-          compact ? "max-w-3xl" : "max-w-md sm:max-w-lg",
+          "mx-auto w-full overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm ring-1 ring-border/20",
+          compact ? "max-w-3xl" : "max-w-lg sm:max-w-xl",
         )}
       >
-        <h3
-          className={cn(
-            "px-1 text-center font-semibold tracking-tight text-foreground sm:px-0",
-            compact ? "text-xs sm:text-sm" : "text-sm",
-          )}
-        >
-          {monthLabel}薪資明細
-        </h3>
-        {periodKey ? (
-          <p
-            className={cn(
-              "px-1 text-center tabular-nums text-muted-foreground sm:px-0",
-              compact ? "mt-0.5 text-[10px] sm:text-[11px]" : "mt-1 text-[11px] sm:mt-0.5",
-            )}
-          >
-            結算期間 {periodKey}
-          </p>
-        ) : null}
-
+        {/* 標題列：月份＋狀態、結算期間；右側實發總額 */}
         <div
           className={cn(
-            "overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm ring-1 ring-border/20",
-            compact ? "mt-2 sm:mt-2.5" : "mt-4 sm:mt-5",
+            "flex flex-wrap items-start justify-between gap-x-4 gap-y-2",
+            compact ? "px-4 py-3 sm:px-5 sm:py-3.5" : "px-4 py-4 sm:px-6",
           )}
         >
-          <table className="w-full table-fixed border-collapse">
-            <tbody>
-              <tr className="border-b border-border/55 bg-muted/5">
-                <td className={slipLabel}>底薪</td>
-                <td className={slipValMoney}>{formatNtd(b.base_salary)}</td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={slipLabel}>勞保自付額</td>
-                <td className={slipVal}>− {formatNtd(b.labor_insurance_employee)}</td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={cn(slipLabel, "whitespace-normal")}>
-                  <span className="inline sm:whitespace-nowrap">
-                    健保自付額
-                    <span className="font-normal text-muted-foreground">（加保人數 {hp} 人）</span>
-                  </span>
-                </td>
-                <td className={slipVal}>− {formatNtd(b.health_insurance_employee)}</td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={slipLabel}>加班天數</td>
-                <td className={slipVal}>{formatSlipDays(b.overtime_days)}</td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={slipLabel}>加班費</td>
-                <td className={slipVal}>
-                  {b.overtime_pay > 0 ? (
-                    <>+ {formatNtd(b.overtime_pay)}</>
-                  ) : (
-                    <span className="font-normal text-muted-foreground">+ {formatNtd(0)}</span>
-                  )}
-                </td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={slipLabel}>病、事假</td>
-                <td className={slipVal}>{formatSlipDays(b.leave_days)}</td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={cn(slipLabel, "whitespace-normal")}>
-                  <span className="block">其他假期</span>
-                  {b.other_leave_detail ? (
-                    <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                      {b.other_leave_detail}
-                    </span>
-                  ) : null}
-                </td>
-                <td className={slipVal}>
-                  {b.other_leave_days > 0 ? (
-                    formatSlipDays(b.other_leave_days)
-                  ) : (
-                    <span className="font-normal text-muted-foreground">無</span>
-                  )}
-                </td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={slipLabel}>特休請假</td>
-                <td className={slipVal}>
-                  {formatDayDecimalAsDayHour(b.special_leave_days_settled)}
-                </td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={cn(slipLabel, "whitespace-normal")}>
-                  <span className="block">特休假剩餘</span>
-                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                    {b.special_leave_remaining_after != null
-                      ? "該月結算快照"
-                      : "目前主檔（非該月歷史快照）"}
-                  </span>
-                </td>
-                <td className={slipVal}>
-                  {b.special_leave_remaining_after != null ? (
-                    formatSignedDayDecimalAsDayHour(b.special_leave_remaining_after)
-                  ) : annualLeaveRemaining != null && Number.isFinite(annualLeaveRemaining) ? (
-                    formatDayDecimalAsDayHour(annualLeaveRemaining)
-                  ) : (
-                    <span className="font-normal text-muted-foreground">—</span>
-                  )}
-                </td>
-              </tr>
-              {b.comp_leave_remaining_after != null ? (
-                <tr className="border-b border-border/55">
-                  <td className={cn(slipLabel, "whitespace-normal")}>
-                    <span className="block">補休剩餘</span>
-                    <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                      該月結算快照
-                    </span>
-                  </td>
-                  <td className={slipVal}>
-                    {formatHoursAsDayHour(b.comp_leave_remaining_after)}
-                  </td>
-                </tr>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3
+                className={cn(
+                  "font-semibold tracking-tight text-foreground",
+                  compact ? "text-sm sm:text-[15px]" : "text-[15px] sm:text-base",
+                )}
+              >
+                {monthLabel}薪資明細
+              </h3>
+              {status ? (
+                <span className="[&_.inline-flex]:scale-90 [&_.inline-flex]:origin-left">
+                  {payslipStatusBadge(status)}
+                </span>
               ) : null}
-              <tr className="border-b border-border/55">
-                <td className={slipLabel}>獎金</td>
-                <td className={slipVal}>
-                  {b.payroll_bonus > 0 ? (
-                    <>+ {formatNtd(b.payroll_bonus)}</>
-                  ) : (
-                    <span className="font-normal text-muted-foreground">無</span>
-                  )}
-                </td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={slipLabel}>其他加減項</td>
-                <td className={slipVal}>
-                  {b.other_adjust === 0 ? (
-                    <span className="font-normal text-muted-foreground">無</span>
-                  ) : (
-                    <>
-                      {b.other_adjust > 0 ? "+ " : "− "}
-                      {formatNtd(Math.abs(b.other_adjust))}
-                    </>
-                  )}
-                </td>
-              </tr>
-              <tr className="border-b border-border/55">
-                <td className={slipLabel}>請假扣款（事／病假）</td>
-                <td className={slipVal}>
-                  {b.leave_deduction > 0 ? (
-                    <>− {formatNtd(b.leave_deduction)}</>
-                  ) : (
-                    <span className="font-normal text-muted-foreground">無（NT$ 0）</span>
-                  )}
-                </td>
-              </tr>
-            </tbody>
-            <tfoot>
-              <tr className="bg-primary/[0.09]">
-                <td
-                  className={cn(
-                    "font-semibold text-foreground",
-                    compact
-                      ? "px-3 py-2 text-[11px] sm:px-3.5 sm:py-2 sm:text-xs"
-                      : "px-4 py-3 text-xs sm:px-5 sm:py-3.5 sm:text-sm",
-                  )}
-                >
-                  實發總額
-                </td>
-                <td
-                  className={cn(
-                    "text-right font-bold tabular-nums text-primary",
-                    compact
-                      ? "px-3 py-2 text-sm sm:px-3.5 sm:py-2 sm:text-base"
-                      : "px-4 py-3 text-base sm:px-5 sm:py-3.5 sm:text-lg",
-                  )}
-                >
-                  {formatNtd(b.net_pay)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+            </div>
+            <p
+              className={cn(
+                "mt-1 tabular-nums text-muted-foreground",
+                compact ? "text-[10px] sm:text-[11px]" : "text-[11px] sm:text-xs",
+              )}
+            >
+              {periodKey ? `結算期間 ${periodKey}` : null}
+              {periodKey && trimmedNotes ? " · " : null}
+              {trimmedNotes ? "含出勤備註" : null}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p
+              className={cn(
+                "font-medium text-muted-foreground",
+                compact ? "text-[10px] sm:text-[11px]" : "text-[11px] sm:text-xs",
+              )}
+            >
+              實發總額
+            </p>
+            <p
+              className={cn(
+                "mt-0.5 font-bold tabular-nums text-primary",
+                compact ? "text-base sm:text-lg" : "text-lg sm:text-xl",
+              )}
+            >
+              {formatNtd(b.net_pay)}
+            </p>
+          </div>
         </div>
 
-        <div
-          className={cn(
-            "rounded-xl border border-border/65 bg-muted/35",
-            compact ? "mt-2 px-3 py-2 sm:mt-2.5 sm:px-3.5 sm:py-2" : "mt-4 px-4 py-3 sm:mt-5 sm:px-5 sm:py-3.5",
-          )}
-        >
-          <p
+        {/* 給付項目 */}
+        <div className={cn("border-t border-border/70", sectionPad)}>
+          <p className={sectionLabel}>給付項目</p>
+          <div className={compact ? "mt-1.5" : "mt-2"}>
+            {paymentRows.map((r) => (
+              <div key={r.label} className={rowCls}>
+                <span className={rowLabelCls}>
+                  {r.label}
+                  {r.note ? (
+                    <span className={cn(rowNoteCls, "ml-1.5 text-[10px] sm:text-[11px]")}>
+                      {r.note}
+                    </span>
+                  ) : null}
+                </span>
+                <span className={rowValueCls}>
+                  {r.amount > 0 ? (
+                    formatSlipAmount(r.amount)
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </span>
+              </div>
+            ))}
+            <div
+              className={cn(
+                rowCls,
+                "mt-1 border-t border-border/60",
+                compact ? "pt-1.5" : "pt-2",
+              )}
+            >
+              <span className={cn(rowLabelCls, "font-semibold text-foreground")}>應發合計</span>
+              <span className={cn(rowValueCls, "font-semibold")}>
+                {formatSlipAmount(grossTotal)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 扣除項目 */}
+        <div className={cn("border-t border-border/70", sectionPad)}>
+          <p className={sectionLabel}>扣除項目</p>
+          <div className={compact ? "mt-1.5" : "mt-2"}>
+            {deductionRows.map((r) => (
+              <div key={r.label} className={rowCls}>
+                <span className={rowLabelCls}>
+                  {r.label}
+                  {r.note ? (
+                    <span className={cn(rowNoteCls, "ml-1.5 text-[10px] sm:text-[11px]")}>
+                      {r.note}
+                    </span>
+                  ) : null}
+                </span>
+                <span className={cn(rowValueCls, "text-red-600 dark:text-red-400")}>
+                  {r.amount > 0 ? (
+                    `−${formatSlipAmount(r.amount)}`
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </span>
+              </div>
+            ))}
+            <div
+              className={cn(
+                rowCls,
+                "mt-1 border-t border-border/60",
+                compact ? "pt-1.5" : "pt-2",
+              )}
+            >
+              <span className={cn(rowLabelCls, "font-semibold text-foreground")}>扣除合計</span>
+              <span
+                className={cn(
+                  rowValueCls,
+                  "font-semibold",
+                  deductTotal > 0 && "text-red-600 dark:text-red-400",
+                )}
+              >
+                {deductTotal > 0 ? `−${formatSlipAmount(deductTotal)}` : "—"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 實發總額強調列 */}
+        <div className={cn(sectionPad, compact ? "pt-0" : "pt-0")}>
+          <div
             className={cn(
-              "font-semibold uppercase tracking-wide text-muted-foreground",
-              compact ? "text-[9px] sm:text-[10px]" : "text-[10px] sm:text-[11px]",
+              "flex items-center justify-between gap-3 rounded-lg bg-primary/[0.09] ring-1 ring-primary/15",
+              compact ? "px-3 py-2 sm:px-3.5" : "px-4 py-2.5 sm:py-3",
             )}
           >
-            出勤備註
-          </p>
-          {notes && notes.trim() ? (
-            <p
+            <span
               className={cn(
-                "whitespace-pre-wrap break-words leading-relaxed text-foreground/95",
-                compact
-                  ? "mt-1 text-[11px] leading-snug sm:text-xs"
-                  : "mt-2 text-xs sm:text-[13px] sm:leading-relaxed",
+                "font-semibold text-foreground",
+                compact ? "text-xs sm:text-[13px]" : "text-[13px] sm:text-sm",
               )}
             >
-              {notes.trim()}
-            </p>
-          ) : (
-            <p
+              實發總額
+            </span>
+            <span
               className={cn(
-                "leading-relaxed text-muted-foreground",
-                compact ? "mt-1 text-[11px] sm:text-xs" : "mt-2 text-xs",
+                "font-bold tabular-nums text-primary",
+                compact ? "text-sm sm:text-base" : "text-base sm:text-lg",
               )}
             >
-              此筆薪資單尚無出勤備註說明。
-            </p>
+              {formatNtd(b.net_pay)}
+            </span>
+          </div>
+        </div>
+
+        {/* 出勤與假別 */}
+        <div className={cn("border-t border-border/70 bg-muted/35", sectionPad)}>
+          <p className={sectionLabel}>出勤與假別</p>
+          <div
+            className={cn(
+              "grid grid-cols-1 sm:grid-cols-2 sm:gap-x-8",
+              compact ? "mt-1.5 gap-y-0.5" : "mt-2 gap-y-1",
+            )}
+          >
+            {attendanceItems.map((item) => (
+              <div key={item.label} className={rowCls}>
+                <span className={cn(rowLabelCls, "text-muted-foreground")}>
+                  {item.label}
+                  {item.note ? (
+                    <span className={cn(rowNoteCls, "ml-1.5 text-[10px] sm:text-[11px]")}>
+                      {item.note}
+                    </span>
+                  ) : null}
+                </span>
+                <span
+                  className={cn(
+                    rowValueCls,
+                    "whitespace-nowrap",
+                    item.value === "—" && "text-muted-foreground",
+                    item.deduct && "text-red-600 dark:text-red-400",
+                  )}
+                >
+                  {item.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 備註 */}
+        <div
+          className={cn(
+            "border-t border-border/60 bg-muted/35",
+            sectionPad,
+            compact ? "pb-3.5" : "pb-4",
           )}
+        >
+          <p className={sectionLabel}>備註</p>
+          <div
+            className={cn(
+              "rounded-lg border border-border/65 bg-card",
+              compact ? "mt-1.5 px-3 py-2" : "mt-2 px-3.5 py-2.5",
+            )}
+          >
+            {trimmedNotes ? (
+              <p
+                className={cn(
+                  "whitespace-pre-wrap break-words text-foreground/95",
+                  compact
+                    ? "text-[11px] leading-snug sm:text-xs"
+                    : "text-xs leading-relaxed sm:text-[13px]",
+                )}
+              >
+                {trimmedNotes}
+              </p>
+            ) : (
+              <p
+                className={cn(
+                  "text-muted-foreground",
+                  compact ? "text-[11px] sm:text-xs" : "text-xs",
+                )}
+              >
+                此筆薪資單尚無出勤備註說明。
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -2042,6 +2171,7 @@ export default function EmployeePortalPage() {
                                     periodKey={row.period_key}
                                     b={row.breakdown}
                                     notes={row.notes}
+                                    status={row.status}
                                     annualLeaveRemaining={employee.annual_leave_remaining ?? null}
                                   />
                                 </td>
