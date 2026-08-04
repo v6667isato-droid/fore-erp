@@ -69,6 +69,8 @@ export interface SalesInvoiceDialogProps {
   invoice?: SalesInvoiceRow | null;
   /** 由訂單開票（新開時預填買方與品項） */
   order?: SalesInvoiceOrderContext | null;
+  /** 純檢視（不可編輯、不顯示存檔按鈕） */
+  readOnly?: boolean;
   onSaved: () => void;
 }
 
@@ -77,9 +79,9 @@ interface OrderPrefill {
   lines: LineInput[];
 }
 
-export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, onSaved }: SalesInvoiceDialogProps) {
+export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnly: readOnlyProp, onSaved }: SalesInvoiceDialogProps) {
   const isEdit = invoice != null;
-  const readOnly = invoice?.status === "voided";
+  const readOnly = readOnlyProp || invoice?.status === "voided";
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -302,7 +304,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, onSaved
       prev.map((l) => {
         const p = Number(l.unitPrice);
         if (Number.isNaN(p) || p <= 0) return l;
-        return { ...l, unitPrice: String(Math.round((p / 1.05) * 100) / 100) };
+        return { ...l, unitPrice: String(Math.round(p / 1.05)) };
       }),
     );
   }
@@ -440,12 +442,22 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, onSaved
           <div className="flex items-start justify-between gap-4">
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">
-                {readOnly ? "檢視發票（已作廢）" : isEdit ? "檢視／編輯銷項發票" : order ? `開立發票：訂單 ${order.order_number}` : "開立發票"}
+                {invoice?.status === "voided"
+                  ? "檢視發票（已作廢）"
+                  : readOnly
+                    ? "檢視銷項發票"
+                    : isEdit
+                      ? "檢視／編輯銷項發票"
+                      : order
+                        ? `開立發票：訂單 ${order.order_number}`
+                        : "開立發票"}
               </Dialog.Title>
               <p id="sales-invoice-dialog-desc" className="mt-1 text-sm text-muted-foreground">
-                {isEdit
-                  ? "調整發票內容後儲存；已作廢發票僅供檢視"
-                  : "光賀串接前為手開登記：號碼請填實際取得的字軌號碼，草稿可先不填"}
+                {readOnly
+                  ? "唯讀檢視；如需修改請從列表按編輯（鉛筆）進入"
+                  : isEdit
+                    ? "調整發票內容後儲存；已作廢發票僅供檢視"
+                    : "光賀串接前為手開登記：號碼請填實際取得的字軌號碼，草稿可先不填"}
               </p>
             </div>
             <Dialog.Close asChild>

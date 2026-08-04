@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Ban, FileDown, FileMinus, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Ban, Eye, FileDown, FileMinus, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -35,6 +35,7 @@ export function SalesInvoicesPage() {
   const [searchText, setSearchText] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [viewRow, setViewRow] = useState<SalesInvoiceRow | null>(null);
   const [editRow, setEditRow] = useState<SalesInvoiceRow | null>(null);
   const [voidTarget, setVoidTarget] = useState<SalesInvoiceRow | null>(null);
   const [allowanceTarget, setAllowanceTarget] = useState<SalesInvoiceRow | null>(null);
@@ -279,8 +280,19 @@ export function SalesInvoicesPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            title="檢視／編輯"
-                            aria-label={`檢視或編輯發票 ${r.invoice_number ?? ""}`}
+                            title="檢視"
+                            aria-label={`檢視發票 ${r.invoice_number ?? ""}`}
+                            onClick={() => setViewRow(r)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="編輯"
+                            aria-label={`編輯發票 ${r.invoice_number ?? ""}`}
                             onClick={() => setEditRow(r)}
                           >
                             <Pencil className="h-4 w-4" />
@@ -345,6 +357,16 @@ export function SalesInvoicesPage() {
       <SalesInvoiceDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
+        onSaved={() => void refresh()}
+      />
+
+      <SalesInvoiceDialog
+        invoice={viewRow}
+        readOnly
+        open={viewRow != null}
+        onOpenChange={(o) => {
+          if (!o) setViewRow(null);
+        }}
         onSaved={() => void refresh()}
       />
 
