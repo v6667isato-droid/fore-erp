@@ -301,6 +301,22 @@ function num(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function numOrNull(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** 已發放列顯示用：payslips 發放當下的假勤快照（舊資料無快照欄時為 null → 退回即時值） */
+type PaidLeaveSnap = {
+  /** special_leave_days_settled（天） */
+  specialSettled: number | null;
+  /** special_leave_remaining_after（天） */
+  specialAfter: number | null;
+  /** comp_leave_remaining_after（小時） */
+  compAfter: number | null;
+};
+
 function isPayslipMissingColumnError(message: string): boolean {
   return /could not find|column .* does not exist|schema cache/i.test(message);
 }
@@ -445,6 +461,9 @@ export function SalarySettlementCenter() {
   const [overtimeRows, setOvertimeRows] = useState<Record<string, unknown>[]>([]);
   const [inputs, setInputs] = useState<Record<string, RowInputs>>({});
   const [paidIds, setPaidIds] = useState<Set<string>>(new Set());
+  const [paidLeaveSnapByEmp, setPaidLeaveSnapByEmp] = useState<
+    Map<string, PaidLeaveSnap>
+  >(new Map());
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [remarkDialog, setRemarkDialog] = useState<{
     open: boolean;
@@ -714,7 +733,7 @@ export function SalarySettlementCenter() {
       let slipRes = await supabase
         .from("payslips")
         .select(
-          "employee_id, period_key, status, notes, overtime_days, other_adjust, payroll_bonus, bonus_and_overtime",
+          "employee_id, period_key, status, notes, overtime_days, other_adjust, payroll_bonus, bonus_and_overtime, special_leave_days_settled, special_leave_remaining_after, comp_leave_remaining_after",
         )
         .eq("period_key", payPeriod)
         .in("employee_id", ids);
@@ -819,6 +838,7 @@ export function SalarySettlementCenter() {
           bonus_and_overtime: unknown;
         }
       >();
+      const leaveSnapByEmp = new Map<string, PaidLeaveSnap>();
       if (!slipRes.error) {
         for (const s of slipRes.data ?? []) {
           const row = s as {
@@ -829,6 +849,9 @@ export function SalarySettlementCenter() {
             other_adjust?: unknown;
             payroll_bonus?: unknown;
             bonus_and_overtime?: unknown;
+            special_leave_days_settled?: unknown;
+            special_leave_remaining_after?: unknown;
+            comp_leave_remaining_after?: unknown;
           };
           if (!row.employee_id || !isPaidStatus(row.status)) continue;
           const id = String(row.employee_id);
@@ -840,8 +863,14 @@ export function SalarySettlementCenter() {
             payroll_bonus: row.payroll_bonus,
             bonus_and_overtime: row.bonus_and_overtime,
           });
+          leaveSnapByEmp.set(id, {
+            specialSettled: numOrNull(row.special_leave_days_settled),
+            specialAfter: numOrNull(row.special_leave_remaining_after),
+            compAfter: numOrNull(row.comp_leave_remaining_after),
+          });
         }
       }
+      setPaidLeaveSnapByEmp(leaveSnapByEmp);
 
       const initInputs: Record<string, RowInputs> = {};
       for (const e of emps) {
@@ -1632,13 +1661,22 @@ export function SalarySettlementCenter() {
                     inp.otherAdjust +
                     semiBonus,
                 );
+                /** 已發放列改讀 payslips 發放當下快照，避免主檔後續變動使數字對不上；
+                 *  舊快照（無新欄位）退回即時值 */
+                const paidSnap = paid ? paidLeaveSnapByEmp.get(emp.id) : undefined;
+                const specialThisMonthDisp =
+                  paidSnap?.specialSettled ?? st.specialThisMonth;
                 const orig =
-                  emp.annual_leave_remaining != null
-                    ? emp.annual_leave_remaining
-                    : null;
+                  paidSnap?.specialAfter != null
+                    ? paidSnap.specialAfter + (paidSnap.specialSettled ?? 0)
+                    : emp.annual_leave_remaining != null
+                      ? emp.annual_leave_remaining
+                      : null;
                 const settledRemaining =
-                  (orig ?? 0) - st.specialThisMonth;
-                const hasSpecialUse = st.specialThisMonth > 0;
+                  paidSnap?.specialAfter != null
+                    ? paidSnap.specialAfter
+                    : (orig ?? 0) - st.specialThisMonth;
+                const hasSpecialUse = specialThisMonthDisp > 0;
 
                 const grantedSet = grantedByEmp.get(emp.id);
                 const pendingGrants = grantsTableMissing
@@ -1750,7 +1788,7 @@ export function SalarySettlementCenter() {
                       )}
                     </td>
                     <td className="whitespace-nowrap! text-right text-xs tabular-nums text-foreground">
-                      {formatDayDecimalAsDayHour(st.specialThisMonth)}
+                      {formatDayDecimalAsDayHour(specialThisMonthDisp)}
                     </td>
                     <td
                       title={hasSpecialUse ? "已扣本月建立之特休" : undefined}
@@ -1761,7 +1799,7 @@ export function SalarySettlementCenter() {
                           : "text-foreground",
                       )}
                     >
-                      {orig != null || st.specialThisMonth > 0
+                      {orig != null || specialThisMonthDisp > 0
                         ? formatSignedDayDecimalAsDayHour(settledRemaining)
                         : "—"}
                     </td>
@@ -1827,11 +1865,17 @@ export function SalarySettlementCenter() {
                     </td>
                     <td
                       className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground"
-                      title="補休金庫餘額（小時）"
+                      title={
+                        paidSnap?.compAfter != null
+                          ? "發放當下快照（payslips.comp_leave_remaining_after）"
+                          : "補休金庫餘額（小時）"
+                      }
                     >
-                      {emp.comp_leave_remaining != null
-                        ? `${emp.comp_leave_remaining}h`
-                        : "—"}
+                      {paidSnap?.compAfter != null
+                        ? `${paidSnap.compAfter}h`
+                        : emp.comp_leave_remaining != null
+                          ? `${emp.comp_leave_remaining}h`
+                          : "—"}
                     </td>
                     <td className="border-l border-border text-right">
                       <input
