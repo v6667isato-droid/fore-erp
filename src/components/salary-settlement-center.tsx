@@ -1057,6 +1057,12 @@ export function SalarySettlementCenter() {
     const baseRemaining = emp.annual_leave_remaining ?? 0;
     const settledRemaining = baseRemaining - st.specialThisMonth;
 
+    /** 改計加班費時沖回補登時已入補休金庫的時數：以該月補登紀錄為準，且不超過實際計費時數 */
+    const monthOtHours = sumApprovedOvertimeHoursForEmployee(emp.id, overtimeRows);
+    const compClawbackHours = inp.settleOvertimeAsCompOff
+      ? 0
+      : Math.min(monthOtHours, inp.overtimeDays * 8);
+
     const confirmLines = [
       `確定發放「${emp.name}」${bounds.label} 薪資？`,
       ``,
@@ -1075,6 +1081,11 @@ export function SalarySettlementCenter() {
     confirmLines.push(
       `特休結算後餘額將更新為：${formatSignedDayDecimalAsDayHour(settledRemaining)}（原本 ${formatDayDecimalAsDayHour(baseRemaining)} − 本月建立之特休 ${formatDayDecimalAsDayHour(st.specialThisMonth)}）`,
     );
+    if (compClawbackHours > 0) {
+      confirmLines.push(
+        `加班改計加班費：將自動從補休金庫扣回 ${compClawbackHours} 小時（補登時曾轉入）`,
+      );
+    }
 
     const ok = window.confirm(confirmLines.join("\n"));
     if (!ok) return;
@@ -1226,7 +1237,38 @@ export function SalarySettlementCenter() {
       return;
     }
 
-    toast.success(`已發放：${emp.name}（薪資入帳並已更新特休餘額）`);
+    /** 補休金庫沖回：薪資與特休都寫入成功後才執行；失敗不回滾薪資，改提示人工處理 */
+    let compClawbackDone = false;
+    if (compClawbackHours > 0) {
+      const compRead = await supabase
+        .from("employees")
+        .select("comp_leave_remaining")
+        .eq("id", emp.id)
+        .maybeSingle();
+      if (!compRead.error && compRead.data) {
+        const current = num(
+          (compRead.data as { comp_leave_remaining?: unknown }).comp_leave_remaining,
+          0,
+        );
+        const { error: compErr } = await supabase
+          .from("employees")
+          .update({ comp_leave_remaining: current - compClawbackHours })
+          .eq("id", emp.id);
+        compClawbackDone = !compErr;
+      }
+      if (!compClawbackDone) {
+        toast.warning(
+          `薪資已入帳，但補休金庫扣回失敗，請至員工主檔手動扣 ${compClawbackHours} 小時。`,
+          { duration: 10000 },
+        );
+      }
+    }
+
+    toast.success(
+      compClawbackDone
+        ? `已發放：${emp.name}（薪資入帳、特休已更新、補休扣回 ${compClawbackHours} 小時）`
+        : `已發放：${emp.name}（薪資入帳並已更新特休餘額）`,
+    );
     if (payslipDetailFallback) {
       toast.info(
         "薪資已入帳；payslips 尚缺勞健保／加班明細等欄位，員工端薪資單可能不完整。請在 Supabase 執行 sql/payslips_settlement_columns.sql。",
