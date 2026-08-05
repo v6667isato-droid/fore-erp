@@ -102,7 +102,9 @@ export async function fetchSalesInvoices(): Promise<SalesInvoiceRow[]> {
   const { data, error } = await supabase
     .from("sales_invoices")
     .select(
-      `${SALES_INVOICE_FIELDS}, orders (id, order_number), sales_allowances (id, invoice_id, allowance_number, allowance_date, amount_ex_tax, tax_amount, amount_inc_tax, reason, status, deleted_at)`,
+      // orders 指定 FK 路徑：避免 PostgREST 節點快取殘留其他關聯（如曾短暫存在的
+      // sales_invoice_orders 表）時回 PGRST201 模糊錯誤
+      `${SALES_INVOICE_FIELDS}, orders!sales_invoices_order_id_fkey (id, order_number), sales_allowances (id, invoice_id, allowance_number, allowance_date, amount_ex_tax, tax_amount, amount_inc_tax, reason, status, deleted_at)`,
     )
     .is("deleted_at", null)
     .order("invoice_date", { ascending: false, nullsFirst: true })
