@@ -230,9 +230,13 @@ const TAX_RECOGNITION_PROMPT = `這是一張台灣的統一發票（可能是三
   period_roc_year（民國年，如 115）、period_start_month（起月，如 7）、period_end_month（迄月，如 8）；
   沒印期別或無法辨識時三個都輸出 null。注意這是期別區間，不是發票日期
 - format_code（進項憑證格式代號）依票面型式判斷：
-  「25」＝電子發票證明聯：57mm 熱感紙、下方有兩個 QR code＋一維條碼、標題印「電子發票證明聯」；
+  「25」＝電子發票證明聯（57mm 熱感紙、下方有兩個 QR code＋一維條碼、標題印「電子發票證明聯」），
+  　　　　或「有印買方統編」的傳統收銀機發票（＝三聯式收銀機）；
   「21」＝手開／手寫發票：欄位為手寫字跡、表格式票面、常有複寫痕跡；
-  「22」＝傳統收銀機發票：長條型紙卷、常為粉紅／黃等有色紙、整張機器列印、沒有 QR code；
+  「22」＝「沒有」買方統編的傳統收銀機發票（二聯式、內含稅）：長條型紙卷、常為粉紅／黃等有色紙、
+  　　　　整張機器列印、沒有 QR code；
+  收銀機發票的買方統編常印成「統編:12345678」「買:12345678」等字樣（多在票面上緣、日期附近），
+  請特別檢查——有找到就同時填入 buyer_tax_id 並將 format_code 判為 25；
   無法判斷時輸出 null
 - field_boxes：上述每個欄位各自在照片中的範圍（0–1000 標準化座標），
   給審核畫面做欄位級放大核對用；寧可框大一點也不要切到該欄位的文字；
@@ -306,7 +310,8 @@ const CLAUDE_TAX_OUTPUT_SCHEMA = {
     period_end_month: { type: ["number", "null"], description: "字軌期別迄月（1–12）；未印則 null" },
     format_code: {
       type: ["string", "null"],
-      description: "格式代號：25＝電子發票證明聯、21＝手開／手寫發票、22＝傳統收銀機長條發票；無法判斷 null",
+      description:
+        "格式代號：25＝電子發票證明聯或有買方統編的收銀機發票（三聯式）、21＝手開／手寫發票、22＝無買方統編的收銀機發票（二聯式）；無法判斷 null",
     },
     field_boxes: {
       type: ["object", "null"],
@@ -376,7 +381,8 @@ const GEMINI_TAX_OUTPUT_SCHEMA = {
     format_code: {
       type: "STRING",
       nullable: true,
-      description: "格式代號：25＝電子發票證明聯、21＝手開／手寫發票、22＝傳統收銀機長條發票；無法判斷 null",
+      description:
+        "格式代號：25＝電子發票證明聯或有買方統編的收銀機發票（三聯式）、21＝手開／手寫發票、22＝無買方統編的收銀機發票（二聯式）；無法判斷 null",
     },
     field_boxes: {
       type: "OBJECT",
