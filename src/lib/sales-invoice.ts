@@ -197,16 +197,101 @@ export async function saveSalesInvoiceOrderLinks(invoiceId: string, orderIds: st
   return null;
 }
 
-/** 搜尋訂單（連結發票用）：依訂單號模糊比對，空字串回最近訂單 */
-export async function searchOrdersForInvoiceLink(keyword: string): Promise<SalesInvoiceOrderSummary[]> {
-  let query = supabase.from("orders").select("id, order_number").order("created_at", { ascending: false }).limit(8);
-  if (keyword.trim()) query = query.ilike("order_number", `%${keyword.trim()}%`);
-  const { data, error } = await query;
+/** 訂單連結選項（含客戶與日期，方便辨識） */
+export interface OrderLinkOption extends SalesInvoiceOrderSummary {
+  order_date: string | null;
+  customer_name: string | null;
+}
+
+const ORDER_LINK_SELECT = "id, order_number, order_date, customers (name, company)";
+
+interface OrderLinkQueryRow {
+  id: string;
+  order_number: string;
+  order_date: string | null;
+  customers: { name: string; company: string | null } | null;
+}
+
+function toOrderLinkOption(r: OrderLinkQueryRow): OrderLinkOption {
+  return {
+    id: r.id,
+    order_number: r.order_number,
+    order_date: r.order_date,
+    customer_name: r.customers?.company?.trim() || r.customers?.name || null,
+  };
+}
+
+/** or() 過濾式中的保留字元先移除，避免使用者輸入破壞語法 */
+function sanitizeIlike(s: string): string {
+  return s.replace(/[,()"]/g, "").trim();
+}
+
+/** 依名稱／公司／發票抬頭找客戶 id */
+async function findCustomerIds(keyword: string): Promise<string[]> {
+  const kw = sanitizeIlike(keyword);
+  if (!kw) return [];
+  const { data } = await supabase
+    .from("customers")
+    .select("id")
+    .or(`name.ilike.%${kw}%,company.ilike.%${kw}%,invoice_title.ilike.%${kw}%`)
+    .limit(10);
+  return ((data ?? []) as { id: string }[]).map((c) => c.id);
+}
+
+/** 搜尋訂單（連結發票用）：訂單號或客戶名稱模糊比對，訂單號命中優先 */
+export async function searchOrdersForInvoiceLink(keyword: string): Promise<OrderLinkOption[]> {
+  const kw = keyword.trim();
+  if (!kw) return [];
+  const [byNumberRes, customerIds] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(ORDER_LINK_SELECT)
+      .ilike("order_number", `%${kw}%`)
+      .order("created_at", { ascending: false })
+      .limit(8),
+    findCustomerIds(kw),
+  ]);
+  const merged: OrderLinkQueryRow[] = [...((byNumberRes.data ?? []) as unknown as OrderLinkQueryRow[])];
+  if (customerIds.length > 0) {
+    const { data } = await supabase
+      .from("orders")
+      .select(ORDER_LINK_SELECT)
+      .in("customer_id", customerIds)
+      .order("created_at", { ascending: false })
+      .limit(8);
+    for (const r of (data ?? []) as unknown as OrderLinkQueryRow[]) {
+      if (!merged.some((m) => m.id === r.id)) merged.push(r);
+    }
+  }
+  return merged.slice(0, 10).map(toOrderLinkOption);
+}
+
+/** 依發票買方比對客戶（B2B 統編優先、否則抬頭名稱），建議該客戶最近的訂單 */
+export async function suggestOrdersForInvoice(
+  buyerTaxId: string | null,
+  buyerName: string | null,
+): Promise<OrderLinkOption[]> {
+  let customerIds: string[] = [];
+  const ban = (buyerTaxId ?? "").trim();
+  if (/^\d{8}$/.test(ban)) {
+    const { data } = await supabase.from("customers").select("id").eq("tax_id", ban).limit(10);
+    customerIds = ((data ?? []) as { id: string }[]).map((c) => c.id);
+  }
+  if (customerIds.length === 0 && (buyerName ?? "").trim()) {
+    customerIds = await findCustomerIds(buyerName ?? "");
+  }
+  if (customerIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("orders")
+    .select(ORDER_LINK_SELECT)
+    .in("customer_id", customerIds)
+    .order("created_at", { ascending: false })
+    .limit(8);
   if (error) {
-    console.error("訂單搜尋失敗:", error.message);
+    console.error("訂單建議讀取失敗:", error.message);
     return [];
   }
-  return (data ?? []) as SalesInvoiceOrderSummary[];
+  return ((data ?? []) as unknown as OrderLinkQueryRow[]).map(toOrderLinkOption);
 }
 
 /** 光賀 API 呼叫結果：ok=false 時 error 為可顯示訊息 */

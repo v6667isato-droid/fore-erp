@@ -21,6 +21,8 @@ import {
   SALES_STATUS_LABELS,
   saveSalesInvoiceOrderLinks,
   searchOrdersForInvoiceLink,
+  suggestOrdersForInvoice,
+  type OrderLinkOption,
   type SalesInvoiceOrderSummary,
   type SalesInvoiceRow,
   type SalesInvoiceType,
@@ -113,7 +115,9 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
   /** 連結的訂單（多對多；第一張同步為 order_id 主要訂單） */
   const [linkedOrders, setLinkedOrders] = useState<SalesInvoiceOrderSummary[]>([]);
   const [orderSearch, setOrderSearch] = useState("");
-  const [orderResults, setOrderResults] = useState<SalesInvoiceOrderSummary[]>([]);
+  const [orderResults, setOrderResults] = useState<OrderLinkOption[]>([]);
+  /** 依買方統編／抬頭比對客戶後的建議訂單 */
+  const [orderSuggestions, setOrderSuggestions] = useState<OrderLinkOption[]>([]);
 
   // 開啟時預填：編輯模式載入既有欄位與明細；由訂單開票則抓訂單／客戶／品項
   useEffect(() => {
@@ -290,7 +294,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     };
   }, [open, invoice, invoiceNumber]);
 
-  // 訂單搜尋（連結發票用），350ms debounce
+  // 訂單搜尋（連結發票用）：訂單號或客戶名，350ms debounce
   useEffect(() => {
     if (!open || !orderSearch.trim()) {
       setOrderResults([]);
@@ -306,6 +310,30 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
       clearTimeout(timer);
     };
   }, [open, orderSearch]);
+
+  // 依買方（B2B 統編／B2C 抬頭）比對客戶，給訂單預選建議；600ms debounce
+  useEffect(() => {
+    if (!open || readOnly) {
+      setOrderSuggestions([]);
+      return;
+    }
+    if (!buyerTaxId.trim() && !buyerName.trim()) {
+      setOrderSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const results = await suggestOrdersForInvoice(
+        invoiceType === "B2B" ? buyerTaxId : null,
+        buyerName,
+      );
+      if (!cancelled) setOrderSuggestions(results);
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, readOnly, invoiceType, buyerTaxId, buyerName]);
 
   const lineSum = useMemo(() => lines.reduce((acc, l) => acc + lineAmount(l), 0), [lines]);
   const totals = useMemo(() => calcInvoiceTotals(invoiceType, taxType, lineSum), [invoiceType, taxType, lineSum]);
@@ -682,36 +710,64 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                 ))}
               </div>
               {!readOnly && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={orderSearch}
-                    onChange={(e) => setOrderSearch(e.target.value)}
-                    placeholder="輸入訂單號搜尋以加入連結"
-                    aria-label="搜尋訂單以連結"
-                    className={`${inputCls} max-w-xs`}
-                  />
-                  {orderResults.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full max-w-xs overflow-hidden rounded-lg border border-border bg-card shadow-md">
-                      {orderResults
-                        .filter((r) => !linkedOrders.some((o) => o.id === r.id))
-                        .map((r) => (
-                          <button
-                            key={r.id}
-                            type="button"
-                            className="block w-full px-2 py-1.5 text-left text-xs tabular-nums text-foreground hover:bg-accent/40"
-                            onClick={() => {
-                              setLinkedOrders((prev) => [...prev, r]);
-                              setOrderSearch("");
-                              setOrderResults([]);
-                            }}
-                          >
-                            {r.order_number}
-                          </button>
-                        ))}
-                    </div>
-                  )}
-                </div>
+                <>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      placeholder="輸入訂單號或客戶名稱搜尋"
+                      aria-label="搜尋訂單以連結"
+                      className={`${inputCls} max-w-xs`}
+                    />
+                    {orderResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full max-w-xs overflow-hidden rounded-lg border border-border bg-card shadow-md">
+                        {orderResults
+                          .filter((r) => !linkedOrders.some((o) => o.id === r.id))
+                          .map((r) => (
+                            <button
+                              key={r.id}
+                              type="button"
+                              className="block w-full px-2 py-1.5 text-left text-xs text-foreground hover:bg-accent/40"
+                              onClick={() => {
+                                setLinkedOrders((prev) => [...prev, r]);
+                                setOrderSearch("");
+                                setOrderResults([]);
+                              }}
+                            >
+                              <span className="tabular-nums">{r.order_number.replace(/^ORD-/i, "")}</span>
+                              <span className="ml-1.5 text-muted-foreground">
+                                {r.customer_name ?? "—"}
+                                {r.order_date ? `｜${r.order_date}` : ""}
+                              </span>
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                  {!orderSearch.trim() &&
+                    orderSuggestions.filter((s) => !linkedOrders.some((o) => o.id === s.id)).length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">建議（買方相符客戶的近期訂單）：</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {orderSuggestions
+                            .filter((s) => !linkedOrders.some((o) => o.id === s.id))
+                            .map((s) => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                title={`${s.customer_name ?? ""}${s.order_date ? `｜${s.order_date}` : ""}`}
+                                className="rounded border border-dashed border-border px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground hover:border-primary hover:text-foreground"
+                                onClick={() => setLinkedOrders((prev) => [...prev, s])}
+                              >
+                                ＋{s.order_number.replace(/^ORD-/i, "")}
+                                {s.order_date ? `（${s.order_date.slice(5)}）` : ""}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                </>
               )}
             </div>
 
