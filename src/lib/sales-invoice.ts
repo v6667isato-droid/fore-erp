@@ -219,7 +219,8 @@ function toOrderLinkOption(r: OrderLinkQueryRow): OrderLinkOption {
     id: r.id,
     order_number: r.order_number,
     order_date: r.order_date,
-    customer_name: r.customers?.company?.trim() || r.customers?.name || null,
+    // 顯示聯絡人姓名（customers.name）；無名字才退回公司名
+    customer_name: r.customers?.name?.trim() || r.customers?.company || null,
     total_amount: r.total_amount,
   };
 }
