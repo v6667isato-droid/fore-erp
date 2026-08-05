@@ -100,7 +100,8 @@ async function loadInvoice(db: SupabaseClient, invoiceId: string): Promise<Invoi
   const { data } = await db
     .from("sales_invoices")
     .select(
-      "id, invoice_type, invoice_number, invoice_date, buyer_name, buyer_tax_id, buyer_email, carrier_type, carrier_id, donation_code, tax_type, status, sync_status, notes, orders (order_number)",
+      // orders 需指定 FK：sales_invoice_orders 關聯表加入後有兩條路徑，不指定會回 PGRST201
+      "id, invoice_type, invoice_number, invoice_date, buyer_name, buyer_tax_id, buyer_email, carrier_type, carrier_id, donation_code, tax_type, status, sync_status, notes, orders!sales_invoices_order_id_fkey (order_number)",
     )
     .eq("id", invoiceId)
     .is("deleted_at", null)
