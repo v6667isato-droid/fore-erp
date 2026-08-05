@@ -25,6 +25,7 @@ function isAmegoSynced(r: SalesInvoiceRow): boolean {
 }
 import { SalesInvoiceDialog } from "@/components/accounting/sales-invoice-dialog";
 import { ExportSalesTaxMediaDialog } from "@/components/accounting/export-sales-tax-media-dialog";
+import { OrderPeekDialog } from "@/components/orders/order-peek-dialog";
 
 type StatusFilter = "all" | "draft" | "issued" | "voided";
 type TypeFilter = "all" | "B2B" | "B2C";
@@ -105,6 +106,8 @@ export function SalesInvoicesPage() {
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  /** 點來源訂單標籤 → 快速檢視訂單內容 */
+  const [peekOrder, setPeekOrder] = useState<{ id: string; order_number: string } | null>(null);
 
   /** 從光貿撈回發票：新增 ERP 缺漏的、補作廢狀態；衝突（ERP作廢/光貿開立）僅回報 */
   async function syncFromAmego() {
@@ -324,12 +327,15 @@ export function SalesInvoicesPage() {
                           return (
                             <span className="inline-flex flex-wrap gap-1">
                               {shown.map((o) => (
-                                <span
+                                <button
                                   key={o.id}
-                                  className="whitespace-nowrap rounded border border-border px-1.5 py-px text-xs tabular-nums text-muted-foreground"
+                                  type="button"
+                                  title="檢視訂單內容"
+                                  className="whitespace-nowrap rounded border border-border px-1.5 py-px text-xs tabular-nums text-muted-foreground hover:border-primary hover:text-foreground"
+                                  onClick={() => setPeekOrder({ id: o.id, order_number: o.order_number })}
                                 >
                                   {o.order_number.replace(/^ORD-/i, "")}
-                                </span>
+                                </button>
                               ))}
                             </span>
                           );
@@ -471,6 +477,15 @@ export function SalesInvoicesPage() {
           if (!o) setAllowanceTarget(null);
         }}
         onSaved={() => void refresh()}
+      />
+
+      <OrderPeekDialog
+        orderId={peekOrder?.id ?? null}
+        orderNumber={peekOrder?.order_number}
+        open={peekOrder != null}
+        onOpenChange={(open) => {
+          if (!open) setPeekOrder(null);
+        }}
       />
 
       <ConfirmDialog

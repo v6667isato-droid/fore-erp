@@ -197,18 +197,20 @@ export async function saveSalesInvoiceOrderLinks(invoiceId: string, orderIds: st
   return null;
 }
 
-/** 訂單連結選項（含客戶與日期，方便辨識） */
+/** 訂單連結選項（含客戶、日期與金額，方便辨識） */
 export interface OrderLinkOption extends SalesInvoiceOrderSummary {
   order_date: string | null;
   customer_name: string | null;
+  total_amount: number | null;
 }
 
-const ORDER_LINK_SELECT = "id, order_number, order_date, customers (name, company)";
+const ORDER_LINK_SELECT = "id, order_number, order_date, total_amount, customers (name, company)";
 
 interface OrderLinkQueryRow {
   id: string;
   order_number: string;
   order_date: string | null;
+  total_amount: number | null;
   customers: { name: string; company: string | null } | null;
 }
 
@@ -218,6 +220,7 @@ function toOrderLinkOption(r: OrderLinkQueryRow): OrderLinkOption {
     order_number: r.order_number,
     order_date: r.order_date,
     customer_name: r.customers?.company?.trim() || r.customers?.name || null,
+    total_amount: r.total_amount,
   };
 }
 

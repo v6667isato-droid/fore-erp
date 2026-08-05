@@ -738,6 +738,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                               <span className="tabular-nums">{r.order_number.replace(/^ORD-/i, "")}</span>
                               <span className="ml-1.5 text-muted-foreground">
                                 {r.customer_name ?? "—"}
+                                {r.total_amount != null ? `｜$${r.total_amount.toLocaleString()}` : ""}
                                 {r.order_date ? `｜${r.order_date}` : ""}
                               </span>
                             </button>
@@ -761,6 +762,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                                 onClick={() => setLinkedOrders((prev) => [...prev, s])}
                               >
                                 ＋{s.order_number.replace(/^ORD-/i, "")}
+                                {s.total_amount != null ? `｜$${s.total_amount.toLocaleString()}` : ""}
                                 {s.order_date ? `（${s.order_date.slice(5)}）` : ""}
                               </button>
                             ))}
