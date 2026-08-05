@@ -172,10 +172,10 @@ export function AccountingInvoiceReviewDialog({
     }
 
     const r = invoice.recognized;
-    // AI 判斷的格式代號（25 電子發票／三聯收銀機、21 手開三聯、22 二聯收銀機）優先於 DB 預設；
-    // 22（二聯式）不會有買方統編：辨識到統編則矯正為 25（三聯式收銀機）
+    // AI 判斷的格式代號（25 電子發票、21 手開三聯、22 收銀機長條發票）優先於 DB 預設；
+    // 收銀機二聯式不論有無買方統編一律 22，統編僅作資料保存
     if (r?.format_code === "21" || r?.format_code === "22" || r?.format_code === "25") {
-      setFormatCode(r.format_code === "22" && r?.buyer_tax_id?.trim() ? "25" : r.format_code);
+      setFormatCode(r.format_code);
     }
     setInvoiceNumber(r?.invoice_number ? normalizeInvoiceNumber(r.invoice_number) : "");
     setInvoiceDate(fixRocDate(r?.invoice_date) ?? "");
@@ -1000,10 +1000,6 @@ export function AccountingInvoiceReviewDialog({
                     onChange={(e) => {
                       setBuyerTaxId(e.target.value);
                       markManual("buyerTaxId");
-                      // 二聯式（22）不會有買方統編：填滿 8 碼即矯正為 25（三聯式收銀機）
-                      if (/^\d{8}$/.test(e.target.value.trim())) {
-                        setFormatCode((prev) => (prev === "22" ? "25" : prev));
-                      }
                     }}
                     onFocus={() => setFocusField("buyerTaxId")}
                     onBlur={() => setFocusField((v) => (v === "buyerTaxId" ? null : v))}
