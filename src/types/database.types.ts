@@ -431,6 +431,7 @@ export type Database = {
           created_at: string
           description: string | null
           event_date: string
+          google_event_id: string | null
           id: string
           image_url: string | null
           title: string
@@ -440,6 +441,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           event_date: string
+          google_event_id?: string | null
           id?: string
           image_url?: string | null
           title: string
@@ -449,6 +451,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           event_date?: string
+          google_event_id?: string | null
           id?: string
           image_url?: string | null
           title?: string

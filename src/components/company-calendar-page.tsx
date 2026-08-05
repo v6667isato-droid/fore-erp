@@ -20,6 +20,7 @@ import {
   fetchAssigneeNamesForEvents,
   fetchCompanyAnnouncementsFromEvents,
   fetchCompanyEventsBetween,
+  maybeReconcileGoogleCalendar,
   type CompanyEventCategory,
   type CompanyEventRow,
 } from "@/lib/company-events";
@@ -227,6 +228,11 @@ export function CompanyCalendarPage() {
       end: formatDateKey(last.year, last.month, last.day),
     };
   }, [grid]);
+
+  // 開頁時觸發 Google 行事曆對帳（函式內建 6 小時節流；未設定 Google 連線時後端安靜略過）
+  useEffect(() => {
+    maybeReconcileGoogleCalendar();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

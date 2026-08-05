@@ -76,6 +76,65 @@ export function normalizeCompanyEventCategory(v: unknown): CompanyEventCategory 
   return null;
 }
 
+// ─── Google 行事曆同步（fire-and-forget） ───
+// CRUD 成功後通知 /api/calendar-sync 推送到 Google；失敗不影響操作，每日 cron 對帳會補。
+
+const gcalUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+async function postCalendarSync(
+  payload:
+    | { action: "upsert"; event_id: string }
+    | { action: "delete"; google_event_id: string }
+    | { action: "reconcile" },
+): Promise<void> {
+  try {
+    if (!isSupabaseConfigured) return;
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return; // 未登入（員工入口匿名）不推送
+    await fetch("/api/calendar-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // 靜默：cron 對帳會補
+  }
+}
+
+const GCAL_RECONCILE_STORAGE_KEY = "fore-erp-gcal-reconcile-at";
+const GCAL_RECONCILE_INTERVAL_MS = 6 * 3600e3;
+
+/**
+ * 行事曆頁開啟時觸發 Google 行事曆全量對帳（每 6 小時最多一次，localStorage 節流）。
+ * 補上非經本前端建立的事件（如 Telegram bot 交辦）與漏掉的增刪改；
+ * Vercel Hobby cron 已滿額，故以此取代排程觸發。
+ */
+export function maybeReconcileGoogleCalendar(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const last = Number(window.localStorage.getItem(GCAL_RECONCILE_STORAGE_KEY) ?? "0");
+    if (Number.isFinite(last) && Date.now() - last < GCAL_RECONCILE_INTERVAL_MS) return;
+    window.localStorage.setItem(GCAL_RECONCILE_STORAGE_KEY, String(Date.now()));
+  } catch {
+    return;
+  }
+  void postCalendarSync({ action: "reconcile" });
+}
+
+/** 新增事件後常緊接著寫入負責人；去彈跳合併成一次推送，避免併發重複建立 Google 事件 */
+function scheduleGoogleCalendarUpsert(eventId: string): void {
+  const prev = gcalUpsertTimers.get(eventId);
+  if (prev) clearTimeout(prev);
+  gcalUpsertTimers.set(
+    eventId,
+    setTimeout(() => {
+      gcalUpsertTimers.delete(eventId);
+      void postCalendarSync({ action: "upsert", event_id: eventId });
+    }, 1500),
+  );
+}
+
 function normalizeRow(row: Record<string, unknown>): CompanyEventRow | null {
   const id = row.id;
   const title = row.title;
@@ -163,7 +222,9 @@ export async function insertCompanyEvent(input: InsertCompanyEventInput): Promis
     .select("id")
     .single();
   if (error) throw error;
-  return (data as { id: string }).id;
+  const id = (data as { id: string }).id;
+  scheduleGoogleCalendarUpsert(id);
+  return id;
 }
 
 export interface UpdateCompanyEventInput {
@@ -196,6 +257,7 @@ export async function updateCompanyEvent(input: UpdateCompanyEventInput): Promis
       "未更新任何資料（可能沒有 UPDATE 權限，或該筆已不存在）。請在 Supabase 確認 RLS policy 已開放 authenticated 角色的 UPDATE 權限。",
     );
   }
+  scheduleGoogleCalendarUpsert(input.id);
 }
 
 // ─── company_event_assignees ───
@@ -247,6 +309,7 @@ export async function insertCompanyEventAssignees(
   }));
   const { error } = await supabase.from(CEA_TABLE).insert(rows);
   if (error) throw error;
+  scheduleGoogleCalendarUpsert(companyEventId);
 }
 
 export async function fetchCompanyEventAssignmentsForEmployee(
@@ -361,13 +424,17 @@ export async function syncCompanyEventAssignees(
     .delete()
     .eq("company_event_id", companyEventId);
   if (delErr) throw delErr;
-  if (employeeIds.length === 0) return;
+  if (employeeIds.length === 0) {
+    scheduleGoogleCalendarUpsert(companyEventId);
+    return;
+  }
   const rows = employeeIds.map((eid) => ({
     company_event_id: companyEventId,
     employee_id: eid,
   }));
   const { error: insErr } = await supabase.from(CEA_TABLE).insert(rows);
   if (insErr) throw insErr;
+  scheduleGoogleCalendarUpsert(companyEventId);
 }
 
 export async function upsertCompanyEventAssigneeCompleted(params: {
@@ -387,6 +454,17 @@ export async function deleteCompanyEvent(id: string): Promise<void> {
   if (!isSupabaseConfigured) {
     throw new Error("Supabase 未設定");
   }
+  // 刪除後就查不到對應的 Google 事件 id，先取出來供同步刪除用
+  const { data: pre } = await supabase
+    .from(COMPANY_EVENT_TABLE)
+    .select("google_event_id")
+    .eq("id", id)
+    .maybeSingle();
+  const googleEventId =
+    typeof (pre as { google_event_id?: unknown } | null)?.google_event_id === "string"
+      ? ((pre as { google_event_id: string }).google_event_id)
+      : null;
+
   // RLS 擋刪時 PostgREST 仍回 204、error 為 null，但實際刪除 0 筆；用 Prefer: count=exact 辨識
   const { error, count } = await supabase
     .from(COMPANY_EVENT_TABLE)
@@ -397,5 +475,13 @@ export async function deleteCompanyEvent(id: string): Promise<void> {
     throw new Error(
       "未刪除任何資料（可能沒有 DELETE 權限，或該筆已不存在）。請在 Supabase 執行 migration：company_event_delete_authenticated，並確認已登入。"
     );
+  }
+  const pending = gcalUpsertTimers.get(id);
+  if (pending) {
+    clearTimeout(pending);
+    gcalUpsertTimers.delete(id);
+  }
+  if (googleEventId) {
+    void postCalendarSync({ action: "delete", google_event_id: googleEventId });
   }
 }
