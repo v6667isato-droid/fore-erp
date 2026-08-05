@@ -69,12 +69,13 @@ export function exportCostStatisticsCsv(args: {
 
   const fixedRows = [
     csvRow(["年度固定開銷紀錄"]),
-    csvRow(["年度", "租金(年)", "公司貸款利息(年)", "最後更新"]),
+    csvRow(["年度", "租金(年)", "公司貸款利息(年)", "進項稅折抵率(%)", "最後更新"]),
     ...fixedOverheadHistory.map(({ year, settings }) =>
       csvRow([
         year,
         Math.round(settings.annualRent),
         Math.round(settings.annualCompanyLoanInterest),
+        Math.round((settings.inputTaxDeductibleRatio ?? 0) * 100),
         settings.updatedAt.slice(0, 19).replace("T", " "),
       ]),
     ),
@@ -89,13 +90,17 @@ export function exportCostStatisticsCsv(args: {
     csvRow(["薪資成本", Math.round(current.totalSalaryCost)]),
     csvRow(["租金", Math.round(current.totalRentCost)]),
     csvRow(["公司貸款利息", Math.round(current.totalCompanyLoanCost)]),
-    csvRow(["稅金(營收5%)", Math.round(current.totalTaxCost)]),
+    csvRow(["營業稅(銷項+不可折抵進項)", Math.round(current.totalTaxCost)]),
     csvRow(["總成本", Math.round(current.totalCost)]),
-    csvRow(["訂單營收", Math.round(current.totalRevenue)]),
+    csvRow(["訂單營收(含稅)", Math.round(current.totalRevenue)]),
     csvRow(["毛利", Math.round(current.grossProfit)]),
     csvRow(["毛利率(%)", current.grossMargin.toFixed(1)]),
     csvRow(["年度租金設定", Math.round(current.fixedOverhead.annualRent)]),
     csvRow(["年度公司貸款利息設定", Math.round(current.fixedOverhead.annualCompanyLoanInterest)]),
+    csvRow([
+      "進項稅折抵率(%)",
+      Math.round((current.fixedOverhead.inputTaxDeductibleRatio ?? 0) * 100),
+    ]),
   ];
 
   const monthlyRows = [
@@ -108,9 +113,9 @@ export function exportCostStatisticsCsv(args: {
       "薪資成本",
       "租金",
       "公司貸款利息",
-      "稅金(營收5%)",
+      "營業稅",
       "總成本",
-      "訂單營收",
+      "訂單營收(含稅)",
       "毛利",
       "毛利率(%)",
     ]),
@@ -143,10 +148,9 @@ export function exportCostStatisticsCsv(args: {
       csvRow(["薪資成本", Math.round(snapshot.totalSalaryCost)]),
       csvRow(["租金", Math.round(snapshot.totalRentCost)]),
       csvRow(["公司貸款利息", Math.round(snapshot.totalCompanyLoanCost)]),
-      csvRow([
-        "稅金(營收5%)",
-        Math.round(snapshot.totalTaxCost ?? snapshot.totalRevenue * 0.05),
-      ]),
+      ...(snapshot.totalTaxCost != null
+        ? [csvRow(["稅金(舊口徑，營收5%)", Math.round(snapshot.totalTaxCost)])]
+        : []),
       csvRow(["總成本", Math.round(snapshot.totalCost)]),
       csvRow(["訂單營收", Math.round(snapshot.totalRevenue)]),
       csvRow(["毛利", Math.round(snapshot.grossProfit)]),

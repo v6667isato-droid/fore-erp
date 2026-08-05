@@ -1,4 +1,7 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { clampDeductibleRatio, DEFAULT_INPUT_TAX_DEDUCTIBLE_RATIO } from "@/lib/purchase-tax";
+
+export { DEFAULT_INPUT_TAX_DEDUCTIBLE_RATIO };
 
 const STORAGE_KEY = "fore-erp:cost-statistics-store";
 const LEGACY_KEY = "fore-erp:cost-statistics-fixed-overhead";
@@ -11,9 +14,13 @@ export const DEFAULT_ANNUAL_COMPANY_LOAN = 29695 * 12 + 7441 * 12 + 28037 * 6;
 
 export const DEFAULT_ANNUAL_RENT = 650_000;
 
-/** 稅金＝訂單營收 × 此比例（目前 5%） */
+/** 營業稅率 5% */
 export const REVENUE_TAX_RATE = 0.05;
 
+/**
+ * @deprecated 營業稅為代收代付，已不列為成本；營收改以未稅認列。
+ * 僅保留供讀取舊版快照／CSV 還原之用。
+ */
 export function computeRevenueTax(revenue: number): number {
   const base = Number.isFinite(revenue) && revenue > 0 ? revenue : 0;
   return Math.round(base * REVENUE_TAX_RATE);
@@ -22,6 +29,8 @@ export function computeRevenueTax(revenue: number): number {
 export type CostStatisticsFixedOverhead = {
   annualRent: number;
   annualCompanyLoanInterest: number;
+  /** 進項稅可扣抵比例（0–1）；0 ＝視同全部扣抵不到，材料以含稅認列 */
+  inputTaxDeductibleRatio: number;
 };
 
 export type CostStatisticsYearFixedOverhead = CostStatisticsFixedOverhead & {
@@ -37,7 +46,8 @@ export type CostStatisticsMonthlySnapshotRow = {
   salaryCost: number;
   rentCost: number;
   loanCost: number;
-  taxCost: number;
+  /** @deprecated 舊版快照才有；營業稅已不列成本 */
+  taxCost?: number;
   totalCost: number;
   revenue: number;
   grossProfit: number;
@@ -56,7 +66,8 @@ export type CostStatisticsYearSnapshot = {
   totalSalaryCost: number;
   totalRentCost: number;
   totalCompanyLoanCost: number;
-  totalTaxCost: number;
+  /** @deprecated 舊版快照才有；營業稅已不列成本 */
+  totalTaxCost?: number;
   totalCost: number;
   totalRevenue: number;
   grossProfit: number;
@@ -80,6 +91,7 @@ function defaultFixedOverhead(): CostStatisticsFixedOverhead {
   return {
     annualRent: DEFAULT_ANNUAL_RENT,
     annualCompanyLoanInterest: DEFAULT_ANNUAL_COMPANY_LOAN,
+    inputTaxDeductibleRatio: DEFAULT_INPUT_TAX_DEDUCTIBLE_RATIO,
   };
 }
 
@@ -124,6 +136,7 @@ function migrateLegacyStore(): CostStatisticsStoreV2 {
         legacy.annualCompanyLoanInterest,
         DEFAULT_ANNUAL_COMPANY_LOAN,
       ),
+      inputTaxDeductibleRatio: clampDeductibleRatio(legacy.inputTaxDeductibleRatio),
       updatedAt: new Date().toISOString(),
     };
     writeStore(store);
@@ -153,6 +166,7 @@ export function loadFixedOverheadForYear(year: number): CostStatisticsFixedOverh
       row.annualCompanyLoanInterest,
       DEFAULT_ANNUAL_COMPANY_LOAN,
     ),
+    inputTaxDeductibleRatio: clampDeductibleRatio(row.inputTaxDeductibleRatio),
   };
 }
 
@@ -167,6 +181,7 @@ export function saveFixedOverheadForYear(
       settings.annualCompanyLoanInterest,
       DEFAULT_ANNUAL_COMPANY_LOAN,
     ),
+    inputTaxDeductibleRatio: clampDeductibleRatio(settings.inputTaxDeductibleRatio),
     updatedAt: new Date().toISOString(),
   };
   writeStore(store);
@@ -191,6 +206,7 @@ function parseFixedOverheadValue(value: unknown): CostStatisticsFixedOverhead | 
       v.annualCompanyLoanInterest,
       DEFAULT_ANNUAL_COMPANY_LOAN,
     ),
+    inputTaxDeductibleRatio: clampDeductibleRatio(v.inputTaxDeductibleRatio),
   };
 }
 
@@ -246,6 +262,7 @@ export async function persistFixedOverheadForYear(
       settings.annualCompanyLoanInterest,
       DEFAULT_ANNUAL_COMPANY_LOAN,
     ),
+    inputTaxDeductibleRatio: clampDeductibleRatio(settings.inputTaxDeductibleRatio),
   };
   saveFixedOverheadForYear(year, normalized);
   if (!isSupabaseConfigured) return { error: "Supabase 尚未設定，僅存於此瀏覽器" };
@@ -253,7 +270,7 @@ export async function persistFixedOverheadForYear(
     {
       key: fixedOverheadSettingKey(year),
       value: normalized,
-      description: `成本統計 ${year} 年固定開銷（租金／公司貸款利息，年額）`,
+      description: `成本統計 ${year} 年固定開銷（租金／公司貸款利息／進項稅可扣抵比例）`,
     },
     { onConflict: "key" },
   );

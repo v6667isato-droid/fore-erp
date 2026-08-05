@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { computeRevenueTax } from "@/lib/cost-statistics-settings";
+import { nonDeductibleInputTax, salesTaxWithin } from "@/lib/purchase-tax";
 import {
   purchaseCostLookbackStartYear,
   spreadPurchaseCostByMonth,
@@ -134,6 +134,7 @@ export type CostMonthlyRow = {
   salaryCost: number;
   rentCost: number;
   loanCost: number;
+  /** 銷項稅額＋扣抵不到的進項稅額 */
   taxCost: number;
   totalCost: number;
   revenue: number;
@@ -184,15 +185,20 @@ export type CostStatisticsComputed = {
 };
 
 /**
- * 成本統計資料來源與彙總（成本統計／成本占比分頁共用，確保兩邊數字一致）。
+ * 成本統計資料來源與彙總。
+ *
+ * 稅務口徑：營收維持含稅（同訂單金額），採購一律未稅認列，
+ * 「稅金」＝銷項稅額（含於營收中、須繳交）＋扣抵不到的進項稅額。
+ * 數學上等同「未稅營收 −未稅成本」，只是把稅獨立成一列以便對帳。
  */
 export function useCostStatisticsData(args: {
   year: number;
   preset: YearPreset;
   annualRent: number;
   annualCompanyLoan: number;
+  inputTaxDeductibleRatio: number;
 }) {
-  const { year, preset, annualRent, annualCompanyLoan } = args;
+  const { year, preset, annualRent, annualCompanyLoan, inputTaxDeductibleRatio } = args;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [purchaseRows, setPurchaseRows] = useState<PurchaseCostRow[]>([]);
@@ -407,7 +413,6 @@ export function useCostStatisticsData(args: {
       let rentCost = 0;
       let loanCost = 0;
       let revenue = 0;
-      let taxCost = 0;
       let labelSuffix = "";
 
       if (isProjected) {
@@ -434,7 +439,9 @@ export function useCostStatisticsData(args: {
       }
 
       const purchaseCost = purchaseNonWood + purchaseWood + purchaseAmortized;
-      taxCost = computeRevenueTax(revenue);
+      /** 營收含稅，故銷項稅須列為支出；進項稅僅扣抵不到的部分才是支出 */
+      const taxCost =
+        salesTaxWithin(revenue) + nonDeductibleInputTax(purchaseCost, inputTaxDeductibleRatio);
       const totalCost = purchaseCost + salaryCost + rentCost + loanCost + taxCost;
       const grossProfit = revenue - totalCost;
       const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
@@ -533,7 +540,9 @@ export function useCostStatisticsData(args: {
       totalCompanyLoanCost += row.loanCost;
     }
 
-    const totalTaxCost = computeRevenueTax(totalRevenue);
+    const totalTaxCost =
+      salesTaxWithin(totalRevenue) +
+      nonDeductibleInputTax(totalPurchaseCost, inputTaxDeductibleRatio);
     const totalCost =
       totalPurchaseCost + totalSalaryCost + totalRentCost + totalCompanyLoanCost + totalTaxCost;
     const grossProfit = totalRevenue - totalCost;
@@ -559,7 +568,17 @@ export function useCostStatisticsData(args: {
       purchaseCount: purchaseRowsInYearYtd.length,
       payslipCount: payslipRowsYtd.length,
     };
-  }, [orderRows, payslipRows, purchaseRows, annualRent, annualCompanyLoan, year, employeeBurdens, preset]);
+  }, [
+    orderRows,
+    payslipRows,
+    purchaseRows,
+    annualRent,
+    annualCompanyLoan,
+    inputTaxDeductibleRatio,
+    year,
+    employeeBurdens,
+    preset,
+  ]);
 
   return { loading, error, computed, purchaseRows };
 }

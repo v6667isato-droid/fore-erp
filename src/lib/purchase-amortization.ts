@@ -1,4 +1,4 @@
-import { roundMoney2 } from "@/lib/purchase-tax";
+import { roundMoney2, TW_PURCHASE_VAT_MULTIPLIER } from "@/lib/purchase-tax";
 
 /** 成本統計查詢時，向前追溯採購紀錄的年數上限 */
 export const MAX_AMORTIZATION_MONTHS = 60;
@@ -78,6 +78,21 @@ export type SpreadPurchaseCostOptions = {
 };
 
 /**
+ * 採購認列金額一律為未稅；進項稅是否構成成本由呼叫端依可扣抵比例另計，
+ * 這裡不摻入稅務判斷。
+ */
+function purchaseCostBasis(row: PurchaseAmortizationInput): number {
+  const exTax =
+    row.amount_ex_tax != null
+      ? Number(row.amount_ex_tax)
+      : row.tax_included_amount != null
+        ? Number(row.tax_included_amount) / TW_PURCHASE_VAT_MULTIPLIER
+        : 0;
+  if (!Number.isFinite(exTax)) return 0;
+  return roundMoney2(exTax);
+}
+
+/**
  * 將一筆採購成本依攤提月數拆成各月金額（僅回傳落在 statYear 且 ≤ throughYm 的月份）。
  */
 export function spreadPurchaseCostByMonth(
@@ -92,7 +107,7 @@ export function spreadPurchaseCostByMonth(
 
   const throughYm = opts.throughYm ?? opts.cutoffYm;
 
-  const total = Number(row.tax_included_amount ?? row.amount_ex_tax ?? 0);
+  const total = purchaseCostBasis(row);
   if (!Number.isFinite(total) || total === 0) return [];
 
   const months = normalizeAmortizationMonths(row.amortization_months);

@@ -1,9 +1,10 @@
 import {
-  computeRevenueTax,
   DEFAULT_ANNUAL_COMPANY_LOAN,
   DEFAULT_ANNUAL_RENT,
+  DEFAULT_INPUT_TAX_DEDUCTIBLE_RATIO,
   fetchFixedOverheadForYear,
 } from "@/lib/cost-statistics-settings";
+import { nonDeductibleInputTax, salesTaxWithin } from "@/lib/purchase-tax";
 import {
   purchaseCostLookbackStartYear,
   spreadPurchaseCostByMonth,
@@ -114,6 +115,8 @@ export async function fetchHalfYearGrossProfit(
   const fixed = await fetchFixedOverheadForYear(year);
   const annualRent = fixed.annualRent ?? DEFAULT_ANNUAL_RENT;
   const annualCompanyLoan = fixed.annualCompanyLoanInterest ?? DEFAULT_ANNUAL_COMPANY_LOAN;
+  const inputTaxDeductibleRatio =
+    fixed.inputTaxDeductibleRatio ?? DEFAULT_INPUT_TAX_DEDUCTIBLE_RATIO;
 
   const start = `${year}-01-01`;
   const lookbackStart = `${purchaseCostLookbackStartYear(year)}-01-01`;
@@ -240,7 +243,9 @@ export async function fetchHalfYearGrossProfit(
       (purchaseNonWoodByMonth.get(key) ?? 0) + (purchaseWoodByMonth.get(key) ?? 0);
     const salaryCost = salaryByMonth.get(key) ?? 0;
     const rev = revenueByMonth.get(key) ?? 0;
-    const taxCost = computeRevenueTax(rev);
+    /** 營收含稅，故銷項稅須列為支出；進項稅僅折抵不到的部分才是支出 */
+    const taxCost =
+      salesTaxWithin(rev) + nonDeductibleInputTax(purchaseCost, inputTaxDeductibleRatio);
     const cost = purchaseCost + salaryCost + rl.rent + rl.loan + taxCost;
     grossProfit += rev - cost;
     revenue += rev;

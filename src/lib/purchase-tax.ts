@@ -6,6 +6,42 @@ export function roundMoney2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** 含稅金額換算未稅（訂單金額、售價一律為含稅價） */
+export function toExTaxAmount(taxIncludedAmount: number): number {
+  const n = Number(taxIncludedAmount);
+  if (!Number.isFinite(n)) return 0;
+  return n / TW_PURCHASE_VAT_MULTIPLIER;
+}
+
+/** 進項稅可扣抵比例預設 0：保守視同全部不可扣抵，材料以含稅認列成本 */
+export const DEFAULT_INPUT_TAX_DEDUCTIBLE_RATIO = 0;
+
+export function clampDeductibleRatio(ratio: number | null | undefined): number {
+  const r = Number(ratio);
+  if (!Number.isFinite(r)) return DEFAULT_INPUT_TAX_DEDUCTIBLE_RATIO;
+  return Math.min(Math.max(r, 0), 1);
+}
+
+/** 含稅金額內含的銷項稅額（代客戶收取、須繳交國稅局） */
+export function salesTaxWithin(taxIncludedAmount: number): number {
+  const n = Number(taxIncludedAmount);
+  if (!Number.isFinite(n)) return 0;
+  return n - n / TW_PURCHASE_VAT_MULTIPLIER;
+}
+
+/**
+ * 扣抵不到的進項稅額：可扣抵的部分能用銷項折抵、不是支出，
+ * 剩下的才是真的付出去拿不回來的錢。
+ */
+export function nonDeductibleInputTax(
+  amountExTax: number,
+  deductibleRatio: number | null | undefined,
+): number {
+  const n = Number(amountExTax);
+  if (!Number.isFinite(n)) return 0;
+  return n * TW_PURCHASE_VAT_RATE * (1 - clampDeductibleRatio(deductibleRatio));
+}
+
 export type PurchaseLineComputed = {
   /** 使用者輸入之單價（已稅或未稅，與旗標一致） */
   unit_price: number;

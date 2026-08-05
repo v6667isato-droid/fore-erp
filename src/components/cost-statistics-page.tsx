@@ -14,7 +14,7 @@ import {
   listRecordedSnapshotYears,
   loadAllFixedOverheadRecords,
   loadAllYearSnapshots,
-  computeRevenueTax,
+  DEFAULT_INPUT_TAX_DEDUCTIBLE_RATIO,
   loadFixedOverheadForYear,
   loadYearSnapshot,
   persistFixedOverheadForYear,
@@ -39,7 +39,7 @@ const BUCKET_DEFS = [
   { key: "amortized", label: "其他攤提", colorVar: "--cr-4" },
   { key: "rent", label: "租金", colorVar: "--cr-5" },
   { key: "loan", label: "貸款利息", colorVar: "--cr-6" },
-  { key: "tax", label: "稅金", colorVar: "--cr-7" },
+  { key: "tax", label: "營業稅", colorVar: "--cr-7" },
 ] as const;
 
 type BucketKey = (typeof BUCKET_DEFS)[number]["key"];
@@ -79,6 +79,10 @@ export function CostStatisticsPage() {
   const [preset, setPreset] = useState<YearPreset>("this");
   const [annualRent, setAnnualRent] = useState<number>(DEFAULT_ANNUAL_RENT);
   const [annualCompanyLoan, setAnnualCompanyLoan] = useState<number>(DEFAULT_ANNUAL_COMPANY_LOAN);
+  /** 進項稅可扣抵比例，畫面以百分比（0–100）編輯 */
+  const [deductiblePct, setDeductiblePct] = useState<number>(
+    DEFAULT_INPUT_TAX_DEDUCTIBLE_RATIO * 100,
+  );
   const [fixedOverheadReady, setFixedOverheadReady] = useState(false);
   const [fixedOverheadOpen, setFixedOverheadOpen] = useState(false);
   const [structureDetailOpen, setStructureDetailOpen] = useState(false);
@@ -89,7 +93,7 @@ export function CostStatisticsPage() {
     { kind: "idle" | "saving" | "saved" } | { kind: "error"; message: string }
   >({ kind: "idle" });
   /** 最近一次自儲存載入（或成功寫入）的值；與目前輸入相同時不觸發儲存 */
-  const lastLoadedOverhead = useRef<{ rent: number; loan: number } | null>(null);
+  const lastLoadedOverhead = useRef<{ rent: number; loan: number; pct: number } | null>(null);
   /** 每季「月份明細」是否展開；收合時僅顯示該季小計列 */
   const [quarterMonthOpen, setQuarterMonthOpen] = useState<Record<1 | 2 | 3 | 4, boolean>>({
     1: false,
@@ -120,22 +124,28 @@ export function CostStatisticsPage() {
     let cancelled = false;
     setOverheadSaveState({ kind: "idle" });
     const saved = loadFixedOverheadForYear(year);
+    const savedPct = saved.inputTaxDeductibleRatio * 100;
     lastLoadedOverhead.current = {
       rent: saved.annualRent,
       loan: saved.annualCompanyLoanInterest,
+      pct: savedPct,
     };
     setAnnualRent(saved.annualRent);
     setAnnualCompanyLoan(saved.annualCompanyLoanInterest);
+    setDeductiblePct(savedPct);
     setFixedOverheadReady(true);
     refreshRecordedMeta();
     void fetchFixedOverheadForYear(year).then((remote) => {
       if (cancelled) return;
+      const remotePct = remote.inputTaxDeductibleRatio * 100;
       lastLoadedOverhead.current = {
         rent: remote.annualRent,
         loan: remote.annualCompanyLoanInterest,
+        pct: remotePct,
       };
       setAnnualRent(remote.annualRent);
       setAnnualCompanyLoan(remote.annualCompanyLoanInterest);
+      setDeductiblePct(remotePct);
       refreshRecordedMeta();
     });
     return () => {
@@ -146,30 +156,43 @@ export function CostStatisticsPage() {
   useEffect(() => {
     if (!fixedOverheadReady) return;
     const last = lastLoadedOverhead.current;
-    if (last && last.rent === annualRent && last.loan === annualCompanyLoan) return;
+    if (
+      last &&
+      last.rent === annualRent &&
+      last.loan === annualCompanyLoan &&
+      last.pct === deductiblePct
+    ) {
+      return;
+    }
     setOverheadSaveState({ kind: "saving" });
     const timer = setTimeout(() => {
       void persistFixedOverheadForYear(year, {
         annualRent,
         annualCompanyLoanInterest: annualCompanyLoan,
+        inputTaxDeductibleRatio: deductiblePct / 100,
       }).then(({ error }) => {
         if (error) {
           setOverheadSaveState({ kind: "error", message: error });
           return;
         }
-        lastLoadedOverhead.current = { rent: annualRent, loan: annualCompanyLoan };
+        lastLoadedOverhead.current = {
+          rent: annualRent,
+          loan: annualCompanyLoan,
+          pct: deductiblePct,
+        };
         setOverheadSaveState({ kind: "saved" });
         refreshRecordedMeta();
       });
     }, 800);
     return () => clearTimeout(timer);
-  }, [annualRent, annualCompanyLoan, fixedOverheadReady, year]);
+  }, [annualRent, annualCompanyLoan, deductiblePct, fixedOverheadReady, year]);
 
   const { loading, error, computed, purchaseRows } = useCostStatisticsData({
     year,
     preset,
     annualRent,
     annualCompanyLoan,
+    inputTaxDeductibleRatio: deductiblePct / 100,
   });
 
   /** 截止月所屬季度：預設僅展開該季的月份明細 */
@@ -254,7 +277,7 @@ export function CostStatisticsPage() {
       totalSalaryCost: snapshot.totalSalaryCost,
       totalRentCost: snapshot.totalRentCost,
       totalCompanyLoanCost: snapshot.totalCompanyLoanCost,
-      totalTaxCost: snapshot.totalTaxCost ?? computeRevenueTax(snapshot.totalRevenue),
+      totalTaxCost: snapshot.totalTaxCost ?? 0,
       totalCost: snapshot.totalCost,
       totalRevenue: snapshot.totalRevenue,
       grossProfit: snapshot.grossProfit,
@@ -267,7 +290,7 @@ export function CostStatisticsPage() {
         salaryCost: row.salaryCost,
         rentCost: row.rentCost,
         loanCost: row.loanCost,
-        taxCost: row.taxCost ?? computeRevenueTax(row.revenue),
+        taxCost: row.taxCost ?? 0,
         totalCost: row.totalCost,
         revenue: row.revenue,
         grossProfit: row.grossProfit,
@@ -283,6 +306,7 @@ export function CostStatisticsPage() {
       fixedOverhead: {
         annualRent,
         annualCompanyLoanInterest: annualCompanyLoan,
+        inputTaxDeductibleRatio: deductiblePct / 100,
       },
       totalPurchaseNonWood: computed.totalPurchaseNonWood,
       totalPurchaseWood: computed.totalPurchaseWood,
@@ -307,6 +331,7 @@ export function CostStatisticsPage() {
       fixedOverhead: {
         annualRent,
         annualCompanyLoanInterest: annualCompanyLoan,
+        inputTaxDeductibleRatio: deductiblePct / 100,
       },
       totalPurchaseNonWood: computed.totalPurchaseNonWood,
       totalPurchaseWood: computed.totalPurchaseWood,
@@ -436,7 +461,7 @@ export function CostStatisticsPage() {
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-xs text-muted-foreground">訂單營收</p>
+              <p className="text-xs text-muted-foreground">訂單營收（含稅）</p>
               <p className="mt-1 text-xl font-semibold tabular-nums text-foreground sm:text-2xl">
                 {formatMoney(computed.totalRevenue)}
               </p>
@@ -655,9 +680,7 @@ export function CostStatisticsPage() {
                     <th className="px-4 py-2 text-right font-medium">材料與攤提</th>
                     <th className="px-4 py-2 text-right font-medium">薪資</th>
                     <th className="px-4 py-2 text-right font-medium">租金與利息</th>
-                    <th className="px-4 py-2 text-right font-medium">
-                      稅金 {REVENUE_TAX_RATE * 100}%
-                    </th>
+                    <th className="px-4 py-2 text-right font-medium">營業稅</th>
                     <th className="px-4 py-2 text-right font-medium">總成本</th>
                     <th className="px-4 py-2 text-right font-medium">訂單營收</th>
                     <th className="px-4 py-2 text-right font-medium">毛利</th>
@@ -837,7 +860,8 @@ export function CostStatisticsPage() {
         >
           <span className="shrink-0 text-sm font-medium text-foreground">年度固定開銷</span>
           <span className="ml-auto min-w-0 truncate text-right text-xs text-muted-foreground">
-            {year} 年 · 租金 {formatMoney(annualRent)} · 利息 {formatMoney(annualCompanyLoan)}
+            {year} 年 · 租金 {formatMoney(annualRent)} · 利息 {formatMoney(annualCompanyLoan)} ·
+            折抵率 {Math.round(deductiblePct)}%
             {snapshotYears.includes(year) ? " · 已存" : ""}
           </span>
           <ChevronDown
@@ -900,6 +924,30 @@ export function CostStatisticsPage() {
                   預設 {DEFAULT_ANNUAL_COMPANY_LOAN.toLocaleString("zh-TW")} 元／年
                 </span>
               </div>
+              <div className="flex min-w-[12rem] flex-col gap-1">
+                <label
+                  className="text-xs font-medium text-foreground"
+                  htmlFor="cost-input-tax-deductible"
+                >
+                  3. 進項稅折抵率（%）
+                </label>
+                <input
+                  id="cost-input-tax-deductible"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={deductiblePct}
+                  onChange={(e) =>
+                    setDeductiblePct(Math.min(100, Math.max(0, Number(e.target.value || 0))))
+                  }
+                  className="h-9 w-full max-w-[11rem] rounded-md border border-input bg-background px-2 text-sm tabular-nums"
+                />
+                <span className="text-[11px] text-muted-foreground">
+                  進項稅實際折抵得掉的比例。0% ＝全部折抵不到（保守）；100% ＝全部折抵。
+                  可由 401 申報書的進項稅額推算。
+                </span>
+              </div>
             </div>
 
             <Button
@@ -921,6 +969,7 @@ export function CostStatisticsPage() {
                       <th className="px-3 py-2 font-medium">年度</th>
                       <th className="px-3 py-2 font-medium">租金（年）</th>
                       <th className="px-3 py-2 font-medium">貸款利息（年）</th>
+                      <th className="px-3 py-2 font-medium">折抵率</th>
                       <th className="px-3 py-2 font-medium">統計紀錄</th>
                     </tr>
                   </thead>
@@ -931,6 +980,9 @@ export function CostStatisticsPage() {
                         <td className="px-3 py-2 tabular-nums">{formatMoney(overhead.annualRent)}</td>
                         <td className="px-3 py-2 tabular-nums">
                           {formatMoney(overhead.annualCompanyLoanInterest)}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">
+                          {Math.round(overhead.inputTaxDeductibleRatio * 100)}%
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
                           {snap ? snap.savedAt.slice(0, 10).replace(/-/g, "/") : "—"}
@@ -949,13 +1001,25 @@ export function CostStatisticsPage() {
         <summary className="cursor-pointer select-none text-sm font-medium text-foreground">
           計算說明
         </summary>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {year} 年年初至今（截至 {computed.ytdCutoffLabel}
-          ）；採購／薪資／訂單依實際日期或發薪月份，設攤提之採購按月分攤（含往年採購當年度分攤額），木料攤提併入「木料攤提」，租金與公司貸款利息依年額按月分攤（當月按日比例），稅金為訂單營收之{" "}
-          {REVENUE_TAX_RATE * 100}
-          %。營收排除「報價中」與已刪除訂單；採購不含已刪除紀錄。成本結構與合計列僅計實際數、不含
-          Q3/Q4 預估攤提；表中未到月份僅列預估攤提供參考。「材料與攤提」＝非木料＋木料攤提＋其他攤提；「租金與利息」＝租金＋公司貸款利息。
-        </p>
+        <div className="mt-2 space-y-2 text-sm text-muted-foreground">
+          <p>
+            <span className="font-medium text-foreground">稅務口徑：</span>營收維持含稅（與訂單金額一致），
+            材料與攤提一律以未稅認列。「營業稅」＝銷項稅額（營收 ÷ {1 + REVENUE_TAX_RATE} ×{" "}
+            {REVENUE_TAX_RATE * 100}%，含在營收裡、須繳交國稅局）＋折抵不到的進項稅額（材料未稅 ×{" "}
+            {REVENUE_TAX_RATE * 100}% × (1 −折抵率)）。折抵率目前為單一參數、不逐筆綁定採購紀錄；
+            待會計系統上線後可改讀實際折抵金額。
+          </p>
+          <p>
+            {year} 年年初至今（截至 {computed.ytdCutoffLabel}
+            ）；採購／薪資／訂單依實際日期或發薪月份，設攤提之採購按月分攤（含往年採購當年度分攤額），木料攤提併入「木料攤提」，租金與公司貸款利息依年額按月分攤（當月按日比例）。營收排除「報價中」與已刪除訂單；採購不含已刪除紀錄。成本結構與合計列僅計實際數、不含
+            Q3/Q4 預估攤提；表中未到月份僅列預估攤提供參考。「材料與攤提」＝非木料＋木料攤提＋其他攤提；「租金與利息」＝租金＋公司貸款利息。
+          </p>
+          <p>
+            此口徑與考績獎金的半年度毛利共用，兩邊數字一致。2026-08-05
+            之前儲存的年度快照為舊口徑（材料含稅、稅金以含稅營收 ×{REVENUE_TAX_RATE * 100}%
+            計算），不可與現在的數字直接比較。
+          </p>
+        </div>
       </details>
     </section>
   );
