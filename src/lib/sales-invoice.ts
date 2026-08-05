@@ -203,6 +203,17 @@ export function amegoCreateAllowance(invoiceId: string, amountIncTax: number, al
   });
 }
 
+/** 從光貿同步發票回 ERP（預設近 60 天）：新增缺漏、補作廢狀態 */
+export function amegoSyncInvoices(days = 60) {
+  return callAmegoApi<{
+    checked: number;
+    imported: number;
+    voided_updated: number;
+    conflicts: string[];
+    errors: string[];
+  }>({ action: "sync", days });
+}
+
 /** 下載發票 PDF 並以「買方名稱_發票號碼.pdf」存檔 */
 export async function amegoDownloadInvoicePdf(
   invoice: Pick<SalesInvoiceRow, "id" | "invoice_number" | "buyer_name">,

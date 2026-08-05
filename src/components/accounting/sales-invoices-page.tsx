@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Ban, Eye, FileDown, FileMinus, FileText, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Ban, Eye, FileDown, FileMinus, FileText, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -11,6 +11,7 @@ import { normalizeInvoiceNumber } from "@/lib/accounting-invoice";
 import {
   amegoCreateAllowance,
   amegoDownloadInvoicePdf,
+  amegoSyncInvoices,
   amegoVoidInvoice,
   fetchSalesInvoices,
   SALES_STATUS_LABELS,
@@ -103,6 +104,26 @@ export function SalesInvoicesPage() {
   }, [filtered]);
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  /** 從光貿撈回發票：新增 ERP 缺漏的、補作廢狀態；衝突（ERP作廢/光貿開立）僅回報 */
+  async function syncFromAmego() {
+    setSyncing(true);
+    const res = await amegoSyncInvoices();
+    setSyncing(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    const parts = [`檢查 ${res.checked} 張`, `新增 ${res.imported} 張`];
+    if (res.voided_updated > 0) parts.push(`補作廢 ${res.voided_updated} 張`);
+    if (res.conflicts.length > 0) parts.push(`狀態衝突 ${res.conflicts.length} 張（${res.conflicts.join("、")}）`);
+    if (res.errors.length > 0) {
+      toast.error(`同步部分失敗：${res.errors.join("；")}`);
+    }
+    toast.success(`光貿同步完成：${parts.join("、")}${res.environment === "test" ? "（測試環境）" : ""}`);
+    await refresh();
+  }
 
   /** 下載光賀發票 PDF（存為 買方_發票號碼.pdf）；載具發票依規定中獎後才可下載 */
   async function openInvoicePdf(row: SalesInvoiceRow) {
@@ -141,7 +162,18 @@ export function SalesInvoicesPage() {
               已開立含稅 ${totals.inc.toLocaleString()}｜稅額 ${totals.tax.toLocaleString()}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-3 text-xs"
+              title="把光貿平台上開立的發票撈回系統（近 60 天）"
+              disabled={syncing}
+              onClick={() => void syncFromAmego()}
+            >
+              <RefreshCw className={`mr-1 h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "同步中…" : "從光貿同步"}
+            </Button>
             <Button
               type="button"
               variant="outline"
