@@ -35,6 +35,7 @@ import {
   type SalesInvoiceOrderContext,
 } from "@/components/accounting/sales-invoice-dialog";
 import { fetchOrderInvoiceCounts } from "@/lib/sales-invoice";
+import { OrderInvoicesDialog } from "@/components/orders/order-invoices-dialog";
 import type {
   OrderRow,
   CustomerOption,
@@ -150,6 +151,8 @@ export function OrdersPage({
   const [viewCustomer, setViewCustomer] = useState<CustomerRow | null>(null);
   // 開立發票：目標訂單與各訂單已開張數（僅 canIssueInvoice＝admin 載入）
   const [invoiceOrder, setInvoiceOrder] = useState<SalesInvoiceOrderContext | null>(null);
+  /** 檢視訂單既有發票（已開過票的訂單按發票鈕先看列表） */
+  const [invoiceListOrder, setInvoiceListOrder] = useState<SalesInvoiceOrderContext | null>(null);
   const [invoiceCounts, setInvoiceCounts] = useState<Record<string, number>>({});
   const hasAppliedInitialOpenRef = useRef(false);
   const lastInitialOpenOrderIdRef = useRef<string | undefined>(undefined);
@@ -1360,17 +1363,19 @@ export function OrdersPage({
                           }`}
                           title={
                             (invoiceCounts[order.id] ?? 0) > 0
-                              ? `開立發票（此訂單已開 ${invoiceCounts[order.id]} 張）`
+                              ? `檢視發票（此訂單已開 ${invoiceCounts[order.id]} 張）`
                               : "開立發票"
                           }
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            setInvoiceOrder({
+                            const ctx = {
                               id: order.id,
                               order_number: order.order_number,
                               customer_id: order.customer_id,
-                            });
+                            };
+                            if ((invoiceCounts[order.id] ?? 0) > 0) setInvoiceListOrder(ctx);
+                            else setInvoiceOrder(ctx);
                           }}
                         >
                           <Receipt className="h-3 w-3" />
@@ -1455,6 +1460,15 @@ export function OrdersPage({
         }}
         order={invoiceOrder}
         onSaved={() => void fetchOrderInvoiceCounts().then(setInvoiceCounts)}
+      />
+
+      <OrderInvoicesDialog
+        order={invoiceListOrder}
+        open={invoiceListOrder != null}
+        onOpenChange={(open) => {
+          if (!open) setInvoiceListOrder(null);
+        }}
+        onIssueNew={(ctx) => setInvoiceOrder(ctx)}
       />
 
       <OrderFormDialog

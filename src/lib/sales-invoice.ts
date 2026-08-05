@@ -201,9 +201,55 @@ export function amegoCreateAllowance(invoiceId: string, amountIncTax: number, al
   });
 }
 
-/** 取得發票 PDF 下載連結（10 分鐘有效） */
-export function amegoInvoiceFileUrl(invoiceId: string) {
-  return callAmegoApi<{ file_url: string }>({ action: "file", invoice_id: invoiceId });
+/** 下載發票 PDF 並以「買方名稱_發票號碼.pdf」存檔 */
+export async function amegoDownloadInvoicePdf(
+  invoice: Pick<SalesInvoiceRow, "id" | "invoice_number" | "buyer_name">,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return { ok: false, error: "尚未登入，請重新登入後再試" };
+  try {
+    const res = await fetch("/api/amego", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: "file", invoice_id: invoice.id }),
+    });
+    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("pdf")) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: json.error ?? `發票 PDF 下載失敗（HTTP ${res.status}）` };
+    }
+    const blob = await res.blob();
+    const name = [invoice.buyer_name?.trim(), invoice.invoice_number]
+      .filter(Boolean)
+      .join("_")
+      .replace(/[\\/:*?"<>|]/g, "");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${name || "發票"}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "無法連線伺服器，請稍後再試" };
+  }
+}
+
+/** 某訂單的全部發票（未刪除，新→舊；訂單內檢視用） */
+export async function fetchSalesInvoicesByOrder(orderId: string): Promise<SalesInvoiceRow[]> {
+  const { data, error } = await supabase
+    .from("sales_invoices")
+    .select(SALES_INVOICE_FIELDS)
+    .eq("order_id", orderId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("訂單發票讀取失敗:", error.message);
+    return [];
+  }
+  return (data ?? []) as unknown as SalesInvoiceRow[];
 }
 
 /** 統編查公司名稱（自動帶買方抬頭；查不到回空字串） */

@@ -327,7 +327,7 @@ async function handleAllowance(db: SupabaseClient, invoiceId: string, body: Reco
   return NextResponse.json({ allowance_number: allowanceNumber, environment: creds.environment });
 }
 
-/** 發票 PDF 下載連結（invoice_file，連結 10 分鐘有效） */
+/** 發票 PDF（invoice_file）：伺服器端代抓後回傳檔案內容，前端可自訂存檔檔名 */
 async function handleFile(db: SupabaseClient, invoiceId: string, body: Record<string, unknown>) {
   const creds = getAmegoCredentials();
   const inv = await loadInvoice(db, invoiceId);
@@ -347,5 +347,12 @@ async function handleFile(db: SupabaseClient, invoiceId: string, body: Record<st
   if (res.code !== 0) return NextResponse.json({ error: amegoError(res) }, { status: 502 });
   const fileUrl = (res.data as { file_url?: string } | undefined)?.file_url;
   if (!fileUrl) return NextResponse.json({ error: "光賀未回傳檔案連結" }, { status: 502 });
-  return NextResponse.json({ file_url: fileUrl, environment: creds.environment });
+
+  const pdfRes = await fetch(fileUrl);
+  if (!pdfRes.ok) {
+    return NextResponse.json({ error: `發票檔案下載失敗（HTTP ${pdfRes.status}）` }, { status: 502 });
+  }
+  return new NextResponse(await pdfRes.arrayBuffer(), {
+    headers: { "Content-Type": "application/pdf" },
+  });
 }

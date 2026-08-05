@@ -10,7 +10,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { normalizeInvoiceNumber } from "@/lib/accounting-invoice";
 import {
   amegoCreateAllowance,
-  amegoInvoiceFileUrl,
+  amegoDownloadInvoicePdf,
   amegoVoidInvoice,
   fetchSalesInvoices,
   SALES_STATUS_LABELS,
@@ -104,16 +104,12 @@ export function SalesInvoicesPage() {
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
-  /** 開啟光賀發票 PDF（連結 10 分鐘有效）；載具發票依規定中獎後才可下載 */
+  /** 下載光賀發票 PDF（存為 買方_發票號碼.pdf）；載具發票依規定中獎後才可下載 */
   async function openInvoicePdf(row: SalesInvoiceRow) {
     setDownloadingId(row.id);
-    const res = await amegoInvoiceFileUrl(row.id);
+    const res = await amegoDownloadInvoicePdf(row);
     setDownloadingId(null);
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
-    window.open(res.file_url, "_blank", "noopener");
+    if (!res.ok) toast.error(res.error);
   }
 
   async function performDelete() {
