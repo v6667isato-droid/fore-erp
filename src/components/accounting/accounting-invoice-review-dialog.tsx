@@ -20,6 +20,7 @@ import {
   type InvoiceFormatCode,
 } from "@/lib/accounting-invoice";
 import { fetchPoOptions, suggestPos, type PoOption } from "@/lib/accounting-po-match";
+import { amegoBanQuery } from "@/lib/sales-invoice";
 import type { EInvoiceQrData } from "@/lib/e-invoice-qr";
 import { decodeEInvoiceQrFromUrl } from "@/lib/e-invoice-qr-decode";
 import { auditInvoice, toStoredReviewChecks, type AuditCheckKey } from "@/lib/invoice-audit";
@@ -203,6 +204,28 @@ export function AccountingInvoiceReviewDialog({
     setFieldSources(src);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 僅在開啟時預填一次
   }, [open, invoice?.id]);
+
+  // 賣方統編確定（OCR/QR 帶入或人工修正）→ 以財政部登記名稱自動帶出賣方抬頭。
+  // 官方名稱蓋過 OCR 從票面抄的店名（更標準）；人工輸入過的名稱不覆寫。
+  const fieldSourcesRef = useRef(fieldSources);
+  fieldSourcesRef.current = fieldSources;
+  useEffect(() => {
+    if (!open) return;
+    const ban = sellerTaxId.trim();
+    if (!/^\d{8}$/.test(ban)) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const r = await amegoBanQuery(ban);
+      if (cancelled || !r.ok || !r.name) return;
+      if (fieldSourcesRef.current.sellerName === "manual") return; // 人工輸入的不動
+      setSellerName(r.name);
+      setFieldSources((prev) => ({ ...prev, sellerName: "derived" }));
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, sellerTaxId]);
 
   // 照片載入時自動解碼電子發票 QR：解出的值為 ground truth，覆寫 OCR 預填
   useEffect(() => {
