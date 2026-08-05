@@ -110,6 +110,7 @@ import {
   CalendarDays,
   CalendarPlus,
   ChevronDown,
+  CircleAlert,
   ClipboardList,
   FileText,
   Home,
@@ -119,6 +120,25 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+
+/** 生產交辦手機卡片：把「品名 / W:.. x D:.. x H:..」拆成品名與尺寸兩段 */
+function splitWoItemLabel(label: string): { name: string; dims: string | null } {
+  const t = (label || "").trim();
+  if (!t || t === "—") return { name: "—", dims: null };
+  if (t.startsWith("W:")) return { name: "—", dims: t };
+  const idx = t.indexOf(" / W:");
+  if (idx < 0) return { name: t, dims: null };
+  return { name: t.slice(0, idx), dims: t.slice(idx + 3) };
+}
+
+function localTodayYmd(): string {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+}
+
+function formatMmDd(ymd: string): string {
+  return ymd.length >= 10 ? `${ymd.slice(5, 7)}/${ymd.slice(8, 10)}` : ymd;
+}
 
 function leaveStatusBadge(row: LeaveRequestRow) {
   if (row.status === "pending") {
@@ -1446,6 +1466,27 @@ export default function EmployeePortalPage() {
     );
   }
 
+  async function handleWoStageChange(wo: AssigneeWorkOrderRow, next: WorkOrderStage) {
+    const prev = woStageById[wo.id] ?? normalizeWorkOrderStage(wo.stage);
+    setWoStageById((p) => ({ ...p, [wo.id]: next }));
+    if (dataSource !== "supabase") return;
+    setSavingWorkOrderStageId(wo.id);
+    const r = await updateWorkOrderStageForAssignee(wo.id, employee.id, wo.order_id, next);
+    setSavingWorkOrderStageId(null);
+    if (!r.ok) {
+      setWoStageById((p) => ({ ...p, [wo.id]: prev }));
+      toast.error(r.message);
+      return;
+    }
+    if (r.syncWarning) {
+      toast.warning(r.syncWarning);
+    } else if (r.syncMessage) {
+      toast.success(r.syncMessage);
+    }
+  }
+
+  const todayYmd = localTodayYmd();
+
   return (
     <div
       className={cn(
@@ -1710,7 +1751,116 @@ export default function EmployeePortalPage() {
                             : "目前沒有進行中的負責工單。"}
                         </p>
                       ) : (
-                        <div className="overflow-x-auto rounded-xl border border-border/70 bg-card/40">
+                        <>
+                        {/* 手機（<768px）：卡片列表 */}
+                        <div className="space-y-2.5 md:hidden">
+                          {visibleAssigneeWorkOrders.map((wo) => {
+                            const stageVal =
+                              woStageById[wo.id] ?? normalizeWorkOrderStage(wo.stage);
+                            const safeStage = isWorkOrderStage(stageVal)
+                              ? stageVal
+                              : DEFAULT_WORK_ORDER_STAGE;
+                            const orderClosed = isWoOrderClosed(wo);
+                            const { name: woItemName, dims: woItemDims } = splitWoItemLabel(
+                              wo.item_size_label,
+                            );
+                            const overdue =
+                              woTab === "active" &&
+                              !!wo.planned_end_date &&
+                              wo.planned_end_date < todayYmd;
+                            return (
+                              <div
+                                key={wo.id}
+                                className="rounded-xl border border-border/70 bg-card/40 p-3"
+                              >
+                                <div className="flex items-start gap-2">
+                                  <p className="min-w-0 flex-1 text-[15px] font-medium leading-snug text-foreground">
+                                    {woItemName}
+                                  </p>
+                                  {Number.isFinite(wo.quantity) && wo.quantity > 1 ? (
+                                    <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">
+                                      ×{wo.quantity}
+                                    </span>
+                                  ) : null}
+                                  {wo.category?.trim() ? (
+                                    <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                                      {wo.category.trim()}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="mt-1 truncate text-[13px] text-muted-foreground">
+                                  {wo.customer_name || "—"}
+                                  {" · "}
+                                  <span className="font-mono">
+                                    {wo.order_number
+                                      ? wo.order_number.replace(/^ORD-/i, "")
+                                      : "—"}
+                                  </span>
+                                </p>
+                                {woItemDims ? (
+                                  <p className="mt-0.5 truncate text-xs text-muted-foreground/70">
+                                    {woItemDims}
+                                  </p>
+                                ) : null}
+                                <div className="mt-2.5 flex items-center gap-3">
+                                  {orderClosed ? (
+                                    <span
+                                      className="inline-flex h-9 flex-1 items-center rounded-md border border-border bg-muted/60 px-2 text-xs font-semibold text-muted-foreground"
+                                      title="訂單已結案，工序不可再修改"
+                                    >
+                                      已結案
+                                    </span>
+                                  ) : (
+                                    <select
+                                      value={safeStage}
+                                      disabled={savingWorkOrderStageId === wo.id}
+                                      onChange={(e) =>
+                                        handleWoStageChange(
+                                          wo,
+                                          e.target.value as WorkOrderStage,
+                                        )
+                                      }
+                                      aria-label={`${woItemName} 工序站別`}
+                                      className={cn(
+                                        "h-9 min-w-0 flex-1 rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring",
+                                        stageStyleClassName(safeStage),
+                                        savingWorkOrderStageId === wo.id && "opacity-70",
+                                      )}
+                                    >
+                                      {WORK_ORDER_STAGES.map((s) => (
+                                        <option key={s} value={s}>
+                                          {s}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  <span
+                                    className={cn(
+                                      "flex shrink-0 items-center gap-1 whitespace-nowrap text-xs tabular-nums",
+                                      overdue
+                                        ? "font-medium text-destructive"
+                                        : "text-muted-foreground",
+                                    )}
+                                  >
+                                    {overdue ? (
+                                      <CircleAlert className="h-3.5 w-3.5 shrink-0" />
+                                    ) : (
+                                      <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                    )}
+                                    <span>
+                                      {wo.planned_end_date
+                                        ? formatMmDd(wo.planned_end_date)
+                                        : "—"}
+                                    </span>
+                                    {overdue ? <span>逾期</span> : null}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {/* 桌機（>=768px）：維持原表格 */}
+                        <div className="hidden overflow-x-auto rounded-xl border border-border/70 bg-card/40 md:block">
                           <Table className="min-w-[44rem]">
                             <TableHeader>
                               <TableRow className="hover:bg-transparent border-border/60">
@@ -1783,30 +1933,9 @@ export default function EmployeePortalPage() {
                                       <select
                                         value={safeStage}
                                         disabled={savingWorkOrderStageId === wo.id}
-                                        onChange={async (e) => {
-                                          const next = e.target.value as WorkOrderStage;
-                                          const prev = woStageById[wo.id] ?? normalizeWorkOrderStage(wo.stage);
-                                          setWoStageById((p) => ({ ...p, [wo.id]: next }));
-                                          if (dataSource !== "supabase") return;
-                                          setSavingWorkOrderStageId(wo.id);
-                                          const r = await updateWorkOrderStageForAssignee(
-                                            wo.id,
-                                            employee.id,
-                                            wo.order_id,
-                                            next,
-                                          );
-                                          setSavingWorkOrderStageId(null);
-                                          if (!r.ok) {
-                                            setWoStageById((p) => ({ ...p, [wo.id]: prev }));
-                                            toast.error(r.message);
-                                            return;
-                                          }
-                                          if (r.syncWarning) {
-                                            toast.warning(r.syncWarning);
-                                          } else if (r.syncMessage) {
-                                            toast.success(r.syncMessage);
-                                          }
-                                        }}
+                                        onChange={(e) =>
+                                          handleWoStageChange(wo, e.target.value as WorkOrderStage)
+                                        }
                                         className={cn(
                                           "h-8 max-w-[9.5rem] rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-none",
                                           stageStyleClassName(safeStage),
@@ -1837,6 +1966,7 @@ export default function EmployeePortalPage() {
                             </TableBody>
                           </Table>
                         </div>
+                        </>
                       )}
                     </div>
                     <div className="border-t border-border/60 pt-4">
