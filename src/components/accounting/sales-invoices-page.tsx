@@ -315,13 +315,25 @@ export function SalesInvoicesPage() {
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-2 py-2">
-                        {r.orders ? (
-                          <span className="whitespace-nowrap rounded border border-border px-1.5 py-px text-xs tabular-nums text-muted-foreground">
-                            {r.orders.order_number.replace(/^ORD-/i, "")}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
+                        {(() => {
+                          const links = (r.sales_invoice_orders ?? [])
+                            .map((l) => l.orders)
+                            .filter((o): o is NonNullable<typeof o> => o != null);
+                          const shown = links.length > 0 ? links : r.orders ? [r.orders] : [];
+                          if (shown.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+                          return (
+                            <span className="inline-flex flex-wrap gap-1">
+                              {shown.map((o) => (
+                                <span
+                                  key={o.id}
+                                  className="whitespace-nowrap rounded border border-border px-1.5 py-px text-xs tabular-nums text-muted-foreground"
+                                >
+                                  {o.order_number.replace(/^ORD-/i, "")}
+                                </span>
+                              ))}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2">
                         <div className="flex items-center justify-end gap-0">

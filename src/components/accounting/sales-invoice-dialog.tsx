@@ -16,8 +16,12 @@ import {
   amegoIssueInvoice,
   calcInvoiceTotals,
   CARRIER_TYPE_OPTIONS,
+  fetchInvoiceOrderLinks,
   fetchSalesInvoiceItems,
   SALES_STATUS_LABELS,
+  saveSalesInvoiceOrderLinks,
+  searchOrdersForInvoiceLink,
+  type SalesInvoiceOrderSummary,
   type SalesInvoiceRow,
   type SalesInvoiceType,
 } from "@/lib/sales-invoice";
@@ -106,6 +110,10 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
   const [taxType, setTaxType] = useState(1);
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<LineInput[]>([emptyLine()]);
+  /** 連結的訂單（多對多；第一張同步為 order_id 主要訂單） */
+  const [linkedOrders, setLinkedOrders] = useState<SalesInvoiceOrderSummary[]>([]);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderResults, setOrderResults] = useState<SalesInvoiceOrderSummary[]>([]);
 
   // 開啟時預填：編輯模式載入既有欄位與明細；由訂單開票則抓訂單／客戶／品項
   useEffect(() => {
@@ -116,7 +124,12 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     setOrderPrefill(null);
     setCreatedId(null);
 
+    setOrderSearch("");
+    setOrderResults([]);
+
     if (invoice) {
+      setLinkedOrders([]);
+      void fetchInvoiceOrderLinks(invoice.id).then(setLinkedOrders);
       setInvoiceType(invoice.invoice_type);
       setInvoiceNumber(invoice.invoice_number ?? "");
       setInvoiceDate(invoice.invoice_date ?? "");
@@ -159,6 +172,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     setTaxType(1);
     setNotes("");
     setLines([emptyLine()]);
+    setLinkedOrders(order ? [{ id: order.id, order_number: order.order_number }] : []);
 
     if (!order) return;
     setLoadingPrefill(true);
@@ -276,6 +290,23 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     };
   }, [open, invoice, invoiceNumber]);
 
+  // 訂單搜尋（連結發票用），350ms debounce
+  useEffect(() => {
+    if (!open || !orderSearch.trim()) {
+      setOrderResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const results = await searchOrdersForInvoiceLink(orderSearch);
+      if (!cancelled) setOrderResults(results);
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, orderSearch]);
+
   const lineSum = useMemo(() => lines.reduce((acc, l) => acc + lineAmount(l), 0), [lines]);
   const totals = useMemo(() => calcInvoiceTotals(invoiceType, taxType, lineSum), [invoiceType, taxType, lineSum]);
 
@@ -379,7 +410,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
       // 光賀配號：先存成草稿，開立成功後由伺服器端回寫號碼與狀態
       const status = issue && !viaAmego ? "issued" : invoice?.status ?? "draft";
       const payload = {
-        order_id: invoice ? invoice.order_id : order?.id ?? null,
+        order_id: linkedOrders[0]?.id ?? null,
         invoice_type: invoiceType,
         invoice_number: hasNumber ? normalized : null,
         invoice_date: invoiceDate.trim() || null,
@@ -429,6 +460,9 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
         })),
       );
       if (itemsErr) throw itemsErr;
+
+      const linkErr = await saveSalesInvoiceOrderLinks(invoiceId!, linkedOrders.map((o) => o.id));
+      if (linkErr) throw new Error(`訂單連結儲存失敗：${linkErr}`);
 
       if (viaAmego) {
         const res = await amegoIssueInvoice(invoiceId!);
@@ -617,6 +651,68 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                   className={inputCls}
                 />
               </div>
+            </div>
+
+            {/* 訂單連結（多對多：一票可連多單、一單可有多票） */}
+            <div className="space-y-2 rounded-lg border border-border bg-muted/10 p-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                來源訂單{linkedOrders.length > 1 ? `（${linkedOrders.length} 張）` : ""}
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {linkedOrders.length === 0 && (
+                  <span className="text-xs text-muted-foreground">未連結訂單（可在下方搜尋加入）</span>
+                )}
+                {linkedOrders.map((o) => (
+                  <span
+                    key={o.id}
+                    className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-xs tabular-nums text-foreground"
+                  >
+                    {o.order_number.replace(/^ORD-/i, "")}
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        aria-label={`移除訂單 ${o.order_number}`}
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => setLinkedOrders((prev) => prev.filter((x) => x.id !== o.id))}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+              {!readOnly && (
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={orderSearch}
+                    onChange={(e) => setOrderSearch(e.target.value)}
+                    placeholder="輸入訂單號搜尋以加入連結"
+                    aria-label="搜尋訂單以連結"
+                    className={`${inputCls} max-w-xs`}
+                  />
+                  {orderResults.length > 0 && (
+                    <div className="absolute z-10 mt-1 w-full max-w-xs overflow-hidden rounded-lg border border-border bg-card shadow-md">
+                      {orderResults
+                        .filter((r) => !linkedOrders.some((o) => o.id === r.id))
+                        .map((r) => (
+                          <button
+                            key={r.id}
+                            type="button"
+                            className="block w-full px-2 py-1.5 text-left text-xs tabular-nums text-foreground hover:bg-accent/40"
+                            onClick={() => {
+                              setLinkedOrders((prev) => [...prev, r]);
+                              setOrderSearch("");
+                              setOrderResults([]);
+                            }}
+                          >
+                            {r.order_number}
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* B2C 載具／捐贈／紙本 */}

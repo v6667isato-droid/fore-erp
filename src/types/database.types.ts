@@ -2726,6 +2726,39 @@ export type Database = {
           },
         ]
       }
+      sales_invoice_orders: {
+        Row: {
+          created_at: string
+          invoice_id: string
+          order_id: string
+        }
+        Insert: {
+          created_at?: string
+          invoice_id: string
+          order_id: string
+        }
+        Update: {
+          created_at?: string
+          invoice_id?: string
+          order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_invoice_orders_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "sales_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_invoice_orders_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sales_invoices: {
         Row: {
           amount_ex_tax: number | null
