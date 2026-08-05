@@ -757,13 +757,13 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                               <button
                                 key={s.id}
                                 type="button"
-                                title={`${s.customer_name ?? ""}${s.order_date ? `｜${s.order_date}` : ""}`}
                                 className="rounded border border-dashed border-border px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground hover:border-primary hover:text-foreground"
                                 onClick={() => setLinkedOrders((prev) => [...prev, s])}
                               >
                                 ＋{s.order_number.replace(/^ORD-/i, "")}
+                                {s.customer_name ? `｜${s.customer_name}` : ""}
                                 {s.total_amount != null ? `｜$${s.total_amount.toLocaleString()}` : ""}
-                                {s.order_date ? `（${s.order_date.slice(5)}）` : ""}
+                                {s.order_date ? `｜${s.order_date}` : ""}
                               </button>
                             ))}
                         </div>
