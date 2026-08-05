@@ -7,6 +7,10 @@
     {
       "path": "/api/gmail-import",
       "schedule": "0 0 1,16 * *"
+    },
+    {
+      "path": "/api/cron/amego-sync",
+      "schedule": "0 2 1,11,21 * *"
     }
   ]
 }
