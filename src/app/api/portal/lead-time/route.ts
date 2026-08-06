@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       chair: toPublicEstimate(estimates.chair),
+      table_shelf: toPublicEstimate(estimates.tableShelf),
       other: toPublicEstimate(estimates.other),
     });
   } catch (e) {

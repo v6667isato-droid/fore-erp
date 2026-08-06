@@ -302,6 +302,7 @@ export default function PortalPage() {
   /** 目前接單水位與交期（去金額化，由 /api/portal/lead-time 提供） */
   const [leadTime, setLeadTime] = useState<{
     chair: { months_load: number; base_months: number; display_months: number };
+    table_shelf: { months_load: number; base_months: number; display_months: number };
     other: { months_load: number; base_months: number; display_months: number };
   } | null>(null);
   const [myOrdersScopeTab, setMyOrdersScopeTab] = useState<MyOrdersScopeTab>("ongoing");
@@ -472,8 +473,8 @@ export default function PortalPage() {
         });
         if (!res.ok) return;
         const json = await res.json();
-        if (!cancelled && json?.chair && json?.other) {
-          setLeadTime({ chair: json.chair, other: json.other });
+        if (!cancelled && json?.chair && json?.table_shelf && json?.other) {
+          setLeadTime({ chair: json.chair, table_shelf: json.table_shelf, other: json.other });
         }
       } catch {
         /* 隱藏區塊即可 */
@@ -1300,8 +1301,16 @@ export default function PortalPage() {
                   size="md"
                 />
                 <LeadTimeWaterLevelRow
+                  label="桌架"
+                  sublabel="TB、SF 系列"
+                  monthsLoad={leadTime.table_shelf.months_load}
+                  baseMonths={leadTime.table_shelf.base_months}
+                  displayMonths={leadTime.table_shelf.display_months}
+                  size="md"
+                />
+                <LeadTimeWaterLevelRow
                   label="其他"
-                  sublabel="桌、櫃、搖椅等"
+                  sublabel="櫃、搖椅、小物等"
                   monthsLoad={leadTime.other.months_load}
                   baseMonths={leadTime.other.base_months}
                   displayMonths={leadTime.other.display_months}

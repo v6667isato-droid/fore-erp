@@ -319,15 +319,9 @@ export function DashboardOverview({
               showAmount={canEditLeadTimeParams}
             />
             <DashboardLeadTimeRow
-              label="桌"
-              sublabel="TB 系列"
-              estimate={leadTime.table}
-              showAmount={canEditLeadTimeParams}
-            />
-            <DashboardLeadTimeRow
-              label="架"
-              sublabel="SF 系列"
-              estimate={leadTime.shelf}
+              label="桌架"
+              sublabel="TB、SF 系列"
+              estimate={leadTime.tableShelf}
               showAmount={canEditLeadTimeParams}
             />
             <DashboardLeadTimeRow
@@ -473,10 +467,8 @@ function LeadTimeParamsDialog({
     setValues({
       [LEAD_TIME_SETTING_KEYS.chairCapacityPerMonth]: String(current.chair.capacityPerMonth),
       [LEAD_TIME_SETTING_KEYS.chairBaseMonths]: String(current.chair.baseMonths),
-      [LEAD_TIME_SETTING_KEYS.tableCapacityPerMonth]: String(current.table.capacityPerMonth),
-      [LEAD_TIME_SETTING_KEYS.tableBaseMonths]: String(current.table.baseMonths),
-      [LEAD_TIME_SETTING_KEYS.shelfCapacityPerMonth]: String(current.shelf.capacityPerMonth),
-      [LEAD_TIME_SETTING_KEYS.shelfBaseMonths]: String(current.shelf.baseMonths),
+      [LEAD_TIME_SETTING_KEYS.tableShelfCapacityPerMonth]: String(current.tableShelf.capacityPerMonth),
+      [LEAD_TIME_SETTING_KEYS.tableShelfBaseMonths]: String(current.tableShelf.baseMonths),
       [LEAD_TIME_SETTING_KEYS.otherCapacityPerMonth]: String(current.other.capacityPerMonth),
       [LEAD_TIME_SETTING_KEYS.otherBaseMonths]: String(current.other.baseMonths),
     });
@@ -485,10 +477,8 @@ function LeadTimeParamsDialog({
   const fields = [
     { label: "椅子產能門檻（NT$/月）", key: LEAD_TIME_SETTING_KEYS.chairCapacityPerMonth },
     { label: "椅子基準交期（月）", key: LEAD_TIME_SETTING_KEYS.chairBaseMonths },
-    { label: "桌產能門檻（NT$/月）", key: LEAD_TIME_SETTING_KEYS.tableCapacityPerMonth },
-    { label: "桌基準交期（月）", key: LEAD_TIME_SETTING_KEYS.tableBaseMonths },
-    { label: "架產能門檻（NT$/月）", key: LEAD_TIME_SETTING_KEYS.shelfCapacityPerMonth },
-    { label: "架基準交期（月）", key: LEAD_TIME_SETTING_KEYS.shelfBaseMonths },
+    { label: "桌架產能門檻（NT$/月）", key: LEAD_TIME_SETTING_KEYS.tableShelfCapacityPerMonth },
+    { label: "桌架基準交期（月）", key: LEAD_TIME_SETTING_KEYS.tableShelfBaseMonths },
     { label: "其他產能門檻（NT$/月）", key: LEAD_TIME_SETTING_KEYS.otherCapacityPerMonth },
     { label: "其他基準交期（月）", key: LEAD_TIME_SETTING_KEYS.otherBaseMonths },
   ];
