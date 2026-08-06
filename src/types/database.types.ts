@@ -395,6 +395,30 @@ export type Database = {
           },
         ]
       }
+      chair_work_order_snapshots: {
+        Row: {
+          created_at: string
+          id: string
+          row_count: number
+          rows: Json
+          sheet_date: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          row_count?: number
+          rows: Json
+          sheet_date?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          row_count?: number
+          rows?: Json
+          sheet_date?: string
+        }
+        Relationships: []
+      }
       channels: {
         Row: {
           code: string | null
@@ -3413,6 +3437,35 @@ export type Database = {
           },
           {
             foreignKeyName: "work_order_stage_history_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_order_stage_logs: {
+        Row: {
+          changed_at: string
+          id: string
+          stage: string
+          work_order_id: string
+        }
+        Insert: {
+          changed_at?: string
+          id?: string
+          stage: string
+          work_order_id: string
+        }
+        Update: {
+          changed_at?: string
+          id?: string
+          stage?: string
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_stage_logs_work_order_id_fkey"
             columns: ["work_order_id"]
             isOneToOne: false
             referencedRelation: "work_orders"

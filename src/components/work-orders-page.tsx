@@ -747,7 +747,7 @@ export function WorkOrdersPage() {
           )}
         >
           <Printer className="h-3.5 w-3.5 shrink-0" />
-          <span className="whitespace-nowrap">椅子清單</span>
+          <span className="whitespace-nowrap">椅子工單</span>
         </a>
         <Button
           type="button"

@@ -19,7 +19,7 @@ export default function PrintIndexPage() {
         href="/print/chair-production"
         className="mb-3 inline-flex text-sm font-medium text-primary hover:underline"
       >
-        椅子生產管理表（CH03／CH03A・未出貨・A4 直式）
+        椅子工單（CH03／CH03A・未出貨・A4 直式）
       </Link>
       <Link
         href="/print/price-list"

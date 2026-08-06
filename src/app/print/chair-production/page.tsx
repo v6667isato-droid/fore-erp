@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
 import { normalizeWorkOrderStage } from "@/lib/work-order-stages";
 import { useRequireAuth } from "@/lib/use-require-auth";
+import type { Json } from "@/types/database.types";
 import { Loader2 } from "lucide-react";
 
 /** 單一訂單明細列 */
@@ -25,11 +26,32 @@ type ChairRow = {
   itemNotesLine: string;
   /** 完成日顯示：工單預計完成日優先，否則訂單交期 */
   completionDateMd: string;
+  /** 組立側邊：工序更新為「組裝中(一)」的日期（M/D，無則空字串） */
+  sideDateMd: string;
+  /** 組立整張：工序更新為「組裝中(二)」的日期 */
+  fullDateMd: string;
+  /** 噴漆階段：工序更新為「塗裝中(二)」的日期 */
+  paintDateMd: string;
   walnut: [string, string, string];
   oak: [string, string, string];
   /** 木種／規格／備註含「煙燻」時，於有內容的規格格標灰字 */
   hasSmokedMark: boolean;
 };
+
+/** 椅子工單快照清單項 */
+type ChairSnapshotMeta = {
+  id: string;
+  sheet_date: string;
+  created_at: string;
+  row_count: number;
+};
+
+/** 工序 → 列印欄位：組裝中(一)=側邊、組裝中(二)=整張、塗裝中(二)=噴漆階段 */
+const STAGE_DATE_COLUMNS = {
+  "組裝中(一)": "sideDateMd",
+  "組裝中(二)": "fullDateMd",
+  "塗裝中(二)": "paintDateMd",
+} as const;
 
 /** 未出貨：與生產工單相同，排除尚未確認與已結／已出貨 */
 const EXCLUDED_ORDER_STATUSES = new Set(["已出貨", "結案", "報價中"]);
@@ -50,6 +72,15 @@ function workStageFromOrderItem(raw: { work_orders?: unknown }): string | null {
   const s = row?.stage;
   if (s == null || String(s).trim() === "") return null;
   return String(s).trim();
+}
+
+function workOrderIdFromItem(raw: { work_orders?: unknown }): string | null {
+  const wo = raw.work_orders as { id?: string } | { id?: string }[] | null | undefined;
+  if (!wo) return null;
+  const row = Array.isArray(wo) ? wo[0] : wo;
+  const id = row?.id;
+  if (id == null || String(id).trim() === "") return null;
+  return String(id);
 }
 
 function workOrderPlannedEndFromItem(raw: { work_orders?: unknown }): string | null {
@@ -286,15 +317,32 @@ function formatSeatHeightLine(cm: number): string {
   return `座高${text}`;
 }
 
-/** 在有內容的規格儲存格下方加一行座高 */
+/** 常規座高（cm）；等於此值時不顯示座高行，僅非常規尺寸才標示 */
+const STANDARD_SEAT_HEIGHT_CM = 45;
+
+/** 在有內容的規格儲存格下方加一行座高（常規 45 不顯示） */
 function appendSeatHeightToTriple(triple: Triple, seatCm: number | null): Triple {
   if (seatCm == null || !Number.isFinite(seatCm)) return triple;
+  if (seatCm === STANDARD_SEAT_HEIGHT_CM) return triple;
   const line = formatSeatHeightLine(seatCm);
   return triple.map((cell) => {
     const t = cell.trim();
     if (!t) return cell;
     return `${t}\n${line}`;
   }) as Triple;
+}
+
+/** 快照下拉選項文字：建立時間（筆數） */
+function formatSnapshotLabel(s: ChairSnapshotMeta): string {
+  const d = new Date(s.created_at);
+  const label = Number.isNaN(d.getTime())
+    ? s.created_at
+    : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(
+        d.getDate()
+      ).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(
+        d.getMinutes()
+      ).padStart(2, "0")}`;
+  return `${label}（${s.row_count} 筆）`;
 }
 
 function todayYmd(): string {
@@ -472,9 +520,9 @@ function ChairPrintDataRows({ rows }: { rows: ChairRow[] }) {
             <td className="chair-body-td border border-black bg-amber-50 text-center px-0.5 py-0.5 print:bg-amber-50">
               {row.completionDateMd}
             </td>
-            <CheckCell />
-            <CheckCell />
-            <CheckCell />
+            <StageDateCell dateMd={row.sideDateMd ?? ""} label="側邊組裝日期" />
+            <StageDateCell dateMd={row.fullDateMd ?? ""} label="整張組裝日期" />
+            <StageDateCell dateMd={row.paintDateMd ?? ""} label="噴漆階段日期" />
             <CheckCell />
             <td className="chair-body-td chair-spec-cell border border-black bg-white px-0.5 py-0.5 text-center min-w-0 break-words leading-tight">
               <ChairSpecCell
@@ -560,6 +608,13 @@ export default function ChairProductionPrintPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [flatRows, setFlatRows] = useState<ChairRow[]>([]);
+  const [snapshots, setSnapshots] = useState<ChairSnapshotMeta[]>([]);
+  /** null＝即時資料；否則為調閱中的快照 id */
+  const [viewingSnapshotId, setViewingSnapshotId] = useState<string | null>(null);
+  const [snapshotRows, setSnapshotRows] = useState<ChairRow[]>([]);
+  const [snapshotSheetDate, setSnapshotSheetDate] = useState("");
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [printSaving, setPrintSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -593,6 +648,7 @@ export default function ChairProductionPrintPage() {
             )
           ),
           work_orders (
+            id,
             stage,
             planned_end_date
           )
@@ -605,6 +661,8 @@ export default function ChairProductionPrintPage() {
 
       const list = (data ?? []) as any[];
       const out: ChairRow[] = [];
+      /** row.id → work_orders.id，供工序日期回填 */
+      const rowWorkOrderIds = new Map<string, string>();
 
       for (const raw of list) {
         if (raw.orders?.deleted_at) continue;
@@ -657,6 +715,9 @@ export default function ChairProductionPrintPage() {
         const chairFamily = chairFamilyFromCode(code);
         const hasSmokedMark = itemHasSmokedMark(woodMerged || varWood, spec1Stripped, notesStripped);
 
+        const workOrderId = workOrderIdFromItem(raw);
+        if (workOrderId) rowWorkOrderIds.set(String(raw.id), workOrderId);
+
         out.push({
           id: String(raw.id),
           seriesName,
@@ -668,10 +729,46 @@ export default function ChairProductionPrintPage() {
           completionDateMd: formatEtaMd(
             workOrderPlannedEndFromItem(raw) ?? raw.orders?.expected_delivery_date ?? null,
           ),
+          sideDateMd: "",
+          fullDateMd: "",
+          paintDateMd: "",
           walnut,
           oak,
           hasSmokedMark,
         });
+      }
+
+      // 工序更新日期：查 work_order_stage_logs，取各工單「組裝中(一)／(二)、塗裝中(二)」最新一筆
+      const woIds = Array.from(new Set(rowWorkOrderIds.values()));
+      if (woIds.length > 0) {
+        const { data: logData, error: logError } = await supabase
+          .from("work_order_stage_logs")
+          .select("work_order_id, stage, changed_at")
+          .in("work_order_id", woIds)
+          .order("changed_at", { ascending: true });
+        if (logError) {
+          console.error("讀取工序紀錄失敗:", logError.message);
+        } else {
+          // 依時間升冪覆寫 → 每 (工單, 站別) 留最新日期；舊站別字串先正規化
+          const latest = new Map<string, string>();
+          for (const log of (logData ?? []) as {
+            work_order_id: string;
+            stage: string | null;
+            changed_at: string;
+          }[]) {
+            const normalized = normalizeWorkOrderStage(log.stage);
+            if (!(normalized in STAGE_DATE_COLUMNS)) continue;
+            latest.set(`${log.work_order_id}|${normalized}`, log.changed_at);
+          }
+          for (const row of out) {
+            const woId = rowWorkOrderIds.get(row.id);
+            if (!woId) continue;
+            for (const stage of Object.keys(STAGE_DATE_COLUMNS) as (keyof typeof STAGE_DATE_COLUMNS)[]) {
+              const at = latest.get(`${woId}|${stage}`);
+              if (at) row[STAGE_DATE_COLUMNS[stage]] = formatEtaMd(at);
+            }
+          }
+        }
       }
 
       out.sort((a, b) => {
@@ -694,6 +791,72 @@ export default function ChairProductionPrintPage() {
     }
   }, []);
 
+  const loadSnapshots = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("chair_work_order_snapshots")
+      .select("id, sheet_date, created_at, row_count")
+      .order("created_at", { ascending: false })
+      .limit(60);
+    if (!error && data) {
+      setSnapshots(
+        (data as any[]).map((s) => ({
+          id: String(s.id),
+          sheet_date: String(s.sheet_date ?? ""),
+          created_at: String(s.created_at ?? ""),
+          row_count: Number(s.row_count ?? 0),
+        })),
+      );
+    }
+  }, []);
+
+  /** 調閱歷史快照；傳空字串回到即時資料 */
+  const openSnapshot = useCallback(async (snapshotId: string) => {
+    setSnapshotError(null);
+    if (!snapshotId) {
+      setViewingSnapshotId(null);
+      setSnapshotRows([]);
+      setSnapshotSheetDate("");
+      return;
+    }
+    const { data, error } = await supabase
+      .from("chair_work_order_snapshots")
+      .select("id, sheet_date, rows")
+      .eq("id", snapshotId)
+      .maybeSingle();
+    if (error || !data) {
+      setSnapshotError(error?.message || "讀取快照失敗");
+      return;
+    }
+    const rows = Array.isArray((data as any).rows)
+      ? ((data as any).rows as ChairRow[])
+      : [];
+    setSnapshotRows(rows);
+    setSnapshotSheetDate(String((data as any).sheet_date ?? ""));
+    setViewingSnapshotId(String((data as any).id));
+  }, []);
+
+  /** 列印即時資料時先存快照，再開列印視窗；調閱快照時直接列印不重複儲存 */
+  const handlePrint = useCallback(async () => {
+    if (viewingSnapshotId != null) {
+      window.print();
+      return;
+    }
+    setSnapshotError(null);
+    setPrintSaving(true);
+    const { error } = await supabase.from("chair_work_order_snapshots").insert({
+      sheet_date: sheetDate || todayYmd(),
+      rows: flatRows as unknown as Json,
+      row_count: flatRows.length,
+    });
+    setPrintSaving(false);
+    if (error) {
+      setSnapshotError(`快照儲存失敗：${error.message}（仍可列印）`);
+    } else {
+      void loadSnapshots();
+    }
+    window.print();
+  }, [viewingSnapshotId, sheetDate, flatRows, loadSnapshots]);
+
   useEffect(() => {
     setSheetDate(todayYmd());
   }, []);
@@ -701,15 +864,20 @@ export default function ChairProductionPrintPage() {
   useEffect(() => {
     if (!authReady) return;
     void load();
-  }, [authReady, load]);
+    void loadSnapshots();
+  }, [authReady, load, loadSnapshots]);
+
+  const viewingSnapshot = viewingSnapshotId != null;
+  const displayRows = viewingSnapshot ? snapshotRows : flatRows;
+  const displaySheetDate = viewingSnapshot ? snapshotSheetDate : sheetDate;
 
   useEffect(() => {
-    document.title = `椅子生產管理表_${sheetDate || todayYmd()}`;
-  }, [sheetDate]);
+    document.title = `椅子工單_${displaySheetDate || todayYmd()}`;
+  }, [displaySheetDate]);
 
   const rowPages = useMemo(
-    () => chunkChairRows(flatRows, CHAIR_PRINT_ROWS_PER_PAGE),
-    [flatRows],
+    () => chunkChairRows(displayRows, CHAIR_PRINT_ROWS_PER_PAGE),
+    [displayRows],
   );
   const totalPages = rowPages.length || 1;
 
@@ -839,36 +1007,62 @@ export default function ChairProductionPrintPage() {
       <div className="chair-print-root min-h-screen bg-zinc-100 text-zinc-900 print:bg-white print:p-0">
         <div className="chair-print-toolbar sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur print:hidden">
           <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-medium text-zinc-700">椅子生產管理表（CH03／CH03A・未出貨・A4 直式）</span>
+            <span className="font-medium text-zinc-700">椅子工單（CH03／CH03A・未出貨・A4 直式）</span>
+            {viewingSnapshot ? (
+              <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+                快照調閱中：{snapshotSheetDate || "—"}
+              </span>
+            ) : (
+              <label className="flex items-center gap-2 text-zinc-600">
+                製表日期
+                <input
+                  type="text"
+                  value={sheetDate}
+                  onChange={(e) => setSheetDate(e.target.value)}
+                  className="rounded border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 w-36"
+                  placeholder="YYYY/MM/DD"
+                  suppressHydrationWarning
+                />
+              </label>
+            )}
             <label className="flex items-center gap-2 text-zinc-600">
-              製表日期
-              <input
-                type="text"
-                value={sheetDate}
-                onChange={(e) => setSheetDate(e.target.value)}
-                className="rounded border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 w-36"
-                placeholder="YYYY/MM/DD"
+              快照
+              <select
+                value={viewingSnapshotId ?? ""}
+                onChange={(e) => void openSnapshot(e.target.value)}
+                className="max-w-[14rem] rounded border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
                 suppressHydrationWarning
-              />
+              >
+                <option value="">即時資料</option>
+                {snapshots.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {formatSnapshotLabel(s)}
+                  </option>
+                ))}
+              </select>
             </label>
             <button
               type="button"
               onClick={() => void load()}
-              disabled={loading}
+              disabled={loading || viewingSnapshot}
               className="rounded border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
               suppressHydrationWarning
             >
               重新載入
             </button>
+            {snapshotError ? (
+              <span className="text-xs text-red-600">{snapshotError}</span>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => window.print()}
-              className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
+              onClick={() => void handlePrint()}
+              disabled={printSaving}
+              className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
               suppressHydrationWarning
             >
-              列印
+              {viewingSnapshot ? "列印快照" : printSaving ? "儲存快照中…" : "列印（存快照）"}
             </button>
             <Link
               href="/print"
@@ -897,10 +1091,10 @@ export default function ChairProductionPrintPage() {
                   <ChairPrintSheet
                     key={pageIdx}
                     rows={pageRows}
-                    sheetDate={sheetDate}
+                    sheetDate={displaySheetDate}
                     pageNumber={pageIdx + 1}
                     totalPages={totalPages}
-                    showPageFooter={flatRows.length > 0}
+                    showPageFooter={displayRows.length > 0}
                   />
                 ))}
               </div>
@@ -908,7 +1102,7 @@ export default function ChairProductionPrintPage() {
               <p className="chair-print-data-note relative z-10 mt-3 rounded-sm bg-zinc-100 px-0.5 pb-1 text-[15px] text-zinc-500 print:hidden">
                 資料來源：訂單狀態非「已出貨／結案／報價中」，產品代碼為 CH03／CH03A／CH03-A
                 系列；工單工序為「塗裝後製程(組配、編織)／包裝管理／待出貨／已出貨／暫停」（舊站別正規化後同樣適用，例如「成品」→待出貨、「品檢中」→包裝管理）者不列入。「完成日」優先為工單預計完成日，無則為訂單預計交期。第一欄依 CH03／CH03A
-                合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。胡桃木列胡桃三欄；白橡木與煙燻橡木列白橡三欄（編織／實木／布墊依規格關鍵字分欄）。座高取自訂單明細座高（無則產品變體預設）。組立與噴漆請現場勾選。
+                合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。胡桃木列胡桃三欄；白橡木與煙燻橡木列白橡三欄（編織／實木／布墊依規格關鍵字分欄）。座高取自訂單明細座高（無則產品變體預設），常規 45 不標示、僅非 45 尺寸顯示。組立「側邊／整張」與「噴漆階段」自動帶入工序更新日期（組裝中(一)／組裝中(二)／塗裝中(二)），尚無日期者留空供現場勾選。每次列印即時資料會自動儲存快照，可由上方「快照」下拉調閱歷史輸出。
               </p>
             </>
           )}
@@ -958,6 +1152,19 @@ function CheckCell() {
   return (
     <td className="chair-body-td border border-black bg-amber-50 min-w-0 p-0 print:bg-amber-50 align-middle">
       <span className="sr-only">勾選</span>
+    </td>
+  );
+}
+
+/** 工序更新日期格：有日期顯示 M/D，無日期留空供現場手寫勾選 */
+function StageDateCell({ dateMd, label }: { dateMd: string; label: string }) {
+  return (
+    <td className="chair-body-td border border-black bg-amber-50 min-w-0 px-0.5 py-0.5 text-center tabular-nums print:bg-amber-50 align-middle">
+      {dateMd ? (
+        <span aria-label={label}>{dateMd}</span>
+      ) : (
+        <span className="sr-only">{label}（未更新）</span>
+      )}
     </td>
   );
 }
