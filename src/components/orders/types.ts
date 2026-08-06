@@ -119,8 +119,6 @@ export interface EmployeeOption {
   name: string;
 }
 
-export type OrdersPageMode = "all" | "quotation" | "order";
-
 export type ExplanationImage = { url: string; title?: string | null };
 
 export interface OrderFormProps {

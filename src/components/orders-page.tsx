@@ -41,7 +41,6 @@ import type {
   CustomerOption,
   VariantOption,
   OrderItemInput,
-  OrdersPageMode,
   OrderStatus,
   PaymentStatus,
 } from "@/components/orders/types";
@@ -107,12 +106,10 @@ const ORDERS_STATUS_PARAM_TO_FILTER: Record<string, StatusFilterValue> = {
 };
 
 export function OrdersPage({
-  mode = "order",
   isAdmin = false,
   canIssueInvoice = false,
   initialOpenOrderId,
 }: {
-  mode?: OrdersPageMode;
   isAdmin?: boolean;
   /** 開立發票僅限 admin（isAdmin 含 manager，權限較寬） */
   canIssueInvoice?: boolean;
@@ -129,7 +126,7 @@ export function OrdersPage({
     ? ORDERS_STATUS_PARAM_TO_FILTER[ordersStatusParam]
     : undefined;
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>(
-    lifecycleFilter ?? (mode === "quotation" ? "報價中" : "生產中訂單")
+    lifecycleFilter ?? "生產中訂單"
   );
 
   // 總覽卡片點擊時頁面可能已掛載，參數變更需同步 filter
@@ -1080,7 +1077,7 @@ export function OrdersPage({
             }}
           >
             <Plus className="h-4 w-4 mr-1" />
-            {mode === "quotation" ? "新增報價" : "新增訂單"}
+            新增訂單
           </Button>
         </div>
       </div>

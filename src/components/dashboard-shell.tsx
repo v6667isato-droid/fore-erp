@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import {
-  ClipboardList,
   LayoutGrid,
   ShoppingCart,
   Menu,
@@ -50,7 +49,6 @@ import { isAdminOrManagerRole } from "@/lib/post-login-redirect";
 
 type Page =
   | "dashboard"
-  | "quotes"
   | "orders"
   | "kanban"
   | "inventory"
@@ -74,7 +72,6 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "products", label: "產品資料", icon: Package },
   { id: "journal", label: "官網日誌", icon: Newspaper },
   { id: "customers", label: "客戶資料", icon: Users },
-  { id: "quotes", label: "報價管理", icon: ClipboardList },
   { id: "orders", label: "訂單管理", icon: ShoppingCart },
   { id: "kanban", label: "生產管理", icon: Package },
   { id: "inventory", label: "零件庫存", icon: Boxes },
@@ -569,16 +566,8 @@ export default function DashboardShell() {
               </section>
             </>
           )}
-          {activePage === "quotes" && (
-            <OrdersPage
-              mode="quotation"
-              isAdmin={isErpEditorRole(userRole)}
-              canIssueInvoice={userRole === "admin"}
-            />
-          )}
           {activePage === "orders" && (
             <OrdersPage
-              mode="order"
               isAdmin={isErpEditorRole(userRole)}
               canIssueInvoice={userRole === "admin"}
               initialOpenOrderId={resolvedInitialOpenOrderId ?? undefined}
