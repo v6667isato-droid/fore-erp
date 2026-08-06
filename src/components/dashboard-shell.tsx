@@ -209,7 +209,7 @@ function DesktopSidebar({
             >
               {userEmail ? <LogOut className="h-4 w-4" /> : <LogIn className="h-4 w-4" />}
             </Button>
-            <ThemeToggle />
+            <ThemeToggle menuDirection="up" />
           </div>
         </div>
       </div>

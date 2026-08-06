@@ -67,6 +67,207 @@ html.dark {
   --badge-done-fg: #e8f0e4;
 }
 
+/* ===== 配色主題：墨綠 ===== */
+html[data-theme="forest"] {
+  --background: #f4f7f2;
+  --foreground: #1e2a1e;
+  --card: #ffffff;
+  --card-foreground: #1e2a1e;
+  --primary: #3d5a3d;
+  --primary-foreground: #f4f7f2;
+  --secondary: #e3ece0;
+  --secondary-foreground: #263a26;
+  --muted: #e0e9dc;
+  --muted-foreground: #647560;
+  --accent: #8faf83;
+  --accent-foreground: #1e2a1e;
+  --border: #ccdac6;
+  --input: #ccdac6;
+  --ring: #8faf83;
+  --sidebar: #1e2a1e;
+  --sidebar-foreground: #e0e9dc;
+  --sidebar-primary: #9dc08b;
+  --sidebar-primary-foreground: #1e2a1e;
+  --sidebar-accent: #2c3f2c;
+  --sidebar-border: #2c3f2c;
+  --kanban-todo: #e3ece0;
+  --kanban-progress: #f2f5e3;
+  --kanban-done: #dfeee7;
+  --badge-pending: #cfe0c4;
+  --badge-pending-fg: #3d5a3d;
+  --badge-progress: #8faf83;
+  --badge-progress-fg: #1e2a1e;
+  --badge-done: #5a8a6d;
+  --badge-done-fg: #ffffff;
+}
+
+html[data-theme="forest"].dark {
+  --background: #141a14;
+  --foreground: #dce6d8;
+  --card: #1c241c;
+  --card-foreground: #dce6d8;
+  --primary: #9dc08b;
+  --primary-foreground: #141a14;
+  --secondary: #222e22;
+  --secondary-foreground: #dce6d8;
+  --muted: #222e22;
+  --muted-foreground: #93a68d;
+  --accent: #3d5a3d;
+  --accent-foreground: #dce6d8;
+  --border: #2c3f2c;
+  --input: #2c3f2c;
+  --ring: #9dc08b;
+  --sidebar: #141a14;
+  --sidebar-foreground: #dce6d8;
+  --sidebar-primary: #9dc08b;
+  --sidebar-primary-foreground: #141a14;
+  --sidebar-accent: #222e22;
+  --sidebar-border: #2c3f2c;
+  --kanban-todo: #222e22;
+  --kanban-progress: #2e3a26;
+  --kanban-done: #1f3326;
+  --badge-pending: #2c3f2c;
+  --badge-pending-fg: #9dc08b;
+  --badge-progress: #3d5a3d;
+  --badge-progress-fg: #dce6d8;
+  --badge-done: #4a6b52;
+  --badge-done-fg: #e2efe6;
+}
+
+/* ===== 配色主題：靛藍 ===== */
+html[data-theme="indigo"] {
+  --background: #f4f6fa;
+  --foreground: #1e2433;
+  --card: #ffffff;
+  --card-foreground: #1e2433;
+  --primary: #3d5177;
+  --primary-foreground: #f4f6fa;
+  --secondary: #e3e8f1;
+  --secondary-foreground: #26304a;
+  --muted: #e0e6ef;
+  --muted-foreground: #64708a;
+  --accent: #8298c0;
+  --accent-foreground: #1e2433;
+  --border: #ccd5e4;
+  --input: #ccd5e4;
+  --ring: #8298c0;
+  --sidebar: #1e2433;
+  --sidebar-foreground: #e0e6ef;
+  --sidebar-primary: #9db4dd;
+  --sidebar-primary-foreground: #1e2433;
+  --sidebar-accent: #2a3450;
+  --sidebar-border: #2a3450;
+  --kanban-todo: #e3e8f1;
+  --kanban-progress: #eceffb;
+  --kanban-done: #e2efe8;
+  --badge-pending: #c6d3e8;
+  --badge-pending-fg: #3d5177;
+  --badge-progress: #8298c0;
+  --badge-progress-fg: #1e2433;
+  --badge-done: #6a9480;
+  --badge-done-fg: #ffffff;
+}
+
+html[data-theme="indigo"].dark {
+  --background: #14171f;
+  --foreground: #dce2ee;
+  --card: #1c2029;
+  --card-foreground: #dce2ee;
+  --primary: #9db4dd;
+  --primary-foreground: #14171f;
+  --secondary: #222839;
+  --secondary-foreground: #dce2ee;
+  --muted: #222839;
+  --muted-foreground: #8f9ab3;
+  --accent: #3d5177;
+  --accent-foreground: #dce2ee;
+  --border: #2a3450;
+  --input: #2a3450;
+  --ring: #9db4dd;
+  --sidebar: #14171f;
+  --sidebar-foreground: #dce2ee;
+  --sidebar-primary: #9db4dd;
+  --sidebar-primary-foreground: #14171f;
+  --sidebar-accent: #222839;
+  --sidebar-border: #2a3450;
+  --kanban-todo: #222839;
+  --kanban-progress: #262e45;
+  --kanban-done: #203028;
+  --badge-pending: #2a3450;
+  --badge-pending-fg: #9db4dd;
+  --badge-progress: #3d5177;
+  --badge-progress-fg: #dce2ee;
+  --badge-done: #4a6b58;
+  --badge-done-fg: #e2efe8;
+}
+
+/* ===== 配色主題：暖灰紫 ===== */
+html[data-theme="mauve"] {
+  --background: #f9f5f6;
+  --foreground: #2e2430;
+  --card: #ffffff;
+  --card-foreground: #2e2430;
+  --primary: #6d5570;
+  --primary-foreground: #f9f5f6;
+  --secondary: #efe5ec;
+  --secondary-foreground: #3e2e42;
+  --muted: #ece2e8;
+  --muted-foreground: #7d6b7d;
+  --accent: #b394ab;
+  --accent-foreground: #2e2430;
+  --border: #ddccd6;
+  --input: #ddccd6;
+  --ring: #b394ab;
+  --sidebar: #2e2430;
+  --sidebar-foreground: #ece2e8;
+  --sidebar-primary: #c0a2b8;
+  --sidebar-primary-foreground: #2e2430;
+  --sidebar-accent: #3e2e42;
+  --sidebar-border: #3e2e42;
+  --kanban-todo: #efe5ec;
+  --kanban-progress: #fdf3ec;
+  --kanban-done: #e8f0e8;
+  --badge-pending: #e3cdd9;
+  --badge-pending-fg: #6d5570;
+  --badge-progress: #b394ab;
+  --badge-progress-fg: #2e2430;
+  --badge-done: #7a9a7d;
+  --badge-done-fg: #ffffff;
+}
+
+html[data-theme="mauve"].dark {
+  --background: #1b1520;
+  --foreground: #ece2e8;
+  --card: #251d2a;
+  --card-foreground: #ece2e8;
+  --primary: #c0a2b8;
+  --primary-foreground: #1b1520;
+  --secondary: #2e2430;
+  --secondary-foreground: #ece2e8;
+  --muted: #2e2430;
+  --muted-foreground: #a58fa3;
+  --accent: #6d5570;
+  --accent-foreground: #ece2e8;
+  --border: #3e2e42;
+  --input: #3e2e42;
+  --ring: #c0a2b8;
+  --sidebar: #1b1520;
+  --sidebar-foreground: #ece2e8;
+  --sidebar-primary: #c0a2b8;
+  --sidebar-primary-foreground: #1b1520;
+  --sidebar-accent: #2e2430;
+  --sidebar-border: #3e2e42;
+  --kanban-todo: #2e2430;
+  --kanban-progress: #3a2c3a;
+  --kanban-done: #2a3326;
+  --badge-pending: #3e2e42;
+  --badge-pending-fg: #c0a2b8;
+  --badge-progress: #6d5570;
+  --badge-progress-fg: #ece2e8;
+  --badge-done: #4a5c48;
+  --badge-done-fg: #e8f0e6;
+}
+
 @theme inline {
   /*
    * Tailwind v4 預設 palette 常輸出 lab()/oklch()，html2canvas 等會拋錯。
