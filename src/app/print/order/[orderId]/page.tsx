@@ -84,6 +84,18 @@ function orderDateToYyyyMmDd(orderDate: string | null): string {
   return `${yyyy}${mm}${dd}`;
 }
 
+function formatWdh(
+  w: number | string | null | undefined,
+  d: number | string | null | undefined,
+  h: number | string | null | undefined
+): string | null {
+  const parts: string[] = [];
+  if (w != null) parts.push(`W${w}`);
+  if (d != null) parts.push(`D${d}`);
+  if (h != null) parts.push(`H${h}`);
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
 function sanitizeForPdfFilename(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return "客戶";
@@ -270,7 +282,7 @@ export default function PrintOrderPage() {
             r.custom_dimension_d != null ||
             r.custom_dimension_h != null;
           let dimText: string | null = hasDims
-            ? `${r.custom_dimension_w ?? "—"} × ${r.custom_dimension_d ?? "—"} × ${r.custom_dimension_h ?? "—"}`
+            ? formatWdh(r.custom_dimension_w, r.custom_dimension_d, r.custom_dimension_h)
             : null;
 
           if (isCustom) {
@@ -321,7 +333,7 @@ export default function PrintOrderPage() {
               variant.dimension_d != null ||
               variant.dimension_h != null;
             const base = hasVariantDims
-              ? `${variant.dimension_w ?? "—"} × ${variant.dimension_d ?? "—"} × ${variant.dimension_h ?? "—"}`
+              ? formatWdh(variant.dimension_w, variant.dimension_d, variant.dimension_h)
               : null;
             const shSeat = Number.isFinite(lineSeat)
               ? lineSeat

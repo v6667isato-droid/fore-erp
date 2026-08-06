@@ -81,6 +81,18 @@ function orderDateToYyyyMmDd(orderDate: string | null): string {
   return `${yyyy}${mm}${dd}`;
 }
 
+function formatWdh(
+  w: number | string | null | undefined,
+  d: number | string | null | undefined,
+  h: number | string | null | undefined
+): string | null {
+  const parts: string[] = [];
+  if (w != null) parts.push(`W${w}`);
+  if (d != null) parts.push(`D${d}`);
+  if (h != null) parts.push(`H${h}`);
+  return parts.length > 0 ? parts.join(' ') : null;
+}
+
 function sanitizeForPdfFilename(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return '客戶';
@@ -278,7 +290,7 @@ export default function PrintQuotationPage() {
               // 尺寸不加入 description（另有尺寸欄位顯示），備註列不顯示尺寸
 
               let dimText = hasDims
-                ? `${r.custom_dimension_w ?? '—'} × ${r.custom_dimension_d ?? '—'} × ${r.custom_dimension_h ?? '—'}`
+                ? formatWdh(r.custom_dimension_w, r.custom_dimension_d, r.custom_dimension_h)
                 : null;
               if (Number.isFinite(lineSeat)) {
                 dimText = dimText
@@ -315,7 +327,7 @@ export default function PrintQuotationPage() {
 
             // 與訂單列印一致：優先 order_items.custom_dimension_*，再退回規格庫尺寸；座高標在尺寸文字後方
             let dimText: string | null = hasDims
-              ? `${r.custom_dimension_w ?? '—'} × ${r.custom_dimension_d ?? '—'} × ${r.custom_dimension_h ?? '—'}`
+              ? formatWdh(r.custom_dimension_w, r.custom_dimension_d, r.custom_dimension_h)
               : null;
 
             if (!dimText && variant) {
@@ -324,7 +336,7 @@ export default function PrintQuotationPage() {
                 variant.dimension_d != null ||
                 variant.dimension_h != null;
               const base = hasVariantDims
-                ? `${variant.dimension_w ?? '—'} × ${variant.dimension_d ?? '—'} × ${variant.dimension_h ?? '—'}`
+                ? formatWdh(variant.dimension_w, variant.dimension_d, variant.dimension_h)
                 : null;
               const shSeat = Number.isFinite(lineSeat)
                 ? lineSeat

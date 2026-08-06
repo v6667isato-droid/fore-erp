@@ -15,11 +15,16 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   CalendarDays,
+  CalendarClock,
   RefreshCw,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Printer,
+  Hammer,
+  PackageCheck,
+  Truck,
+  PauseCircle,
 } from "lucide-react";
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
@@ -113,53 +118,74 @@ interface WorkOrderCustomerOption {
   channel_id: string | null;
 }
 
-/** 與訂單管理相同之狀態順序；用於「生產中」前／後篩選 */
-const ORDER_STATUS_SEQUENCE = [
-  "報價中",
-  "繪圖中",
-  "排程中",
-  "繪製製作圖",
+/** 頁面頂部分類卡片（同訂單管理排版）；依工單工序歸類 */
+type StageCategoryKey =
+  | "待排程"
+  | "生產中"
+  | "塗裝後"
+  | "已出貨"
+  | "無負責人或暫停";
+
+const STAGE_CATEGORY_OPTIONS: StageCategoryKey[] = [
+  "待排程",
   "生產中",
-  "暫停",
-  "已完工",
+  "塗裝後",
   "已出貨",
-  "結案",
-] as const;
-
-function orderStatusIndex(status: string | null | undefined): number {
-  if (!status) return -1;
-  return ORDER_STATUS_SEQUENCE.indexOf(
-    status as (typeof ORDER_STATUS_SEQUENCE)[number]
-  );
-}
-
-/** 訂單狀態為「生產中」起（含）至「已出貨」 */
-function isOrderStatusAtOrAfterProduction(status: string | null | undefined): boolean {
-  const i = orderStatusIndex(status);
-  const prod = orderStatusIndex("生產中");
-  const ship = orderStatusIndex("已出貨");
-  return i >= prod && i <= ship && prod >= 0;
-}
-
-/** 訂單狀態在「生產中」之前（繪圖／排程／製作圖等） */
-function isOrderStatusBeforeProduction(status: string | null | undefined): boolean {
-  const i = orderStatusIndex(status);
-  const prod = orderStatusIndex("生產中");
-  return i >= 0 && prod >= 0 && i < prod;
-}
-
-/** 工序為「已出貨」時視同非生產中，不列入「生產中」篩選 */
-function isWorkOrderStageShipped(stage: WorkOrderStage): boolean {
-  return stage === "已出貨";
-}
-
-type ProductionOrderStatusFilter = "全部" | "生產中" | "非生產中";
-
-const PRODUCTION_ORDER_STATUS_FILTERS: ProductionOrderStatusFilter[] = [
-  "全部",
-  "生產中",
-  "非生產中",
+  "無負責人或暫停",
 ];
+
+const IN_PRODUCTION_STAGES: readonly WorkOrderStage[] = [
+  "備料中",
+  "零部件製作中",
+  "砂磨中",
+  "組裝中(一)",
+  "塗裝中",
+  "組裝中(二)",
+  "塗裝中(二)",
+];
+
+const POST_PAINT_STAGES: readonly WorkOrderStage[] = [
+  "塗裝後製程(組配、編織)",
+  "包裝管理",
+  "待出貨",
+];
+
+/** 各分類涵蓋之工序（供工序下拉選項；「無負責人或暫停」另含負責人條件，見 matchesStageCategory） */
+const CATEGORY_STAGE_OPTIONS: Record<
+  StageCategoryKey,
+  readonly WorkOrderStage[]
+> = {
+  待排程: ["待排程"],
+  生產中: IN_PRODUCTION_STAGES,
+  塗裝後: POST_PAINT_STAGES,
+  已出貨: ["已出貨"],
+  無負責人或暫停: [...IN_PRODUCTION_STAGES, ...POST_PAINT_STAGES, "暫停"],
+};
+
+const STAGE_CATEGORY_META: Record<
+  StageCategoryKey,
+  { icon: typeof Hammer; hint: string | null }
+> = {
+  待排程: { icon: CalendarClock, hint: null },
+  生產中: { icon: Hammer, hint: "備料～塗裝中(二)" },
+  塗裝後: { icon: PackageCheck, hint: "塗裝後製程～待出貨" },
+  已出貨: { icon: Truck, hint: null },
+  無負責人或暫停: { icon: PauseCircle, hint: "生產中未指派，或暫停" },
+};
+
+/**
+ * 工單是否屬於分類：前四類依工序；「無負責人或暫停」＝工序暫停，
+ * 或已進入生產（非待排程／已出貨）但未指派負責人（可與其他分類重複出現）。
+ */
+function matchesStageCategory(w: WorkOrderRow, key: StageCategoryKey): boolean {
+  if (key === "無負責人或暫停") {
+    return (
+      w.stage === "暫停" ||
+      (!w.assignee_id && w.stage !== "待排程" && w.stage !== "已出貨")
+    );
+  }
+  return CATEGORY_STAGE_OPTIONS[key].includes(w.stage);
+}
 
 const STAGE_OPTIONS = WORK_ORDER_STAGES;
 
@@ -172,8 +198,8 @@ export function WorkOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [overviewOrderId, setOverviewOrderId] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<WorkOrderStage | "全部">("全部");
-  const [orderStatusFilter, setOrderStatusFilter] =
-    useState<ProductionOrderStatusFilter>("生產中");
+  const [stageCategory, setStageCategory] =
+    useState<StageCategoryKey>("生產中");
   const [categoryFilter, setCategoryFilter] = useState<"全部" | string>("全部");
   const [customerFilter, setCustomerFilter] = useState("");
   /** 負責人下拉篩選："" 全部、UNASSIGNED_FILTER 未指派、其餘為 employees.id */
@@ -386,7 +412,7 @@ export function WorkOrdersPage() {
     );
   }, [rows]);
 
-  /** 與訂單管理相同：主檔客戶 + 列表曾出現之 customer_id；通路客戶置頂並標示 [通路] */
+  /** 只列工單清單中出現過的客戶（通路客戶置頂並標示 [通路]）；主檔僅用來補通路資訊 */
   const customerFilterOptions = useMemo(() => {
     const byId = new Map<string, { name: string; channelId: string | null }>();
     customers.forEach((c) => {
@@ -404,7 +430,12 @@ export function WorkOrdersPage() {
         });
       }
     });
+    const visibleIds = new Set<string>();
+    rows.forEach((w) => {
+      if (w.customer_id) visibleIds.add(w.customer_id);
+    });
     return Array.from(byId.entries())
+      .filter(([id]) => visibleIds.has(id))
       .map(([id, { name, channelId }]) => {
         const isChannel = channelId != null;
         return {
@@ -419,6 +450,16 @@ export function WorkOrdersPage() {
         return a.name.localeCompare(b.name, "zh-Hant", { numeric: true });
       });
   }, [customers, rows]);
+
+  // 清單更新後，若原本選的客戶已不在選項中則清空，避免停在看不見的篩選
+  useEffect(() => {
+    if (
+      customerFilter &&
+      !customerFilterOptions.some((c) => c.id === customerFilter)
+    ) {
+      setCustomerFilter("");
+    }
+  }, [customerFilter, customerFilterOptions]);
 
   useEffect(() => {
     if (categoryFilter === "全部") return;
@@ -489,18 +530,9 @@ export function WorkOrdersPage() {
     );
   }
 
-  const filtered = useMemo(() => {
-    const list = rows.filter((w) => {
-      const matchStage =
-        stageFilter === "全部" || w.stage === stageFilter;
-      const matchOrderStatus =
-        orderStatusFilter === "全部"
-          ? true
-          : orderStatusFilter === "生產中"
-            ? isOrderStatusAtOrAfterProduction(w.order_status) &&
-              !isWorkOrderStageShipped(w.stage)
-            : isOrderStatusBeforeProduction(w.order_status) ||
-              isWorkOrderStageShipped(w.stage);
+  /** 搜尋／類別／客戶／負責人先過濾（不含工序分類）；分類卡片計數與表格列共用，卡片數字＝點下去看到的筆數 */
+  const preCategoryFiltered = useMemo(() => {
+    return rows.filter((w) => {
       const matchCategory =
         categoryFilter === "全部" ||
         workOrderCategoryLabel(w) === categoryFilter;
@@ -519,14 +551,34 @@ export function WorkOrdersPage() {
         w.order_number.toLowerCase().includes(q) ||
         (w.shipping_contact_name ?? "").toLowerCase().includes(q) ||
         (w.item_name ?? "").toLowerCase().includes(q);
-      return (
-        matchStage &&
-        matchOrderStatus &&
-        matchCategory &&
-        matchCustomer &&
-        matchAssigneeId &&
-        matchAssignee
-      );
+      return matchCategory && matchCustomer && matchAssigneeId && matchAssignee;
+    });
+  }, [rows, categoryFilter, customerFilter, assigneeIdFilter, assigneeFilter]);
+
+  const categoryCards = useMemo(
+    () =>
+      STAGE_CATEGORY_OPTIONS.map((key) => ({
+        key,
+        count: preCategoryFiltered.filter((w) => matchesStageCategory(w, key))
+          .length,
+      })),
+    [preCategoryFiltered]
+  );
+
+  /** 工序下拉只列當前分類內的站別（切換分類時重設為全部） */
+  const stageOptionsForCategory = useMemo(
+    () =>
+      WORK_ORDER_STAGES.filter((s) =>
+        CATEGORY_STAGE_OPTIONS[stageCategory].includes(s)
+      ),
+    [stageCategory]
+  );
+
+  const filtered = useMemo(() => {
+    const list = preCategoryFiltered.filter((w) => {
+      const matchCategory = matchesStageCategory(w, stageCategory);
+      const matchStage = stageFilter === "全部" || w.stage === stageFilter;
+      return matchCategory && matchStage;
     });
 
     // 排序：工序站別依 `WORK_ORDER_STAGES` 順序（見 work-order-stages.ts）
@@ -569,17 +621,7 @@ export function WorkOrdersPage() {
     });
 
     return list;
-  }, [
-    rows,
-    stageFilter,
-    orderStatusFilter,
-    categoryFilter,
-    customerFilter,
-    assigneeIdFilter,
-    assigneeFilter,
-    sortBy,
-    sortAsc,
-  ]);
+  }, [preCategoryFiltered, stageCategory, stageFilter, sortBy, sortAsc]);
 
   function openOrderOverview(w: WorkOrderRow) {
     if (!w.order_id) return;
@@ -636,29 +678,62 @@ export function WorkOrdersPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {categoryCards.map((s) => {
+          const meta = STAGE_CATEGORY_META[s.key];
+          const Icon = meta.icon;
+          const active = stageCategory === s.key;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => {
+                setStageCategory(s.key);
+                setStageFilter("全部");
+              }}
+              aria-pressed={active}
+              title={`篩選：${s.key}`}
+              className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors ${
+                active
+                  ? "border-primary bg-accent/30"
+                  : "border-border bg-card hover:border-primary/40 hover:bg-accent/20"
+              }`}
+            >
+              <div
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+                  active ? "bg-primary" : "bg-secondary"
+                }`}
+              >
+                <Icon
+                  className={`h-3.5 w-3.5 ${
+                    active ? "text-primary-foreground" : "text-primary"
+                  }`}
+                />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {s.key}
+                </p>
+                <p className="text-base font-semibold leading-tight text-foreground">
+                  {s.count}
+                  <span className="ml-0.5 text-xs font-normal text-muted-foreground">件</span>
+                </p>
+                {meta.hint && (
+                  <p className="text-[9px] leading-snug break-words text-muted-foreground/90">
+                    {meta.hint}
+                  </p>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
       <div
         className={cn(
           "flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto rounded-lg border border-border/70 bg-card/80 px-2 py-1.5 shadow-sm",
           "[scrollbar-width:thin] [-ms-overflow-style:auto]",
         )}
       >
-        <div className="flex shrink-0 flex-nowrap items-center gap-1">
-          {PRODUCTION_ORDER_STATUS_FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setOrderStatusFilter(f)}
-              className={cn(
-                "whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium leading-tight transition-all sm:text-xs",
-                orderStatusFilter === f
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-accent/50",
-              )}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
         <select
           value={stageFilter}
           onChange={(e) =>
@@ -671,7 +746,7 @@ export function WorkOrdersPage() {
           className="h-8 w-[7.5rem] shrink-0 rounded-md border border-input bg-background px-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[8.25rem]"
         >
           <option value="全部">工序：全部</option>
-          {STAGE_OPTIONS.map((s) => (
+          {stageOptionsForCategory.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
@@ -932,13 +1007,11 @@ export function WorkOrdersPage() {
       </datalist>
 
       <p className="text-xs text-muted-foreground">
-        顯示 {filtered.length} / {rows.length} 筆工單
-        {orderStatusFilter === "全部"
-          ? "（訂單狀態：全部）"
-          : orderStatusFilter === "生產中"
-            ? "（訂單：生產中～已出貨；工序已出貨者改列於「非生產中」）"
-            : "（訂單：生產前段，或工序已出貨）"}
-        。交期為訂單對客戶之承諾；預計完成日為生產排程用，可與交期不同並隨時調整。
+        顯示 {filtered.length} / {rows.length} 筆工單（分類：{stageCategory}
+        {STAGE_CATEGORY_META[stageCategory].hint
+          ? `，${STAGE_CATEGORY_META[stageCategory].hint}`
+          : ""}
+        ）。交期為訂單對客戶之承諾；預計完成日為生產排程用，可與交期不同並隨時調整。
       </p>
 
       <OrderOverviewDialog
