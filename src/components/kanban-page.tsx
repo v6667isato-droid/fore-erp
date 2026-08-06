@@ -226,12 +226,13 @@ export function KanbanPage() {
           const orderRel = firstItem?.orders;
           const orderObj = Array.isArray(orderRel) ? orderRel[0] : orderRel;
 
-          // 已軟刪除訂單、報價中／結案不排入生產管理
+          // 已軟刪除訂單、報價中／結案／已退貨不排入生產管理
           if (
             !orderObj ||
             orderObj.deleted_at ||
             orderObj.status === "報價中" ||
-            orderObj.status === "結案"
+            orderObj.status === "結案" ||
+            orderObj.status === "已退貨"
           ) {
             continue;
           }

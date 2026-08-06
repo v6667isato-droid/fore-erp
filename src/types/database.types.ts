@@ -1333,6 +1333,83 @@ export type Database = {
           },
         ]
       }
+      order_return_items: {
+        Row: {
+          description: string | null
+          id: string
+          order_item_id: string | null
+          quantity: number
+          return_id: string
+        }
+        Insert: {
+          description?: string | null
+          id?: string
+          order_item_id?: string | null
+          quantity?: number
+          return_id: string
+        }
+        Update: {
+          description?: string | null
+          id?: string
+          order_item_id?: string | null
+          quantity?: number
+          return_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_return_items_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_return_items_return_id_fkey"
+            columns: ["return_id"]
+            isOneToOne: false
+            referencedRelation: "order_returns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_returns: {
+        Row: {
+          created_at: string | null
+          id: string
+          notes: string | null
+          order_id: string
+          reason: string | null
+          refund_amount: number
+          return_date: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          order_id: string
+          reason?: string | null
+          refund_amount?: number
+          return_date?: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          order_id?: string
+          reason?: string | null
+          refund_amount?: number
+          return_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_returns_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           created_at: string | null

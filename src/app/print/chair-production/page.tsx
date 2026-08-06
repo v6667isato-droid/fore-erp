@@ -54,7 +54,7 @@ const STAGE_DATE_COLUMNS = {
 } as const;
 
 /** 未出貨：與生產工單相同，排除尚未確認與已結／已出貨 */
-const EXCLUDED_ORDER_STATUSES = new Set(["已出貨", "結案", "報價中"]);
+const EXCLUDED_ORDER_STATUSES = new Set(["已出貨", "結案", "報價中", "已退貨"]);
 
 /** 不列入椅子生產表之工單工序（已正規化，含舊站別對應後之結果） */
 const EXCLUDED_WORK_STAGES_FOR_CHAIR_PRINT = new Set([

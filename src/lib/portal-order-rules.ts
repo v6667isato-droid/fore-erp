@@ -13,6 +13,7 @@ export const PORTAL_NO_EDIT_DELETE_STATUSES = new Set([
   "已完工",
   "已出貨",
   "結案",
+  "已退貨",
 ]);
 
 export function canEditOrDelete(status: string | null | undefined): boolean {

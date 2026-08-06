@@ -28,6 +28,12 @@ type OrderRevenueRow = {
   status?: string | null;
 };
 
+/** 退貨退款：營收按 return_date 月份扣除（訂單 total_amount 不回改；與成本統計頁同口徑） */
+type OrderReturnRow = {
+  return_date: string;
+  refund_amount?: number | null;
+};
+
 type PayslipRow = {
   employee_id?: string | null;
   period_key?: string | null;
@@ -122,7 +128,7 @@ export async function fetchHalfYearGrossProfit(
   const lookbackStart = `${purchaseCostLookbackStartYear(year)}-01-01`;
   const end = `${year}-12-31`;
 
-  const [purchaseRes, orderRes, payslipRes, employeeRes] = await Promise.all([
+  const [purchaseRes, orderRes, returnRes, payslipRes, employeeRes] = await Promise.all([
     supabase
       .from("purchases")
       .select("purchase_date,item_category,tax_included_amount,amount_ex_tax,amortization_months")
@@ -136,6 +142,12 @@ export async function fetchHalfYearGrossProfit(
       .gte("order_date", start)
       .lte("order_date", end),
     supabase
+      .from("order_returns")
+      .select("return_date,refund_amount,orders!inner(deleted_at)")
+      .is("orders.deleted_at", null)
+      .gte("return_date", start)
+      .lte("return_date", end),
+    supabase
       .from("payslips")
       .select("employee_id,period_key,net_pay,net_salary,payroll_bonus,status")
       .gte("period_key", `${year}-01`)
@@ -147,11 +159,13 @@ export async function fetchHalfYearGrossProfit(
 
   if (purchaseRes.error) throw new Error(purchaseRes.error.message);
   if (orderRes.error) throw new Error(orderRes.error.message);
+  if (returnRes.error) throw new Error(returnRes.error.message);
   if (payslipRes.error) throw new Error(payslipRes.error.message);
   if (employeeRes.error) throw new Error(employeeRes.error.message);
 
   const purchaseRows = (purchaseRes.data ?? []) as PurchaseCostRow[];
   const orderRows = (orderRes.data ?? []) as OrderRevenueRow[];
+  const returnRows = (returnRes.data ?? []) as unknown as OrderReturnRow[];
   const payslipRows = (payslipRes.data ?? []) as PayslipRow[];
   const employeeBurdens = (employeeRes.data ?? []) as EmployeeBurdenRow[];
 
@@ -225,6 +239,15 @@ export async function fetchHalfYearGrossProfit(
     const key = (row.order_date ?? "").slice(0, 7);
     if (!key || key > cutoffYm) continue;
     revenueByMonth.set(key, (revenueByMonth.get(key) ?? 0) + amount);
+  }
+
+  // 退貨退款按退貨日期月份自營收扣除（含稅口徑，銷項稅隨淨額同步減少）
+  for (const row of returnRows) {
+    const amount = Number(row.refund_amount ?? 0);
+    if (!Number.isFinite(amount) || amount === 0) continue;
+    const key = (row.return_date ?? "").slice(0, 7);
+    if (!key || key > cutoffYm) continue;
+    revenueByMonth.set(key, (revenueByMonth.get(key) ?? 0) - amount);
   }
 
   let grossProfit = 0;

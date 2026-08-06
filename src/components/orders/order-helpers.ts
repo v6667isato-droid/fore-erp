@@ -34,14 +34,14 @@ export function orderDiscountSubtotalField(order: OrderRow): string {
   return String(Math.max(0, grand - ship));
 }
 
-/** 僅「結案」訂單後台僅能檢視，不可改寫（其餘狀態含已出貨、已結清仍可編輯） */
+/** 「結案」「已退貨」訂單後台僅能檢視，不可改寫（其餘狀態含已出貨、已結清仍可編輯）；退貨經由列表的退貨入口操作 */
 export function isOrderAdminReadOnly(order: Pick<OrderRow, "status">): boolean {
-  return order.status === "結案";
+  return order.status === "結案" || order.status === "已退貨";
 }
 
 /**
  * 訂單生命週期三集合（總覽三卡與訂單列表 filter 共用；每個 status 僅屬一個集合）：
- * 報價中｜生產中（繪圖中→完成前，含暫停）｜已完成未結案（已完工、已出貨）；「結案」三者皆不計。
+ * 報價中｜生產中（繪圖中→完成前，含暫停）｜已完成未結案（已完工、已出貨）；「結案」「已退貨」三者皆不計。
  */
 export const QUOTE_STATUSES: OrderStatus[] = ["報價中"];
 export const PRODUCTION_STATUSES: OrderStatus[] = [
@@ -83,6 +83,7 @@ const ORDER_STATUS_SORT_ORDER: OrderStatus[] = [
   "已完工",
   "已出貨",
   "結案",
+  "已退貨",
 ];
 
 export function orderStatusSortIndex(status: OrderStatus): number {
@@ -108,6 +109,8 @@ export function manualOrderStatusOptions(current: OrderStatus): OrderStatus[] {
   if (current === "已完工") return ["已完工", "已出貨", "結案"];
   if (current === "已出貨") return ["已出貨", "結案"];
   if (current === "結案") return [];
+  // 「已退貨」僅能由退貨流程設定／還原，不開放手動切換
+  if (current === "已退貨") return [];
   return [...ORDER_STATUS_OPTIONS];
 }
 
@@ -128,6 +131,7 @@ export const statusStyles: Record<OrderStatus, string> = {
   已完工: "bg-teal-100 text-teal-900 border-teal-200",
   已出貨: "bg-emerald-100 text-emerald-800 border-emerald-200",
   結案: "bg-slate-200 text-slate-800 border-slate-300",
+  已退貨: "bg-rose-100 text-rose-800 border-rose-200",
 };
 
 export const paymentStatusStyles: Record<PaymentStatus, string> = {

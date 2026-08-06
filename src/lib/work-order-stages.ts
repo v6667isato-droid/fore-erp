@@ -181,7 +181,7 @@ export async function syncWorkOrdersToOrderStatus(
  *   （零件扣帳不自動回沖，訂單刪除或重啟時以出貨複查／盤點回歸零件數量）
  * - 自「暫停」復原（已無暫停）且不符合上列 →「生產中」
  * - 「已完工」但已不符合上列 → 退回「生產中」
- * 已出貨／結案之訂單不自動變更狀態。
+ * 已出貨／結案／已退貨之訂單不自動變更狀態。
  */
 export async function syncOrderStatusFromWorkOrders(
   client: SupabaseClient,
@@ -197,7 +197,7 @@ export async function syncOrderStatusFromWorkOrders(
   }
   const orderStatus = String((ord as { status?: string } | null)?.status ?? "").trim();
 
-  if (orderStatus === "已出貨" || orderStatus === "結案") {
+  if (orderStatus === "已出貨" || orderStatus === "結案" || orderStatus === "已退貨") {
     return { ok: true };
   }
 

@@ -9,7 +9,8 @@ export type OrderStatus =
   | "暫停"
   | "已完工"
   | "已出貨"
-  | "結案";
+  | "結案"
+  | "已退貨";
 export type PaymentStatus = "未付款" | "部分付款" | "已付訂金" | "已結清";
 
 export interface OrderRow {

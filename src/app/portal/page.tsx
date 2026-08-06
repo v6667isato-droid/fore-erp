@@ -271,6 +271,7 @@ function portalStatusColor(status: string): string {
     case "已完工":    return "text-teal-700";
     case "已出貨":    return "text-emerald-700";
     case "結案":      return "text-slate-500";
+    case "已退貨":    return "text-rose-700";
     default:          return "text-muted-foreground";
   }
 }
@@ -588,7 +589,7 @@ export default function PortalPage() {
     let ongoing = 0;
     let closed = 0;
     for (const o of myOrders) {
-      if (o.status === "結案") closed += 1;
+      if (o.status === "結案" || o.status === "已退貨") closed += 1;
       else ongoing += 1;
     }
     return { ongoing, closed };
@@ -597,9 +598,10 @@ export default function PortalPage() {
   const myOrdersFilteredSorted = useMemo(() => {
     const q = myOrderSearch.trim().toLowerCase();
     let list = myOrders.filter((o) => {
+      const isClosedLike = o.status === "結案" || o.status === "已退貨";
       if (myOrdersScopeTab === "closed") {
-        if (o.status !== "結案") return false;
-      } else if (o.status === "結案") {
+        if (!isClosedLike) return false;
+      } else if (isClosedLike) {
         return false;
       }
 

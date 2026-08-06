@@ -1054,9 +1054,12 @@ export default function EmployeePortalPage() {
     return list;
   }, [data?.assignee_work_orders, woSortBy, woSortAsc, woStageById]);
 
-  /** 訂單已結案：僅供檢視，不可再改工序站別 */
+  /** 訂單已結案／已退貨：僅供檢視，不可再改工序站別 */
   const isWoOrderClosed = useCallback(
-    (wo: AssigneeWorkOrderRow) => String(wo.order_status ?? "").trim() === "結案",
+    (wo: AssigneeWorkOrderRow) => {
+      const s = String(wo.order_status ?? "").trim();
+      return s === "結案" || s === "已退貨";
+    },
     [],
   );
   const woPartition = useMemo(() => {

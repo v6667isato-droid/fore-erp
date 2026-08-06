@@ -51,6 +51,7 @@ const ORDER_STATUS_SEQUENCE = [
   "已完工",
   "已出貨",
   "結案",
+  "已退貨",
 ] as const;
 
 function orderStatusSortIndex(status: string | null | undefined): number {
@@ -69,6 +70,7 @@ const orderStatusBadgeClass: Record<string, string> = {
   已完工: "bg-teal-100 text-teal-900 border-teal-200",
   已出貨: "bg-emerald-100 text-emerald-800 border-emerald-200",
   結案: "bg-slate-200 text-slate-800 border-slate-300",
+  已退貨: "bg-rose-100 text-rose-800 border-rose-200",
 };
 
 const paymentStatusBadgeClass: Record<string, string> = {

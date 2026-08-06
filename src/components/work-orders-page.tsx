@@ -395,9 +395,9 @@ export function WorkOrdersPage() {
       };
     });
 
-    // 排除「報價中」「結案」訂單，不進入生產列表
+    // 排除「報價中」「結案」「已退貨」訂單，不進入生產列表
     const filtered = mapped.filter(
-      (w) => w.order_status !== "報價中" && w.order_status !== "結案"
+      (w) => w.order_status !== "報價中" && w.order_status !== "結案" && w.order_status !== "已退貨"
     );
     setRows(filtered);
   }

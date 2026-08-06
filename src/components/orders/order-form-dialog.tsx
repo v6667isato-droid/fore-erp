@@ -27,6 +27,7 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowLeft,
+  ArrowRight,
   MoreVertical,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -1046,6 +1047,16 @@ function OrderFormDialog({
     setOrderExplanationImages((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function moveOrderImage(index: number, delta: -1 | 1) {
+    setOrderExplanationImages((prev) => {
+      const target = index + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
   function updateOrderImageTitle(index: number, title: string) {
     setOrderExplanationImages((prev) =>
       prev.map((it, i) =>
@@ -1390,7 +1401,7 @@ function OrderFormDialog({
           >
             {readOnly ? (
               <div className="mx-4 mb-2 mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 sm:mx-5">
-                已結案之訂單無法修改；請關閉視窗離開。
+                已結案／已退貨之訂單無法修改；請關閉視窗離開。
               </div>
             ) : null}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -1562,15 +1573,8 @@ function OrderFormDialog({
                       訂單狀態
                     </label>
                     {readOnly || savedOrderStatusLocked ? (
-                      <div className="space-y-1">
-                        <div id="order-status" className={viewFieldClass}>
-                          {status}
-                        </div>
-                        {savedOrderStatusLocked && !readOnly ? (
-                          <p className="text-[11px] text-[#7D7767] leading-snug">
-                            生產中／暫停時請至「生產管理」調整工單工序；全部為「包裝管理」或「待出貨」時將自動改為已完工，全部為「已出貨」時將自動改為已出貨。
-                          </p>
-                        ) : null}
+                      <div id="order-status" className={viewFieldClass}>
+                        {status}
                       </div>
                     ) : (
                       <select
@@ -1758,7 +1762,31 @@ function OrderFormDialog({
                               className="h-32 w-32 rounded-md border border-border object-cover"
                             />
                             <div className="flex flex-col gap-2">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 w-8 p-0"
+                                  title="往前移"
+                                  onClick={() => moveOrderImage(idx, -1)}
+                                  disabled={readOnly || idx === 0 || uploadingImageItemId === "order"}
+                                >
+                                  <ArrowLeft className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 w-8 p-0"
+                                  title="往後移"
+                                  onClick={() => moveOrderImage(idx, 1)}
+                                  disabled={
+                                    readOnly ||
+                                    idx === orderExplanationImages.length - 1 ||
+                                    uploadingImageItemId === "order"
+                                  }
+                                >
+                                  <ArrowRight className="h-3.5 w-3.5" />
+                                </Button>
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -2073,17 +2101,6 @@ function OrderFormDialog({
                                   </select>
                                 </div>
                               )}
-                              {!readOnly &&
-                                variants.find((v) => v.id === it.variant_id) && (
-                                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                  {(() => {
-                                    const v = variants.find((vv) => vv.id === it.variant_id)!;
-                                    return v.series_name
-                                      ? `${v.series_name} / ${v.label}`
-                                      : v.label;
-                                  })()}
-                                </p>
-                              )}
                             </div>
                             <div className="flex flex-col gap-1.5">
                               <label
@@ -2139,7 +2156,7 @@ function OrderFormDialog({
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`item-channel-price-${it.id}`}
                               >
-                                通路價格
+                                通路價格 / 折扣價格
                               </label>
                               <input
                                 id={`item-channel-price-${it.id}`}
@@ -2187,11 +2204,11 @@ function OrderFormDialog({
                             </div>
                             <div className="flex flex-col gap-1.5">
                               <label className="text-xs text-muted-foreground">
-                                長
+                                W
                               </label>
                               <input
                                 type="number"
-                                placeholder="長"
+                                placeholder="W"
                                 value={it.custom_dimension_w ?? ""}
                                 onChange={(e) =>
                                   updateItem(it.id, {
@@ -2207,11 +2224,11 @@ function OrderFormDialog({
                             </div>
                             <div className="flex flex-col gap-1.5">
                               <label className="text-xs text-muted-foreground">
-                                寬
+                                D
                               </label>
                               <input
                                 type="number"
-                                placeholder="寬"
+                                placeholder="D"
                                 value={it.custom_dimension_d ?? ""}
                                 onChange={(e) =>
                                   updateItem(it.id, {
@@ -2227,11 +2244,11 @@ function OrderFormDialog({
                             </div>
                             <div className="flex flex-col gap-1.5">
                               <label className="text-xs text-muted-foreground">
-                                高
+                                H
                               </label>
                               <input
                                 type="number"
-                                placeholder="高"
+                                placeholder="H"
                                 value={it.custom_dimension_h ?? ""}
                                 onChange={(e) =>
                                   updateItem(it.id, {
@@ -2508,12 +2525,12 @@ function OrderFormDialog({
                             </div>
                             <div className="flex flex-col gap-1.5">
                               <label className="text-xs text-muted-foreground">
-                                長 / 寬 / 高
+                                W / D / H
                               </label>
                               <div className="grid grid-cols-3 gap-1.5">
                                 <input
                                   type="number"
-                                  placeholder="長"
+                                  placeholder="W"
                                   value={it.custom_dimension_w ?? ""}
                                   onChange={(e) =>
                                     updateItem(it.id, {
@@ -2528,7 +2545,7 @@ function OrderFormDialog({
                                 />
                                 <input
                                   type="number"
-                                  placeholder="寬"
+                                  placeholder="D"
                                   value={it.custom_dimension_d ?? ""}
                                   onChange={(e) =>
                                     updateItem(it.id, {
@@ -2543,7 +2560,7 @@ function OrderFormDialog({
                                 />
                                 <input
                                   type="number"
-                                  placeholder="高"
+                                  placeholder="H"
                                   value={it.custom_dimension_h ?? ""}
                                   onChange={(e) =>
                                     updateItem(it.id, {
@@ -2641,7 +2658,7 @@ function OrderFormDialog({
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`item-channel-price-custom-${it.id}`}
                               >
-                                通路價格
+                                通路價格 / 折扣價格
                               </label>
                               <input
                                 id={`item-channel-price-custom-${it.id}`}
@@ -2666,9 +2683,6 @@ function OrderFormDialog({
                                 placeholder="選填"
                                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
-                              <p className="text-[11px] text-muted-foreground">
-                                有填通路價時，小計與訂單總額依通路價計算。
-                              </p>
                             </div>
                           </div>
                           <div className="flex flex-col gap-1.5">

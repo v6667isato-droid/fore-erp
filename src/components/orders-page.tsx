@@ -27,7 +27,7 @@ import {
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CustomerRow } from "@/types/crm";
-import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive } from "lucide-react";
+import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import {
@@ -36,6 +36,7 @@ import {
 } from "@/components/accounting/sales-invoice-dialog";
 import { fetchOrderInvoiceCounts } from "@/lib/sales-invoice";
 import { OrderInvoicesDialog } from "@/components/orders/order-invoices-dialog";
+import { OrderReturnDialog } from "@/components/orders/order-return-dialog";
 import type {
   OrderRow,
   CustomerOption,
@@ -90,9 +91,12 @@ const STATUS_FILTER_CARD_META: Partial<
   已結案: { icon: Archive, hint: null },
 };
 
-/** 訂單狀態是否符合狀態篩選（表格列與客戶下拉共用同一套判斷） */
+/** 可自列表發起退貨的狀態（出貨後；已退貨可再開啟檢視／刪除紀錄） */
+const RETURNABLE_STATUSES: OrderStatus[] = ["已完工", "已出貨", "結案", "已退貨"];
+
+/** 訂單狀態是否符合狀態篩選（表格列與客戶下拉共用同一套判斷；「已退貨」歸入已結案卡） */
 function matchesStatusFilter(status: OrderStatus, filter: StatusFilterValue): boolean {
-  if (filter === "已結案") return status === "結案";
+  if (filter === "已結案") return status === "結案" || status === "已退貨";
   if (filter === "生產中訂單") return PRODUCTION_STATUSES.includes(status);
   if (filter === "完成未結案") return COMPLETED_OPEN_STATUSES.includes(status);
   return status === filter;
@@ -151,6 +155,8 @@ export function OrdersPage({
   /** 檢視訂單既有發票（已開過票的訂單按發票鈕先看列表） */
   const [invoiceListOrder, setInvoiceListOrder] = useState<SalesInvoiceOrderContext | null>(null);
   const [invoiceCounts, setInvoiceCounts] = useState<Record<string, number>>({});
+  /** 退貨對話框（已完工／已出貨／結案後可操作；已退貨訂單可檢視、刪除紀錄） */
+  const [returnOrder, setReturnOrder] = useState<OrderRow | null>(null);
   const hasAppliedInitialOpenRef = useRef(false);
   const lastInitialOpenOrderIdRef = useRef<string | undefined>(undefined);
 
@@ -853,7 +859,7 @@ export function OrdersPage({
 
   function requestDelete(order: OrderRow) {
     if (isOrderAdminReadOnly(order)) {
-      toast.error("已結案之訂單無法刪除");
+      toast.error("已結案／已退貨之訂單無法刪除");
       return;
     }
     setDeleteConfirmOrder(order);
@@ -864,7 +870,7 @@ export function OrdersPage({
     const order = deleteConfirmOrder;
     setDeleteConfirmOrder(null);
     if (isOrderAdminReadOnly(order)) {
-      toast.error("已結案之訂單無法刪除");
+      toast.error("已結案／已退貨之訂單無法刪除");
       return;
     }
     const { error } = await supabase
@@ -885,7 +891,7 @@ export function OrdersPage({
   ) {
     const row = orders.find((o) => o.id === id);
     if (row && isOrderAdminReadOnly(row)) {
-      toast.error("已結案之訂單無法變更");
+      toast.error("已結案／已退貨之訂單無法變更");
       return;
     }
     if (
@@ -1378,6 +1384,26 @@ export function OrdersPage({
                           <Receipt className="h-3 w-3" />
                         </Button>
                       )}
+                      {isAdmin && RETURNABLE_STATUSES.includes(order.status) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={`h-6 w-6 ${
+                            order.status === "已退貨"
+                              ? "text-rose-600 hover:text-rose-700 dark:text-rose-400"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                          title={order.status === "已退貨" ? "退貨紀錄" : "退貨"}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setReturnOrder(order);
+                          }}
+                        >
+                          <Undo2 className="h-3 w-3" />
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
@@ -1397,7 +1423,7 @@ export function OrdersPage({
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 text-muted-foreground hover:text-destructive disabled:opacity-40"
-                        title={rowReadOnly ? "已結案無法刪除" : "刪除"}
+                        title={rowReadOnly ? "已結案/已退貨無法刪除" : "刪除"}
                         disabled={rowReadOnly}
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(order); }}
                       >
@@ -1466,6 +1492,15 @@ export function OrdersPage({
           if (!open) setInvoiceListOrder(null);
         }}
         onIssueNew={(ctx) => setInvoiceOrder(ctx)}
+      />
+
+      <OrderReturnDialog
+        order={returnOrder}
+        open={returnOrder != null}
+        onOpenChange={(open) => {
+          if (!open) setReturnOrder(null);
+        }}
+        onSaved={reloadOrders}
       />
 
       <OrderFormDialog
