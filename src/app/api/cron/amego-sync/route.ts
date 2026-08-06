@@ -21,7 +21,9 @@ export async function GET(request: NextRequest) {
   if (!url || !anonKey) {
     return NextResponse.json({ error: "Supabase 未設定" }, { status: 500 });
   }
-  const db = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY ?? anonKey);
+  const db = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY ?? anonKey, {
+    global: { headers: { "x-actor": "cron:amego-sync" } },
+  });
 
   try {
     // 每 10 天跑一次，窗口抓 30 天確保涵蓋（同步具冪等性，重複檢查無副作用）

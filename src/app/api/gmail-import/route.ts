@@ -226,7 +226,9 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
 
   const sharedQuery = queryOverride?.trim() || process.env.GMAIL_INVOICE_QUERY || DEFAULT_QUERY;
 
-  const admin = createClient(url, serviceKey ?? anonKey);
+  const admin = createClient(url, serviceKey ?? anonKey, {
+    global: { headers: { "x-actor": "cron:gmail-import" } },
+  });
 
   // 多帳號：GMAIL_REFRESH_TOKEN（主帳號）＋ GMAIL_REFRESH_TOKEN_2（第二帳號，選用），共用同一組 client。
   // 第二帳號可用 GMAIL_INVOICE_QUERY_2 設自己的搜尋條件（公司信箱多為國外貿易信，預設含

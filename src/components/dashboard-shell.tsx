@@ -17,6 +17,7 @@ import {
   Receipt,
   Newspaper,
   Boxes,
+  ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import { JournalPage } from "@/components/journal-page";
 import { CustomersPage } from "@/components/customers-page";
 import { LeaveApprovalsPage } from "@/components/leave-approvals-page";
 import { FeedbackPage } from "@/components/feedback-page";
+import { AuditLogsPage } from "@/components/audit-logs-page";
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompanyCalendarPage } from "@/components/company-calendar-page";
 import { CostStatisticsTabs } from "@/components/cost-statistics-tabs";
@@ -59,7 +61,8 @@ type Page =
   | "journal"
   | "customers"
   | "leave_approvals"
-  | "feedback";
+  | "feedback"
+  | "audit_logs";
 type AppRole = "admin" | "manager" | "staff" | null;
 
 /** 報價／訂單／產品等：admin 與 manager 可編輯；員工管理（含員工資料分頁）僅 admin */
@@ -80,6 +83,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "cost_statistics", label: "成本統計", icon: BarChart3 },
   { id: "leave_approvals", label: "員工管理", icon: ClipboardCheck },
   { id: "feedback", label: "使用回饋", icon: MessageSquare },
+  { id: "audit_logs", label: "操作紀錄", icon: ScrollText },
 ];
 
 function Logo() {
@@ -114,7 +118,7 @@ function SidebarNav({
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
-        if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting" || item.id === "inventory") && userRole !== "admin") {
+        if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting" || item.id === "inventory" || item.id === "audit_logs") && userRole !== "admin") {
           return null;
         }
         const Icon = item.icon;
@@ -248,7 +252,7 @@ function MobileHeader({
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
-                  if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting" || item.id === "inventory") && userRole !== "admin") {
+                  if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting" || item.id === "inventory" || item.id === "audit_logs") && userRole !== "admin") {
                     return null;
                   }
                   const Icon = item.icon;
@@ -490,7 +494,8 @@ export default function DashboardShell() {
       (activePage === "leave_approvals" ||
         activePage === "cost_statistics" ||
         activePage === "accounting" ||
-        activePage === "inventory")
+        activePage === "inventory" ||
+        activePage === "audit_logs")
     ) {
       setActivePage("dashboard");
       router.replace("/?page=dashboard");
@@ -589,6 +594,7 @@ export default function DashboardShell() {
             <LeaveApprovalsPage />
           )}
           {activePage === "feedback" && <FeedbackPage />}
+          {activePage === "audit_logs" && userRole === "admin" && <AuditLogsPage />}
         </div>
       </main>
     </div>

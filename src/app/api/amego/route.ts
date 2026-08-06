@@ -43,7 +43,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const db = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY ?? anonKey);
+  // x-actor：service role 寫入時讓 audit trigger 記到實際操作的 ERP 使用者
+  const db = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY ?? anonKey, {
+    global: { headers: { "x-actor": `user:${user.email ?? user.id}` } },
+  });
   const creds = getAmegoCredentials();
   const action = typeof body.action === "string" ? body.action : "";
 

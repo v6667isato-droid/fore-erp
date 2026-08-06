@@ -45,7 +45,11 @@ export async function authPortalRequest(request: Request): Promise<PortalAuthRes
     };
   }
 
-  return { ok: true, client: createClient(url, key), identity: v, body };
+  // x-actor：讓 DB 端 log_audit trigger 記到操作來源（service role 沒有 auth.uid()）
+  const client = createClient(url, key, {
+    global: { headers: { "x-actor": `portal:${v.channel_id}` } },
+  });
+  return { ok: true, client, identity: v, body };
 }
 
 export type PortalPricedItem = {

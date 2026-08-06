@@ -248,6 +248,48 @@ export type Database = {
           },
         ]
       }
+      audit_logs: {
+        Row: {
+          action: string
+          actor_email: string | null
+          actor_id: string | null
+          actor_label: string | null
+          changed_fields: string[] | null
+          happened_at: string
+          id: number
+          new_data: Json | null
+          old_data: Json | null
+          record_id: string | null
+          table_name: string
+        }
+        Insert: {
+          action: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_label?: string | null
+          changed_fields?: string[] | null
+          happened_at?: string
+          id?: never
+          new_data?: Json | null
+          old_data?: Json | null
+          record_id?: string | null
+          table_name: string
+        }
+        Update: {
+          action?: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_label?: string | null
+          changed_fields?: string[] | null
+          happened_at?: string
+          id?: never
+          new_data?: Json | null
+          old_data?: Json | null
+          record_id?: string | null
+          table_name?: string
+        }
+        Relationships: []
+      }
       bom_items: {
         Row: {
           created_at: string | null
@@ -418,6 +460,105 @@ export type Database = {
           sheet_date?: string
         }
         Relationships: []
+      }
+      channel_statement_lines: {
+        Row: {
+          amount: number
+          created_at: string | null
+          description: string | null
+          id: string
+          line_type: string
+          order_id: string | null
+          return_id: string | null
+          statement_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          line_type?: string
+          order_id?: string | null
+          return_id?: string | null
+          statement_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          line_type?: string
+          order_id?: string | null
+          return_id?: string | null
+          statement_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_statement_lines_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "channel_statement_lines_return_id_fkey"
+            columns: ["return_id"]
+            isOneToOne: false
+            referencedRelation: "order_returns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "channel_statement_lines_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "channel_statements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      channel_statements: {
+        Row: {
+          channel_id: string
+          created_at: string | null
+          id: string
+          notes: string | null
+          paid_amount: number | null
+          paid_date: string | null
+          statement_month: string
+          status: string
+          total_amount: number
+        }
+        Insert: {
+          channel_id: string
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          paid_amount?: number | null
+          paid_date?: string | null
+          statement_month: string
+          status?: string
+          total_amount?: number
+        }
+        Update: {
+          channel_id?: string
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          paid_amount?: number | null
+          paid_date?: string | null
+          statement_month?: string
+          status?: string
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_statements_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       channels: {
         Row: {
@@ -1428,6 +1569,7 @@ export type Database = {
           order_date: string | null
           order_number: string
           payment_status: string | null
+          shipped_date: string | null
           shipping_address: string | null
           shipping_contact_name: string | null
           shipping_contact_phone: string | null
@@ -1454,6 +1596,7 @@ export type Database = {
           order_date?: string | null
           order_number: string
           payment_status?: string | null
+          shipped_date?: string | null
           shipping_address?: string | null
           shipping_contact_name?: string | null
           shipping_contact_phone?: string | null
@@ -1480,6 +1623,7 @@ export type Database = {
           order_date?: string | null
           order_number?: string
           payment_status?: string | null
+          shipped_date?: string | null
           shipping_address?: string | null
           shipping_contact_name?: string | null
           shipping_contact_phone?: string | null
