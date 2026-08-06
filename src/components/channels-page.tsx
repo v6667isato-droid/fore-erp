@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ClipboardList, Pencil, Trash2, X } from "lucide-react";
+import { ClipboardList, Receipt, Pencil, Trash2, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
@@ -142,6 +142,17 @@ export function ChannelsPage({ embedded = false }: { embedded?: boolean } = {}) 
                         >
                           <ClipboardList className="h-3.5 w-3.5 mr-1" />
                           通路訂單
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 px-3 text-xs"
+                          onClick={() =>
+                            window.open(`/channels/${row.id}/statements`, "_blank", "noopener,noreferrer")
+                          }
+                        >
+                          <Receipt className="h-3.5 w-3.5 mr-1" />
+                          對帳
                         </Button>
                         <Button
                           type="button"

@@ -24,7 +24,6 @@ interface ChannelOrderRow {
   id: string;
   order_number: string;
   order_date: string | null;
-  notes: string | null;
   contact_person: string | null;
   customer_name: string;
   customer_alias: string | null;
@@ -125,7 +124,7 @@ export default function ChannelOrdersPage() {
         supabase
           .from("orders")
           .select(
-            "id, order_number, order_date, internal_notes, expected_delivery_date, status, payment_status, total_amount, customers!inner(channel_id, contact_person, name, alias)"
+            "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, customers!inner(channel_id, contact_person, name, alias)"
           )
           .eq("customers.channel_id", channelId)
           .is("deleted_at", null)
@@ -169,7 +168,6 @@ export default function ChannelOrdersPage() {
             id: String(r.id),
             order_number: String(r.order_number ?? ""),
             order_date: r.order_date ?? null,
-            notes: r.internal_notes != null ? String(r.internal_notes) : null,
             contact_person:
               cust?.contact_person != null ? String(cust.contact_person) : null,
             customer_name: customerName,
@@ -406,9 +404,21 @@ export default function ChannelOrdersPage() {
               <ClipboardList className="h-4 w-4" />
               {title}
             </div>
-            <Button type="button" variant="outline" className="h-8 px-3 text-sm shrink-0" onClick={fetchData}>
-              重新整理
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 px-3 text-sm shrink-0"
+                onClick={() =>
+                  window.open(`/channels/${channelId}/statements`, "_blank", "noopener,noreferrer")
+                }
+              >
+                對帳單
+              </Button>
+              <Button type="button" variant="outline" className="h-8 px-3 text-sm shrink-0" onClick={fetchData}>
+                重新整理
+              </Button>
+            </div>
           </div>
 
           {!loading && orders.length > 0 && (
@@ -585,7 +595,6 @@ export default function ChannelOrdersPage() {
                       <SortHeader label="客戶" sortKey="customer_name" />
                     </th>
                     <th className="pb-2 px-2 font-medium whitespace-nowrap">聯絡人</th>
-                    <th className="pb-2 px-2 font-medium whitespace-nowrap">備註</th>
                     <th className="pb-2 px-2 font-medium whitespace-nowrap">
                       <SortHeader label="預計交貨" sortKey="expected_delivery_date" />
                     </th>
@@ -628,9 +637,6 @@ export default function ChannelOrdersPage() {
                       </td>
                       <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">
                         {o.contact_person?.trim() || "—"}
-                      </td>
-                      <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">
-                        {o.notes?.trim() || "—"}
                       </td>
                       <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
                         {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}
