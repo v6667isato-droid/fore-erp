@@ -184,12 +184,18 @@ export function OrdersPage({
   async function fetchCustomers() {
     const { data: customerData, error: customerError } = await supabase
       .from("customers")
-      .select("id, name, alias, company, contact_person, phone, delivery_address, has_elevator, tax_id, channel_id")
+      .select("id, name, alias, company, contact_person, phone, delivery_address, has_elevator, tax_id, channel_id, customer_type, created_at")
       .is("deleted_at", null)
-      .order("name", { ascending: true });
+      .order("created_at", { ascending: false });
     if (!customerError && customerData) {
+      // 下拉名單：合作通路置頂，其餘依建立時間新→舊（查詢已按 created_at 排序）
+      const rows = customerData as any[];
+      const sortedRows = [
+        ...rows.filter((c) => c.customer_type === "合作通路"),
+        ...rows.filter((c) => c.customer_type !== "合作通路"),
+      ];
       setCustomers(
-        (customerData as any[]).map((c) => ({
+        sortedRows.map((c) => ({
           id: String(c.id),
           name: String(c.name ?? ""),
           alias: c.alias != null ? String(c.alias) : null,
