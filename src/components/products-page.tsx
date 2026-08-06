@@ -26,7 +26,8 @@ import {
   VARIANT_SELECT_MINIMAL,
   SERIES_CONTENT_COLUMNS,
 } from "@/lib/products-db";
-import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download, Copy, FileText, Settings2 } from "lucide-react";
+import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download, Copy, FileText, Settings2, ClipboardList, X } from "lucide-react";
+import * as RadixDialog from "@radix-ui/react-dialog";
 import { AddSeriesDialog } from "@/components/products/add-series-dialog";
 import { AddVariantDialog } from "@/components/products/add-variant-dialog";
 import { EditSeriesDialog } from "@/components/products/edit-series-dialog";
@@ -124,6 +125,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [editSeries, setEditSeries] = useState<SeriesRow | null>(null);
   const [addVariantSeries, setAddVariantSeries] = useState<SeriesRow | null>(null);
   const [optionsSeries, setOptionsSeries] = useState<SeriesRow | null>(null);
+  const [bomSeries, setBomSeries] = useState<SeriesRow | null>(null);
   const [editDiscountSeries, setEditDiscountSeries] = useState<SeriesRow | null>(null);
   const [viewVariant, setViewVariant] = useState<VariantRow | null>(null);
   const [editVariant, setEditVariant] = useState<VariantRow | null>(null);
@@ -804,6 +806,14 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                         >
                           <div className="bg-muted/20 px-4 pb-4 pt-2 max-h-[70vh] overflow-y-auto">
                             <div className="flex flex-wrap items-center justify-end gap-2 mb-2">
+                              <Button
+                                variant="outline"
+                                className="h-8 px-3 gap-1.5 text-xs"
+                                onClick={() => setBomSeries(series)}
+                              >
+                                <ClipboardList className="h-3.5 w-3.5" />
+                                用料表{(bomCountBySeries[series.id] ?? 0) > 0 ? `（${bomCountBySeries[series.id]}）` : ""}
+                              </Button>
                               {isAdmin && (
                                 <Button
                                   variant="outline"
@@ -1066,16 +1076,6 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                 </TableBody>
                               </Table>
                             </div>
-                            {isExpanded && (
-                              <div className="mt-4">
-                                <h4 className="mb-2 text-sm font-semibold text-foreground">用料表</h4>
-                                <BomEditor
-                                  seriesId={series.id}
-                                  isAdmin={isAdmin}
-                                  onCountChange={handleBomCountChange}
-                                />
-                              </div>
-                            )}
                           </div>
                         </div>
                       </TableCell>
@@ -1104,6 +1104,43 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         onOpenChange={(open) => !open && setOptionsSeries(null)}
         series={optionsSeries}
       />
+      <RadixDialog.Root open={bomSeries != null} onOpenChange={(open) => !open && setBomSeries(null)}>
+        <RadixDialog.Portal>
+          <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <RadixDialog.Content
+            className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+            aria-describedby="series-bom-desc"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <RadixDialog.Title className="text-base font-semibold text-foreground">用料表</RadixDialog.Title>
+                <p id="series-bom-desc" className="mt-1 text-sm text-muted-foreground">
+                  系列：{bomSeries?.name || "未命名"}
+                </p>
+              </div>
+              <RadixDialog.Close asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
+                  aria-label="關閉"
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </RadixDialog.Close>
+            </div>
+            {bomSeries && (
+              <div className="mt-4">
+                <BomEditor
+                  seriesId={bomSeries.id}
+                  isAdmin={isAdmin}
+                  onCountChange={handleBomCountChange}
+                />
+              </div>
+            )}
+          </RadixDialog.Content>
+        </RadixDialog.Portal>
+      </RadixDialog.Root>
       <AddVariantDialog
         open={addVariantSeries != null}
         onOpenChange={(open) => !open && setAddVariantSeries(null)}
