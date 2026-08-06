@@ -319,8 +319,20 @@ export function DashboardOverview({
               showAmount={canEditLeadTimeParams}
             />
             <DashboardLeadTimeRow
+              label="桌"
+              sublabel="TB 系列"
+              estimate={leadTime.table}
+              showAmount={canEditLeadTimeParams}
+            />
+            <DashboardLeadTimeRow
+              label="架"
+              sublabel="SF 系列"
+              estimate={leadTime.shelf}
+              showAmount={canEditLeadTimeParams}
+            />
+            <DashboardLeadTimeRow
               label="其他"
-              sublabel="桌、櫃、搖椅等"
+              sublabel="櫃、搖椅、小物等"
               estimate={leadTime.other}
               showAmount={canEditLeadTimeParams}
             />
@@ -453,31 +465,38 @@ function LeadTimeParamsDialog({
   current: LeadTimeEstimates;
   onSaved: () => Promise<void>;
 }) {
-  const [chairCapacity, setChairCapacity] = useState("");
-  const [chairBase, setChairBase] = useState("");
-  const [otherCapacity, setOtherCapacity] = useState("");
-  const [otherBase, setOtherBase] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setChairCapacity(String(current.chair.capacityPerMonth));
-    setChairBase(String(current.chair.baseMonths));
-    setOtherCapacity(String(current.other.capacityPerMonth));
-    setOtherBase(String(current.other.baseMonths));
+    setValues({
+      [LEAD_TIME_SETTING_KEYS.chairCapacityPerMonth]: String(current.chair.capacityPerMonth),
+      [LEAD_TIME_SETTING_KEYS.chairBaseMonths]: String(current.chair.baseMonths),
+      [LEAD_TIME_SETTING_KEYS.tableCapacityPerMonth]: String(current.table.capacityPerMonth),
+      [LEAD_TIME_SETTING_KEYS.tableBaseMonths]: String(current.table.baseMonths),
+      [LEAD_TIME_SETTING_KEYS.shelfCapacityPerMonth]: String(current.shelf.capacityPerMonth),
+      [LEAD_TIME_SETTING_KEYS.shelfBaseMonths]: String(current.shelf.baseMonths),
+      [LEAD_TIME_SETTING_KEYS.otherCapacityPerMonth]: String(current.other.capacityPerMonth),
+      [LEAD_TIME_SETTING_KEYS.otherBaseMonths]: String(current.other.baseMonths),
+    });
   }, [open, current]);
 
   const fields = [
-    { label: "椅子產能門檻（NT$/月）", value: chairCapacity, set: setChairCapacity, key: LEAD_TIME_SETTING_KEYS.chairCapacityPerMonth },
-    { label: "椅子基準交期（月）", value: chairBase, set: setChairBase, key: LEAD_TIME_SETTING_KEYS.chairBaseMonths },
-    { label: "其他產能門檻（NT$/月）", value: otherCapacity, set: setOtherCapacity, key: LEAD_TIME_SETTING_KEYS.otherCapacityPerMonth },
-    { label: "其他基準交期（月）", value: otherBase, set: setOtherBase, key: LEAD_TIME_SETTING_KEYS.otherBaseMonths },
+    { label: "椅子產能門檻（NT$/月）", key: LEAD_TIME_SETTING_KEYS.chairCapacityPerMonth },
+    { label: "椅子基準交期（月）", key: LEAD_TIME_SETTING_KEYS.chairBaseMonths },
+    { label: "桌產能門檻（NT$/月）", key: LEAD_TIME_SETTING_KEYS.tableCapacityPerMonth },
+    { label: "桌基準交期（月）", key: LEAD_TIME_SETTING_KEYS.tableBaseMonths },
+    { label: "架產能門檻（NT$/月）", key: LEAD_TIME_SETTING_KEYS.shelfCapacityPerMonth },
+    { label: "架基準交期（月）", key: LEAD_TIME_SETTING_KEYS.shelfBaseMonths },
+    { label: "其他產能門檻（NT$/月）", key: LEAD_TIME_SETTING_KEYS.otherCapacityPerMonth },
+    { label: "其他基準交期（月）", key: LEAD_TIME_SETTING_KEYS.otherBaseMonths },
   ];
 
   async function handleSave() {
     const rows: Array<{ key: string; value: number }> = [];
     for (const f of fields) {
-      const n = Number(f.value);
+      const n = Number(values[f.key]);
       if (!Number.isFinite(n) || n <= 0) {
         toast.error(`「${f.label}」需為大於 0 的數字`);
         return;
@@ -503,7 +522,7 @@ function LeadTimeParamsDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
+          className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
           onCloseAutoFocus={(e) => e.preventDefault()}
           aria-describedby="lead-time-params-desc"
         >
@@ -520,7 +539,7 @@ function LeadTimeParamsDialog({
               </button>
             </Dialog.Close>
           </div>
-          <div className="mt-4 flex flex-col gap-3">
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {fields.map((f) => (
               <label key={f.key} className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">{f.label}</span>
@@ -528,8 +547,8 @@ function LeadTimeParamsDialog({
                   type="number"
                   min="0"
                   step="any"
-                  value={f.value}
-                  onChange={(e) => f.set(e.target.value)}
+                  value={values[f.key] ?? ""}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
                   className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </label>

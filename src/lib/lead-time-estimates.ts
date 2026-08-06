@@ -11,6 +11,7 @@ import { normalizeWorkOrderStage, workOrderStageSortIndex } from "@/lib/work-ord
  * - 第二層看品項工站：工單全部到「塗裝後製程(組配、編織)」（含）以後即視為已完成，不計水位
  * - 金額按 order_items 明細（quantity × unit_price）依品類分別加總，運費不計
  * - 椅子＝品類 椅、凳（餐椅、板凳），但 CH04 搖椅歸「其他」（產線不同）
+ * - 桌＝品類 桌（TB 系列）；架＝品類 層架／架（SF 系列）
  * - 分類不明一律歸「其他」（保守估計）
  * - 排除客戶「Føre」的訂單（自家庫存製作，非客戶交期）
  */
@@ -27,6 +28,12 @@ export const LEAD_TIME_BACKLOG_STATUSES = [
 /** 歸入「椅子」水位的品類（product_series.category / order_items.custom_category） */
 export const CHAIR_CATEGORIES = ["椅", "凳"] as const;
 
+/** 歸入「桌」水位的品類（TB 系列） */
+export const TABLE_CATEGORIES = ["桌"] as const;
+
+/** 歸入「架」水位的品類（SF 系列；客製品項有寫「層架」也有寫「架」） */
+export const SHELF_CATEGORIES = ["層架", "架"] as const;
+
 /** CH04 搖椅家族與椅凳產線不同，歸「其他」水位 */
 export const CHAIR_EXCLUDED_SERIES_PREFIX = "CH04";
 
@@ -42,6 +49,10 @@ export function isStockCustomerName(name: string | null | undefined): boolean {
 export const LEAD_TIME_SETTING_KEYS = {
   chairCapacityPerMonth: "lead_time_chair_capacity_per_month",
   chairBaseMonths: "lead_time_chair_base_months",
+  tableCapacityPerMonth: "lead_time_table_capacity_per_month",
+  tableBaseMonths: "lead_time_table_base_months",
+  shelfCapacityPerMonth: "lead_time_shelf_capacity_per_month",
+  shelfBaseMonths: "lead_time_shelf_base_months",
   otherCapacityPerMonth: "lead_time_other_capacity_per_month",
   otherBaseMonths: "lead_time_other_base_months",
 } as const;
@@ -50,6 +61,10 @@ export const LEAD_TIME_SETTING_KEYS = {
 export const LEAD_TIME_DEFAULT_PARAMS: LeadTimeParams = {
   chairCapacityPerMonth: 500000,
   chairBaseMonths: 2,
+  tableCapacityPerMonth: 400000,
+  tableBaseMonths: 3,
+  shelfCapacityPerMonth: 200000,
+  shelfBaseMonths: 2,
   otherCapacityPerMonth: 900000,
   otherBaseMonths: 3,
 };
@@ -57,6 +72,10 @@ export const LEAD_TIME_DEFAULT_PARAMS: LeadTimeParams = {
 export interface LeadTimeParams {
   chairCapacityPerMonth: number;
   chairBaseMonths: number;
+  tableCapacityPerMonth: number;
+  tableBaseMonths: number;
+  shelfCapacityPerMonth: number;
+  shelfBaseMonths: number;
   otherCapacityPerMonth: number;
   otherBaseMonths: number;
 }
@@ -76,8 +95,12 @@ export interface LeadTimeCategoryEstimate {
 
 export interface LeadTimeEstimates {
   chair: LeadTimeCategoryEstimate;
+  table: LeadTimeCategoryEstimate;
+  shelf: LeadTimeCategoryEstimate;
   other: LeadTimeCategoryEstimate;
 }
+
+export type LeadTimeCategoryKey = keyof LeadTimeEstimates;
 
 /** 無條件進位到 0.5 個月（2.3 → 2.5、2.6 → 3.0） */
 export function roundUpToHalfMonth(months: number): number {
@@ -158,6 +181,17 @@ export function isChairBacklogItem(item: BacklogItemRow): boolean {
   return isChairCategory(resolveItemCategory(item)) && !isCh04Family(item);
 }
 
+/** 品項歸屬的水位分類：椅（排除 CH04）→ 桌 → 架 → 其他 */
+export function resolveBacklogCategory(item: BacklogItemRow): LeadTimeCategoryKey {
+  if (isChairBacklogItem(item)) return "chair";
+  const category = resolveItemCategory(item);
+  if (category != null) {
+    if ((TABLE_CATEGORIES as readonly string[]).includes(category)) return "table";
+    if ((SHELF_CATEGORIES as readonly string[]).includes(category)) return "shelf";
+  }
+  return "other";
+}
+
 /** 工站達「塗裝後製程(組配、編織)」（含）以後即算完成；「暫停」不算 */
 function isCompletedStage(stageRaw: string | null): boolean {
   const stage = normalizeWorkOrderStage(stageRaw);
@@ -193,32 +227,16 @@ export async function getLeadTimeParams(
     return { ...LEAD_TIME_DEFAULT_PARAMS };
   }
   const byKey = new Map(data.map((row) => [row.key, toFiniteNumber(row.value)]));
-  const pick = (key: string, fallback: number): number => {
-    const v = byKey.get(key);
-    return v != null && v > 0 ? v : fallback;
-  };
-  return {
-    chairCapacityPerMonth: pick(
-      LEAD_TIME_SETTING_KEYS.chairCapacityPerMonth,
-      LEAD_TIME_DEFAULT_PARAMS.chairCapacityPerMonth,
-    ),
-    chairBaseMonths: pick(
-      LEAD_TIME_SETTING_KEYS.chairBaseMonths,
-      LEAD_TIME_DEFAULT_PARAMS.chairBaseMonths,
-    ),
-    otherCapacityPerMonth: pick(
-      LEAD_TIME_SETTING_KEYS.otherCapacityPerMonth,
-      LEAD_TIME_DEFAULT_PARAMS.otherCapacityPerMonth,
-    ),
-    otherBaseMonths: pick(
-      LEAD_TIME_SETTING_KEYS.otherBaseMonths,
-      LEAD_TIME_DEFAULT_PARAMS.otherBaseMonths,
-    ),
-  };
+  const params = { ...LEAD_TIME_DEFAULT_PARAMS };
+  for (const field of Object.keys(LEAD_TIME_SETTING_KEYS) as Array<keyof LeadTimeParams>) {
+    const v = byKey.get(LEAD_TIME_SETTING_KEYS[field]);
+    if (v != null && v > 0) params[field] = v;
+  }
+  return params;
 }
 
 /**
- * 查詢未完工訂單明細並計算兩品類的 backlog 與預估交期。
+ * 查詢未完工訂單明細並計算各品類的 backlog 與預估交期。
  * backlog 為 0 或查無訂單時回傳基準交期，不會失敗。
  */
 export async function getLeadTimeEstimates(
@@ -243,8 +261,7 @@ export async function getLeadTimeEstimates(
       .is("deleted_at", null),
   ]);
 
-  let chairBacklog = 0;
-  let otherBacklog = 0;
+  const backlog: Record<LeadTimeCategoryKey, number> = { chair: 0, table: 0, shelf: 0, other: 0 };
   if (backlogRes.error) {
     console.error("[lead-time] 查詢未完工訂單失敗，backlog 以 0 計", backlogRes.error);
   } else {
@@ -259,14 +276,15 @@ export async function getLeadTimeEstimates(
         const amount = quantity * unitPrice;
         if (amount <= 0) continue;
         if (isItemProductionCompleted(item)) continue;
-        if (isChairBacklogItem(item)) chairBacklog += amount;
-        else otherBacklog += amount;
+        backlog[resolveBacklogCategory(item)] += amount;
       }
     }
   }
 
   return {
-    chair: buildEstimate(chairBacklog, params.chairCapacityPerMonth, params.chairBaseMonths),
-    other: buildEstimate(otherBacklog, params.otherCapacityPerMonth, params.otherBaseMonths),
+    chair: buildEstimate(backlog.chair, params.chairCapacityPerMonth, params.chairBaseMonths),
+    table: buildEstimate(backlog.table, params.tableCapacityPerMonth, params.tableBaseMonths),
+    shelf: buildEstimate(backlog.shelf, params.shelfCapacityPerMonth, params.shelfBaseMonths),
+    other: buildEstimate(backlog.other, params.otherCapacityPerMonth, params.otherBaseMonths),
   };
 }
