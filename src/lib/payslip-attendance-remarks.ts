@@ -57,6 +57,11 @@ function isSpecialAnnualLeaveType(leaveType: string): boolean {
   return leaveType.trim() === "特休";
 }
 
+/** 補休（含「補休假」等變體）：與特休同樣以「假單建立月」歸屬結算月 */
+function isCompLeaveType(leaveType: string): boolean {
+  return leaveType.trim().startsWith("補休");
+}
+
 function parseYm(ym: string): { y: number; m: number } | null {
   const m = /^(\d{4})-(\d{2})$/.exec(ym.trim());
   if (!m) return null;
@@ -265,6 +270,22 @@ function leaveLineForRow(
     const d1 = formatMdFromIso(ymdFromDate(e));
     const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
     return formatSpecialLeaveNoteLine(row, datePart);
+  }
+
+  // 補休：發放時自補休金庫扣時數，以建立月為準；請在前月才申請時也要列入備註
+  if (isCompLeaveType(leaveType) && payPeriodYm) {
+    const inMonthCreated = createdAtInPayPeriodMonth(row, payPeriodYm);
+    if (!inMonthCreated && !hasOverlap) return null;
+    const from = inMonthCreated ? a : s;
+    const to = inMonthCreated ? b : e;
+    const d0 = formatMdFromIso(ymdFromDate(from));
+    const d1 = formatMdFromIso(ymdFromDate(to));
+    const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
+    const h = num(row.hours_count, 0) || num(row.total_days, 0) * 8;
+    const hDisp = h > 0 ? ` ${h}hr` : "";
+    return inMonthCreated
+      ? `${datePart} ${leaveType}${hDisp}（本月扣補休）`
+      : `${datePart} ${leaveType}${hDisp}`;
   }
 
   if (!hasOverlap) return null;
