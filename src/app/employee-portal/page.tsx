@@ -2727,18 +2727,26 @@ export default function EmployeePortalPage() {
                 </div>
               ) : null}
 
-              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3">
-                <p className="text-xs font-medium text-foreground">請假起始（日＋時間）</p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <input
-                    id="leave-start-date"
-                    type="date"
-                    value={leaveForm.start}
-                    onChange={(e) =>
-                      setLeaveForm((f) => applyLeaveStartDateChange(f, e.target.value))
-                    }
-                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
+              <div className="space-y-2 rounded-lg border border-border/70 bg-muted/15 p-3">
+                <p className="text-xs font-medium text-foreground">請假起訖（日＋時間）</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div>
+                    <label
+                      htmlFor="leave-start-date"
+                      className="mb-1 block text-[10px] text-muted-foreground"
+                    >
+                      起始日
+                    </label>
+                    <input
+                      id="leave-start-date"
+                      type="date"
+                      value={leaveForm.start}
+                      onChange={(e) =>
+                        setLeaveForm((f) => applyLeaveStartDateChange(f, e.target.value))
+                      }
+                      className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
                   <div>
                     <label
                       htmlFor="leave-start-time"
@@ -2754,21 +2762,24 @@ export default function EmployeePortalPage() {
                       onChange={(e) =>
                         setLeaveForm((f) => ({ ...f, startTime: e.target.value }))
                       }
-                      className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
-                </div>
-              </div>
-              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3">
-                <p className="text-xs font-medium text-foreground">請假結束（日＋時間）</p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <input
-                    id="leave-end-date"
-                    type="date"
-                    value={leaveForm.end}
-                    onChange={(e) => setLeaveForm((f) => ({ ...f, end: e.target.value }))}
-                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
+                  <div>
+                    <label
+                      htmlFor="leave-end-date"
+                      className="mb-1 block text-[10px] text-muted-foreground"
+                    >
+                      結束日
+                    </label>
+                    <input
+                      id="leave-end-date"
+                      type="date"
+                      value={leaveForm.end}
+                      onChange={(e) => setLeaveForm((f) => ({ ...f, end: e.target.value }))}
+                      className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
                   <div>
                     <label
                       htmlFor="leave-end-time"
@@ -2782,7 +2793,7 @@ export default function EmployeePortalPage() {
                       step={60}
                       value={leaveForm.endTime}
                       onChange={(e) => setLeaveForm((f) => ({ ...f, endTime: e.target.value }))}
-                      className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
                 </div>
