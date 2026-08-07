@@ -286,9 +286,16 @@ function leaveLineForRow(
   return `${datePart} ${leaveType}`;
 }
 
+/**
+ * 折抵「加班費」之加班紀錄：approve_overtime_request 寫入 overtime_records 時 reason 前綴【加班費】；
+ * 其餘（含【補休】前綴與手動補登／週末戰情核准之舊紀錄）一律視為轉補休。
+ */
+export function isPayOvertimeRecord(row: Record<string, unknown>): boolean {
+  return String(row.reason ?? "").trim().startsWith("【加班費】");
+}
+
 function overtimeLineForRow(
   row: Record<string, unknown>,
-  settleOvertimeAsCompOff: boolean,
   overtimeDailyRate?: number,
 ): string | null {
   const d = String(row.overtime_date ?? "").slice(0, 10);
@@ -297,37 +304,15 @@ function overtimeLineForRow(
   if (h <= 0) return null;
   const hDisp = Number.isInteger(h) ? String(h) : String(h);
   const md = formatMdFromIso(d);
-  if (settleOvertimeAsCompOff) {
-    return `${md} 假日加班轉補休 ${hDisp}hr`;
+  if (!isPayOvertimeRecord(row)) {
+    return `${md} 加班轉補休 ${hDisp}hr`;
   }
   const rate = overtimeDailyRate ?? 0;
   if (rate > 0) {
     const amt = Math.round((rate * h) / 8);
-    return `${md} 假日加班費${amt.toLocaleString("zh-TW")}元`;
+    return `${md} 加班費${amt.toLocaleString("zh-TW")}元`;
   }
-  return `${md} 假日加班 ${hDisp}hr（計薪）`;
-}
-
-/**
- * 勾選「轉補休」切換時，就地替換備註中該員工的假日加班行文字，
- * 其餘（含手動編輯）內容保持不動。
- */
-export function swapOvertimeRemarkLines(
-  notes: string,
-  employeeId: string,
-  overtimeRows: Record<string, unknown>[],
-  settleOvertimeAsCompOff: boolean,
-  overtimeDailyRate?: number,
-): string {
-  let out = notes;
-  for (const row of overtimeRows) {
-    if (String(row.employee_id ?? "") !== employeeId) continue;
-    const from = overtimeLineForRow(row, !settleOvertimeAsCompOff, overtimeDailyRate);
-    const to = overtimeLineForRow(row, settleOvertimeAsCompOff, overtimeDailyRate);
-    if (!from || !to || from === to) continue;
-    out = out.split(from).join(to);
-  }
-  return out;
+  return `${md} 加班 ${hDisp}hr（計薪）`;
 }
 
 export function sumApprovedOvertimeHoursForEmployee(
@@ -363,8 +348,7 @@ export function buildPayslipAttendanceRemarks(
     attendanceRows: Record<string, unknown>[];
     leaveRows: Record<string, unknown>[];
     overtimeRows: Record<string, unknown>[];
-    settleOvertimeAsCompOff: boolean;
-    /** 員工的假日加班日費率：取消轉補休時，加班行顯示「M/D假日加班費N元」 */
+    /** 員工的加班日費率：折抵加班費之紀錄顯示「M/D加班費N元」（時數 × 費率 ÷ 8） */
     overtimeDailyRate?: number;
     /** 結算月內放假日（is_workday=false）：該日不再列出勤異常，並自動寫入「M/D 假日名」 */
     holidays?: PayslipRemarkHoliday[];
@@ -376,7 +360,6 @@ export function buildPayslipAttendanceRemarks(
     attendanceRows,
     leaveRows,
     overtimeRows,
-    settleOvertimeAsCompOff,
     overtimeDailyRate,
     holidays,
   } = opts;
@@ -428,7 +411,7 @@ export function buildPayslipAttendanceRemarks(
 
   for (const row of overtimeRows) {
     if (String(row.employee_id ?? "") !== employeeId) continue;
-    const line = overtimeLineForRow(row, settleOvertimeAsCompOff, overtimeDailyRate);
+    const line = overtimeLineForRow(row, overtimeDailyRate);
     if (!line) continue;
     const sortKey = String(row.overtime_date ?? "").slice(0, 10);
     items.push({ sortKey, text: line });

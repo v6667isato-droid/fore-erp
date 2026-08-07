@@ -1,9 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { LEAVE_WORK_DAY_HOURS } from "@/lib/employee-leave-time";
-import {
-  buildPayslipAttendanceRemarks,
-  sumApprovedOvertimeHoursForEmployee,
-} from "@/lib/payslip-attendance-remarks";
+import { buildPayslipAttendanceRemarks } from "@/lib/payslip-attendance-remarks";
 import {
   normalizeWorkOrderStage,
   syncOrderStatusFromWorkOrders,
@@ -217,14 +214,12 @@ async function enrichPayslipNotesWithAttendanceRemarks(
       const d = String(row.overtime_date ?? "").slice(0, 10);
       return d >= mb.start && d <= mb.end;
     });
-    const otHours = sumApprovedOvertimeHoursForEmployee(employeeId, otFiltered);
     const generated = buildPayslipAttendanceRemarks(employeeId, {
       bounds: mb,
       payPeriodYm: r.period_key,
       attendanceRows: attFiltered,
       leaveRows: mergedLeave,
       overtimeRows: otFiltered,
-      settleOvertimeAsCompOff: otHours > 0,
       holidays: spanHolidays.filter((h) => h.date >= mb.start && h.date <= mb.end),
     }).trim();
     if (!generated) return r;

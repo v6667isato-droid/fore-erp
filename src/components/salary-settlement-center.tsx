@@ -15,9 +15,8 @@ import { Banknote, CalendarRange, Eye, Sparkles } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   buildPayslipAttendanceRemarks,
-  swapOvertimeRemarkLines,
+  isPayOvertimeRecord,
   overtimeHoursToHalfDaySteps,
-  sumApprovedOvertimeHoursForEmployee,
 } from "@/lib/payslip-attendance-remarks";
 import {
   formatSemiAnnualBonusPayrollNote,
@@ -65,26 +64,50 @@ interface SettlementEmployee {
 }
 
 interface RowInputs {
-  overtimeDays: number;
   /** 考績／分潤／股份等獎金（發放寫入 payslips.payroll_bonus） */
   semiAnnualBonus: number;
   otherAdjust: number;
   /** 調整欄輸入中的原始字串（允許先打「-」再打數字）；未編輯時以 otherAdjust 顯示 */
   otherAdjustText?: string;
-  /** true：不計加班費（與轉補休一致）；false：以費率 × 天數計入加班費 */
-  settleOvertimeAsCompOff: boolean;
   /** 出勤備註（預設系統產生，老闆可改；發放寫入 payslips.notes） */
   attendanceNotes: string;
 }
 
 function defaultRowInputs(): RowInputs {
   return {
-    overtimeDays: 0,
     semiAnnualBonus: 0,
     otherAdjust: 0,
-    settleOvertimeAsCompOff: false,
     attendanceNotes: "",
   };
+}
+
+/**
+ * 該員工本月核准加班統計（小時）：折抵方式由員工申報時決定
+ * （overtime_records.reason 前綴【加班費】＝計薪；其餘含手動補登＝轉補休），
+ * 管理端不再手動勾選。
+ */
+function overtimeMonthStats(
+  employeeId: string,
+  overtimeRows: Record<string, unknown>[],
+): { total: number; pay: number; comp: number } {
+  let total = 0;
+  let pay = 0;
+  let comp = 0;
+  for (const r of overtimeRows) {
+    if (String(r.employee_id ?? "") !== employeeId) continue;
+    const h = num(r.hours, 0);
+    if (h <= 0) continue;
+    total += h;
+    if (isPayOvertimeRecord(r)) pay += h;
+    else comp += h;
+  }
+  return { total, pay, comp };
+}
+
+/** 加班費金額 = 折抵加班費時數 × 日費率 ÷ 8 */
+function overtimePayAmount(payHours: number, dailyRate: number | null): number {
+  const rate = dailyRate != null && dailyRate > 0 ? dailyRate : 0;
+  return Math.round((rate * payHours) / 8);
 }
 
 function isPaidStatus(raw: string | null | undefined): boolean {
@@ -876,9 +899,7 @@ export function SalarySettlementCenter() {
       for (const e of emps) {
         const snap = slipPaidSnapshotByEmp.get(e.id);
         if (snap) {
-          const od = num(snap.overtime_days, 0);
           const oa = num(snap.other_adjust, 0);
-          const bot = num(snap.bonus_and_overtime, 0);
           const noteText = slipNoteByEmp.get(e.id) ?? "";
           const pbStored = snap.payroll_bonus;
           const hasPayrollBonusCol =
@@ -889,8 +910,6 @@ export function SalarySettlementCenter() {
           const otherAdjust = hasPayrollBonusCol
             ? oa
             : Math.max(0, oa - semiBonus);
-          /** 發放時寫入：計加班費則 bonus_and_overtime>0；不計（轉補休）則多為 0 且 overtime_days>0 */
-          const settleAsComp = od > 0 && bot === 0;
           const attendanceNotes = slipNoteByEmp.has(e.id)
             ? noteText
             : buildPayslipAttendanceRemarks(e.id, {
@@ -899,23 +918,17 @@ export function SalarySettlementCenter() {
                 attendanceRows: attList,
                 leaveRows: leaveList,
                 overtimeRows: otList,
-                settleOvertimeAsCompOff: settleAsComp,
                 overtimeDailyRate: e.overtime_rate ?? undefined,
                 holidays: monthHolidays,
               });
           initInputs[e.id] = {
-            overtimeDays: od,
             semiAnnualBonus: semiBonus,
             otherAdjust,
-            settleOvertimeAsCompOff: settleAsComp,
             attendanceNotes,
           };
           continue;
         }
 
-        const sumH = sumApprovedOvertimeHoursForEmployee(e.id, otList);
-        const days = overtimeHoursToHalfDaySteps(sumH);
-        const settleAsComp = sumH > 0;
         const attendanceNotes = slipNoteByEmp.has(e.id)
           ? slipNoteByEmp.get(e.id)!
           : buildPayslipAttendanceRemarks(e.id, {
@@ -924,15 +937,12 @@ export function SalarySettlementCenter() {
               attendanceRows: attList,
               leaveRows: leaveList,
               overtimeRows: otList,
-              settleOvertimeAsCompOff: settleAsComp,
               overtimeDailyRate: e.overtime_rate ?? undefined,
               holidays: monthHolidays,
             });
         initInputs[e.id] = {
-          overtimeDays: days,
           semiAnnualBonus: 0,
           otherAdjust: 0,
-          settleOvertimeAsCompOff: settleAsComp,
           attendanceNotes,
         };
       }
@@ -1154,8 +1164,8 @@ export function SalarySettlementCenter() {
       leaveDaysTotal,
       breakdownLabel: leaveBreakdown,
     } = computeLeaveDeduction(emp.monthly_wage, st);
-    const otRate = emp.overtime_rate != null && emp.overtime_rate > 0 ? emp.overtime_rate : 0;
-    const overtimeAmt = inp.settleOvertimeAsCompOff ? 0 : otRate * inp.overtimeDays;
+    const ot = overtimeMonthStats(emp.id, overtimeRows);
+    const overtimeAmt = overtimePayAmount(ot.pay, emp.overtime_rate);
     const semiBonus = inp.semiAnnualBonus ?? 0;
     const net = Math.round(
       emp.monthly_wage -
@@ -1170,19 +1180,15 @@ export function SalarySettlementCenter() {
     const baseRemaining = emp.annual_leave_remaining ?? 0;
     const settledRemaining = baseRemaining - st.specialThisMonth;
 
-    /** 改計加班費時沖回補登時已入補休金庫的時數：以該月補登紀錄為準，且不超過實際計費時數 */
-    const monthOtHours = sumApprovedOvertimeHoursForEmployee(emp.id, overtimeRows);
-    const compClawbackHours = inp.settleOvertimeAsCompOff
-      ? 0
-      : Math.min(monthOtHours, inp.overtimeDays * 8);
-    /** 本月申請之補休假：發放時自補休金庫扣除（同特休以建立月為準） */
+    /** 折抵方式由員工申報時決定（reason 前綴），計薪時數不曾入補休金庫，無需沖回；
+     *  本月申請之補休假：發放時自補休金庫扣除（同特休以建立月為準） */
     const compLeaveSettleHours = st.compThisMonth;
-    const totalCompDeductHours = compClawbackHours + compLeaveSettleHours;
+    const totalCompDeductHours = compLeaveSettleHours;
 
-    /** 補休剩餘快照（小時）：發放當下餘額扣掉本次沖回；主檔無資料時為 null */
+    /** 補休剩餘快照（小時）：發放當下餘額扣掉本月補休假結算；主檔無資料時為 null */
     const compLeaveAfter =
       emp.comp_leave_remaining != null
-        ? emp.comp_leave_remaining - compClawbackHours
+        ? emp.comp_leave_remaining - compLeaveSettleHours
         : null;
     /** 其他假期（婚假、生理假等）快照 */
     const otherLeave = summarizeOtherLeave(st);
@@ -1205,9 +1211,14 @@ export function SalarySettlementCenter() {
     confirmLines.push(
       `特休結算後餘額將更新為：${formatSignedDayDecimalAsDayHour(settledRemaining)}（原本 ${formatDayDecimalAsDayHour(baseRemaining)} − 本月建立之特休 ${formatDayDecimalAsDayHour(st.specialThisMonth)}）`,
     );
-    if (compClawbackHours > 0) {
+    if (overtimeAmt > 0) {
       confirmLines.push(
-        `加班改計加班費：將自動從補休金庫扣回 ${compClawbackHours} 小時（補登時曾轉入）`,
+        `加班費：NT$ ${overtimeAmt.toLocaleString("zh-TW")}（折抵加班費 ${ot.pay} 小時）`,
+      );
+    }
+    if (ot.comp > 0) {
+      confirmLines.push(
+        `加班轉補休 ${ot.comp} 小時（核准時已入補休金庫，不計薪）`,
       );
     }
     if (compLeaveSettleHours > 0) {
@@ -1243,12 +1254,12 @@ export function SalarySettlementCenter() {
       net_pay: net,
       net_salary: net,
       status: "paid",
-      bonus_and_overtime: Math.round(overtimeAmt),
+      bonus_and_overtime: overtimeAmt,
       leave_deduction: leaveDedTotal,
       labor_insurance_employee: emp.labor_insurance,
       health_insurance_employee: emp.health_insurance,
       health_insured_persons: emp.health_insured_persons,
-      overtime_days: inp.overtimeDays,
+      overtime_days: overtimeHoursToHalfDaySteps(ot.total),
       special_leave_days_settled: st.specialThisMonth,
       special_leave_remaining_after: settledRemaining,
       comp_leave_remaining_after: compLeaveAfter,
@@ -1369,7 +1380,7 @@ export function SalarySettlementCenter() {
       return;
     }
 
-    /** 補休金庫扣除（改計加班費沖回＋本月補休假結算，合併一次更新）：
+    /** 補休金庫扣除（本月補休假結算）：
      *  薪資與特休都寫入成功後才執行；失敗不回滾薪資，改提示人工處理 */
     let compDeductDone = false;
     if (totalCompDeductHours > 0) {
@@ -1566,9 +1577,9 @@ export function SalarySettlementCenter() {
             尚無在職員工可結算。
           </p>
         ) : (
-          <table className="w-full min-w-[1440px] table-fixed border-collapse text-sm">
+          <table className="w-full min-w-[1500px] table-fixed border-collapse text-sm">
             <colgroup>
-              {/* 欄序：姓名、本月薪資、勞保、健保、請假扣款、原本特休、新增特休、本月申請、結算餘額、加班天、費率、補休、補休結餘、獎金、調整、實發、出勤備註、發放 */}
+              {/* 欄序：姓名、本月薪資、勞保、健保、請假扣款、原本特休、新增特休、本月申請、結算餘額、總加班、費率、新增補休、加班費、補休結餘、獎金、調整、實發、出勤備註、發放 */}
               <col className="w-[5rem]" />
               <col className="w-[4.5rem]" />
               <col className="w-[3.75rem]" />
@@ -1580,7 +1591,8 @@ export function SalarySettlementCenter() {
               <col className="w-[6rem]" />
               <col className="w-[3.5rem]" />
               <col className="w-[3.25rem]" />
-              <col className="w-[2.5rem]" />
+              <col className="w-[3.5rem]" />
+              <col className="w-[4rem]" />
               <col className="w-[3.75rem]" />
               <col className="w-[5rem]" />
               <col className="w-[5rem]" />
@@ -1615,13 +1627,27 @@ export function SalarySettlementCenter() {
                 <th className="bg-[var(--secondary)]/25 text-right text-foreground dark:bg-muted/40">
                   結算餘額
                 </th>
-                <th className="border-l border-border text-right text-muted-foreground">
-                  加班天
+                <th
+                  title="本月核准加班總時數（overtime_records）"
+                  className="border-l border-border text-right text-muted-foreground"
+                >
+                  總加班
                 </th>
                 <th className="text-right text-muted-foreground">費率</th>
-                <th className="text-center text-muted-foreground">補休</th>
                 <th
-                  title="補休金庫餘額（小時，employees.comp_leave_remaining）"
+                  title="本月折抵補休之時數（核准當下已入補休金庫）"
+                  className="text-right text-muted-foreground"
+                >
+                  新增補休
+                </th>
+                <th
+                  title="折抵加班費時數 × 費率 ÷ 8（依員工申報自動計算）"
+                  className="text-right text-muted-foreground"
+                >
+                  加班費
+                </th>
+                <th
+                  title="補休金庫餘額（小時，employees.comp_leave_remaining，已含本月新增）"
                   className="text-right text-muted-foreground"
                 >
                   補休結餘
@@ -1644,13 +1670,8 @@ export function SalarySettlementCenter() {
                 const inp = inputs[emp.id] ?? defaultRowInputs();
                 const { total: leaveDedTotal, breakdownLabel: leaveBreakdown } =
                   computeLeaveDeduction(emp.monthly_wage, st);
-                const otRate =
-                  emp.overtime_rate != null && emp.overtime_rate > 0
-                    ? emp.overtime_rate
-                    : 0;
-                const overtimeAmt = inp.settleOvertimeAsCompOff
-                  ? 0
-                  : otRate * inp.overtimeDays;
+                const ot = overtimeMonthStats(emp.id, overtimeRows);
+                const overtimeAmt = overtimePayAmount(ot.pay, emp.overtime_rate);
                 const semiBonus = inp.semiAnnualBonus ?? 0;
                 const net = Math.round(
                   emp.monthly_wage -
@@ -1803,26 +1824,11 @@ export function SalarySettlementCenter() {
                         ? formatSignedDayDecimalAsDayHour(settledRemaining)
                         : "—"}
                     </td>
-                    <td className="border-l border-border text-right">
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        disabled={paid}
-                        value={inp.overtimeDays}
-                        onChange={(e) => {
-                          const v = Number(e.target.value);
-                          setInputs((p) => ({
-                            ...p,
-                            [emp.id]: {
-                              ...inp,
-                              overtimeDays: Number.isFinite(v) ? v : 0,
-                              settleOvertimeAsCompOff: inp.settleOvertimeAsCompOff,
-                            },
-                          }));
-                        }}
-                        className="w-full max-w-[3.25rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                      />
+                    <td
+                      className="border-l border-border whitespace-nowrap text-right text-xs tabular-nums text-foreground"
+                      title="本月核准加班總時數（依員工申報，折抵方式申報時已決定）"
+                    >
+                      {ot.total > 0 ? `${ot.total}h` : "—"}
                     </td>
                     <td
                       className="text-right text-[11px] tabular-nums text-muted-foreground"
@@ -1834,34 +1840,21 @@ export function SalarySettlementCenter() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="text-center align-middle">
-                      <label className="inline-flex cursor-pointer items-center justify-center">
-                        <input
-                          type="checkbox"
-                          className="h-3.5 w-3.5 rounded border-input"
-                          checked={inp.settleOvertimeAsCompOff}
-                          disabled={paid}
-                          aria-label="加班以轉補休結算不計薪"
-                          title="轉補休（不計加班費）"
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setInputs((p) => ({
-                              ...p,
-                              [emp.id]: {
-                                ...inp,
-                                settleOvertimeAsCompOff: checked,
-                                attendanceNotes: swapOvertimeRemarkLines(
-                                  inp.attendanceNotes,
-                                  emp.id,
-                                  overtimeRows,
-                                  checked,
-                                  emp.overtime_rate ?? undefined,
-                                ),
-                              },
-                            }));
-                          }}
-                        />
-                      </label>
+                    <td
+                      className="whitespace-nowrap text-right text-xs tabular-nums text-sky-800 dark:text-sky-300"
+                      title="本月折抵補休之時數（核准當下已入補休金庫）"
+                    >
+                      {ot.comp > 0 ? `+${ot.comp}h` : "—"}
+                    </td>
+                    <td
+                      className="whitespace-nowrap text-right text-xs tabular-nums font-medium text-foreground"
+                      title={
+                        ot.pay > 0
+                          ? `折抵加班費 ${ot.pay} 小時 × 費率 ÷ 8`
+                          : undefined
+                      }
+                    >
+                      {overtimeAmt > 0 ? overtimeAmt.toLocaleString("zh-TW") : "—"}
                     </td>
                     <td
                       className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground"
@@ -1922,7 +1915,6 @@ export function SalarySettlementCenter() {
                               otherAdjustText: raw,
                               // 「-」「」等輸入中狀態暫以 0 計算，輸入完成後即時更新
                               otherAdjust: raw.trim() !== "" && Number.isFinite(v) ? v : 0,
-                              settleOvertimeAsCompOff: inp.settleOvertimeAsCompOff,
                             },
                           }));
                         }}

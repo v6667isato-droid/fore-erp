@@ -53,6 +53,7 @@ import {
   approveOvertimeRequest,
   fetchAllOvertimeRequests,
   rejectOvertimeRequest,
+  revokeOvertimeRecord,
   revokeOvertimeRequest,
   type OvertimeRequestAdminRow,
 } from "@/lib/employee-overtime-requests";
@@ -785,7 +786,7 @@ export function LeaveApprovalsPage() {
         return {
           title: "薪資結算中心",
           description:
-            "橫向捲動檢視；核准假單依假別 pay_ratio（leave_types）計算扣薪，特休另行結算；發放時同步寫入 payslips 與特休餘額。",
+            "橫向捲動檢視；核准假單依假別 pay_ratio（leave_types）計算扣薪，特休另行結算；加班依員工申報自動統計（加班費＝時數 × 費率 ÷ 8）；發放時同步寫入 payslips 與特休餘額。",
           Icon: Banknote,
           showLeaveRefresh: false,
         };
@@ -1100,7 +1101,7 @@ export function LeaveApprovalsPage() {
                         <p className="text-xs text-muted-foreground">
                           {ot.compensation_type === "comp_leave"
                             ? "核准後將寫入加班紀錄並累加該員工補休餘額。"
-                            : "核准後將寫入加班紀錄；加班費請於薪資結算時計入獎金／加班欄位。"}
+                            : "核准後將寫入加班紀錄；薪資結算時自動以「時數 × 費率 ÷ 8」計入加班費。"}
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-col gap-2 sm:w-40 sm:justify-center">
@@ -1388,8 +1389,13 @@ export function LeaveApprovalsPage() {
                           <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                             {formatDate(ot.overtime_date)}{" "}
                             <span className="tabular-nums">
-                              {ot.start_time}–{ot.end_time}
+                              {ot.start_time ? `${ot.start_time}–${ot.end_time}` : ""}
                             </span>
+                            {ot.source === "record" ? (
+                              <span className="ml-1 text-[11px] text-muted-foreground">
+                                （管理端補登）
+                              </span>
+                            ) : null}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-sm font-medium whitespace-nowrap">
                             {fmtOvertimeHours(ot.hours)}
@@ -1416,7 +1422,9 @@ export function LeaveApprovalsPage() {
                             {formatDateTime(ot.approved_at)}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-sm">
-                            {ot.status === "approved" ? (
+                            {ot.status === "approved" &&
+                            (ot.source === "request" ||
+                              ot.compensation_type === "comp_leave") ? (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -1426,10 +1434,12 @@ export function LeaveApprovalsPage() {
                                   void actOvertime(
                                     ot.id,
                                     ot.compensation_type === "comp_leave"
-                                      ? `確定撤銷此已核准加班？將刪除對應加班紀錄並扣回補休 ${fmtOvertimeHours(ot.hours)}（若補休已被請掉，餘額可能為負，需人工處理）。`
+                                      ? `確定撤銷此已核准加班？將刪除對應加班紀錄並立即扣回補休 ${fmtOvertimeHours(ot.hours)}（若補休已被請掉，餘額可能為負，需人工處理）。`
                                       : "確定撤銷此已核准加班？將刪除對應加班紀錄。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
-                                    revokeOvertimeRequest,
-                                    "已撤銷加班申報",
+                                    ot.source === "record"
+                                      ? revokeOvertimeRecord
+                                      : revokeOvertimeRequest,
+                                    "已撤銷加班紀錄",
                                   )
                                 }
                               >

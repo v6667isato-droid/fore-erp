@@ -744,6 +744,8 @@ type OvertimeFormState = {
   date: string;
   startTime: string;
   endTime: string;
+  /** 整日（8 小時，09:00–18:00 扣午休）；手動改時間即取消 */
+  fullDay: boolean;
   compType: OvertimeCompensationType;
   reason: string;
 };
@@ -752,7 +754,8 @@ const OVERTIME_FORM_INITIAL: OvertimeFormState = {
   date: "",
   startTime: "18:00",
   endTime: "20:00",
-  compType: "comp_leave",
+  fullDay: false,
+  compType: "pay",
   reason: "",
 };
 
@@ -1401,9 +1404,10 @@ export default function EmployeePortalPage() {
   }
 
   const overtimeHoursPreview = useMemo(() => {
+    if (overtimeForm.fullDay) return 8;
     if (!overtimeForm.startTime.trim() || !overtimeForm.endTime.trim()) return null;
     return computeOvertimeHoursFromTimes(overtimeForm.startTime, overtimeForm.endTime);
-  }, [overtimeForm.startTime, overtimeForm.endTime]);
+  }, [overtimeForm.fullDay, overtimeForm.startTime, overtimeForm.endTime]);
 
   async function submitOvertimeRequest(e: React.FormEvent) {
     e.preventDefault();
@@ -1412,10 +1416,9 @@ export default function EmployeePortalPage() {
       toast.error("請選擇加班日期");
       return;
     }
-    const hrs = computeOvertimeHoursFromTimes(
-      overtimeForm.startTime,
-      overtimeForm.endTime,
-    );
+    const hrs = overtimeForm.fullDay
+      ? 8
+      : computeOvertimeHoursFromTimes(overtimeForm.startTime, overtimeForm.endTime);
     if (hrs == null || hrs <= 0) {
       toast.error("結束時間須晚於開始時間（跨夜加班請分兩筆申報）");
       return;
@@ -2898,6 +2901,31 @@ export default function EmployeePortalPage() {
                   className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOvertimeForm((f) =>
+                      f.fullDay
+                        ? { ...f, fullDay: false }
+                        : { ...f, fullDay: true, startTime: "09:00", endTime: "18:00" },
+                    )
+                  }
+                  className={cn(
+                    "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                    overtimeForm.fullDay
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-input bg-background text-muted-foreground hover:bg-muted/40",
+                  )}
+                >
+                  整日（8 小時）
+                </button>
+                {overtimeForm.fullDay ? (
+                  <span className="self-center text-[11px] text-muted-foreground">
+                    09:00–18:00，午休不計；改時間即取消整日。
+                  </span>
+                ) : null}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label
@@ -2912,7 +2940,11 @@ export default function EmployeePortalPage() {
                     step={1800}
                     value={overtimeForm.startTime}
                     onChange={(e) =>
-                      setOvertimeForm((f) => ({ ...f, startTime: e.target.value }))
+                      setOvertimeForm((f) => ({
+                        ...f,
+                        fullDay: false,
+                        startTime: e.target.value,
+                      }))
                     }
                     className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   />
@@ -2930,7 +2962,11 @@ export default function EmployeePortalPage() {
                     step={1800}
                     value={overtimeForm.endTime}
                     onChange={(e) =>
-                      setOvertimeForm((f) => ({ ...f, endTime: e.target.value }))
+                      setOvertimeForm((f) => ({
+                        ...f,
+                        fullDay: false,
+                        endTime: e.target.value,
+                      }))
                     }
                     className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   />
@@ -2970,8 +3006,8 @@ export default function EmployeePortalPage() {
                 <div className="grid grid-cols-2 gap-2">
                   {(
                     [
-                      ["comp_leave", "補休", "核准後累加補休餘額"],
                       ["pay", "加班費", "於薪資結算時計入"],
+                      ["comp_leave", "補休", "核准後累加補休餘額"],
                     ] as const
                   ).map(([value, label, hint]) => (
                     <label

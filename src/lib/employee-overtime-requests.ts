@@ -33,6 +33,11 @@ export type OvertimeRequestAdminRow = OvertimeRequestRow & {
   employee_id: string;
   employee_name: string;
   approved_at: string | null;
+  /**
+   * request＝員工申報單（overtime_requests）；record＝無對應申報單的 overtime_records
+   * （管理端手動補登／週末戰情核准），一律視為已核准，撤銷走 revoke_overtime_comp_leave。
+   */
+  source: "request" | "record";
 };
 
 export function normalizeOvertimeStatus(
@@ -149,24 +154,87 @@ function embedName(rel: unknown): string | null {
   return null;
 }
 
-/** 管理端：全部申報單（含員工姓名） */
+/**
+ * 管理端：全部申報單（含員工姓名）＋無對應申報單的 overtime_records
+ * （手動補登／週末戰情核准），後者以「已核准」列入歷史供撤銷（立即扣回補休）。
+ */
 export async function fetchAllOvertimeRequests(): Promise<
   { ok: true; rows: OvertimeRequestAdminRow[] } | { ok: false; message: string }
 > {
-  const { data, error } = await supabase
-    .from("overtime_requests")
-    .select(
-      "id, employee_id, overtime_date, start_time, end_time, hours, compensation_type, status, reason, created_at, updated_at, approved_at, employees ( name )",
-    )
-    .order("created_at", { ascending: false });
-  if (error) return { ok: false, message: error.message };
-  const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  const [reqRes, recRes] = await Promise.all([
+    supabase
+      .from("overtime_requests")
+      .select(
+        "id, employee_id, overtime_date, start_time, end_time, hours, compensation_type, status, reason, record_id, created_at, updated_at, approved_at, employees ( name )",
+      )
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("overtime_records")
+      .select("id, employee_id, overtime_date, hours, reason, created_at, employees ( name )")
+      .order("overtime_date", { ascending: false }),
+  ]);
+  if (reqRes.error) return { ok: false, message: reqRes.error.message };
+
+  const reqRows = (reqRes.data ?? []) as Record<string, unknown>[];
+  const rows: OvertimeRequestAdminRow[] = reqRows.map((r) => ({
     ...mapRow(r),
     employee_id: String(r.employee_id ?? ""),
     employee_name: embedName(r.employees) ?? "—",
     approved_at: r.approved_at != null ? String(r.approved_at) : null,
+    source: "request" as const,
   }));
+
+  if (recRes.error) {
+    console.warn("[employee-overtime-requests] overtime_records:", recRes.error.message);
+    return { ok: true, rows };
+  }
+
+  const linkedRecordIds = new Set(
+    reqRows
+      .map((r) => (r.record_id != null ? String(r.record_id) : ""))
+      .filter(Boolean),
+  );
+  for (const raw of (recRes.data ?? []) as Record<string, unknown>[]) {
+    const id = String(raw.id ?? "");
+    if (!id || linkedRecordIds.has(id)) continue;
+    const reason = raw.reason != null && String(raw.reason).trim() ? String(raw.reason) : null;
+    rows.push({
+      id,
+      overtime_date: String(raw.overtime_date ?? "").slice(0, 10),
+      start_time: "",
+      end_time: "",
+      hours: Number(raw.hours ?? 0),
+      // 手動補登／週末戰情皆走轉補休 RPC；reason 前綴為保險再判斷一次
+      compensation_type: (reason ?? "").startsWith("【加班費】") ? "pay" : "comp_leave",
+      status: "approved",
+      reason,
+      created_at: raw.created_at != null ? String(raw.created_at) : null,
+      updated_at: null,
+      employee_id: String(raw.employee_id ?? ""),
+      employee_name: embedName(raw.employees) ?? "—",
+      approved_at: raw.created_at != null ? String(raw.created_at) : null,
+      source: "record",
+    });
+  }
   return { ok: true, rows };
+}
+
+/** 撤銷手動補登的加班紀錄：刪紀錄、扣回補休、移除出勤標籤（revoke_overtime_comp_leave） */
+export async function revokeOvertimeRecord(
+  recordId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { data, error } = await supabase.rpc("revoke_overtime_comp_leave", {
+    p_record_id: recordId,
+  });
+  if (error) return { ok: false, message: error.message };
+  const res = data as { ok?: boolean; error?: string } | null;
+  if (res?.ok) return { ok: true };
+  const code = res?.error ?? "unknown";
+  const msg =
+    code === "record_not_found"
+      ? "找不到此加班紀錄（可能已被刪除），請重新整理"
+      : (OVERTIME_RPC_ERROR_MESSAGES[code] ?? `操作失敗（${code}）`);
+  return { ok: false, message: msg };
 }
 
 const OVERTIME_RPC_ERROR_MESSAGES: Record<string, string> = {
