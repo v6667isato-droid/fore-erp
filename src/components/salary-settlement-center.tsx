@@ -37,6 +37,7 @@ import {
   formatDayDecimalAsDayHour,
   formatSignedDayDecimalAsDayHour,
 } from "@/lib/employee-leave-time";
+import { seniorityFromHire } from "@/lib/employee-seniority";
 
 interface SettlementEmployee {
   id: string;
@@ -1591,10 +1592,11 @@ export function SalarySettlementCenter() {
             尚無在職員工可結算。
           </p>
         ) : (
-          <table className="w-full min-w-[1500px] table-fixed border-collapse text-sm">
+          <table className="w-full min-w-[1564px] table-fixed border-collapse text-sm">
             <colgroup>
-              {/* 欄序：姓名、本月薪資、勞保、健保、請假扣款、原本特休、新增特休、本月申請、結算餘額、總加班、費率、新增補休、加班費、補休結餘、獎金、調整、實發、出勤備註、發放 */}
+              {/* 欄序：姓名、年資、本月薪資、勞保、健保、請假扣款、原本特休、新增特休、本月申請、結算餘額、總加班、費率、新增補休、加班費、補休結餘、獎金、調整、實發、出勤備註、發放 */}
               <col className="w-[5rem]" />
+              <col className="w-[4rem]" />
               <col className="w-[4.5rem]" />
               <col className="w-[3.75rem]" />
               <col className="w-[3.75rem]" />
@@ -1618,6 +1620,12 @@ export function SalarySettlementCenter() {
               <tr className="border-b border-border bg-muted/20 text-left [&_th]:px-1 [&_th]:py-1.5 [&_th]:text-xs [&_th]:font-semibold md:[&_th]:whitespace-normal">
                 <th className="sticky left-0 z-30 bg-card shadow-[4px_0_12px_-4px_rgba(0,0,0,0.08)] text-foreground">
                   姓名
+                </th>
+                <th
+                  title="到職日至結算月底之年資（已扣除留職停薪月份）"
+                  className="text-right text-muted-foreground"
+                >
+                  年資
                 </th>
                 <th className="text-right text-muted-foreground">本月薪資</th>
                 <th className="text-right text-muted-foreground">勞保</th>
@@ -1687,6 +1695,12 @@ export function SalarySettlementCenter() {
                 const ot = overtimeMonthStats(emp.id, overtimeRows);
                 const overtimeAmt = overtimePayAmount(ot.pay, emp.overtime_rate);
                 const semiBonus = inp.semiAnnualBonus ?? 0;
+                /** 年資基準為結算月底，與特休里程碑判斷一致 */
+                const seniority = seniorityFromHire(
+                  emp.hire_date,
+                  monthEndDate,
+                  emp.unpaid_leave_months,
+                );
                 const net = Math.round(
                   emp.monthly_wage -
                     emp.labor_insurance -
@@ -1759,6 +1773,20 @@ export function SalarySettlementCenter() {
                       )}
                     >
                       {emp.name || "—"}
+                    </td>
+                    <td
+                      title={
+                        emp.hire_date
+                          ? `到職日 ${emp.hire_date.slice(0, 10)}${
+                              emp.unpaid_leave_months.length > 0
+                                ? `；已扣留職停薪 ${emp.unpaid_leave_months.length} 個月`
+                                : ""
+                            }`
+                          : "未設到職日"
+                      }
+                      className="whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground"
+                    >
+                      {seniority.label}
                     </td>
                     <td className="text-right text-xs tabular-nums text-foreground">
                       {emp.monthly_wage.toLocaleString("zh-TW")}
