@@ -49,6 +49,7 @@ const TABLE_LABELS: Record<string, string> = {
   payslips: "薪資單",
   leave_requests: "請假單",
   overtime_records: "加班紀錄",
+  overtime_requests: "加班申報",
   annual_leave_grants: "特休授予",
   channel_statements: "通路對帳單",
   channel_statement_lines: "對帳單明細",
@@ -91,6 +92,26 @@ interface AuditRow {
   new_data: Record<string, unknown> | null;
 }
 
+/** 操作者下拉選項；value 形如 `email:someone@x.com` 或 `label:telegram-bot` */
+type ActorOption = { value: string; label: string };
+
+/** service role 寫入來源標記（audit_logs.actor_label）轉可讀文字 */
+function describeActorLabel(
+  label: string,
+  channelNames: Record<string, string>,
+): string {
+  const l = label.trim();
+  if (l.startsWith("portal:")) {
+    const chName = channelNames[l.slice("portal:".length)];
+    return chName ? `通路下單（${chName}）` : "通路下單";
+  }
+  if (l.startsWith("cron:")) return `排程（${l.slice("cron:".length)}）`;
+  if (l.startsWith("user:")) return l.slice("user:".length);
+  if (l === "telegram-bot") return "Telegram Bot";
+  if (l) return l;
+  return "系統";
+}
+
 function formatTime(value: string): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
@@ -130,6 +151,10 @@ export function AuditLogsPage() {
   const [hasMore, setHasMore] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [channelNames, setChannelNames] = useState<Record<string, string>>({});
+  /** email（小寫）→ 顯示名稱：員工姓名優先，其次 user_profiles.full_name */
+  const [nameByEmail, setNameByEmail] = useState<Record<string, string>>({});
+  /** 操作者下拉選項：value 為 `email:<email>` 或 `label:<actor_label>` */
+  const [actorOptions, setActorOptions] = useState<ActorOption[]>([]);
 
   const [filterTable, setFilterTable] = useState("");
   const [filterAction, setFilterAction] = useState("");
@@ -151,9 +176,10 @@ export function AuditLogsPage() {
       if (beforeId) query = query.lt("id", beforeId);
       if (filterTable) query = query.eq("table_name", filterTable);
       if (filterAction) query = query.eq("action", filterAction);
-      if (filterActor.trim()) {
-        const kw = filterActor.trim().replaceAll("%", "\\%");
-        query = query.or(`actor_email.ilike.%${kw}%,actor_label.ilike.%${kw}%`);
+      if (filterActor.startsWith("email:")) {
+        query = query.eq("actor_email", filterActor.slice("email:".length));
+      } else if (filterActor.startsWith("label:")) {
+        query = query.eq("actor_label", filterActor.slice("label:".length));
       }
       if (filterRecord.trim()) query = query.ilike("record_id", `${filterRecord.trim()}%`);
       if (filterFrom) query = query.gte("happened_at", `${filterFrom}T00:00:00`);
@@ -194,20 +220,70 @@ export function AuditLogsPage() {
     })();
   }, []);
 
+  /** email → 姓名對照，並組出操作者下拉選項（人員來自 employees／user_profiles，來源標記自紀錄取樣） */
+  useEffect(() => {
+    (async () => {
+      const [empRes, profileRes, actorRes] = await Promise.all([
+        supabase.from("employees").select("name, email").is("deleted_at", null),
+        supabase.from("user_profiles").select("email, full_name"),
+        // 取樣近期紀錄以列出實際出現過的來源標記（telegram-bot／portal:／cron:）
+        supabase
+          .from("audit_logs")
+          .select("actor_email, actor_label")
+          .order("id", { ascending: false })
+          .limit(1000),
+      ]);
+
+      const byEmail: Record<string, string> = {};
+      for (const p of (profileRes.data ?? []) as { email?: unknown; full_name?: unknown }[]) {
+        const em = String(p.email ?? "").trim().toLowerCase();
+        const nm = String(p.full_name ?? "").trim();
+        if (em && nm) byEmail[em] = nm;
+      }
+      // 員工姓名優先於 user_profiles.full_name
+      for (const e of (empRes.data ?? []) as { name?: unknown; email?: unknown }[]) {
+        const em = String(e.email ?? "").trim().toLowerCase();
+        const nm = String(e.name ?? "").trim();
+        if (em && nm) byEmail[em] = nm;
+      }
+      setNameByEmail(byEmail);
+
+      const emails = new Set<string>();
+      const labels = new Set<string>();
+      for (const r of (actorRes.data ?? []) as {
+        actor_email?: unknown;
+        actor_label?: unknown;
+      }[]) {
+        const em = String(r.actor_email ?? "").trim();
+        if (em) emails.add(em);
+        else {
+          const lb = String(r.actor_label ?? "").trim();
+          if (lb) labels.add(lb);
+        }
+      }
+      const opts: ActorOption[] = [
+        ...[...emails]
+          .map((em) => ({
+            value: `email:${em}`,
+            label: byEmail[em.toLowerCase()] ? `${byEmail[em.toLowerCase()]}（${em}）` : em,
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant")),
+        ...[...labels]
+          .map((lb) => ({ value: `label:${lb}`, label: describeActorLabel(lb, channelNames) }))
+          .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant")),
+      ];
+      setActorOptions(opts);
+    })();
+  }, [channelNames]);
+
   const actorText = useCallback(
     (row: AuditRow): string => {
-      if (row.actor_email) return row.actor_email;
-      const label = row.actor_label ?? "";
-      if (label.startsWith("portal:")) {
-        const chName = channelNames[label.slice("portal:".length)];
-        return chName ? `通路下單（${chName}）` : "通路下單";
+      if (row.actor_email) {
+        return nameByEmail[row.actor_email.trim().toLowerCase()] ?? row.actor_email;
       }
-      if (label.startsWith("cron:")) return `排程（${label.slice("cron:".length)}）`;
-      if (label.startsWith("user:")) return label.slice("user:".length);
-      if (label) return label;
-      return "系統";
+      return describeActorLabel(row.actor_label ?? "", channelNames);
     },
-    [channelNames],
+    [channelNames, nameByEmail],
   );
 
   const tableOptions = useMemo(
@@ -296,13 +372,18 @@ export function AuditLogsPage() {
           <option value="UPDATE">修改</option>
           <option value="DELETE">刪除</option>
         </select>
-        <input
-          type="text"
+        <select
           value={filterActor}
           onChange={(e) => setFilterActor(e.target.value)}
-          placeholder="操作者（email／來源）"
-          className="h-9 w-44 rounded-md border border-input bg-background px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-        />
+          className="h-9 max-w-[14rem] rounded-md border border-input bg-background px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="">操作者：全部</option>
+          {actorOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
         <div className="grid grid-cols-2 items-center gap-2">
           <input
             type="date"
@@ -370,7 +451,12 @@ export function AuditLogsPage() {
                       <TableCell className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
                         {formatTime(row.happened_at)}
                       </TableCell>
-                      <TableCell className="max-w-[180px] truncate text-xs">{actorText(row)}</TableCell>
+                      <TableCell
+                        className="max-w-[180px] truncate text-xs"
+                        title={row.actor_email ?? row.actor_label ?? undefined}
+                      >
+                        {actorText(row)}
+                      </TableCell>
                       <TableCell>
                         <span
                           className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${action.className}`}
