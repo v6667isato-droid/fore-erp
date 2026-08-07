@@ -20,6 +20,15 @@ import {
 } from "@/lib/employee-portal-mock";
 import { insertEmployeeLeaveRequest } from "@/lib/employee-leave-requests";
 import {
+  OVERTIME_COMPENSATION_LABELS,
+  computeOvertimeHoursFromTimes,
+  fetchEmployeeOvertimeRequests,
+  insertEmployeeOvertimeRequest,
+  isHalfHourStep,
+  type OvertimeCompensationType,
+  type OvertimeRequestRow,
+} from "@/lib/employee-overtime-requests";
+import {
   FALLBACK_LEAVE_TYPES,
   PERSONAL_FAMILY_ANNUAL_LIMIT_DAYS,
   SICK_ANNUAL_LIMIT_DAYS,
@@ -112,6 +121,7 @@ import {
   ChevronDown,
   CircleAlert,
   ClipboardList,
+  Clock,
   FileText,
   Home,
   Leaf,
@@ -140,7 +150,7 @@ function formatMmDd(ymd: string): string {
   return ymd.length >= 10 ? `${ymd.slice(5, 7)}/${ymd.slice(8, 10)}` : ymd;
 }
 
-function leaveStatusBadge(row: LeaveRequestRow) {
+function leaveStatusBadge(row: { status: string }) {
   if (row.status === "pending") {
     return (
       <Badge
@@ -730,6 +740,22 @@ const LEAVE_FORM_INITIAL: LeaveFormState = {
   reason: "",
 };
 
+type OvertimeFormState = {
+  date: string;
+  startTime: string;
+  endTime: string;
+  compType: OvertimeCompensationType;
+  reason: string;
+};
+
+const OVERTIME_FORM_INITIAL: OvertimeFormState = {
+  date: "",
+  startTime: "18:00",
+  endTime: "20:00",
+  compType: "comp_leave",
+  reason: "",
+};
+
 /** 開始日變更時：結束日為空、仍等於「原本的」開始日、或早於新開始日 → 結束日跟進為新開始日（方便單日假）。 */
 function applyLeaveStartDateChange(
   prev: LeaveFormState,
@@ -793,6 +819,15 @@ export default function EmployeePortalPage() {
   const [expandedPayslipId, setExpandedPayslipId] = useState<string | null>(null);
   const [leaveForm, setLeaveForm] = useState<LeaveFormState>({ ...LEAVE_FORM_INITIAL });
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  /** 加班申報（overtime_requests）：Dialog 與自己的申報列表 */
+  const [overtimeOpen, setOvertimeOpen] = useState(false);
+  const [overtimeForm, setOvertimeForm] = useState<OvertimeFormState>({
+    ...OVERTIME_FORM_INITIAL,
+  });
+  const [overtimeSubmitting, setOvertimeSubmitting] = useState(false);
+  const [overtimeRows, setOvertimeRows] = useState<OvertimeRequestRow[]>([]);
+  /** 送出成功後遞增以重新載入加班列表 */
+  const [overtimeTick, setOvertimeTick] = useState(0);
   /** 假別主檔（leave_types）；離線／載入失敗時退回既有四種 */
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>(FALLBACK_LEAVE_TYPES);
   /** 假單附件（診斷證明等）；依假別 proof_required 決定顯示與必填 */
@@ -879,6 +914,20 @@ export default function EmployeePortalPage() {
       cancelled = true;
     };
   }, [leaveOpen, data?.employee.id]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const employeeId = data?.employee.id;
+    if (!employeeId) return;
+    let cancelled = false;
+    void (async () => {
+      const rows = await fetchEmployeeOvertimeRequests(employeeId);
+      if (!cancelled) setOvertimeRows(rows);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [data?.employee.id, overtimeTick]);
 
   /** Mock 模式顯示技術說明便於開發；連線時僅 admin */
   const showAdminFieldHints = useMemo(
@@ -1349,6 +1398,73 @@ export default function EmployeePortalPage() {
     setLeaveForm({ ...LEAVE_FORM_INITIAL });
     setLeaveAttachmentFile(null);
     await load();
+  }
+
+  const overtimeHoursPreview = useMemo(() => {
+    if (!overtimeForm.startTime.trim() || !overtimeForm.endTime.trim()) return null;
+    return computeOvertimeHoursFromTimes(overtimeForm.startTime, overtimeForm.endTime);
+  }, [overtimeForm.startTime, overtimeForm.endTime]);
+
+  async function submitOvertimeRequest(e: React.FormEvent) {
+    e.preventDefault();
+    if (!data || overtimeSubmitting) return;
+    if (!overtimeForm.date) {
+      toast.error("請選擇加班日期");
+      return;
+    }
+    const hrs = computeOvertimeHoursFromTimes(
+      overtimeForm.startTime,
+      overtimeForm.endTime,
+    );
+    if (hrs == null || hrs <= 0) {
+      toast.error("結束時間須晚於開始時間（跨夜加班請分兩筆申報）");
+      return;
+    }
+    if (!isHalfHourStep(hrs)) {
+      toast.error("加班時數以 0.5 小時為最小單位，請調整起訖時間（分鐘請用 00 或 30）");
+      return;
+    }
+    const reason = overtimeForm.reason.trim();
+
+    if (!isSupabaseConfigured) {
+      const localRow: OvertimeRequestRow = {
+        id: `local-${Date.now()}`,
+        overtime_date: overtimeForm.date,
+        start_time: overtimeForm.startTime,
+        end_time: overtimeForm.endTime,
+        hours: hrs,
+        compensation_type: overtimeForm.compType,
+        status: "pending",
+        reason: reason || null,
+        created_at: null,
+        updated_at: null,
+      };
+      setOvertimeRows((prev) => [localRow, ...prev]);
+      toast.success("加班申報已建立（Mock，未寫入資料庫）");
+      setOvertimeOpen(false);
+      setOvertimeForm({ ...OVERTIME_FORM_INITIAL });
+      return;
+    }
+
+    setOvertimeSubmitting(true);
+    const ins = await insertEmployeeOvertimeRequest({
+      employeeId: data.employee.id,
+      overtimeDate: overtimeForm.date,
+      startTime: overtimeForm.startTime,
+      endTime: overtimeForm.endTime,
+      hours: hrs,
+      compensationType: overtimeForm.compType,
+      reason: reason || null,
+    });
+    setOvertimeSubmitting(false);
+    if (!ins.ok) {
+      toast.error(ins.message);
+      return;
+    }
+    toast.success("加班申報已送出，狀態為待審核");
+    setOvertimeOpen(false);
+    setOvertimeForm({ ...OVERTIME_FORM_INITIAL });
+    setOvertimeTick((t) => t + 1);
   }
 
   async function handleLogout() {
@@ -1841,7 +1957,7 @@ export default function EmployeePortalPage() {
                                     className={cn(
                                       "flex shrink-0 items-center gap-1 whitespace-nowrap text-xs tabular-nums",
                                       overdue
-                                        ? "font-medium text-destructive"
+                                        ? "font-medium text-accent-warn"
                                         : "text-muted-foreground",
                                     )}
                                   >
@@ -2175,6 +2291,99 @@ export default function EmployeePortalPage() {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* 我的加班申報 */}
+          <section className={epSection.card}>
+            <div className={cn(epSection.headerRowBetween, "sm:items-start")}>
+              <div className="flex items-center gap-2">
+                <div className={epSection.iconBox}>
+                  <Clock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className={epSection.title}>我的加班申報</h3>
+                  {showAdminFieldHints ? (
+                    <p className={cn("mt-0.5", epSection.subtitle)}>
+                      overtime_requests · 近期紀錄；核准後寫入 overtime_records
+                    </p>
+                  ) : (
+                    <p className={cn("mt-0.5", epSection.subtitle)}>
+                      選擇折抵補休者，核准後即累加補休餘額。
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button
+                type="button"
+                size="default"
+                className="shrink-0 gap-1.5 self-start sm:self-auto"
+                onClick={() => setOvertimeOpen(true)}
+              >
+                <Clock className="h-4 w-4" />
+                申報加班
+              </Button>
+            </div>
+            <div className={epSection.tableWrap}>
+              <table className={epSection.table}>
+                <thead>
+                  <tr className={epSection.thead}>
+                    <th className={epSection.th}>日期</th>
+                    <th className={epSection.th}>時段</th>
+                    <th className={epSection.th}>時數</th>
+                    <th className={epSection.th}>折抵</th>
+                    <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
+                    <th className={epSection.th}>狀態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overtimeRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className={cn(epSection.td, "py-6 text-center text-muted-foreground")}
+                      >
+                        尚無加班申報紀錄
+                      </td>
+                    </tr>
+                  ) : (
+                    overtimeRows.map((row) => (
+                      <tr
+                        key={row.id}
+                        className="border-b border-border/60 last:border-0 hover:bg-muted/15"
+                      >
+                        <td className={cn(epSection.td, "tabular-nums font-medium text-foreground")}>
+                          {row.overtime_date}
+                        </td>
+                        <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
+                          {row.start_time}–{row.end_time}
+                        </td>
+                        <td className={cn(epSection.td, "tabular-nums text-foreground")}>
+                          {row.hours.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 小時
+                        </td>
+                        <td className={epSection.td}>
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                              row.compensation_type === "pay"
+                                ? "border-amber-700/25 bg-amber-100/90 text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
+                                : "border-sky-700/20 bg-sky-100/90 text-sky-950 dark:border-sky-500/25 dark:bg-sky-950/35 dark:text-sky-100",
+                            )}
+                          >
+                            {OVERTIME_COMPENSATION_LABELS[row.compensation_type]}
+                          </span>
+                        </td>
+                        <td className={cn(epSection.td, "max-w-[14rem] text-muted-foreground")}>
+                          <span className="break-words text-xs leading-snug text-foreground/90">
+                            {row.reason || "—"}
+                          </span>
+                        </td>
+                        <td className={cn(epSection.td, "align-top")}>{leaveStatusBadge(row)}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -2635,6 +2844,207 @@ export default function EmployeePortalPage() {
                 </Dialog.Close>
                 <Button type="submit" disabled={leaveSubmitting || compLeaveSubmitBlocked}>
                   {leaveSubmitting ? "送出中…" : "送出申請"}
+                </Button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root
+        open={overtimeOpen}
+        onOpenChange={(open) => {
+          setOvertimeOpen(open);
+          if (!open) setOvertimeForm({ ...OVERTIME_FORM_INITIAL });
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-card p-6 shadow-xl focus:outline-none max-h-[min(90vh,36rem)] overflow-y-auto">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <Dialog.Title className="text-lg font-semibold text-foreground">申報加班</Dialog.Title>
+                <Dialog.Description className="mt-1 text-sm text-muted-foreground">
+                  {isSupabaseConfigured
+                    ? "送出後狀態為待審核；核准後依折抵方式入帳（補休立即累加餘額，加班費於薪資結算時計入）。"
+                    : "Mock：送出後僅更新此頁列表，不寫入資料庫。"}
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="rounded-lg p-2 text-muted-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+                  aria-label="關閉"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </Dialog.Close>
+            </div>
+            <form onSubmit={(e) => void submitOvertimeRequest(e)} className="space-y-4">
+              <div>
+                <label
+                  htmlFor="overtime-date"
+                  className="mb-1.5 block text-sm font-medium text-foreground"
+                >
+                  加班日期
+                </label>
+                <input
+                  id="overtime-date"
+                  type="date"
+                  value={overtimeForm.date}
+                  onChange={(e) =>
+                    setOvertimeForm((f) => ({ ...f, date: e.target.value }))
+                  }
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label
+                    htmlFor="overtime-start-time"
+                    className="mb-1 block text-[10px] text-muted-foreground"
+                  >
+                    開始時間
+                  </label>
+                  <input
+                    id="overtime-start-time"
+                    type="time"
+                    step={1800}
+                    value={overtimeForm.startTime}
+                    onChange={(e) =>
+                      setOvertimeForm((f) => ({ ...f, startTime: e.target.value }))
+                    }
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="overtime-end-time"
+                    className="mb-1 block text-[10px] text-muted-foreground"
+                  >
+                    結束時間
+                  </label>
+                  <input
+                    id="overtime-end-time"
+                    type="time"
+                    step={1800}
+                    value={overtimeForm.endTime}
+                    onChange={(e) =>
+                      setOvertimeForm((f) => ({ ...f, endTime: e.target.value }))
+                    }
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                以 0.5 小時為最小單位（分鐘請選 00 或 30）；不支援跨午夜，跨夜加班請分兩筆申報。
+              </p>
+              {overtimeHoursPreview != null ? (
+                isHalfHourStep(overtimeHoursPreview) ? (
+                  <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm">
+                    <span className="text-muted-foreground">本次申報：</span>
+                    <span className="tabular-nums font-medium text-foreground">
+                      共{" "}
+                      {overtimeHoursPreview.toLocaleString("zh-TW", {
+                        maximumFractionDigits: 2,
+                      })}{" "}
+                      小時
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-destructive">
+                    目前區間為{" "}
+                    {overtimeHoursPreview.toLocaleString("zh-TW", {
+                      maximumFractionDigits: 2,
+                    })}{" "}
+                    小時，非 0.5 小時的倍數，請調整分鐘為 00 或 30。
+                  </p>
+                )
+              ) : overtimeForm.startTime && overtimeForm.endTime ? (
+                <p className="text-xs text-amber-700 dark:text-amber-200/90">
+                  請確認結束時間晚於開始時間（同日內）。
+                </p>
+              ) : null}
+              <div>
+                <p className="mb-1.5 text-sm font-medium text-foreground">折抵方式</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      ["comp_leave", "補休", "核准後累加補休餘額"],
+                      ["pay", "加班費", "於薪資結算時計入"],
+                    ] as const
+                  ).map(([value, label, hint]) => (
+                    <label
+                      key={value}
+                      className={cn(
+                        "flex cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2.5 text-sm transition-colors",
+                        overtimeForm.compType === value
+                          ? "border-primary bg-primary/5 text-foreground"
+                          : "border-input bg-background text-muted-foreground hover:bg-muted/40",
+                      )}
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="overtime-comp-type"
+                          value={value}
+                          checked={overtimeForm.compType === value}
+                          onChange={() =>
+                            setOvertimeForm((f) => ({ ...f, compType: value }))
+                          }
+                          className="h-3.5 w-3.5"
+                        />
+                        <span className="font-medium">{label}</span>
+                      </span>
+                      <span className="pl-5 text-[11px] leading-snug">{hint}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {overtimeForm.compType === "comp_leave" &&
+              data?.employee.comp_leave_remaining != null &&
+              Number.isFinite(data.employee.comp_leave_remaining) ? (
+                <p className="text-xs text-muted-foreground">
+                  目前補休剩餘：
+                  <span className="tabular-nums font-medium text-foreground">
+                    {formatHoursAsDayHour(data.employee.comp_leave_remaining)}
+                  </span>
+                  ；核准後將累加本次時數。
+                </p>
+              ) : null}
+              <div>
+                <label
+                  htmlFor="overtime-reason"
+                  className="mb-1.5 block text-sm font-medium text-foreground"
+                >
+                  事由
+                </label>
+                <textarea
+                  id="overtime-reason"
+                  rows={3}
+                  value={overtimeForm.reason}
+                  onChange={(e) =>
+                    setOvertimeForm((f) => ({ ...f, reason: e.target.value }))
+                  }
+                  placeholder="簡述加班原因…"
+                  className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Dialog.Close asChild>
+                  <Button type="button" variant="outline" disabled={overtimeSubmitting}>
+                    取消
+                  </Button>
+                </Dialog.Close>
+                <Button
+                  type="submit"
+                  disabled={
+                    overtimeSubmitting ||
+                    overtimeHoursPreview == null ||
+                    !isHalfHourStep(overtimeHoursPreview)
+                  }
+                >
+                  {overtimeSubmitting ? "送出中…" : "送出申報"}
                 </Button>
               </div>
             </form>

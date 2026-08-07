@@ -49,6 +49,14 @@ import { PerformanceBonusPage } from "@/components/performance-bonus-page";
 import { CompanyAssignmentsAdmin } from "@/components/company-assignments-admin";
 import { TelegramBotUsersPage } from "@/components/telegram-bot-users-page";
 import {
+  OVERTIME_COMPENSATION_LABELS,
+  approveOvertimeRequest,
+  fetchAllOvertimeRequests,
+  rejectOvertimeRequest,
+  revokeOvertimeRequest,
+  type OvertimeRequestAdminRow,
+} from "@/lib/employee-overtime-requests";
+import {
   formatLeaveUpdatedAtDisplay,
   leaveRequestRowWasUpdated,
 } from "@/lib/leave-request-updated";
@@ -276,6 +284,38 @@ function leaveBadgeStyles(typeLabel: string): string {
   return "border-border bg-muted text-foreground";
 }
 
+/** 每行前面的類型標示：請假／加班 */
+function kindBadge(kind: "leave" | "overtime") {
+  return kind === "leave" ? (
+    <span className="inline-flex items-center rounded-full border border-emerald-700/25 bg-emerald-100/80 px-2 py-0.5 text-[11px] font-medium text-emerald-950 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-100">
+      請假
+    </span>
+  ) : (
+    <span className="inline-flex items-center rounded-full border border-violet-700/25 bg-violet-100/90 px-2 py-0.5 text-[11px] font-medium text-violet-950 dark:border-violet-500/30 dark:bg-violet-950/40 dark:text-violet-100">
+      加班
+    </span>
+  );
+}
+
+function overtimeCompBadge(type: OvertimeRequestAdminRow["compensation_type"]) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        type === "pay"
+          ? "border-amber-700/25 bg-amber-100/90 text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
+          : "border-sky-700/20 bg-sky-100/90 text-sky-950 dark:border-sky-500/25 dark:bg-sky-950/35 dark:text-sky-100",
+      )}
+    >
+      折抵{OVERTIME_COMPENSATION_LABELS[type]}
+    </span>
+  );
+}
+
+function fmtOvertimeHours(n: number): string {
+  return `${n.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 小時`;
+}
+
 type TabKey = "pending" | "history";
 type MainSection =
   | "attendance"
@@ -314,6 +354,8 @@ export function LeaveApprovalsPage() {
   const [holidayRows, setHolidayRows] = useState<HolidayLookupRow[]>([]);
   /** 假別主檔（含停用），供顯示規則說明與審核須知 */
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
+  /** 加班申報（overtime_requests）：與假單同一區塊混列審核 */
+  const [otRows, setOtRows] = useState<OvertimeRequestAdminRow[]>([]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -507,9 +549,17 @@ export function LeaveApprovalsPage() {
     }
   }, []);
 
+  const loadOvertime = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    const res = await fetchAllOvertimeRequests();
+    if (res.ok) setOtRows(res.rows);
+    else console.warn("[leave-approvals] overtime_requests:", res.message);
+  }, []);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadOvertime();
+  }, [load, loadOvertime]);
 
   useEffect(() => {
     if (searchParams.get("attendanceTab") !== "employees") return;
@@ -535,6 +585,42 @@ export function LeaveApprovalsPage() {
       monthOverlap(r.start_date, r.end_date, historyMonth),
     );
   }, [rows, historyMonth]);
+
+  /** 假單與加班混列（每行前面以類型標示），依申請時間新→舊 */
+  type ReviewEntry =
+    | { kind: "leave"; row: LeaveRequestAdminRow }
+    | { kind: "overtime"; row: OvertimeRequestAdminRow };
+
+  const pendingCombined = useMemo((): ReviewEntry[] => {
+    const entries: ReviewEntry[] = [
+      ...pendingList.map((row) => ({ kind: "leave" as const, row })),
+      ...otRows
+        .filter((r) => r.status === "pending")
+        .map((row) => ({ kind: "overtime" as const, row })),
+    ];
+    entries.sort((a, b) =>
+      (b.row.created_at ?? "").localeCompare(a.row.created_at ?? ""),
+    );
+    return entries;
+  }, [pendingList, otRows]);
+
+  const historyCombined = useMemo((): ReviewEntry[] => {
+    const entries: ReviewEntry[] = [
+      ...historyList.map((row) => ({ kind: "leave" as const, row })),
+      ...otRows
+        .filter((r) => r.status !== "pending")
+        .filter(
+          (r) =>
+            !historyMonth ||
+            monthOverlap(r.overtime_date, r.overtime_date, historyMonth),
+        )
+        .map((row) => ({ kind: "overtime" as const, row })),
+    ];
+    entries.sort((a, b) =>
+      (b.row.created_at ?? "").localeCompare(a.row.created_at ?? ""),
+    );
+    return entries;
+  }, [historyList, otRows, historyMonth]);
 
   async function approve(id: string) {
     if (!window.confirm("確定核准此假單？")) return;
@@ -598,6 +684,28 @@ export function LeaveApprovalsPage() {
     }
   }
 
+  /** 加班申報核准／退回／撤銷（走 SECURITY DEFINER RPC） */
+  async function actOvertime(
+    id: string,
+    confirmText: string,
+    fn: (id: string) => Promise<{ ok: true } | { ok: false; message: string }>,
+    successText: string,
+  ) {
+    if (!window.confirm(confirmText)) return;
+    setActingId(id);
+    try {
+      const res = await fn(id);
+      if (!res.ok) {
+        toast.error(res.message);
+        return;
+      }
+      toast.success(successText);
+      await loadOvertime();
+    } finally {
+      setActingId(null);
+    }
+  }
+
   function formatDateTime(iso: string | null): string {
     if (!iso) return "—";
     const d = new Date(iso);
@@ -647,12 +755,12 @@ export function LeaveApprovalsPage() {
       case "leave":
         if (tab === "pending") {
           return {
-            title: "假單審核 · 待審核",
+            title: "假單/加班審核 · 待審核",
             description: (
               <>
-                審核員工請假申請；核准／退回寫入 leave_requests。
+                審核員工請假申請與加班申報（每行前方標示類型）。
                 <br />
-                特休假核准後，會在該月底發薪時更新特休假天數。
+                特休假核准後，會在該月底發薪時更新特休假天數；加班折抵「補休」核准後即累加補休餘額。
               </>
             ),
             Icon: ClipboardList,
@@ -660,8 +768,8 @@ export function LeaveApprovalsPage() {
           };
         }
         return {
-          title: "假單審核 · 歷史紀錄",
-          description: "依月份檢視與請假區間重疊之已核准、已退回或已撤銷紀錄。",
+          title: "假單/加班審核 · 歷史紀錄",
+          description: "依月份檢視已核准、已退回或已撤銷的假單與加班申報紀錄。",
           Icon: ClipboardList,
           showLeaveRefresh: true,
         };
@@ -737,7 +845,10 @@ export function LeaveApprovalsPage() {
             type="button"
             variant="outline"
             className="h-9 shrink-0 gap-2 text-xs sm:self-center"
-            onClick={() => void load()}
+            onClick={() => {
+              void load();
+              void loadOvertime();
+            }}
             disabled={loading}
           >
             <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
@@ -771,7 +882,7 @@ export function LeaveApprovalsPage() {
           )}
         >
           <ClipboardList className="h-4 w-4 shrink-0 opacity-90" />
-          假單審核
+          假單/加班審核
         </button>
         <button
           type="button"
@@ -898,9 +1009,9 @@ export function LeaveApprovalsPage() {
               )}
             >
               待審核
-              {pendingList.length > 0 && (
+              {pendingCombined.length > 0 && (
                 <span className="ml-2 rounded-full bg-foreground/10 px-2 py-0.5 text-xs tabular-nums">
-                  {pendingList.length}
+                  {pendingCombined.length}
                 </span>
               )}
             </button>
@@ -926,20 +1037,119 @@ export function LeaveApprovalsPage() {
             <p className="py-12 text-center text-sm text-muted-foreground">
               載入中…
             </p>
-          ) : pendingList.length === 0 ? (
+          ) : pendingCombined.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 py-14 text-center">
               <Inbox className="h-10 w-10 text-muted-foreground/50" />
-              <p className="text-sm text-muted-foreground">目前沒有待審核假單</p>
+              <p className="text-sm text-muted-foreground">目前沒有待審核的假單或加班申報</p>
             </div>
           ) : (
             <ul className="flex flex-col gap-3">
-              {pendingList.map((row) => (
+              {pendingCombined.map((entry) => {
+                if (entry.kind === "overtime") {
+                  const ot = entry.row;
+                  return (
+                    <li
+                      key={`ot-${ot.id}`}
+                      className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md sm:flex-row sm:items-stretch sm:justify-between"
+                    >
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {kindBadge("overtime")}
+                          <span className="text-base font-bold text-foreground">
+                            {ot.employee_name}
+                          </span>
+                          {overtimeCompBadge(ot.compensation_type)}
+                        </div>
+                        <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
+                          <p>
+                            <span className="text-xs uppercase tracking-wide">加班時段</span>
+                            <br />
+                            <span className="font-medium text-foreground">
+                              {formatDate(ot.overtime_date)}{" "}
+                              <span className="tabular-nums">
+                                {ot.start_time}–{ot.end_time}
+                              </span>
+                            </span>
+                          </p>
+                          <p>
+                            <span className="text-xs uppercase tracking-wide">加班時數</span>
+                            <br />
+                            <span className="text-lg font-semibold tabular-nums text-primary">
+                              {fmtOvertimeHours(ot.hours)}
+                            </span>
+                          </p>
+                          <p className="sm:col-span-2">
+                            <span className="text-xs uppercase tracking-wide">申請時間</span>
+                            <br />
+                            <span className="text-foreground">
+                              {formatDateTime(ot.created_at)}
+                            </span>
+                          </p>
+                          {ot.reason ? (
+                            <p className="sm:col-span-2">
+                              <span className="text-xs uppercase tracking-wide">
+                                事由／備註
+                              </span>
+                              <br />
+                              <span className="whitespace-pre-wrap text-foreground">
+                                {ot.reason}
+                              </span>
+                            </p>
+                          ) : null}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {ot.compensation_type === "comp_leave"
+                            ? "核准後將寫入加班紀錄並累加該員工補休餘額。"
+                            : "核准後將寫入加班紀錄；加班費請於薪資結算時計入獎金／加班欄位。"}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-2 sm:w-40 sm:justify-center">
+                        <Button
+                          type="button"
+                          className="h-9 w-full bg-emerald-800 text-white hover:bg-emerald-900 dark:bg-emerald-800 dark:hover:bg-emerald-700"
+                          disabled={actingId === ot.id}
+                          onClick={() =>
+                            void actOvertime(
+                              ot.id,
+                              ot.compensation_type === "comp_leave"
+                                ? `確定核准此加班申報？核准後將累加 ${ot.employee_name} 的補休餘額 ${fmtOvertimeHours(ot.hours)}。`
+                                : "確定核准此加班申報？（折抵加班費，於薪資結算時計入）",
+                              approveOvertimeRequest,
+                              "已核准加班申報",
+                            )
+                          }
+                        >
+                          ✅ 核准
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9 w-full border-red-200 bg-red-50/80 text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
+                          disabled={actingId === ot.id}
+                          onClick={() =>
+                            void actOvertime(
+                              ot.id,
+                              "確定退回此加班申報？",
+                              rejectOvertimeRequest,
+                              "已退回加班申報",
+                            )
+                          }
+                        >
+                          ❌ 退回
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                }
+                const row = entry.row;
+                return (
                 <li
                   key={row.id}
                   className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md sm:flex-row sm:items-stretch sm:justify-between"
                 >
                   <div className="min-w-0 flex-1 space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
+                      {kindBadge("leave")}
                       <span className="text-base font-bold text-foreground">
                         {row.employee_name}
                       </span>
@@ -1087,7 +1297,8 @@ export function LeaveApprovalsPage() {
                     </Button>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
@@ -1119,7 +1330,7 @@ export function LeaveApprovalsPage() {
               })}
             </select>
             <span className="text-[11px] text-muted-foreground">
-              選「全部」列出所有已核准／已退回假單；選月份則僅顯示與該月區間重疊者
+              選「全部」列出所有已審核假單與加班申報；選月份則僅顯示與該月重疊者
             </span>
           </div>
           <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
@@ -1127,23 +1338,26 @@ export function LeaveApprovalsPage() {
               <p className="py-12 text-center text-sm text-muted-foreground">
                 載入中…
               </p>
-            ) : historyList.length === 0 ? (
+            ) : historyCombined.length === 0 ? (
               <p className="py-12 text-center text-sm text-muted-foreground">
                 {historyMonth
                   ? "此月份尚無已核准、已退回或已撤銷的紀錄。"
-                  : "尚無已核准、已退回或已撤銷的假單紀錄。"}
+                  : "尚無已核准、已退回或已撤銷的假單或加班申報紀錄。"}
               </p>
             ) : (
-              <Table className="min-w-[42rem]">
+              <Table className="min-w-[48rem]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
+                    <TableHead className="text-xs font-semibold">類型</TableHead>
                     <TableHead className="text-xs font-semibold">員工</TableHead>
-                    <TableHead className="text-xs font-semibold">假別</TableHead>
+                    <TableHead className="text-xs font-semibold whitespace-nowrap">
+                      假別／折抵
+                    </TableHead>
                     <TableHead className="text-xs font-semibold whitespace-nowrap">
                       區間
                     </TableHead>
-                    <TableHead className="text-right text-xs font-semibold">
-                      天數
+                    <TableHead className="text-right text-xs font-semibold whitespace-nowrap">
+                      天數／時數
                     </TableHead>
                     <TableHead className="text-xs font-semibold">狀態</TableHead>
                     <TableHead className="text-xs font-semibold whitespace-nowrap">
@@ -1158,7 +1372,77 @@ export function LeaveApprovalsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {historyList.map((row) => {
+                  {historyCombined.map((entry) => {
+                    if (entry.kind === "overtime") {
+                      const ot = entry.row;
+                      return (
+                        <TableRow
+                          key={`ot-${ot.id}`}
+                          className="border-b border-border hover:bg-muted/25"
+                        >
+                          <TableCell>{kindBadge("overtime")}</TableCell>
+                          <TableCell className="font-medium text-foreground">
+                            {ot.employee_name}
+                          </TableCell>
+                          <TableCell>{overtimeCompBadge(ot.compensation_type)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {formatDate(ot.overtime_date)}{" "}
+                            <span className="tabular-nums">
+                              {ot.start_time}–{ot.end_time}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-sm font-medium whitespace-nowrap">
+                            {fmtOvertimeHours(ot.hours)}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {ot.status === "approved" ? (
+                              <span className="text-emerald-700 dark:text-emerald-400">
+                                已核准
+                              </span>
+                            ) : ot.status === "revoked" ? (
+                              <span className="text-amber-700 dark:text-amber-400">
+                                已撤銷
+                              </span>
+                            ) : (
+                              <span className="text-red-700 dark:text-red-400">
+                                已退回
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {formatDateTime(ot.created_at)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {formatDateTime(ot.approved_at)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">
+                            {ot.status === "approved" ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
+                                disabled={actingId === ot.id}
+                                onClick={() =>
+                                  void actOvertime(
+                                    ot.id,
+                                    ot.compensation_type === "comp_leave"
+                                      ? `確定撤銷此已核准加班？將刪除對應加班紀錄並扣回補休 ${fmtOvertimeHours(ot.hours)}（若補休已被請掉，餘額可能為負，需人工處理）。`
+                                      : "確定撤銷此已核准加班？將刪除對應加班紀錄。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
+                                    revokeOvertimeRequest,
+                                    "已撤銷加班申報",
+                                  )
+                                }
+                              >
+                                撤銷
+                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+                    const row = entry.row;
                     const st = normalizeStatus(row.status_raw);
                     const showUpdated = leaveRequestRowWasUpdated({
                       created_at: row.created_at,
@@ -1169,6 +1453,7 @@ export function LeaveApprovalsPage() {
                         key={row.id}
                         className="border-b border-border hover:bg-muted/25"
                       >
+                        <TableCell>{kindBadge("leave")}</TableCell>
                         <TableCell className="font-medium text-foreground">
                           {row.employee_name}
                         </TableCell>

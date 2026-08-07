@@ -1684,6 +1684,72 @@ export type Database = {
           },
         ]
       }
+      overtime_requests: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          compensation_type: string
+          created_at: string
+          employee_id: string
+          end_time: string
+          hours: number
+          id: string
+          overtime_date: string
+          reason: string | null
+          record_id: string | null
+          start_time: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          compensation_type: string
+          created_at?: string
+          employee_id: string
+          end_time: string
+          hours: number
+          id?: string
+          overtime_date: string
+          reason?: string | null
+          record_id?: string | null
+          start_time: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          compensation_type?: string
+          created_at?: string
+          employee_id?: string
+          end_time?: string
+          hours?: number
+          id?: string
+          overtime_date?: string
+          reason?: string | null
+          record_id?: string | null
+          start_time?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "overtime_requests_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "overtime_requests_record_id_fkey"
+            columns: ["record_id"]
+            isOneToOne: false
+            referencedRelation: "overtime_records"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       part_make_tasks: {
         Row: {
           assignee_id: string
@@ -3446,6 +3512,7 @@ export type Database = {
           employee_id: string | null
           full_name: string | null
           role: string | null
+          theme: string | null
           user_id: string
         }
         Insert: {
@@ -3454,6 +3521,7 @@ export type Database = {
           employee_id?: string | null
           full_name?: string | null
           role?: string | null
+          theme?: string | null
           user_id: string
         }
         Update: {
@@ -3462,6 +3530,7 @@ export type Database = {
           employee_id?: string | null
           full_name?: string | null
           role?: string | null
+          theme?: string | null
           user_id?: string
         }
         Relationships: [
@@ -3845,6 +3914,10 @@ export type Database = {
       }
     }
     Functions: {
+      approve_overtime_request: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
       approve_overtime_to_comp_leave: {
         Args: {
           p_employee_id: string
@@ -3855,10 +3928,12 @@ export type Database = {
         Returns: Json
       }
       current_employee_id: { Args: never; Returns: string }
+      reject_overtime_request: { Args: { p_request_id: string }; Returns: Json }
       revoke_overtime_comp_leave: {
         Args: { p_record_id: string }
         Returns: Json
       }
+      revoke_overtime_request: { Args: { p_request_id: string }; Returns: Json }
     }
     Enums: {
       [_ in never]: never
