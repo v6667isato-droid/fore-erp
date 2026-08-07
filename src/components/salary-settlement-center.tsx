@@ -110,6 +110,20 @@ function overtimePayAmount(payHours: number, dailyRate: number | null): number {
   return Math.round((rate * payHours) / 8);
 }
 
+/** 特休欄位精簡顯示：小數日 → 「4D4H」（1 天 = 8 小時；負值 −0D4H） */
+function formatDayHourShort(daysDecimal: number): string {
+  const sign = daysDecimal < 0 ? "−" : "";
+  const abs = Math.abs(daysDecimal);
+  let d = Math.floor(abs + 1e-9);
+  let h = Math.round((abs - d) * 8 * 100) / 100;
+  if (h >= 8) {
+    d += 1;
+    h = 0;
+  }
+  const hDisp = Number.isInteger(h) ? String(h) : String(h);
+  return `${sign}${d}D${hDisp}H`;
+}
+
 function isPaidStatus(raw: string | null | undefined): boolean {
   const s = (raw ?? "").trim().toLowerCase();
   return s === "paid" || s === "已發放" || s === "發放";
@@ -1776,7 +1790,7 @@ export function SalarySettlementCenter() {
                       −{leaveDedTotal.toLocaleString("zh-TW")}
                     </td>
                     <td className="whitespace-nowrap! border-l border-border text-right text-xs tabular-nums text-muted-foreground">
-                      {orig != null ? formatDayDecimalAsDayHour(orig) : "—"}
+                      {orig != null ? formatDayHourShort(orig) : "—"}
                     </td>
                     <td className="text-center">
                       {pendingGrants.length > 0 ? (
@@ -1809,7 +1823,7 @@ export function SalarySettlementCenter() {
                       )}
                     </td>
                     <td className="whitespace-nowrap! text-right text-xs tabular-nums text-foreground">
-                      {formatDayDecimalAsDayHour(specialThisMonthDisp)}
+                      {formatDayHourShort(specialThisMonthDisp)}
                     </td>
                     <td
                       title={hasSpecialUse ? "已扣本月建立之特休" : undefined}
@@ -1821,7 +1835,7 @@ export function SalarySettlementCenter() {
                       )}
                     >
                       {orig != null || specialThisMonthDisp > 0
-                        ? formatSignedDayDecimalAsDayHour(settledRemaining)
+                        ? formatDayHourShort(settledRemaining)
                         : "—"}
                     </td>
                     <td
@@ -1861,14 +1875,25 @@ export function SalarySettlementCenter() {
                       title={
                         paidSnap?.compAfter != null
                           ? "發放當下快照（payslips.comp_leave_remaining_after）"
-                          : "補休金庫餘額（小時）"
+                          : st.compThisMonth > 0
+                            ? `本月申請補休假 ${st.compThisMonth} 小時，發放時自動自補休金庫扣除`
+                            : "補休金庫餘額（小時）"
                       }
                     >
-                      {paidSnap?.compAfter != null
-                        ? `${paidSnap.compAfter}h`
-                        : emp.comp_leave_remaining != null
-                          ? `${emp.comp_leave_remaining}h`
-                          : "—"}
+                      {paidSnap?.compAfter != null ? (
+                        `${paidSnap.compAfter}h`
+                      ) : emp.comp_leave_remaining != null ? (
+                        st.compThisMonth > 0 ? (
+                          <span className="text-amber-800 dark:text-amber-400">
+                            {emp.comp_leave_remaining}h→
+                            {emp.comp_leave_remaining - st.compThisMonth}h
+                          </span>
+                        ) : (
+                          `${emp.comp_leave_remaining}h`
+                        )
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="border-l border-border text-right">
                       <input

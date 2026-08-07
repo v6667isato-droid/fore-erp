@@ -1428,6 +1428,10 @@ export default function EmployeePortalPage() {
       return;
     }
     const reason = overtimeForm.reason.trim();
+    if (!reason) {
+      toast.error("請填寫加班事由");
+      return;
+    }
 
     if (!isSupabaseConfigured) {
       const localRow: OvertimeRequestRow = {
@@ -2876,14 +2880,7 @@ export default function EmployeePortalPage() {
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-card p-6 shadow-xl focus:outline-none max-h-[min(90vh,36rem)] overflow-y-auto">
             <div className="mb-4 flex items-start justify-between gap-4">
-              <div>
-                <Dialog.Title className="text-lg font-semibold text-foreground">申報加班</Dialog.Title>
-                <Dialog.Description className="mt-1 text-sm text-muted-foreground">
-                  {isSupabaseConfigured
-                    ? "送出後狀態為待審核；核准後依折抵方式入帳（補休立即累加餘額，加班費於薪資結算時計入）。"
-                    : "Mock：送出後僅更新此頁列表，不寫入資料庫。"}
-                </Dialog.Description>
-              </div>
+              <Dialog.Title className="text-lg font-semibold text-foreground">申報加班</Dialog.Title>
               <Dialog.Close asChild>
                 <button
                   type="button"
@@ -3065,6 +3062,7 @@ export default function EmployeePortalPage() {
                   className="mb-1.5 block text-sm font-medium text-foreground"
                 >
                   事由
+                  <span className="ml-1 text-xs font-normal text-destructive">（必填）</span>
                 </label>
                 <textarea
                   id="overtime-reason"
