@@ -6,7 +6,9 @@ export interface CustomerRow {
   alias?: string | null;
   /** 聯絡人姓名 */
   contact_person?: string | null;
-  /** 公司名稱 */
+  /** 品牌名稱（對外招牌名，通常與公司登記抬頭不同） */
+  brand_name?: string | null;
+  /** 公司抬頭（發票抬頭來源） */
   company?: string | null;
   /** 統一編號 */
   tax_id?: string | null;
@@ -25,4 +27,6 @@ export interface CustomerRow {
   channel_id?: string | null;
   /** 主要聯絡方式（line / ig / fb / email / boss / others） */
   contact_method?: string | null;
+  /** 建立日期（DB 預設 now()） */
+  created_at?: string | null;
 }

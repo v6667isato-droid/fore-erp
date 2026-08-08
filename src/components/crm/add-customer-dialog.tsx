@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { amegoBanQuery } from "@/lib/sales-invoice";
 import { Button } from "@/components/ui/button";
 import { Plus, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -42,8 +43,10 @@ export function AddCustomerDialog({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [contact, setContact] = useState("");
+  const [brandName, setBrandName] = useState("");
   const [company, setCompany] = useState("");
   const [taxId, setTaxId] = useState("");
+  const [createdAt, setCreatedAt] = useState<string | null>(null);
   const [lineId, setLineId] = useState("");
   const [igAccount, setIgAccount] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
@@ -66,7 +69,7 @@ export function AddCustomerDialog({
         const { data, error } = await supabase
           .from("customers")
           .select(
-            "name, alias, contact_person, company, tax_id, phone, line_id, ig_account, delivery_address, has_elevator, notes, source, customer_type, channel_id, contact_method"
+            "name, alias, contact_person, brand_name, company, tax_id, phone, line_id, ig_account, delivery_address, has_elevator, notes, source, customer_type, channel_id, contact_method, created_at"
           )
           .eq("id", customerId)
           .single();
@@ -76,6 +79,7 @@ export function AddCustomerDialog({
         }
         setName(data.name ?? "");
         setContact(data.contact_person ?? "");
+        setBrandName((data as any).brand_name ?? "");
         setCompany((data as any).company ?? "");
         setTaxId((data as any).tax_id ?? "");
         setPhone(data.phone ?? "");
@@ -89,12 +93,15 @@ export function AddCustomerDialog({
         setChannelId(data.channel_id ? String(data.channel_id) : "");
         setContactMethod((data as any).contact_method ?? "");
         setAlias((data as any).alias ?? "");
+        setCreatedAt((data as any).created_at ?? null);
       } else {
         // 新增模式：清空欄位
         setName("");
         setContact("");
+        setBrandName("");
         setCompany("");
         setTaxId("");
+        setCreatedAt(null);
         setPhone("");
         setLineId("");
         setIgAccount("");
@@ -125,11 +132,20 @@ export function AddCustomerDialog({
       setError("請輸入客戶名稱");
       return;
     }
+    if (!source.trim()) {
+      setError("請選擇客戶來源");
+      return;
+    }
+    if (!customerType.trim()) {
+      setError("請選擇客戶種類");
+      return;
+    }
     setAdding(true);
     const full: Record<string, unknown> = {
       name: name.trim(),
       alias: alias.trim() || null,
       contact_person: contact.trim() || null,
+      brand_name: brandName.trim() || null,
       company: company.trim() || null,
       tax_id: taxId.trim() || null,
       phone: phone.trim() || null,
@@ -157,6 +173,7 @@ export function AddCustomerDialog({
       err = res.error;
       if (err && isColumnError(err)) {
         const optional = [
+          "brand_name",
           "alias",
           "company",
           "tax_id",
@@ -183,6 +200,7 @@ export function AddCustomerDialog({
     }
     if (err && isColumnError(err)) {
       const optional = [
+        "brand_name",
         "alias",
         "company",
         "tax_id",
@@ -251,6 +269,11 @@ export function AddCustomerDialog({
                   ? "更新客戶基本資料與聯絡方式。"
                   : "填寫客戶基本資料與聯絡方式。"}
               </p>
+              {customerId && createdAt && (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  建立日期：{String(createdAt).slice(0, 10)}
+                </p>
+              )}
             </div>
             <Dialog.Close asChild>
               <button
@@ -389,15 +412,16 @@ export function AddCustomerDialog({
               <div className="flex gap-3">
                 <div className="flex-1 space-y-1.5">
                   <label htmlFor="add-customer-source" className="text-xs text-muted-foreground">
-                    客戶來源
+                    客戶來源 <span className="text-destructive">*</span>
                   </label>
                   <select
                     id="add-customer-source"
                     value={source}
                     onChange={(e) => setSource(e.target.value)}
+                    required
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value="">未指定</option>
+                    <option value="">請選擇</option>
                     <option value="網路">網路</option>
                     <option value="客戶引介">客戶引介</option>
                     <option value="設計師引介">設計師引介</option>
@@ -409,15 +433,16 @@ export function AddCustomerDialog({
                 </div>
                 <div className="flex-1 space-y-1.5">
                   <label htmlFor="add-customer-type" className="text-xs text-muted-foreground">
-                    客戶種類
+                    客戶種類 <span className="text-destructive">*</span>
                   </label>
                   <select
                     id="add-customer-type"
                     value={customerType}
                     onChange={(e) => setCustomerType(e.target.value)}
+                    required
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value="">未指定</option>
+                    <option value="">請選擇</option>
                     <option value="一般民眾">一般民眾</option>
                     <option value="合作通路">合作通路</option>
                     <option value="室內設計師">室內設計師</option>
@@ -431,10 +456,49 @@ export function AddCustomerDialog({
               </div>
             </div>
 
-            {/* 5b. 公司抬頭 + 統一編號（同一列）；company 欄位同時做為訂單發票的公司抬頭來源 */}
+            {/* 5b. 品牌名稱（品牌通常與公司登記名稱不同） */}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="add-customer-brand" className="text-xs text-muted-foreground">
+                品牌名稱
+              </label>
+              <input
+                id="add-customer-brand"
+                type="text"
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="對外品牌／招牌名稱"
+              />
+            </div>
+
+            {/* 5c. 統一編號 + 公司抬頭（同一列）；company 欄位同時做為訂單發票的公司抬頭來源 */}
             <div className="flex flex-col gap-1.5">
               <div className="flex gap-3">
-                <div className="flex-1 space-y-1.5">
+                <div className="w-32 shrink-0 space-y-1.5">
+                  <label htmlFor="add-customer-tax-id" className="text-xs text-muted-foreground">
+                    統一編號
+                  </label>
+                  <input
+                    id="add-customer-tax-id"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={8}
+                    value={taxId}
+                    onChange={(e) => {
+                      const ban = e.target.value.replace(/\D/g, "");
+                      setTaxId(ban);
+                      // 打滿 8 碼即查光賀帶出公司抬頭（抬頭已有值則不覆蓋），與發票相同
+                      if (/^\d{8}$/.test(ban)) {
+                        void amegoBanQuery(ban).then((r) => {
+                          if (r.ok && r.name) setCompany((prev) => (prev.trim() ? prev : r.name));
+                        });
+                      }
+                    }}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="統一編號"
+                  />
+                </div>
+                <div className="min-w-0 flex-1 space-y-1.5">
                   <label htmlFor="add-customer-company" className="text-xs text-muted-foreground">
                     公司抬頭
                   </label>
@@ -444,20 +508,7 @@ export function AddCustomerDialog({
                     value={company}
                     onChange={(e) => setCompany(e.target.value)}
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="發票公司抬頭"
-                  />
-                </div>
-                <div className="flex-1 space-y-1.5">
-                  <label htmlFor="add-customer-tax-id" className="text-xs text-muted-foreground">
-                    統一編號
-                  </label>
-                  <input
-                    id="add-customer-tax-id"
-                    type="text"
-                    value={taxId}
-                    onChange={(e) => setTaxId(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="統一編號"
+                    placeholder="輸入統編自動帶出"
                   />
                 </div>
               </div>

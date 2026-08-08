@@ -30,7 +30,7 @@ function parseCustomersTab(raw: string | null): CustomersTabId {
 }
 
 const CUSTOMER_SELECT =
-  "id, name, alias, contact_person, company, tax_id, phone, line_id, ig_account, delivery_address, has_elevator, notes, source, customer_type, channel_id, contact_method";
+  "id, name, alias, contact_person, brand_name, company, tax_id, phone, line_id, ig_account, delivery_address, has_elevator, notes, source, customer_type, channel_id, contact_method, created_at";
 
 function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
   const addr = r.delivery_address ?? r.address;
@@ -39,6 +39,7 @@ function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
     name: String(r.name ?? ""),
     alias: r.alias != null ? String(r.alias) : null,
     contact_person: (r as any).contact_person != null ? String((r as any).contact_person) : null,
+    brand_name: (r as any).brand_name != null ? String((r as any).brand_name) : null,
     company: (r as any).company != null ? String((r as any).company) : null,
     tax_id: (r as any).tax_id != null ? String((r as any).tax_id) : null,
     phone: r.phone != null ? String(r.phone) : null,
@@ -51,6 +52,7 @@ function mapCustomerRow(r: Record<string, unknown>): CustomerRow {
     customer_type: r.customer_type != null ? String(r.customer_type) : null,
     channel_id: r.channel_id != null ? String(r.channel_id) : null,
     contact_method: r.contact_method != null ? String(r.contact_method) : null,
+    created_at: r.created_at != null ? String(r.created_at) : null,
   };
 }
 
@@ -95,6 +97,8 @@ export interface ChannelOption {
   name: string;
 }
 
+type CustomerSortKey = "name" | "contact_method" | "source" | "customer_type" | "city" | "created_at";
+
 export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -117,7 +121,7 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [filterSource, setFilterSource] = useState("");
   const [filterCustomerType, setFilterCustomerType] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [sortKey, setSortKey] = useState<"name" | "contact_method" | "source" | "customer_type" | "city">("name");
+  const [sortKey, setSortKey] = useState<CustomerSortKey>("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [viewRow, setViewRow] = useState<CustomerRow | null>(null);
   const [editRow, setEditRow] = useState<CustomerRow | null>(null);
@@ -189,7 +193,9 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
               ? a.source ?? ""
               : sortKey === "customer_type"
                 ? a.customer_type ?? ""
-                : aCity;
+                : sortKey === "created_at"
+                  ? a.created_at ?? ""
+                  : aCity;
       const bValue =
         sortKey === "name"
           ? b.name ?? ""
@@ -199,14 +205,16 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
               ? b.source ?? ""
               : sortKey === "customer_type"
                 ? b.customer_type ?? ""
-                : bCity;
+                : sortKey === "created_at"
+                  ? b.created_at ?? ""
+                  : bCity;
 
       return aValue.localeCompare(bValue, "zh-Hant", { sensitivity: "base" }) * factor;
     });
     return list;
   }, [filteredCustomers, sortDirection, sortKey]);
 
-  function toggleSort(nextKey: "name" | "contact_method" | "source" | "customer_type" | "city") {
+  function toggleSort(nextKey: CustomerSortKey) {
     if (sortKey === nextKey) {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
       return;
@@ -215,7 +223,7 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     setSortDirection("asc");
   }
 
-  function SortIcon({ columnKey }: { columnKey: "name" | "contact_method" | "source" | "customer_type" | "city" }) {
+  function SortIcon({ columnKey }: { columnKey: CustomerSortKey }) {
     if (sortKey !== columnKey) {
       return <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />;
     }
@@ -525,13 +533,24 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                   <SortIcon columnKey="city" />
                 </button>
               </TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                  onClick={() => toggleSort("created_at")}
+                  aria-label="依建立日期排序"
+                >
+                  建立日期
+                  <SortIcon columnKey="created_at" />
+                </button>
+              </TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredCustomers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   {customers.length === 0
                     ? "尚無客戶資料，請點「新增客戶」建立第一筆。"
                     : "無符合篩選條件的客戶。"}
@@ -563,6 +582,9 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
                     {shippingCity(row.delivery_address) ?? "—"}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground p-2">
+                    {row.created_at ? String(row.created_at).slice(0, 10) : "—"}
                   </TableCell>
                   <TableCell className="p-2">
                     <div className="flex items-center gap-2">

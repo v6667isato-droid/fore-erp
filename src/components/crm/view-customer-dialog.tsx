@@ -209,16 +209,22 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                     <dd>{(row as any).contact_person}</dd>
                   </div>
                 )}
-                {row.company?.trim() && (
+                {row.brand_name?.trim() && (
                   <div>
-                    <dt className="text-muted-foreground">公司</dt>
-                    <dd>{row.company.trim()}</dd>
+                    <dt className="text-muted-foreground">品牌名稱</dt>
+                    <dd>{row.brand_name.trim()}</dd>
                   </div>
                 )}
                 {row.tax_id?.trim() && (
                   <div>
                     <dt className="text-muted-foreground">統一編號</dt>
                     <dd>{row.tax_id.trim()}</dd>
+                  </div>
+                )}
+                {row.company?.trim() && (
+                  <div>
+                    <dt className="text-muted-foreground">公司抬頭</dt>
+                    <dd>{row.company.trim()}</dd>
                   </div>
                 )}
                 {row.source?.trim() && (
@@ -231,6 +237,12 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                   <div>
                     <dt className="text-muted-foreground">客戶種類</dt>
                     <dd>{row.customer_type.trim()}</dd>
+                  </div>
+                )}
+                {row.created_at && (
+                  <div>
+                    <dt className="text-muted-foreground">建立日期</dt>
+                    <dd>{String(row.created_at).slice(0, 10)}</dd>
                   </div>
                 )}
               </Section>

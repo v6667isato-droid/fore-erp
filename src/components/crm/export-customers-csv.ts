@@ -5,8 +5,9 @@ export function exportCustomersCsv(records: CustomerRow[]) {
 
   const headers = [
     "姓名",
-    "公司",
+    "品牌名稱",
     "統一編號",
+    "公司抬頭",
     "電話",
     "LINE ID",
     "IG 帳號",
@@ -15,12 +16,14 @@ export function exportCustomersCsv(records: CustomerRow[]) {
     "送貨地址",
     "有電梯",
     "客情備註",
+    "建立日期",
   ];
 
   const rows = records.map((r) => [
     r.name,
-    r.company ?? "",
+    r.brand_name ?? "",
     r.tax_id ?? "",
+    r.company ?? "",
     r.phone ?? "",
     r.line_id ?? "",
     r.ig_account ?? "",
@@ -29,6 +32,7 @@ export function exportCustomersCsv(records: CustomerRow[]) {
     r.delivery_address ?? "",
     r.has_elevator === true ? "是" : r.has_elevator === false ? "否" : "",
     r.notes ?? "",
+    r.created_at ? String(r.created_at).slice(0, 10) : "",
   ]);
 
   const escape = (value: unknown) =>

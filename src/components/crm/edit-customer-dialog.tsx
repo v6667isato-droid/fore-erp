@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { amegoBanQuery } from "@/lib/sales-invoice";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -30,6 +31,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
   const firstFocusRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
+  const [brandName, setBrandName] = useState("");
   const [company, setCompany] = useState("");
   const [taxId, setTaxId] = useState("");
   const [phone, setPhone] = useState("");
@@ -51,6 +53,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
       setName(row.name ?? "");
       setAlias((row as any).alias ?? "");
       setContact((row as any).contact_person ?? "");
+      setBrandName((row as any).brand_name ?? "");
       setCompany((row as any).company ?? "");
       setTaxId((row as any).tax_id ?? "");
       setPhone(row.phone ?? "");
@@ -82,11 +85,20 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
       setError("請輸入客戶名稱");
       return;
     }
+    if (!source.trim()) {
+      setError("請選擇客戶來源");
+      return;
+    }
+    if (!customerType.trim()) {
+      setError("請選擇客戶種類");
+      return;
+    }
     setSaving(true);
     const full: Record<string, unknown> = {
       name: name.trim(),
       alias: alias.trim() || null,
       contact_person: contact.trim() || null,
+      brand_name: brandName.trim() || null,
       company: company.trim() || null,
       tax_id: taxId.trim() || null,
       phone: phone.trim() || null,
@@ -104,6 +116,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
     let { error: err } = await supabase.from("customers").update(payload).eq("id", row.id);
     if (err && isColumnError(err)) {
       const optional = [
+        "brand_name",
         "alias",
         "company",
         "tax_id",
@@ -156,6 +169,11 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
               <p id="edit-customer-desc" className="mt-1 text-sm text-muted-foreground">
                 修改客戶基本資料與聯絡方式。
               </p>
+              {row.created_at && (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  建立日期：{String(row.created_at).slice(0, 10)}
+                </p>
+              )}
             </div>
             <Dialog.Close asChild>
               <button
@@ -294,15 +312,16 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
               <div className="flex gap-3">
                 <div className="flex-1 space-y-1.5">
                   <label htmlFor="edit-customer-source" className="text-xs text-muted-foreground">
-                    客戶來源
+                    客戶來源 <span className="text-destructive">*</span>
                   </label>
                   <select
                     id="edit-customer-source"
                     value={source}
                     onChange={(e) => setSource(e.target.value)}
+                    required
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value="">未指定</option>
+                    <option value="">請選擇</option>
                     <option value="網路">網路</option>
                     <option value="客戶引介">客戶引介</option>
                     <option value="設計師引介">設計師引介</option>
@@ -314,15 +333,16 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                 </div>
                 <div className="flex-1 space-y-1.5">
                   <label htmlFor="edit-customer-type" className="text-xs text-muted-foreground">
-                    客戶種類
+                    客戶種類 <span className="text-destructive">*</span>
                   </label>
                   <select
                     id="edit-customer-type"
                     value={customerType}
                     onChange={(e) => setCustomerType(e.target.value)}
+                    required
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value="">未指定</option>
+                    <option value="">請選擇</option>
                     <option value="一般民眾">一般民眾</option>
                     <option value="合作通路">合作通路</option>
                     <option value="室內設計師">室內設計師</option>
@@ -336,12 +356,51 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
               </div>
             </div>
 
-            {/* 5b. 公司 + 統一編號（同一列） */}
+            {/* 5b. 品牌名稱（品牌通常與公司登記名稱不同） */}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-customer-brand" className="text-xs text-muted-foreground">
+                品牌名稱
+              </label>
+              <input
+                id="edit-customer-brand"
+                type="text"
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="對外品牌／招牌名稱"
+              />
+            </div>
+
+            {/* 5c. 統一編號 + 公司抬頭（同一列）；company 欄位同時做為訂單發票的公司抬頭來源 */}
             <div className="flex flex-col gap-1.5">
               <div className="flex gap-3">
-                <div className="flex-1 space-y-1.5">
+                <div className="w-32 shrink-0 space-y-1.5">
+                  <label htmlFor="edit-customer-tax-id" className="text-xs text-muted-foreground">
+                    統一編號
+                  </label>
+                  <input
+                    id="edit-customer-tax-id"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={8}
+                    value={taxId}
+                    onChange={(e) => {
+                      const ban = e.target.value.replace(/\D/g, "");
+                      setTaxId(ban);
+                      // 打滿 8 碼即查光賀帶出公司抬頭（抬頭已有值則不覆蓋），與發票相同
+                      if (/^\d{8}$/.test(ban)) {
+                        void amegoBanQuery(ban).then((r) => {
+                          if (r.ok && r.name) setCompany((prev) => (prev.trim() ? prev : r.name));
+                        });
+                      }
+                    }}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="統一編號"
+                  />
+                </div>
+                <div className="min-w-0 flex-1 space-y-1.5">
                   <label htmlFor="edit-customer-company" className="text-xs text-muted-foreground">
-                    公司
+                    公司抬頭
                   </label>
                   <input
                     id="edit-customer-company"
@@ -349,20 +408,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                     value={company}
                     onChange={(e) => setCompany(e.target.value)}
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="公司名稱"
-                  />
-                </div>
-                <div className="flex-1 space-y-1.5">
-                  <label htmlFor="edit-customer-tax-id" className="text-xs text-muted-foreground">
-                    統一編號
-                  </label>
-                  <input
-                    id="edit-customer-tax-id"
-                    type="text"
-                    value={taxId}
-                    onChange={(e) => setTaxId(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="統一編號"
+                    placeholder="輸入統編自動帶出"
                   />
                 </div>
               </div>
