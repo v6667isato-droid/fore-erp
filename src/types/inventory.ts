@@ -175,6 +175,10 @@ export interface StockMovementRow {
   employee_id: string | null;
   notes: string | null;
   created_at: string | null;
+  /** 工單開工自動扣帳時來源訂單 */
+  order_id: string | null;
+  /** 工單開工自動扣帳時來源工單（可定位到單一 order_item） */
+  work_order_id: string | null;
 }
 
 export interface EmployeeOption {

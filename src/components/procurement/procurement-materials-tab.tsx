@@ -14,22 +14,35 @@ import {
 import type { ProcurementMaterialRow } from "@/types/procurement";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
 import { EditMaterialDialog } from "@/components/procurement/edit-material-dialog";
+import { ManageMaterialCategoriesDialog } from "@/components/procurement/manage-material-categories-dialog";
+import { CategoryFilterOptions } from "@/components/procurement/category-filter-options";
+import {
+  GROUP_FILTER_PREFIX,
+  assignMaterialCategoryToGroup,
+  fetchMaterialCategoryGroups,
+  findGroupName,
+  materialCategoryFilterMatches,
+  type MaterialCategoryGroup,
+} from "@/lib/material-category-groups";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Plus, Pencil, Trash2, Search, Copy, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Package, Plus, Pencil, Trash2, Copy, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { formatAmortizationLabel, resolveDefaultAmortizationMonths } from "@/lib/purchase-amortization";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
 /** 下拉選單：僅「未填類別」的列 */
 const FILTER_UNCATEGORIZED = "__uncategorized__";
+const PAGE_SIZE = 20;
 
 type MaterialSortKey = "name" | "item_category" | "spec" | "spec2" | "unit" | "amortization_months" | "created_at";
 
 export function ProcurementMaterialsTab() {
   const [records, setRecords] = useState<ProcurementMaterialRow[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<MaterialCategoryGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
+  const [page, setPage] = useState(0);
   const [sort, setSort] = useState<{ key: MaterialSortKey; dir: "asc" | "desc" }>({
     key: "name",
     dir: "asc",
@@ -54,8 +67,13 @@ export function ProcurementMaterialsTab() {
     setRecords((data as ProcurementMaterialRow[]) ?? []);
   }
 
+  async function refreshCategoryGroups() {
+    setCategoryGroups(await fetchMaterialCategoryGroups());
+  }
+
   useEffect(() => {
     fetchMaterials();
+    refreshCategoryGroups();
   }, []);
 
   const categoryOptions = useMemo(() => {
@@ -77,7 +95,9 @@ export function ProcurementMaterialsTab() {
     if (filterCategory === FILTER_UNCATEGORIZED) {
       list = list.filter((r) => !r.item_category?.trim());
     } else if (filterCategory) {
-      list = list.filter((r) => (r.item_category || "").trim() === filterCategory);
+      list = list.filter((r) =>
+        materialCategoryFilterMatches(filterCategory, (r.item_category || "").trim(), categoryGroups),
+      );
     }
     const q = search.trim().toLowerCase();
     if (!q) return list;
@@ -85,12 +105,13 @@ export function ProcurementMaterialsTab() {
       (r) =>
         r.name.toLowerCase().includes(q) ||
         (r.item_category || "").toLowerCase().includes(q) ||
+        (findGroupName((r.item_category || "").trim(), categoryGroups) || "").toLowerCase().includes(q) ||
         (r.spec || "").toLowerCase().includes(q) ||
         (r.spec2 || "").toLowerCase().includes(q) ||
         (r.unit || "").toLowerCase().includes(q) ||
         (r.notes || "").toLowerCase().includes(q),
     );
-  }, [records, filterCategory, search]);
+  }, [records, filterCategory, categoryGroups, search]);
 
   const sortedRows = useMemo(() => {
     const list = [...filtered];
@@ -116,6 +137,14 @@ export function ProcurementMaterialsTab() {
     });
     return list;
   }, [filtered, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
+  const start = page * PAGE_SIZE;
+  const pageRows = useMemo(() => sortedRows.slice(start, start + PAGE_SIZE), [sortedRows, start]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [filterCategory, search]);
 
   const toggleSort = useCallback((key: MaterialSortKey) => {
     setSort((prev) => {
@@ -196,66 +225,119 @@ export function ProcurementMaterialsTab() {
 
   if (loading) {
     return (
-      <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground" role="status">
-        載入物料主檔中…
+      <div className="flex flex-col gap-4">
+        <div className="rounded-xl border border-border bg-card px-5 py-4">
+          <div className="flex items-center gap-4">
+            <div className="h-10 w-10 animate-pulse rounded-lg bg-muted" />
+            <div className="space-y-2">
+              <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+              <div className="h-6 w-16 animate-pulse rounded bg-muted" />
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground" role="status">
+          載入物料主檔中…
+        </div>
       </div>
     );
   }
 
   const emptyMessage =
     records.length === 0
-      ? "尚無物料主檔，請新增"
-      : "無符合篩選或搜尋的物料";
+      ? "尚無物料主檔，請點「新增物料」建立第一筆。"
+      : "無符合篩選或搜尋的物料。";
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-muted-foreground">
-          採購時由此選取標準品名，可統計並避免同義異體字。共 {records.length} 筆
-        </p>
-        <Button type="button" className="h-9 shrink-0" onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4 mr-1.5" />
-          新增物料
-        </Button>
-      </div>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:flex-wrap">
-        <div className="flex min-w-[10rem] flex-col gap-1.5 sm:max-w-[14rem]">
-          <label htmlFor="material-filter-category" className="text-xs text-muted-foreground">
-            篩選類別
-          </label>
-          <select
-            id="material-filter-category"
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-label="依物品類別篩選"
-          >
-            <option value="">全部類別</option>
-            {hasUncategorized ? (
-              <option value={FILTER_UNCATEGORIZED}>（未分類）</option>
-            ) : null}
-            {categoryOptions.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+      <div className="flex flex-col gap-4 rounded-xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary" aria-hidden>
+            <Package className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">物料總數</p>
+            <p className="text-xl font-semibold text-foreground">{records.length}</p>
+          </div>
         </div>
-        <div className="relative min-w-0 flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" aria-hidden />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜尋品名、類別、規格、規格2、單位、備註…"
-            className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-label="搜尋物料"
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          >
+            <Plus className="h-4 w-4" />
+            新增物料
+          </button>
+          <ManageMaterialCategoriesDialog
+            categories={categoryOptions}
+            groups={categoryGroups}
+            onSuccess={() => {
+              fetchMaterials();
+              refreshCategoryGroups();
+            }}
           />
         </div>
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/20 px-4 py-3">
+          <span className="text-xs font-medium text-muted-foreground shrink-0">篩選</span>
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="h-8 min-w-[7rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="依物品類別篩選"
+          >
+            <option value="">類別：全部</option>
+            {hasUncategorized ? <option value={FILTER_UNCATEGORIZED}>（未分類）</option> : null}
+            <CategoryFilterOptions categories={categoryOptions} groups={categoryGroups} />
+          </select>
+          {filterCategory && filterCategory !== FILTER_UNCATEGORIZED && !filterCategory.startsWith(GROUP_FILTER_PREFIX) && (
+            <select
+              value={categoryGroups.find((g) => g.subcategories.includes(filterCategory))?.id ?? ""}
+              onChange={async (e) => {
+                const err = await assignMaterialCategoryToGroup(filterCategory, e.target.value);
+                if (err) {
+                  toast.error(err);
+                  return;
+                }
+                toast.success(`已更新「${filterCategory}」的主類別歸屬`);
+                refreshCategoryGroups();
+              }}
+              className="h-8 min-w-[9rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label={`把「${filterCategory}」歸入主類別`}
+              title={`把「${filterCategory}」歸入主類別`}
+            >
+              <option value="">歸入主類別：未分類</option>
+              {categoryGroups.map((g) => (
+                <option key={g.id} value={g.id}>歸入主類別：{g.name}</option>
+              ))}
+            </select>
+          )}
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="搜尋品名、類別、規格、規格2、單位、備註…"
+            className="h-8 min-w-[10rem] max-w-xs rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="搜尋物料"
+          />
+          {(filterCategory || search.trim()) && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilterCategory("");
+                setSearch("");
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring rounded px-2 py-1"
+            >
+              清除篩選
+            </button>
+          )}
+          <span className="text-xs text-muted-foreground ml-auto">
+            共 {sortedRows.length} 筆{filterCategory || search.trim() ? "（已篩選）" : ""}
+          </span>
+        </div>
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent border-b border-border">
@@ -291,10 +373,24 @@ export function ProcurementMaterialsTab() {
                 </TableCell>
               </TableRow>
             ) : (
-              sortedRows.map((r) => (
+              pageRows.map((r) => (
                 <TableRow key={r.id} className="border-b border-border hover:bg-muted/30">
                   <TableCell className="text-sm p-2 font-medium">{r.name}</TableCell>
-                  <TableCell className="text-sm p-2 text-muted-foreground">{r.item_category || "—"}</TableCell>
+                  <TableCell className="text-sm p-2 text-muted-foreground">
+                    {(() => {
+                      const category = (r.item_category || "").trim();
+                      const groupName = findGroupName(category, categoryGroups);
+                      return groupName ? (
+                        <>
+                          <span className="font-medium text-foreground">{groupName}</span>
+                          <span className="mx-1 text-muted-foreground/60">/</span>
+                          {category}
+                        </>
+                      ) : (
+                        category || "—"
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell className="text-sm p-2 text-muted-foreground">{r.spec || "—"}</TableCell>
                   <TableCell className="text-sm p-2 text-muted-foreground">{r.spec2 || "—"}</TableCell>
                   <TableCell className="text-sm p-2">{r.unit || "—"}</TableCell>
@@ -322,6 +418,31 @@ export function ProcurementMaterialsTab() {
             )}
           </TableBody>
         </Table>
+        {sortedRows.length > PAGE_SIZE && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-2">
+            <span className="text-xs text-muted-foreground">
+              第 {page + 1} / {totalPages} 頁，共 {sortedRows.length} 筆
+            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="h-8 px-3 text-xs"
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              >
+                上一頁
+              </Button>
+              <Button
+                variant="outline"
+                className="h-8 px-3 text-xs"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              >
+                下一頁
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <AddMaterialDialog
@@ -329,6 +450,7 @@ export function ProcurementMaterialsTab() {
         onOpenChange={setAddOpen}
         onCreated={() => {
           void fetchMaterials();
+          void refreshCategoryGroups();
         }}
       />
 
@@ -336,7 +458,10 @@ export function ProcurementMaterialsTab() {
         open={editRow != null}
         onOpenChange={(o) => !o && setEditRow(null)}
         row={editRow}
-        onSaved={fetchMaterials}
+        onSaved={() => {
+          fetchMaterials();
+          refreshCategoryGroups();
+        }}
       />
 
       <ConfirmDialog

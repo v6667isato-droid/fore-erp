@@ -11,6 +11,12 @@ import {
   normalizeAmortizationMonths,
   PURCHASE_AMORTIZATION_OPTIONS,
 } from "@/lib/purchase-amortization";
+import { CategoryPicker } from "@/components/procurement/category-picker";
+import {
+  assignMaterialCategoryToGroup,
+  fetchMaterialCategoryGroups,
+  type MaterialCategoryGroup,
+} from "@/lib/material-category-groups";
 import type { ProcurementMaterialRow } from "@/types/procurement";
 
 export interface AddMaterialDialogProps {
@@ -32,11 +38,15 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
   const [error, setError] = useState<string | null>(null);
 
   const [categoryList, setCategoryList] = useState<string[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<MaterialCategoryGroup[]>([]);
+  /** 自訂新類別要歸入的主類別 id；"" = 未分類 */
+  const [customGroupId, setCustomGroupId] = useState("");
 
   useEffect(() => {
     if (open) {
       setName("");
       setItemCategory("");
+      setCustomGroupId("");
       setSpec("");
       setSpec2("");
       setUnit("");
@@ -60,6 +70,9 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
         }
         setCategoryList([...set].sort((a, b) => a.localeCompare(b, "zh-Hant")));
       });
+    void fetchMaterialCategoryGroups().then((groups) => {
+      if (!cancelled) setCategoryGroups(groups);
+    });
     return () => {
       cancelled = true;
     };
@@ -121,6 +134,10 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
       );
       return;
     }
+    if (customGroupId && catT) {
+      const assignErr = await assignMaterialCategoryToGroup(catT, customGroupId);
+      if (assignErr) toast.error(`物料已新增，但歸入主類別失敗：${assignErr}`);
+    }
     const row = data as ProcurementMaterialRow;
     toast.success("已新增物料主檔");
     onCreated(row);
@@ -166,30 +183,23 @@ export function AddMaterialDialog({ open, onOpenChange, onCreated }: AddMaterial
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-cat" className="text-xs text-muted-foreground">物品類別</label>
-              <input
+              <CategoryPicker
                 id="add-material-cat"
-                list="add-material-category-suggestions"
-                type="text"
                 value={itemCategory}
-                onChange={(e) => {
-                  const val = e.target.value;
+                onChange={(val) => {
                   setItemCategory(val);
                   setAmortizationMonths((prev) =>
                     prev <= 1 ? defaultAmortizationMonthsForCategory(val) : prev,
                   );
                 }}
-                onBlur={() => setItemCategory((s) => s.trim())}
-                autoComplete="off"
-                title="可由清單選既有的類別，或直接輸入新類別"
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="選既有類別或輸入新類別"
+                categories={categoryList}
+                groups={categoryGroups}
+                open={open}
+                customGroupId={customGroupId}
+                onCustomGroupChange={setCustomGroupId}
+                customPlaceholder="輸入新類別名稱，例：砂紙"
               />
-              <datalist id="add-material-category-suggestions">
-                {categoryList.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-              <p className="text-[11px] text-muted-foreground">下拉為既有類別提示，可自行輸入未列出的類別。</p>
+              <p className="text-[11px] text-muted-foreground">依主類別分組顯示；可選「＋ 自訂新類別」輸入未列出的類別。</p>
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="add-material-spec" className="text-xs text-muted-foreground">規格</label>

@@ -284,7 +284,7 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
         <span
           className={cn(
             "font-medium tabular-nums text-sm",
-            v.needs_reorder ? "text-destructive" : v.below_safety ? "text-amber-600 dark:text-amber-400" : "text-foreground",
+            v.needs_reorder ? "text-destructive" : v.below_safety ? "text-accent-warn" : "text-foreground",
           )}
         >
           {v.current_stock}
@@ -344,8 +344,8 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
               className={cn(
                 "ml-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors",
                 onlyNeedsReorder
-                  ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                  : "border-amber-500/50 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400",
+                  ? "border-accent-warn bg-accent-warn/15 text-accent-warn"
+                  : "border-accent-warn/50 text-accent-warn hover:bg-accent-warn/10",
               )}
               aria-pressed={onlyNeedsReorder}
             >
@@ -534,7 +534,7 @@ export function PartsTab({ isAdmin = false }: PartsTabProps) {
                                   <span
                                     className={cn(
                                       "text-sm font-medium tabular-nums",
-                                      v.needs_reorder ? "text-destructive" : v.below_safety ? "text-amber-600 dark:text-amber-400" : "text-foreground",
+                                      v.needs_reorder ? "text-destructive" : v.below_safety ? "text-accent-warn" : "text-foreground",
                                     )}
                                   >
                                     {v.current_stock}

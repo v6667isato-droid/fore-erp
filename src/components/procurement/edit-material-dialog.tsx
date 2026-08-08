@@ -11,6 +11,12 @@ import {
   normalizeAmortizationMonths,
   PURCHASE_AMORTIZATION_OPTIONS,
 } from "@/lib/purchase-amortization";
+import { CategoryPicker } from "@/components/procurement/category-picker";
+import {
+  assignMaterialCategoryToGroup,
+  fetchMaterialCategoryGroups,
+  type MaterialCategoryGroup,
+} from "@/lib/material-category-groups";
 import type { ProcurementMaterialRow } from "@/types/procurement";
 
 export interface EditMaterialDialogProps {
@@ -31,10 +37,16 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existingCategories, setExistingCategories] = useState<string[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<MaterialCategoryGroup[]>([]);
+  /** 自訂新類別要歸入的主類別 id；"" = 未分類 */
+  const [customGroupId, setCustomGroupId] = useState("");
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    void fetchMaterialCategoryGroups().then((groups) => {
+      if (!cancelled) setCategoryGroups(groups);
+    });
     supabase
       .from("procurement_materials")
       .select("item_category")
@@ -52,7 +64,7 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
     };
   }, [open]);
 
-  const categoryDatalistOptions = useMemo(() => {
+  const categoryOptions = useMemo(() => {
     const set = new Set(existingCategories);
     if (open && row?.item_category?.trim()) set.add(row.item_category.trim());
     return [...set].sort((a, b) => a.localeCompare(b, "zh-Hant"));
@@ -61,6 +73,7 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
     if (open && row) {
       setName(row.name ?? "");
       setItemCategory(row.item_category ?? "");
+      setCustomGroupId("");
       setSpec(row.spec ?? "");
       setSpec2(row.spec2 ?? "");
       setUnit(row.unit ?? "");
@@ -119,6 +132,10 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
       );
       return;
     }
+    if (customGroupId && catT) {
+      const assignErr = await assignMaterialCategoryToGroup(catT, customGroupId);
+      if (assignErr) toast.error(`物料已更新，但歸入主類別失敗：${assignErr}`);
+    }
     toast.success("已更新物料");
     onSaved();
     onOpenChange(false);
@@ -164,29 +181,23 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-material-cat" className="text-xs text-muted-foreground">物品類別</label>
-              <input
+              <CategoryPicker
                 id="edit-material-cat"
-                list="edit-material-category-suggestions"
-                type="text"
                 value={itemCategory}
-                onChange={(e) => {
-                  const val = e.target.value;
+                onChange={(val) => {
                   setItemCategory(val);
                   setAmortizationMonths((prev) =>
                     prev <= 1 ? defaultAmortizationMonthsForCategory(val) : prev,
                   );
                 }}
-                onBlur={() => setItemCategory((s) => s.trim())}
-                autoComplete="off"
-                title="可由清單選既有的類別，或直接輸入新類別"
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                categories={categoryOptions}
+                groups={categoryGroups}
+                open={open}
+                customGroupId={customGroupId}
+                onCustomGroupChange={setCustomGroupId}
+                customPlaceholder="輸入新類別名稱，例：砂紙"
               />
-              <datalist id="edit-material-category-suggestions">
-                {categoryDatalistOptions.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-              <p className="text-[11px] text-muted-foreground">下拉為既有類別提示，可自行輸入未列出的類別。</p>
+              <p className="text-[11px] text-muted-foreground">依主類別分組顯示；可選「＋ 自訂新類別」輸入未列出的類別。</p>
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-material-spec" className="text-xs text-muted-foreground">規格</label>
