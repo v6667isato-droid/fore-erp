@@ -26,7 +26,7 @@ function mapSwatch(r: Record<string, unknown>): SwatchRow {
     category: r.category === "fabric" || r.category === "door" ? r.category : "wood",
     name: String(r.name ?? ""),
     name_en: r.name_en != null ? String(r.name_en) : null,
-    image_url: String(r.image_url ?? ""),
+    image_url: r.image_url != null && String(r.image_url) ? String(r.image_url) : null,
     sort_order: Number(r.sort_order ?? 0),
     is_active: r.is_active !== false,
   };
@@ -218,13 +218,22 @@ export function MaterialSwatchesPanel({ isAdmin = false }: { isAdmin?: boolean }
             {tabRows.map((row, idx) => (
               <li key={row.id} className={cn("flex items-center gap-3 px-4 py-2.5", !row.is_active && "opacity-50")}>
                 <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={row.image_url} alt={row.name} className="h-full w-full object-cover" />
+                  {row.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={row.image_url} alt={row.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground">無照片</span>
+                  )}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">{row.name}</p>
                   <p className="truncate text-xs text-muted-foreground">{row.name_en?.trim() || "—"}</p>
                 </div>
+                {!row.image_url && (
+                  <span className="shrink-0 rounded-full border border-accent-warn/60 px-2 py-0.5 text-[10px] text-accent-warn whitespace-nowrap">
+                    缺照片
+                  </span>
+                )}
                 {!row.is_active && (
                   <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
                     已停用
@@ -369,16 +378,12 @@ function SwatchEditorDialog({
       setError("請輸入色樣名稱");
       return;
     }
-    if (!imageUrl) {
-      setError("請上傳色樣照片");
-      return;
-    }
     setSaving(true);
     const payload = {
       category,
       name: name.trim(),
       name_en: nameEn.trim() || null,
-      image_url: imageUrl,
+      image_url: imageUrl || null,
     };
     const res = row
       ? await supabase.from(TABLE_MATERIAL_SWATCHES).update(payload).eq("id", row.id)
@@ -446,8 +451,11 @@ function SwatchEditorDialog({
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">色樣照片 *（自動裁切為 1:1）</span>
+              <span className="text-xs text-muted-foreground">色樣照片（自動裁切為 1:1；可先建檔後補）</span>
               <SwatchImageDropzone value={imageUrl} onChange={setImageUrl} disabled={saving} />
+              {!imageUrl && (
+                <p className="text-[11px] text-accent-warn">尚無照片：此色樣不會出現在介紹表，補上後才會顯示</p>
+              )}
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">

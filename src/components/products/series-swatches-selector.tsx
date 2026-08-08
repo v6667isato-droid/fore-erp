@@ -14,7 +14,7 @@ function mapSwatch(r: Record<string, unknown>): SwatchRow {
     category: r.category === "fabric" || r.category === "door" ? r.category : "wood",
     name: String(r.name ?? ""),
     name_en: r.name_en != null ? String(r.name_en) : null,
-    image_url: String(r.image_url ?? ""),
+    image_url: r.image_url != null && String(r.image_url) ? String(r.image_url) : null,
     sort_order: Number(r.sort_order ?? 0),
     is_active: r.is_active !== false,
   };
@@ -128,13 +128,17 @@ export function SeriesSwatchesSelector({ value, onChange, disabled = false }: Se
                       disabled={disabled}
                     />
                     <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-muted">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={s.image_url} alt={s.name} className="h-full w-full object-cover" />
+                      {s.image_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={s.image_url} alt={s.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="text-[8px] text-muted-foreground">無照</span>
+                      )}
                     </span>
                     <span className="min-w-0">
                       <span className="block truncate text-xs font-medium text-foreground">{s.name}</span>
-                      <span className="block truncate text-[10px] text-muted-foreground">
-                        {!s.is_active ? "已停用" : s.name_en?.trim() || ""}
+                      <span className={cn("block truncate text-[10px]", !s.image_url && s.is_active ? "text-accent-warn" : "text-muted-foreground")}>
+                        {!s.is_active ? "已停用" : !s.image_url ? "缺照片（介紹表不會顯示）" : s.name_en?.trim() || ""}
                       </span>
                     </span>
                   </label>
@@ -157,8 +161,12 @@ export function SeriesSwatchesSelector({ value, onChange, disabled = false }: Se
               return (
                 <li key={id} className="flex items-center gap-2 rounded-lg border border-border px-2 py-1.5">
                   <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-muted">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={s.image_url} alt={s.name} className="h-full w-full object-cover" />
+                    {s.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={s.image_url} alt={s.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-[8px] text-muted-foreground">無照</span>
+                    )}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                     {s.name}
