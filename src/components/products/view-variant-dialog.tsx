@@ -6,6 +6,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import type { VariantRow } from "@/types/products";
 import { supabase } from "@/lib/supabase";
 import { TABLE_PRODUCT_SERIES } from "@/lib/products-db";
+import { resolveVariantBom, type ResolvedBomItem } from "@/lib/part-variants";
 
 export interface ViewVariantDialogProps {
   open: boolean;
@@ -36,6 +37,8 @@ function formatDim(v: VariantRow): string {
 export function ViewVariantDialog({ open, onOpenChange, row }: ViewVariantDialogProps) {
   const [channelPrices, setChannelPrices] = useState<ChannelPriceRow[]>([]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [bom, setBom] = useState<ResolvedBomItem[]>([]);
+  const [bomLoading, setBomLoading] = useState(false);
 
   useEffect(() => {
     if (!open || !row) {
@@ -59,6 +62,29 @@ export function ViewVariantDialog({ open, onOpenChange, row }: ViewVariantDialog
         setImageUrl(null);
       }
     })();
+  }, [open, row]);
+
+  // 用料組成：依本規格的木種與座墊代碼展開系列 BOM
+  useEffect(() => {
+    if (!open || !row) {
+      setBom([]);
+      return;
+    }
+    let cancelled = false;
+    setBomLoading(true);
+    void (async () => {
+      const items = await resolveVariantBom({
+        seriesId: row.series_id,
+        woodType: row.wood_type,
+        spec1: row.spec1,
+      });
+      if (cancelled) return;
+      setBom(items);
+      setBomLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open, row]);
 
   useEffect(() => {
@@ -116,7 +142,7 @@ export function ViewVariantDialog({ open, onOpenChange, row }: ViewVariantDialog
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
+          className="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
           onCloseAutoFocus={(e) => e.preventDefault()}
           aria-describedby="view-variant-desc"
         >
@@ -168,6 +194,35 @@ export function ViewVariantDialog({ open, onOpenChange, row }: ViewVariantDialog
               </dd>
             </div>
             </dl>
+
+            <div className="border-t border-border pt-3 text-sm">
+              <p className="text-muted-foreground">
+                用料組成{!bomLoading && bom.length > 0 ? `（${bom.length} 項）` : ""}
+              </p>
+              {bomLoading ? (
+                <p className="mt-1 text-muted-foreground" role="status">載入中…</p>
+              ) : bom.length === 0 ? (
+                <p className="mt-1 text-muted-foreground">此系列尚未建立用料表</p>
+              ) : (
+                <ul className="mt-1 space-y-1">
+                  {bom.map((it) => (
+                    <li key={it.key} className="flex items-baseline justify-between gap-3">
+                      <span className="min-w-0">
+                        {it.partName}
+                        {it.sku ? (
+                          <span className="ml-1.5 text-xs text-muted-foreground">{it.sku}</span>
+                        ) : (
+                          <span className="ml-1.5 text-xs text-destructive">{it.missingNote}</span>
+                        )}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {it.quantity} {it.unit}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
