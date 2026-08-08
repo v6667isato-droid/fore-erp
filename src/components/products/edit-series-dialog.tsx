@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
+import { TABLE_PRODUCT_SERIES, TABLE_SERIES_SWATCHES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { ProductImagesDropzone } from "@/components/products/product-images-dropzone";
 import { SeriesImageMetaEditor } from "@/components/products/series-image-meta-editor";
-import { X, FileText, MessageCircle, Globe, Images } from "lucide-react";
+import { SeriesSwatchesSelector } from "@/components/products/series-swatches-selector";
+import { X, FileText, MessageCircle, Globe, Images, Palette } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { SeriesRow, SeriesImageMeta } from "@/types/products";
@@ -33,12 +34,15 @@ const CONTENT_FIELDS: { key: (typeof SERIES_CONTENT_COLUMNS)[number]; label: str
 const TAB_1_KEYS = ["design_concept", "social_media_copy", "website_article"];
 const TAB_2_KEYS = ["faq_scripts", "customization_rules"];
 
-type EditSeriesTab = "basic" | "images" | "marketing" | "support" | "website";
+type EditSeriesTab = "basic" | "images" | "sheet" | "marketing" | "support" | "website";
 
 export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSeriesDialogProps) {
   const firstRef = useRef<HTMLInputElement>(null);
   const firstContentRef = useRef<HTMLTextAreaElement>(null);
   const [name, setName] = useState("");
+  const [nameEn, setNameEn] = useState("");
+  const [designConceptEn, setDesignConceptEn] = useState("");
+  const [customizationRulesEn, setCustomizationRulesEn] = useState("");
   const [category, setCategory] = useState("");
   const [notes, setNotes] = useState("");
   const [productionTime, setProductionTime] = useState("");
@@ -52,10 +56,16 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
   const [activeTab, setActiveTab] = useState<EditSeriesTab>("basic");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 介紹表：勾選的色樣 id（有序）與是否顯示報價欄 */
+  const [sheetSwatchIds, setSheetSwatchIds] = useState<string[]>([]);
+  const [showPriceOnSheet, setShowPriceOnSheet] = useState(false);
 
   useEffect(() => {
     if (open && row) {
       setName(row.name ?? "");
+      setNameEn(row.name_en ?? "");
+      setDesignConceptEn(row.design_concept_en ?? "");
+      setCustomizationRulesEn(row.customization_rules_en ?? "");
       setCategory(row.category ?? "");
       setNotes(row.notes ?? "");
       setProductionTime(row.production_time ?? "");
@@ -78,6 +88,19 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
       );
       setActiveTab("basic");
       setError(null);
+      setShowPriceOnSheet(row.show_price_on_sheet === true);
+      setSheetSwatchIds([]);
+      // 介紹表色樣：載入此系列已勾選的色樣（依 sort_order）
+      (async () => {
+        const { data, error: swErr } = await supabase
+          .from(TABLE_SERIES_SWATCHES)
+          .select("swatch_id, sort_order")
+          .eq("series_id", row.id)
+          .order("sort_order", { ascending: true });
+        if (!swErr && data) {
+          setSheetSwatchIds((data as { swatch_id: string }[]).map((r) => String(r.swatch_id)));
+        }
+      })();
     }
   }, [open, row]);
 
@@ -107,6 +130,9 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
     // 寫入所有基本欄位 + 文案欄位（以 series_name 為主鍵名稱）
     const payload: Record<string, unknown> = {
       series_name: name.trim(),
+      series_name_en: nameEn.trim() || null,
+      design_concept_en: designConceptEn.trim() || null,
+      customization_rules_en: customizationRulesEn.trim() || null,
       category: category.trim() || null,
       notes: notes.trim() || null,
       production_time: productionTime.trim() || null,
@@ -135,15 +161,44 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
       prunedMeta[url] = { title_zh: titleZh, title_en: titleEn, object_position: objectPosition };
     }
     payload.image_meta = prunedMeta;
+    payload.show_price_on_sheet = showPriceOnSheet;
 
-    let { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).update(payload).eq("id", row.id);
+    const { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).update(payload).eq("id", row.id);
 
-    setSaving(false);
     if (err) {
+      setSaving(false);
       toast.error(err.message || "更新系列失敗");
       setError(err.message || "更新系列失敗");
       return;
     }
+
+    // 介紹表色樣：整組重寫（先刪後插，sort_order 依勾選順序）
+    const { error: delErr } = await supabase
+      .from(TABLE_SERIES_SWATCHES)
+      .delete()
+      .eq("series_id", row.id);
+    if (!delErr && sheetSwatchIds.length > 0) {
+      const { error: insErr } = await supabase.from(TABLE_SERIES_SWATCHES).insert(
+        sheetSwatchIds.map((swatchId, i) => ({
+          series_id: row.id,
+          swatch_id: swatchId,
+          sort_order: i,
+        }))
+      );
+      if (insErr) {
+        setSaving(false);
+        toast.error(insErr.message || "介紹表色樣儲存失敗");
+        setError(insErr.message || "介紹表色樣儲存失敗");
+        return;
+      }
+    } else if (delErr) {
+      setSaving(false);
+      toast.error(delErr.message || "介紹表色樣儲存失敗");
+      setError(delErr.message || "介紹表色樣儲存失敗");
+      return;
+    }
+
+    setSaving(false);
     toast.success("已更新系列");
     onOpenChange(false);
     onSuccess();
@@ -209,6 +264,19 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
             </button>
             <button
               type="button"
+              onClick={() => setActiveTab("sheet")}
+              className={cn(
+                "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
+                activeTab === "sheet"
+                  ? "border-b-2 border-primary bg-card text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Palette className="h-4 w-4" />
+              介紹表
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab("marketing")}
               className={cn(
                 "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
@@ -264,6 +332,19 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       onChange={(e) => setName(e.target.value)}
                       className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       required
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="edit-series-name-en" className="text-xs text-muted-foreground">
+                      系列名稱（英）
+                    </label>
+                    <input
+                      id="edit-series-name-en"
+                      type="text"
+                      value={nameEn}
+                      onChange={(e) => setNameEn(e.target.value)}
+                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="介紹表／價目表英文版用，留空則顯示中文"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -379,39 +460,100 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                 </>
               )}
 
-              {activeTab === "marketing" &&
-                contentTab1.map(({ key, label }, idx) => (
-                  <div key={key} className="flex flex-col gap-1.5">
-                    <label htmlFor={`edit-series-content-${key}`} className="text-xs text-muted-foreground">
-                      {label}
-                    </label>
-                    <textarea
-                      ref={idx === 0 ? firstContentRef : undefined}
-                      id={`edit-series-content-${key}`}
-                      value={contentValues[key] ?? ""}
-                      onChange={(e) => setField(key, e.target.value)}
-                      rows={4}
-                      className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
+              {activeTab === "sheet" && (
+                <div className="flex flex-col gap-4">
+                  <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showPriceOnSheet}
+                      onChange={(e) => setShowPriceOnSheet(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                      disabled={saving}
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-xs font-medium text-foreground">介紹表顯示報價</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        預設關閉：介紹表為無價格的品牌文件，價格由獨立價目表承載；開啟後第二頁右欄會列出報價表。
+                      </span>
+                    </span>
+                  </label>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-foreground">介紹表色樣</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      勾選要顯示在介紹表第二頁底部的材種／布墊色樣。
+                    </span>
+                    <SeriesSwatchesSelector
+                      value={sheetSwatchIds}
+                      onChange={setSheetSwatchIds}
+                      disabled={saving}
                     />
                   </div>
-                ))}
+                </div>
+              )}
 
-              {activeTab === "support" &&
-                contentTab2.map(({ key, label }, idx) => (
-                  <div key={key} className="flex flex-col gap-1.5">
-                    <label htmlFor={`edit-series-content-${key}`} className="text-xs text-muted-foreground">
-                      {label}
+              {activeTab === "marketing" && (
+                <>
+                  {contentTab1.map(({ key, label }, idx) => (
+                    <div key={key} className="flex flex-col gap-1.5">
+                      <label htmlFor={`edit-series-content-${key}`} className="text-xs text-muted-foreground">
+                        {label}
+                      </label>
+                      <textarea
+                        ref={idx === 0 ? firstContentRef : undefined}
+                        id={`edit-series-content-${key}`}
+                        value={contentValues[key] ?? ""}
+                        onChange={(e) => setField(key, e.target.value)}
+                        rows={4}
+                        className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
+                      />
+                    </div>
+                  ))}
+                  <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+                    <label htmlFor="edit-series-design-concept-en" className="text-xs text-muted-foreground">
+                      設計理念（英）— 介紹表英文版用，留空則顯示中文
                     </label>
                     <textarea
-                      ref={idx === 0 ? firstContentRef : undefined}
-                      id={`edit-series-content-${key}`}
-                      value={contentValues[key] ?? ""}
-                      onChange={(e) => setField(key, e.target.value)}
+                      id="edit-series-design-concept-en"
+                      value={designConceptEn}
+                      onChange={(e) => setDesignConceptEn(e.target.value)}
                       rows={4}
                       className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
                     />
                   </div>
-                ))}
+                </>
+              )}
+
+              {activeTab === "support" && (
+                <>
+                  {contentTab2.map(({ key, label }, idx) => (
+                    <div key={key} className="flex flex-col gap-1.5">
+                      <label htmlFor={`edit-series-content-${key}`} className="text-xs text-muted-foreground">
+                        {label}
+                      </label>
+                      <textarea
+                        ref={idx === 0 ? firstContentRef : undefined}
+                        id={`edit-series-content-${key}`}
+                        value={contentValues[key] ?? ""}
+                        onChange={(e) => setField(key, e.target.value)}
+                        rows={4}
+                        className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
+                      />
+                    </div>
+                  ))}
+                  <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+                    <label htmlFor="edit-series-customization-rules-en" className="text-xs text-muted-foreground">
+                      客製與保養（英）— 介紹表英文版用，留空則顯示中文
+                    </label>
+                    <textarea
+                      id="edit-series-customization-rules-en"
+                      value={customizationRulesEn}
+                      onChange={(e) => setCustomizationRulesEn(e.target.value)}
+                      rows={4}
+                      className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
+                    />
+                  </div>
+                </>
+              )}
 
               {activeTab === "website" && (
                 <div className="flex flex-col gap-3">

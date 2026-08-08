@@ -26,6 +26,14 @@ export interface SeriesRow {
   detail_image_urls?: string[] | null;
   /** 圖片中繼資料：以圖片 URL 為 key（官網圖說與裁切焦點，適用主視覺圖與細節圖） */
   image_meta?: Record<string, SeriesImageMeta> | null;
+  /** 產品介紹表第二頁是否渲染報價欄（預設 false：價格由獨立價目表承載） */
+  show_price_on_sheet?: boolean;
+  /** 系列英文名稱（介紹表／價目表英文版，留空 fallback 中文） */
+  name_en?: string | null;
+  /** 設計理念英文版（介紹表英文版第一頁） */
+  design_concept_en?: string | null;
+  /** 客製與保養英文版（介紹表英文版第二頁） */
+  customization_rules_en?: string | null;
 }
 
 /** 單張圖片的官網中繼資料（product_series.image_meta 的 value） */
@@ -60,4 +68,28 @@ export interface VariantRow {
   image_url?: string | null;
   /** 訂製款（開單佔位用規格）：不列入產品介紹表／價目表等對外列表，訂單牌價手動輸入 */
   is_custom_order?: boolean;
+  /** 是否顯示於產品介紹表（勾選制，預設 false；與價目表勾選各自獨立） */
+  show_on_sheet?: boolean;
+  /** 是否顯示於價目表（勾選制，預設 false；與介紹表勾選各自獨立） */
+  show_on_price_list?: boolean;
+  /** 尺寸線圖 Public URL（bucket: dimension-drawings，SVG 或 PNG；Fusion 360 匯出人工上傳） */
+  dimension_drawing_url?: string | null;
+}
+
+/**
+ * 材料色樣（介紹表第二頁色樣區）
+ * 對應 Supabase 表：material_swatches
+ */
+export interface SwatchRow {
+  id: string;
+  /** wood=材種, fabric=布墊, door=門片種類 */
+  category: "wood" | "fabric" | "door";
+  /** 中文名，例：白橡木 */
+  name: string;
+  /** 英文標示，例：Oak / Natural white（印在介紹表上） */
+  name_en?: string | null;
+  /** 色樣照片 Public URL（bucket: material-swatches，1:1 方形） */
+  image_url: string;
+  sort_order: number;
+  is_active: boolean;
 }

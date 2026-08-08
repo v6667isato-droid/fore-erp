@@ -1363,6 +1363,39 @@ export type Database = {
         }
         Relationships: []
       }
+      material_swatches: {
+        Row: {
+          category: string
+          created_at: string | null
+          id: string
+          image_url: string
+          is_active: boolean
+          name: string
+          name_en: string | null
+          sort_order: number
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          id?: string
+          image_url: string
+          is_active?: boolean
+          name: string
+          name_en?: string | null
+          sort_order?: number
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          id?: string
+          image_url?: string
+          is_active?: boolean
+          name?: string
+          name_en?: string | null
+          sort_order?: number
+        }
+        Relationships: []
+      }
       materials: {
         Row: {
           aliases: string[]
@@ -2476,8 +2509,10 @@ export type Database = {
           code_rule: string | null
           created_at: string | null
           customization_rules: string | null
+          customization_rules_en: string | null
           deleted_at: string | null
           design_concept: string | null
+          design_concept_en: string | null
           detail_image_urls: Json
           faq_scripts: string | null
           id: string
@@ -2486,6 +2521,8 @@ export type Database = {
           notes: string | null
           production_time: string | null
           series_name: string
+          series_name_en: string | null
+          show_price_on_sheet: boolean
           size_chart_urls: Json
           social_media_copy: string | null
           website: string | null
@@ -2497,8 +2534,10 @@ export type Database = {
           code_rule?: string | null
           created_at?: string | null
           customization_rules?: string | null
+          customization_rules_en?: string | null
           deleted_at?: string | null
           design_concept?: string | null
+          design_concept_en?: string | null
           detail_image_urls?: Json
           faq_scripts?: string | null
           id?: string
@@ -2507,6 +2546,8 @@ export type Database = {
           notes?: string | null
           production_time?: string | null
           series_name: string
+          series_name_en?: string | null
+          show_price_on_sheet?: boolean
           size_chart_urls?: Json
           social_media_copy?: string | null
           website?: string | null
@@ -2518,8 +2559,10 @@ export type Database = {
           code_rule?: string | null
           created_at?: string | null
           customization_rules?: string | null
+          customization_rules_en?: string | null
           deleted_at?: string | null
           design_concept?: string | null
+          design_concept_en?: string | null
           detail_image_urls?: Json
           faq_scripts?: string | null
           id?: string
@@ -2528,6 +2571,8 @@ export type Database = {
           notes?: string | null
           production_time?: string | null
           series_name?: string
+          series_name_en?: string | null
+          show_price_on_sheet?: boolean
           size_chart_urls?: Json
           social_media_copy?: string | null
           website?: string | null
@@ -2570,6 +2615,39 @@ export type Database = {
             columns: ["series_id"]
             isOneToOne: false
             referencedRelation: "product_series"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_series_swatches: {
+        Row: {
+          series_id: string
+          sort_order: number
+          swatch_id: string
+        }
+        Insert: {
+          series_id: string
+          sort_order?: number
+          swatch_id: string
+        }
+        Update: {
+          series_id?: string
+          sort_order?: number
+          swatch_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_series_swatches_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "product_series"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_series_swatches_swatch_id_fkey"
+            columns: ["swatch_id"]
+            isOneToOne: false
+            referencedRelation: "material_swatches"
             referencedColumns: ["id"]
           },
         ]
@@ -2622,6 +2700,7 @@ export type Database = {
           deleted_at: string | null
           desktop_area: number | null
           dimension_d: number | null
+          dimension_drawing_url: string | null
           dimension_h: number | null
           dimension_w: number | null
           id: string
@@ -2631,6 +2710,8 @@ export type Database = {
           product_code: string
           seat_height_cm: number | null
           series_id: string | null
+          show_on_price_list: boolean
+          show_on_sheet: boolean
           size_value_id: string | null
           spec1: string | null
           wood_type: string | null
@@ -2644,6 +2725,7 @@ export type Database = {
           deleted_at?: string | null
           desktop_area?: number | null
           dimension_d?: number | null
+          dimension_drawing_url?: string | null
           dimension_h?: number | null
           dimension_w?: number | null
           id?: string
@@ -2653,6 +2735,8 @@ export type Database = {
           product_code: string
           seat_height_cm?: number | null
           series_id?: string | null
+          show_on_price_list?: boolean
+          show_on_sheet?: boolean
           size_value_id?: string | null
           spec1?: string | null
           wood_type?: string | null
@@ -2666,6 +2750,7 @@ export type Database = {
           deleted_at?: string | null
           desktop_area?: number | null
           dimension_d?: number | null
+          dimension_drawing_url?: string | null
           dimension_h?: number | null
           dimension_w?: number | null
           id?: string
@@ -2675,6 +2760,8 @@ export type Database = {
           product_code?: string
           seat_height_cm?: number | null
           series_id?: string | null
+          show_on_price_list?: boolean
+          show_on_sheet?: boolean
           size_value_id?: string | null
           spec1?: string | null
           wood_type?: string | null
@@ -3988,6 +4075,7 @@ export type Database = {
         Returns: Json
       }
       current_employee_id: { Args: never; Returns: string }
+      is_own_employee: { Args: { p_employee_id: string }; Returns: boolean }
       reject_overtime_request: { Args: { p_request_id: string }; Returns: Json }
       revoke_overtime_comp_leave: {
         Args: { p_record_id: string }

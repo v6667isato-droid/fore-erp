@@ -111,6 +111,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const [spec1, setSpec1] = useState("");
   const [seatHeightCm, setSeatHeightCm] = useState("");
   const [isCustomOrder, setIsCustomOrder] = useState(false);
+  const [showOnSheet, setShowOnSheet] = useState(false);
+  const [showOnPriceList, setShowOnPriceList] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -150,6 +152,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     setPrice("");
     setSpec1("");
     setIsCustomOrder(false);
+    setShowOnSheet(false);
+    setShowOnPriceList(false);
     setSeatHeightCm(
       series.category === "椅" || series.category === "凳"
         ? String(DEFAULT_SEAT_HEIGHT_CM)
@@ -441,6 +445,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       dimension_h: h.trim() ? Number(h) : null,
       base_price: price.trim() ? Number(price) : null,
       is_custom_order: isCustomOrder,
+      show_on_sheet: showOnSheet,
+      show_on_price_list: showOnPriceList,
     };
     payload.spec1 = spec1.trim() || null;
     const showSeatHeight = series.category === "椅" || series.category === "凳";
@@ -990,6 +996,30 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                     />
                   )}
                 </div>
+                <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showOnSheet}
+                    onChange={(e) => setShowOnSheet(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-xs font-medium text-foreground">顯示於產品介紹表</span>
+                    <span className="text-[11px] text-muted-foreground">勾選後此規格會出現在介紹表第二頁；尺寸線圖可於「修改規格」上傳</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showOnPriceList}
+                    onChange={(e) => setShowOnPriceList(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-xs font-medium text-foreground">顯示於價目表</span>
+                    <span className="text-[11px] text-muted-foreground">勾選後此規格會出現在對外價目表（與介紹表勾選各自獨立）</span>
+                  </span>
+                </label>
                 <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
                   <input
                     type="checkbox"

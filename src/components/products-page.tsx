@@ -43,6 +43,7 @@ import { toast } from "sonner";
 import { exportProductsCsv } from "@/components/products/export-products-csv";
 import { PriceListExportDialog } from "@/components/products/price-list-export-dialog";
 import { BomEditor } from "@/components/inventory/bom-editor";
+import { MaterialSwatchesPanel } from "@/components/products/material-swatches-panel";
 
 /** 支援 name 或 series_name 欄位（Supabase 表可能用其中一種） */
 function mapSeries(r: Record<string, unknown>): SeriesRow {
@@ -67,6 +68,10 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     detail_image_urls: Array.isArray(r.detail_image_urls)
       ? (r.detail_image_urls as unknown[]).map((u) => String(u)).filter(Boolean)
       : [],
+    show_price_on_sheet: r.show_price_on_sheet === true,
+    name_en: r.name_en != null ? String(r.name_en) : null,
+    design_concept_en: r.design_concept_en != null ? String(r.design_concept_en) : null,
+    customization_rules_en: r.customization_rules_en != null ? String(r.customization_rules_en) : null,
   };
 }
 
@@ -90,6 +95,9 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     spec1: r.spec1 != null ? String(r.spec1) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
     is_custom_order: r.is_custom_order === true,
+    show_on_sheet: r.show_on_sheet === true,
+    show_on_price_list: r.show_on_price_list === true,
+    dimension_drawing_url: r.dimension_drawing_url != null ? String(r.dimension_drawing_url) : null,
   };
 }
 
@@ -399,6 +407,22 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
 
   function requestDeleteVariant(v: VariantRow) {
     setDeleteConfirmVariant(v);
+  }
+
+  /** 介紹表／價目表勾選快速切換（不開編輯視窗），本地同步不重抓全表 */
+  async function toggleVariantFlag(v: VariantRow, field: "show_on_sheet" | "show_on_price_list") {
+    const next = !(v[field] === true);
+    const { error } = await supabase
+      .from(TABLE_PRODUCT_VARIANTS)
+      .update({ [field]: next })
+      .eq("id", v.id);
+    if (error) {
+      toast.error(error.message || "更新勾選失敗");
+      return;
+    }
+    setVariantsList((prev) =>
+      prev.map((x) => (x.id === v.id ? { ...x, [field]: next } : x))
+    );
   }
 
   async function performDeleteVariant() {
@@ -940,6 +964,8 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                         </span>
                                       </button>
                                     </TableHead>
+                                    <TableHead className="text-xs font-semibold p-2 whitespace-nowrap">介紹表</TableHead>
+                                    <TableHead className="text-xs font-semibold p-2 whitespace-nowrap">價目表</TableHead>
                                     <TableHead className="text-xs font-semibold p-2 min-w-[180px]">通路價格</TableHead>
                                     <TableHead className="text-xs font-semibold p-2 min-w-[120px]">操作</TableHead>
                                   </TableRow>
@@ -947,7 +973,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                 <TableBody>
                                   {variants.length === 0 ? (
                                     <TableRow>
-                                      <TableCell colSpan={6} className="h-16 text-center text-sm text-muted-foreground">
+                                      <TableCell colSpan={10} className="h-16 text-center text-sm text-muted-foreground">
                                         尚無規格，請點「新增規格」建立。
                                       </TableCell>
                                     </TableRow>
@@ -1010,6 +1036,33 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                         <TableCell className="text-sm p-2">{v.spec1 || "—"}</TableCell>
                                         <TableCell className="text-sm p-2">{formatDim(v)}</TableCell>
                                         <TableCell className="text-sm p-2">{v.base_price != null ? v.base_price.toLocaleString() : "—"}</TableCell>
+                                        <TableCell className="p-2">
+                                          <div className="flex flex-col items-start gap-1">
+                                            <input
+                                              type="checkbox"
+                                              checked={v.show_on_sheet === true}
+                                              onChange={() => toggleVariantFlag(v, "show_on_sheet")}
+                                              className="h-4 w-4 rounded border-input accent-primary"
+                                              aria-label={`${v.product_code} 顯示於介紹表`}
+                                              title="顯示於產品介紹表"
+                                            />
+                                            {v.show_on_sheet === true && !v.dimension_drawing_url?.trim() && (
+                                              <span className="rounded-full border border-accent-warn/60 px-1.5 py-0.5 text-[10px] leading-none text-accent-warn whitespace-nowrap">
+                                                缺線圖
+                                              </span>
+                                            )}
+                                          </div>
+                                        </TableCell>
+                                        <TableCell className="p-2">
+                                          <input
+                                            type="checkbox"
+                                            checked={v.show_on_price_list === true}
+                                            onChange={() => toggleVariantFlag(v, "show_on_price_list")}
+                                            className="h-4 w-4 rounded border-input accent-primary"
+                                            aria-label={`${v.product_code} 顯示於價目表`}
+                                            title="顯示於價目表"
+                                          />
+                                        </TableCell>
                                         <TableCell className="text-xs p-2 text-muted-foreground">
                                           {v.base_price == null ? (
                                             "—"
@@ -1209,17 +1262,18 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   );
 }
 
-export type ProductsTabKey = "series" | "custom" | "processing" | "accessories";
+export type ProductsTabKey = "series" | "custom" | "processing" | "accessories" | "swatches";
 
 const PRODUCTS_TABS: { key: ProductsTabKey; label: string }[] = [
   { key: "series", label: "產品系列" },
   { key: "custom", label: "訂製案例" },
   { key: "processing", label: "加工區" },
   { key: "accessories", label: "配件表" },
+  { key: "swatches", label: "材料色樣" },
 ];
 
 function parseProductsTab(value: string | null): ProductsTabKey {
-  return value === "custom" || value === "processing" || value === "accessories"
+  return value === "custom" || value === "processing" || value === "accessories" || value === "swatches"
     ? value
     : "series";
 }
@@ -1274,6 +1328,7 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       {tab === "custom" && <CustomCasesPanel kind="custom" />}
       {tab === "processing" && <CustomCasesPanel kind="processing" />}
       {tab === "accessories" && <ProductAccessoriesPanel />}
+      {tab === "swatches" && <MaterialSwatchesPanel isAdmin={isAdmin} />}
     </div>
   );
 }

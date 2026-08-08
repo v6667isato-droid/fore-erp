@@ -7,9 +7,10 @@ import {
 export function exportPriceListCsv(
   seriesList: SeriesRow[],
   variantsList: VariantRow[],
-  categoryFilters: string[] = []
+  categoryFilters: string[] = [],
+  seriesIdFilters: string[] = []
 ): boolean {
-  const rows = buildPriceListRows(seriesList, variantsList, categoryFilters);
+  const rows = buildPriceListRows(seriesList, variantsList, categoryFilters, seriesIdFilters);
   if (!rows.length) return false;
 
   const headers = [

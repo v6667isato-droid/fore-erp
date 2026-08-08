@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import {
   TABLE_PRODUCT_SERIES,
   TABLE_PRODUCT_VARIANTS,
+  TABLE_SERIES_SWATCHES,
   SERIES_SELECT,
   SERIES_SELECT_NO_WEBSITE,
   SERIES_SELECT_MINIMAL,
@@ -13,7 +14,20 @@ import {
   VARIANT_SELECT_MINIMAL,
 } from "@/lib/products-db";
 import type { SeriesRow, VariantRow } from "@/types/products";
+import {
+  DEFAULT_WOOD_CODES,
+  categoryLabel,
+  footerContact,
+  stripWoodCode,
+  type SheetLang,
+} from "@/lib/product-sheet";
 import { Loader2 } from "lucide-react";
+
+/**
+ * 產品介紹表：A4 橫向兩頁（Time & Style 風格）。
+ * 第一頁：產品照片＋設計理念（左圖右文）；第二頁：variant 尺寸線圖＋規格＋材料色樣。
+ * 質感來自留白與對齊：全頁白底黑灰文字，無色塊無框線裝飾。
+ */
 
 function mapSeries(r: Record<string, unknown>): SeriesRow {
   const nameVal = r.name ?? r.series_name;
@@ -25,18 +39,17 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     production_time: r.production_time != null ? String(r.production_time) : null,
     code_rule: r.code_rule != null ? String(r.code_rule) : null,
     design_concept: r.design_concept != null ? String(r.design_concept) : null,
-    faq_scripts: r.faq_scripts != null ? String(r.faq_scripts) : null,
-    social_media_copy: r.social_media_copy != null ? String(r.social_media_copy) : null,
-    website_article: r.website_article != null ? String(r.website_article) : null,
     customization_rules: r.customization_rules != null ? String(r.customization_rules) : null,
     website: r.website != null ? String(r.website) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
-    size_chart_urls: Array.isArray(r.size_chart_urls)
-      ? (r.size_chart_urls as unknown[]).map((u) => String(u)).filter(Boolean)
-      : [],
+    size_chart_urls: [],
     detail_image_urls: Array.isArray(r.detail_image_urls)
       ? (r.detail_image_urls as unknown[]).map((u) => String(u)).filter(Boolean)
       : [],
+    show_price_on_sheet: r.show_price_on_sheet === true,
+    name_en: r.name_en != null ? String(r.name_en) : null,
+    design_concept_en: r.design_concept_en != null ? String(r.design_concept_en) : null,
+    customization_rules_en: r.customization_rules_en != null ? String(r.customization_rules_en) : null,
   };
 }
 
@@ -51,24 +64,36 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     dimension_h: r.dimension_h != null ? Number(r.dimension_h) : null,
     seat_height_cm: r.seat_height_cm != null ? Number(r.seat_height_cm) : null,
     base_price: r.base_price != null ? Number(r.base_price) : null,
-    desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
+    desktop_area: null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
     is_custom_order: r.is_custom_order === true,
+    show_on_sheet: r.show_on_sheet === true,
+    show_on_price_list: r.show_on_price_list === true,
+    dimension_drawing_url: r.dimension_drawing_url != null ? String(r.dimension_drawing_url) : null,
   };
 }
 
-function formatDim(v: VariantRow): string {
-  if (v.dimension_w == null && v.dimension_d == null && v.dimension_h == null) return "—";
-  return `W${v.dimension_w ?? "—"} × D${v.dimension_d ?? "—"} × H${v.dimension_h ?? "—"}`;
+type SheetSwatch = {
+  id: string;
+  category: "wood" | "fabric" | "door";
+  name: string;
+  name_en: string | null;
+  image_url: string;
+};
+
+/** 數字轉 cm 文字：小數只在有值時顯示（46.5 → "46.5"、46 → "46"） */
+function formatCm(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(v);
 }
 
-function formatPrintDate(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}/${m}/${day}`;
+/** W × D × H 尺寸行（只組出有值的部分） */
+function formatDims(v: VariantRow): string {
+  const parts: string[] = [];
+  if (v.dimension_w != null) parts.push(`W${formatCm(v.dimension_w)}`);
+  if (v.dimension_d != null) parts.push(`D${formatCm(v.dimension_d)}`);
+  if (v.dimension_h != null) parts.push(`H${formatCm(v.dimension_h)}`);
+  return parts.join(" × ");
 }
 
 export default function SeriesIntroPrintPage({
@@ -84,6 +109,20 @@ export default function SeriesIntroPrintPage({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [series, setSeries] = useState<SeriesRow | null>(null);
   const [variants, setVariants] = useState<VariantRow[]>([]);
+  const [swatches, setSwatches] = useState<SheetSwatch[]>([]);
+  const [lang, setLang] = useState<SheetLang>("zh");
+  /** 木種代號清單（option_values wood 軸），讀不到時用預設；線圖格顯示代碼會跳過這些段 */
+  const [woodCodes, setWoodCodes] = useState<string[]>(DEFAULT_WOOD_CODES);
+
+  /** 切換語言：同步網址參數，方便直接分享英文版連結 */
+  const switchLang = useCallback((target: SheetLang) => {
+    setLang(target);
+    const params = new URLSearchParams(window.location.search);
+    if (target === "en") params.set("lang", "en");
+    else params.delete("lang");
+    const qs = params.toString();
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -118,6 +157,23 @@ export default function SeriesIntroPrintPage({
         .is("deleted_at", null);
     }
 
+    // 木種代號清單（線圖格顯示代碼要跳過的段）；讀不到時沿用預設
+    const woodCodeRes = await supabase
+      .from("option_values")
+      .select("code, option_types!inner(code)")
+      .eq("option_types.code", "wood");
+    if (!woodCodeRes.error && woodCodeRes.data) {
+      const fetched = (woodCodeRes.data as { code: string }[]).map((r) => String(r.code)).filter(Boolean);
+      setWoodCodes([...new Set([...fetched, ...DEFAULT_WOOD_CODES])]);
+    }
+
+    // 介紹表色樣（依系列勾選順序；讀不到不阻擋頁面，色樣區整段不渲染）
+    const swatchRes = await supabase
+      .from(TABLE_SERIES_SWATCHES)
+      .select("sort_order, material_swatches(id, category, name, name_en, image_url)")
+      .eq("series_id", seriesId)
+      .order("sort_order", { ascending: true });
+
     if (seriesRes.error) {
       setLoadError(seriesRes.error.message || "載入失敗");
       setLoading(false);
@@ -133,6 +189,19 @@ export default function SeriesIntroPrintPage({
     setVariants(
       (variantsRes.data ?? []).map((r) => mapVariant(r as unknown as Record<string, unknown>))
     );
+    const swatchRows: SheetSwatch[] = [];
+    for (const row of (swatchRes.data ?? []) as unknown as Record<string, unknown>[]) {
+      const s = row.material_swatches as Record<string, unknown> | null;
+      if (!s || !s.image_url) continue;
+      swatchRows.push({
+        id: String(s.id),
+        category: s.category === "fabric" || s.category === "door" ? (s.category as "fabric" | "door") : "wood",
+        name: String(s.name ?? ""),
+        name_en: s.name_en != null ? String(s.name_en) : null,
+        image_url: String(s.image_url),
+      });
+    }
+    setSwatches(swatchRows);
     setLoading(false);
   }, [seriesId]);
 
@@ -143,7 +212,12 @@ export default function SeriesIntroPrintPage({
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("autoprint") === "1") setAutoPrint(true);
+    if (params.get("lang") === "en") setLang("en");
   }, []);
+
+  useEffect(() => {
+    if (series?.name) document.title = `產品介紹表_${series.name}`;
+  }, [series?.name]);
 
   useEffect(() => {
     if (!autoPrint || loading || loadError || !series) return;
@@ -152,14 +226,38 @@ export default function SeriesIntroPrintPage({
     return () => clearTimeout(timer);
   }, [autoPrint, loading, loadError, series]);
 
-  const sortedVariants = useMemo(
+  /** 介紹表規格：勾選 show_on_sheet 且非訂製款，依產品代碼排序 */
+  const sheetVariants = useMemo(
     () =>
       variants
-        // 訂製款為開單佔位用規格，不列入對外的產品介紹表
-        .filter((v) => !v.is_custom_order)
+        .filter((v) => v.show_on_sheet === true && !v.is_custom_order)
         .sort((a, b) => (a.product_code || "").localeCompare(b.product_code || "")),
     [variants]
   );
+
+  /**
+   * 線圖格：顯示代碼跳過木種代號（線稿展示不出木種），同款不同木種去重，
+   * 優先保留有線圖的那筆；報價表仍列完整代碼（各木種價格可能不同）。
+   */
+  const sheetCells = useMemo(() => {
+    const map = new Map<string, VariantRow & { displayCode: string }>();
+    for (const v of sheetVariants) {
+      const displayCode = stripWoodCode(v.product_code || "", woodCodes);
+      const key = `${displayCode}|${v.dimension_w}|${v.dimension_d}|${v.dimension_h}|${v.seat_height_cm}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { ...v, displayCode });
+      } else if (!existing.dimension_drawing_url?.trim() && v.dimension_drawing_url?.trim()) {
+        map.set(key, { ...v, displayCode });
+      }
+    }
+    return [...map.values()];
+  }, [sheetVariants, woodCodes]);
+
+  /** 分群順序：材種 → 門片 → 布墊（各群內依勾選順序） */
+  const woodSwatches = useMemo(() => swatches.filter((s) => s.category === "wood"), [swatches]);
+  const doorSwatches = useMemo(() => swatches.filter((s) => s.category === "door"), [swatches]);
+  const fabricSwatches = useMemo(() => swatches.filter((s) => s.category === "fabric"), [swatches]);
 
   if (loading) {
     return (
@@ -181,15 +279,114 @@ export default function SeriesIntroPrintPage({
     );
   }
 
-  const sizeCharts = series.size_chart_urls ?? [];
+  const showPrice = series.show_price_on_sheet === true && sheetVariants.length > 0;
+  const photos = [series.image_url, series.detail_image_urls?.[0]].filter(Boolean) as string[];
+  const gridCols = showPrice ? 3 : 4;
+  // 英文版：系列名／設計理念／客製與保養取英文欄位，留空 fallback 中文
+  const displayName = (lang === "en" && series.name_en?.trim()) || series.name || "—";
+  const displayConcept =
+    (lang === "en" && series.design_concept_en?.trim()) || series.design_concept || "";
+  const displayCustomization =
+    (lang === "en" && series.customization_rules_en?.trim()) || series.customization_rules || "";
+  const unitNote = lang === "en" ? "Unit: cm" : "尺寸單位: cm";
 
   return (
-    <div className="min-h-screen bg-white text-black">
-      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white px-6 py-8 shadow-lg print:shadow-none print:px-8 print:py-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 print:hidden">
-          <Link href="/print" className="text-xs text-gray-500 hover:text-gray-800">
-            ← 列印頁面
-          </Link>
+    <div className="sheet-root">
+      <style>{`
+        @page {
+          size: A4 landscape;
+          margin: 0;
+        }
+        .sheet-root {
+          min-height: 100vh;
+          background: #e9e7e2;
+          padding: 1.5rem 0.75rem 3rem;
+        }
+        .sheet-page {
+          position: relative;
+          width: 297mm;
+          background: #fff;
+          color: #1c1c1c;
+          margin: 0 auto;
+          padding: 15mm;
+          box-shadow: 0 2px 14px rgba(0, 0, 0, 0.12);
+          print-color-adjust: exact;
+          -webkit-print-color-adjust: exact;
+          box-sizing: border-box;
+        }
+        .sheet-page-1 {
+          height: 210mm;
+          overflow: hidden;
+        }
+        .sheet-page-2 {
+          min-height: 210mm;
+          margin-top: 1.25rem;
+        }
+        .sheet-brand {
+          font-size: 10pt;
+          letter-spacing: 0.32em;
+          color: #1c1c1c;
+          white-space: nowrap;
+        }
+        .sheet-en {
+          letter-spacing: 0.04em;
+        }
+        @media print {
+          .sheet-root {
+            background: #fff;
+            padding: 0;
+          }
+          .sheet-toolbar {
+            display: none;
+          }
+          .sheet-page {
+            box-shadow: none;
+            margin: 0;
+          }
+          /* 高度略小於 210mm：避免捨入誤差讓內容溢出、多印一張空白頁 */
+          .sheet-page-1 {
+            height: 209mm;
+            page-break-after: always;
+          }
+          .sheet-page-2 {
+            margin-top: 0;
+            min-height: 208mm;
+          }
+        }
+        @media screen and (max-width: 1140px) {
+          .sheet-page {
+            transform-origin: top left;
+          }
+        }
+      `}</style>
+
+      {/* 工具列（僅螢幕） */}
+      <div className="sheet-toolbar mx-auto mb-4 flex w-full max-w-[297mm] flex-wrap items-center justify-between gap-3">
+        <Link href="/print" className="text-xs text-gray-500 hover:text-gray-800">
+          ← 列印頁面
+        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          {sheetVariants.length === 0 && (
+            <span className="text-xs text-amber-700">
+              此系列尚無勾選「顯示於介紹表」的規格，第二頁將為空
+            </span>
+          )}
+          <span className="inline-flex overflow-hidden rounded-md border border-gray-300 bg-white text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => switchLang("zh")}
+              className={lang === "zh" ? "bg-gray-800 px-3 py-2 text-white" : "px-3 py-2 text-gray-700 hover:bg-gray-50"}
+            >
+              中文
+            </button>
+            <button
+              type="button"
+              onClick={() => switchLang("en")}
+              className={lang === "en" ? "bg-gray-800 px-3 py-2 text-white" : "px-3 py-2 text-gray-700 hover:bg-gray-50"}
+            >
+              English
+            </button>
+          </span>
           <button
             type="button"
             onClick={() => window.print()}
@@ -198,140 +395,261 @@ export default function SeriesIntroPrintPage({
             列印 / 存成 PDF
           </button>
         </div>
-
-        <header className="mb-6 border-b border-gray-200 pb-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo.png"
-                alt="Føre Furniture"
-                className="block h-14 w-auto object-contain object-left-top mb-3"
-              />
-              <h1 className="text-2xl font-semibold text-gray-900">{series.name || "—"}</h1>
-              <p className="mt-1 text-sm text-gray-600">產品介紹表 · Product Sheet</p>
-            </div>
-            <div className="text-sm text-gray-700 sm:text-right">
-              {series.category?.trim() && (
-                <p>
-                  <span className="text-gray-500">類別：</span>
-                  {series.category}
-                </p>
-              )}
-              {series.production_time?.trim() && (
-                <p className="mt-1">
-                  <span className="text-gray-500">交期：</span>約 {series.production_time} 週
-                </p>
-              )}
-              <p className="mt-1">
-                <span className="text-gray-500">製表日期：</span>
-                {formatPrintDate()}
-              </p>
-            </div>
-          </div>
-        </header>
-
-        {/* 主視覺圖 */}
-        {series.image_url && (
-          <section className="mb-6 break-inside-avoid">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={series.image_url}
-              alt={series.name || "系列主視覺"}
-              className="mx-auto max-h-[95mm] w-auto max-w-full rounded-lg border border-gray-200 object-contain"
-            />
-          </section>
-        )}
-
-        {/* 設計理念 */}
-        {series.design_concept?.trim() && (
-          <section className="mb-6 break-inside-avoid">
-            <h2 className="mb-2 text-base font-semibold text-gray-900 border-l-4 border-gray-800 pl-2">
-              設計理念
-            </h2>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
-              {series.design_concept}
-            </p>
-          </section>
-        )}
-
-        {/* 規格與報價 */}
-        <section className="mb-6">
-          <h2 className="mb-2 text-base font-semibold text-gray-900 border-l-4 border-gray-800 pl-2">
-            規格與報價
-          </h2>
-          {sortedVariants.length === 0 ? (
-            <p className="py-4 text-sm text-gray-500">此系列尚無規格資料。</p>
-          ) : (
-            <table className="w-full table-fixed border-collapse text-sm leading-snug">
-              <thead>
-                <tr className="border-b-2 border-gray-300 bg-gray-50">
-                  <th className="w-[7rem] px-2 py-2.5 text-left font-semibold text-gray-700">產品代碼</th>
-                  <th className="w-[4.5rem] px-1.5 py-2.5 text-left font-semibold text-gray-700">木種</th>
-                  <th className="px-2 py-2.5 text-left font-semibold text-gray-700">尺寸 (cm)</th>
-                  <th className="w-[4rem] px-1 py-2.5 text-right font-semibold text-gray-700">座高</th>
-                  <th className="w-[5.5rem] px-2 py-2.5 text-left font-semibold text-gray-700">規格</th>
-                  <th className="w-[6rem] px-2 py-2.5 text-right font-semibold text-gray-700">報價</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedVariants.map((v) => (
-                  <tr key={v.id} className="border-b border-gray-100 align-top">
-                    <td className="px-2 py-2 font-mono text-xs text-gray-900">{v.product_code || "—"}</td>
-                    <td className="px-1.5 py-2 text-gray-800">{v.wood_type || "—"}</td>
-                    <td className="px-2 py-2 text-gray-800 break-words">{formatDim(v)}</td>
-                    <td className="px-1 py-2 text-right text-gray-800 tabular-nums">
-                      {v.seat_height_cm != null ? v.seat_height_cm : "—"}
-                    </td>
-                    <td className="px-2 py-2 text-gray-800 break-words">{v.spec1?.trim() || "—"}</td>
-                    <td className="px-2 py-2 text-right font-medium text-gray-900 tabular-nums whitespace-nowrap">
-                      {v.base_price != null ? `NT$ ${v.base_price.toLocaleString()}` : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-
-        {/* 尺寸圖 */}
-        {sizeCharts.length > 0 && (
-          <section className="mb-6">
-            <h2 className="mb-3 text-base font-semibold text-gray-900 border-l-4 border-gray-800 pl-2">
-              尺寸圖
-            </h2>
-            <div className="grid grid-cols-2 gap-4">
-              {sizeCharts.map((url, i) => (
-                <div key={url} className="break-inside-avoid rounded-lg border border-gray-200 p-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={url}
-                    alt={`尺寸圖 ${i + 1}`}
-                    className="mx-auto max-h-[85mm] w-auto max-w-full object-contain"
-                  />
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* 客製與保養 */}
-        {series.customization_rules?.trim() && (
-          <section className="mb-6 break-inside-avoid">
-            <h2 className="mb-2 text-base font-semibold text-gray-900 border-l-4 border-gray-800 pl-2">
-              客製與保養
-            </h2>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
-              {series.customization_rules}
-            </p>
-          </section>
-        )}
-
-        <footer className="mt-8 pt-4 border-t border-gray-200 text-[11px] text-gray-500 leading-relaxed print:mt-6">
-          <p>電話：06-2302861 · 台南市歸仁區丁厝街125號 · 上班日 9:00–17:00</p>
-          <p className="mt-1">本介紹表僅供參考，實際售價與規格以訂單確認為準。</p>
-        </footer>
       </div>
+
+      {/* ── 第一頁：產品照片＋設計理念 ── */}
+      <section className="sheet-page sheet-page-1">
+        {/* logo 右上，小 */}
+        <div className="flex justify-end">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Føre Furniture" style={{ height: "18mm" }} className="w-auto object-contain" />
+        </div>
+
+        <div className="flex" style={{ height: "143mm", marginTop: "6mm" }}>
+          {/* 左：產品照片（最多 2 張垂直堆疊） */}
+          <div
+            className="flex flex-col justify-center"
+            style={{ width: "58%", gap: "6mm", paddingTop: photos.length <= 1 ? "0" : undefined }}
+          >
+            {photos.length === 0 ? null : (
+              photos.slice(0, 2).map((url) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={url}
+                  src={url}
+                  alt={series.name || "產品照片"}
+                  className="w-auto max-w-full object-contain"
+                  style={{ maxHeight: photos.length > 1 ? "71mm" : "140mm", margin: "0 auto" }}
+                />
+              ))
+            )}
+          </div>
+
+          {/* 中間留白 */}
+          <div style={{ width: "10%" }} />
+
+          {/* 右：產品名稱＋設計理念 */}
+          <div className="flex flex-col" style={{ width: "32%", paddingTop: "18mm" }}>
+            <h1 style={{ fontSize: "10.5pt", fontWeight: 600, letterSpacing: "0.06em" }}>
+              {displayName}
+            </h1>
+            {displayConcept.trim() && (
+              <div style={{ marginTop: "7mm", display: "flex", flexDirection: "column", gap: "4mm" }}>
+                {displayConcept
+                  .split(/\n+/)
+                  .map((p) => p.trim())
+                  .filter(Boolean)
+                  .map((p, i) => (
+                    <p
+                      key={i}
+                      style={{
+                        fontSize: "9pt",
+                        lineHeight: 1.95,
+                        color: "#2e2e2e",
+                        textAlign: "justify",
+                      }}
+                    >
+                      {p}
+                    </p>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 頁尾：左下聯絡資訊、右下類別／交期／製表日期 */}
+        <div
+          className="flex items-end justify-between"
+          style={{ position: "absolute", left: "15mm", right: "15mm", bottom: "12mm" }}
+        >
+          <p style={{ fontSize: "6.5pt", color: "#8a8a8a", letterSpacing: "0.02em" }}>
+            {footerContact(lang)}
+          </p>
+          <p style={{ fontSize: "6.5pt", color: "#8a8a8a" }}>
+            {(lang === "en"
+              ? [
+                  series.category?.trim() ? categoryLabel(series.category, "en") : null,
+                  series.production_time?.trim()
+                    ? `Lead time approx. ${series.production_time} weeks`
+                    : null,
+                ]
+              : [
+                  series.category?.trim() ? `類別 ${series.category}` : null,
+                  series.production_time?.trim() ? `交期約 ${series.production_time} 週` : null,
+                ]
+            )
+              .filter(Boolean)
+              .join("　·　")}
+          </p>
+        </div>
+      </section>
+
+      {/* ── 第二頁：規格＋色樣 ── */}
+      <section className="sheet-page sheet-page-2">
+        <div className="flex items-start justify-between">
+          <h2 style={{ fontSize: "9pt", fontWeight: 600, letterSpacing: "0.06em" }}>
+            {displayName}
+          </h2>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Føre Furniture" style={{ height: "18mm" }} className="w-auto object-contain" />
+        </div>
+
+        <div className="flex" style={{ marginTop: "6mm", minHeight: "151mm" }}>
+          {/* 左區：線圖 grid＋客製與保養＋色樣 */}
+          <div className="flex flex-col" style={{ width: showPrice ? "70%" : "100%" }}>
+            {sheetVariants.length === 0 ? (
+              <p style={{ fontSize: "9pt", color: "#9a9a9a", marginTop: "20mm" }}>
+                {lang === "en" ? "No items selected for this sheet." : "尚無勾選「顯示於介紹表」的規格。"}
+              </p>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
+                  columnGap: "8mm",
+                  rowGap: "10mm",
+                }}
+              >
+                {sheetCells.map((v) => (
+                  <div key={v.id} className="flex flex-col">
+                    {/* 線圖等高區：無線圖時留白（不放 placeholder） */}
+                    <div
+                      className="flex items-end"
+                      style={{ height: "33mm", marginBottom: "3mm" }}
+                    >
+                      {v.dimension_drawing_url?.trim() && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={v.dimension_drawing_url}
+                          alt={`${v.displayCode} 尺寸線圖`}
+                          className="object-contain"
+                          style={{ maxHeight: "33mm", maxWidth: "100%" }}
+                        />
+                      )}
+                    </div>
+                    {/* 線稿展示不出木種：代碼跳過木種代號、不標木種名 */}
+                    <p className="sheet-en" style={{ fontSize: "7.5pt", color: "#1c1c1c" }}>
+                      {v.displayCode}
+                    </p>
+                    <p className="sheet-en" style={{ fontSize: "7pt", color: "#777", marginTop: "1mm" }}>
+                      {formatDims(v) || "—"}
+                    </p>
+                    {v.seat_height_cm != null && (
+                      <p className="sheet-en" style={{ fontSize: "7pt", color: "#777" }}>
+                        SH{formatCm(v.seat_height_cm)}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 客製與保養：固定在色樣區上方 */}
+            {displayCustomization.trim() && (swatches.length > 0 || sheetVariants.length > 0) && (
+              <p
+                style={{
+                  fontSize: "6.5pt",
+                  lineHeight: 1.8,
+                  color: "#8a8a8a",
+                  whiteSpace: "pre-wrap",
+                  marginTop: "auto",
+                  paddingTop: "10mm",
+                }}
+              >
+                {displayCustomization}
+              </p>
+            )}
+
+            {/* 色樣區：材種在前、布墊在後，兩群之間較大間距 */}
+            {swatches.length > 0 && (
+              <div
+                className="flex flex-wrap items-start"
+                style={{
+                  gap: "8mm",
+                  marginTop: displayCustomization.trim() ? "5mm" : "auto",
+                  paddingTop: displayCustomization.trim() ? undefined : "10mm",
+                }}
+              >
+                {[woodSwatches, doorSwatches, fabricSwatches]
+                  .filter((group) => group.length > 0)
+                  .map((group, gi) => (
+                    <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>
+                      {group.map((s) => (
+                        <div key={s.id} className="flex flex-col" style={{ width: "19mm" }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={s.image_url}
+                            alt={s.name}
+                            style={{ width: "19mm", height: "19mm", objectFit: "cover" }}
+                          />
+                          {lang === "en" ? (
+                            <p className="sheet-en" style={{ fontSize: "6pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                              {s.name_en?.trim() || s.name.replace(/^\[DEMO\]\s*/, "")}
+                            </p>
+                          ) : (
+                            <>
+                              <p style={{ fontSize: "6pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                                {s.name.replace(/^\[DEMO\]\s*/, "")}
+                              </p>
+                              {s.name_en?.trim() && (
+                                <p className="sheet-en" style={{ fontSize: "5.5pt", color: "#999", lineHeight: 1.4 }}>
+                                  {s.name_en}
+                                </p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {/* 無報價欄時，尺寸單位小字移到色樣區下方靠右 */}
+            {!showPrice && sheetVariants.length > 0 && (
+              <p
+                className="sheet-en"
+                style={{ fontSize: "6.5pt", color: "#999", textAlign: "right", marginTop: "6mm" }}
+              >
+                {unitNote}
+              </p>
+            )}
+          </div>
+
+          {showPrice && (
+            <>
+              {/* 中間留白 */}
+              <div style={{ width: "5%" }} />
+
+              {/* 右區：報價表欄 */}
+              <div className="flex flex-col" style={{ width: "25%" }}>
+                <div>
+                  {sheetVariants.map((v) => (
+                    <div
+                      key={v.id}
+                      className="flex items-baseline justify-between"
+                      style={{
+                        borderBottom: "0.25pt solid #d8d8d8",
+                        padding: "2.2mm 0",
+                      }}
+                    >
+                      <span className="sheet-en" style={{ fontSize: "7.5pt", color: "#1c1c1c" }}>
+                        {v.product_code}
+                      </span>
+                      <span className="sheet-en" style={{ fontSize: "7.5pt", color: "#1c1c1c" }}>
+                        {v.base_price != null ? `NT$ ${v.base_price.toLocaleString()}` : "—"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="sheet-en" style={{ fontSize: "6.5pt", color: "#999", marginTop: "5mm" }}>
+                  {unitNote}
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

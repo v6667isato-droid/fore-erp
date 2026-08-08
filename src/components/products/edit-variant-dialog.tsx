@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { TABLE_PRODUCT_VARIANTS, TABLE_PRODUCT_SERIES, WOOD_TYPE_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
+import { DimensionDrawingUpload } from "@/components/products/dimension-drawing-upload";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
@@ -33,6 +34,9 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
   const [spec1, setSpec1] = useState("");
   const [seatHeightCm, setSeatHeightCm] = useState("");
   const [isCustomOrder, setIsCustomOrder] = useState(false);
+  const [showOnSheet, setShowOnSheet] = useState(false);
+  const [showOnPriceList, setShowOnPriceList] = useState(false);
+  const [drawingUrl, setDrawingUrl] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +57,13 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
         row.seat_height_cm != null ? String(row.seat_height_cm) : ""
       );
       setIsCustomOrder(row.is_custom_order === true);
+      setShowOnSheet(row.show_on_sheet === true);
+      setShowOnPriceList(row.show_on_price_list === true);
+      setDrawingUrl(
+        typeof row.dimension_drawing_url === "string" && row.dimension_drawing_url
+          ? row.dimension_drawing_url
+          : null
+      );
       setImageUrl(typeof row.image_url === "string" && row.image_url ? row.image_url : null);
     }
   }, [open, row]);
@@ -150,6 +161,9 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       spec1: spec1.trim() || null,
       image_url: imageUrl?.trim() || null,
       is_custom_order: isCustomOrder,
+      show_on_sheet: showOnSheet,
+      show_on_price_list: showOnPriceList,
+      dimension_drawing_url: drawingUrl?.trim() || null,
     };
     if (seriesCategory === "椅" || seriesCategory === "凳") {
       payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
@@ -278,6 +292,41 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
                 />
               )}
             </div>
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOnSheet}
+                onChange={(e) => setShowOnSheet(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium text-foreground">顯示於產品介紹表</span>
+                <span className="text-[11px] text-muted-foreground">勾選後此規格會出現在介紹表第二頁（與價目表勾選各自獨立）</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOnPriceList}
+                onChange={(e) => setShowOnPriceList(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium text-foreground">顯示於價目表</span>
+                <span className="text-[11px] text-muted-foreground">勾選後此規格會出現在對外價目表</span>
+              </span>
+            </label>
+            {showOnSheet && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-muted-foreground">尺寸線圖（SVG / PNG，Fusion 360 匯出）</span>
+                <DimensionDrawingUpload value={drawingUrl} onChange={setDrawingUrl} disabled={saving} />
+                {!drawingUrl && (
+                  <p className="text-[11px] text-accent-warn">
+                    缺線圖：介紹表上此規格的線圖位置會留白
+                  </p>
+                )}
+              </div>
+            )}
             <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
               <input
                 type="checkbox"

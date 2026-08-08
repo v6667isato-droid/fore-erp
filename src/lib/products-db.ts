@@ -9,11 +9,27 @@ export const TABLE_PRODUCT_SERIES = "product_series";
 /** Supabase 表名：產品規格（關聯 product_series.id  via series_id） */
 export const TABLE_PRODUCT_VARIANTS = "product_variants";
 
+/** Supabase 表名：材料色樣主檔（材種／布墊，介紹表色樣區） */
+export const TABLE_MATERIAL_SWATCHES = "material_swatches";
+
+/** Supabase 表名：系列 ↔ 色樣關聯（介紹表要顯示的色樣與順序） */
+export const TABLE_SERIES_SWATCHES = "product_series_swatches";
+
+/** material_swatches 查詢欄位 */
+export const SWATCH_SELECT =
+  "id, category, name, name_en, image_url, sort_order, is_active";
+
+/** 色樣照片 Storage bucket（public read，1:1 方形） */
+export const SWATCH_BUCKET = "material-swatches";
+
+/** 尺寸線圖 Storage bucket（public read，SVG／PNG） */
+export const DIMENSION_DRAWING_BUCKET = "dimension-drawings";
+
 /** product_series 查詢欄位（含 website、image_url；若表無 website 會 fallback 用 SERIES_SELECT_NO_WEBSITE）
  *  資料表實際欄位為 series_name；PostgREST 別名使用 name:series_name（避免 series_name as name 被誤解析）
  */
 export const SERIES_SELECT =
-  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, website, image_url, size_chart_urls, detail_image_urls, image_meta";
+  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, website, image_url, size_chart_urls, detail_image_urls, image_meta, show_price_on_sheet, name_en:series_name_en, design_concept_en, customization_rules_en";
 
 /** 資料庫 product_series 表之網站 URL 欄位名稱（與 Supabase 表一致） */
 export const SERIES_WEBSITE_COLUMN = "website";
@@ -24,14 +40,14 @@ export const SERIES_SELECT_NO_WEBSITE =
 
 /** product_variants 查詢欄位（含 series_id 關聯） */
 export const VARIANT_SELECT =
-  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url, is_custom_order";
+  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url, is_custom_order, show_on_sheet, show_on_price_list, dimension_drawing_url";
 
 /** 精簡系列欄位（當完整欄位不存在時 fallback 用） */
 export const SERIES_SELECT_MINIMAL = "id, name:series_name, category, notes";
 
 /** 精簡規格欄位（當完整欄位不存在時 fallback 用） */
 export const VARIANT_SELECT_MINIMAL =
-  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url, is_custom_order";
+  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url, is_custom_order, show_on_sheet, show_on_price_list, dimension_drawing_url";
 
 /** 產品類別基本選項（產品系列與訂製案例共用；加工區類別另見 custom-cases-db） */
 export const PRODUCT_CATEGORY_OPTIONS = ["桌", "椅", "櫃", "層架", "其他"];

@@ -16,36 +16,36 @@ import {
 import type { SeriesRow, VariantRow } from "@/types/products";
 import {
   buildPriceListRows,
-  groupPriceListRowsByCategory,
+  groupPriceListRowsBySeries,
   parsePriceListCategoriesFromSearchParams,
+  parsePriceListSeriesIdsFromSearchParams,
+  parsePriceListValidUntil,
   priceListCategoryLabel,
   type PriceListRow,
 } from "@/lib/price-list";
+import {
+  categoryLabel,
+  footerContact,
+  parseSheetLang,
+  woodTypeLabel,
+} from "@/lib/product-sheet";
 import { Loader2 } from "lucide-react";
+
+/**
+ * 價目表：直式 A4，排版語言與產品介紹表一致（白底、細分隔線、無色塊）。
+ * 定位：介紹表（品牌文件，無價格）→ 價目表（全系列，有日期效期）→ 報價單（單一客戶訂單）。
+ * 只列 show_on_sheet = true 的規格（與介紹表共用同一勾選）。
+ */
 
 function mapSeries(r: Record<string, unknown>): SeriesRow {
   const nameVal = r.name ?? r.series_name;
   return {
     id: String(r.id),
     name: String(nameVal ?? ""),
+    name_en: r.name_en != null ? String(r.name_en) : null,
     category: String(r.category ?? ""),
-    notes: r.notes != null ? String(r.notes) : null,
-    production_time: r.production_time != null ? String(r.production_time) : null,
-    code_rule: r.code_rule != null ? String(r.code_rule) : null,
-    design_concept: r.design_concept != null ? String(r.design_concept) : null,
-    faq_scripts: r.faq_scripts != null ? String(r.faq_scripts) : null,
-    social_media_copy: r.social_media_copy != null ? String(r.social_media_copy) : null,
-    website_article: r.website_article != null ? String(r.website_article) : null,
-    customization_rules: r.customization_rules != null ? String(r.customization_rules) : null,
-    website: r.website != null ? String(r.website) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
-    size_chart_urls: Array.isArray(r.size_chart_urls)
-      ? (r.size_chart_urls as unknown[]).map((u) => String(u)).filter(Boolean)
-      : [],
-    detail_image_urls: Array.isArray(r.detail_image_urls)
-      ? (r.detail_image_urls as unknown[]).map((u) => String(u)).filter(Boolean)
-      : [],
-  };
+  } as SeriesRow;
 }
 
 function mapVariant(r: Record<string, unknown>): VariantRow {
@@ -59,10 +59,13 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     dimension_h: r.dimension_h != null ? Number(r.dimension_h) : null,
     seat_height_cm: r.seat_height_cm != null ? Number(r.seat_height_cm) : null,
     base_price: r.base_price != null ? Number(r.base_price) : null,
-    desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
+    desktop_area: null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
     is_custom_order: r.is_custom_order === true,
+    show_on_sheet: r.show_on_sheet === true,
+    show_on_price_list: r.show_on_price_list === true,
+    dimension_drawing_url: null,
   };
 }
 
@@ -74,82 +77,15 @@ function formatPrintDate(): string {
   return `${y}/${m}/${day}`;
 }
 
-function PriceListTable({ rows }: { rows: PriceListRow[] }) {
-  return (
-    <table className="w-full table-fixed border-collapse text-sm leading-snug">
-      <thead>
-        <tr className="border-b-2 border-gray-300 bg-gray-50">
-          <th className="w-[4.5rem] px-1.5 py-2.5 text-left font-semibold text-gray-700">圖片</th>
-          <th className="w-[6.5rem] px-2 py-2.5 text-left font-semibold text-gray-700">產品代碼</th>
-          <th className="w-[4rem] px-1.5 py-2.5 text-left font-semibold text-gray-700">木種</th>
-          <th className="min-w-[8rem] px-2 py-2.5 text-left font-semibold text-gray-700">尺寸</th>
-          <th className="w-[3.5rem] px-1 py-2.5 text-right font-semibold text-gray-700">座高</th>
-          <th className="w-[5.5rem] px-2 py-2.5 text-left font-semibold text-gray-700">規格</th>
-          <th className="w-[5rem] px-2 py-2.5 text-right font-semibold text-gray-700">建議售價</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => {
-          const showSeriesHeader =
-            index === 0 || rows[index - 1].seriesId !== row.seriesId;
-          return (
-            <FragmentRow
-              key={row.variantId}
-              row={row}
-              showSeriesHeader={showSeriesHeader}
-            />
-          );
-        })}
-      </tbody>
-    </table>
-  );
+/** YYYY-MM-DD → YYYY/MM/DD */
+function formatValidUntil(iso: string): string {
+  return iso.replaceAll("-", "/");
 }
 
-function FragmentRow({
-  row,
-  showSeriesHeader,
-}: {
-  row: PriceListRow;
-  showSeriesHeader: boolean;
-}) {
-  const img = row.variantImageUrl;
-  return (
-    <>
-      {showSeriesHeader && (
-        <tr className="border-b border-gray-200 bg-gray-50/80">
-          <td colSpan={7} className="px-2 py-2 font-semibold text-gray-900">
-            {row.seriesName || "—"}
-          </td>
-        </tr>
-      )}
-      <tr className="border-b border-gray-100 align-top">
-        <td className="px-1.5 py-2">
-          {img ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={img}
-              alt=""
-              className="h-14 w-14 rounded border border-gray-200 object-cover"
-            />
-          ) : (
-            <span className="inline-flex h-14 w-14 items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-[10px] text-gray-400">
-              無圖
-            </span>
-          )}
-        </td>
-        <td className="px-2 py-2 font-mono text-xs text-gray-900">{row.productCode || "—"}</td>
-        <td className="px-1.5 py-2 text-gray-800">{row.woodType || "—"}</td>
-        <td className="px-2 py-2 text-gray-800 break-words">{row.dimension || "—"}</td>
-        <td className="px-1 py-2 text-right text-gray-800 tabular-nums">
-          {row.seatHeightCm != null ? `${row.seatHeightCm}` : "—"}
-        </td>
-        <td className="px-2 py-2 text-gray-800 break-words">{row.spec1?.trim() || "—"}</td>
-        <td className="px-2 py-2 text-right font-medium text-gray-900 tabular-nums whitespace-nowrap">
-          {row.basePrice != null ? row.basePrice.toLocaleString() : "—"}
-        </td>
-      </tr>
-    </>
-  );
+/** 尺寸欄：W × D × H，椅類補 SH 座高 */
+function formatRowDimension(row: PriceListRow): string {
+  const base = row.dimension || "—";
+  return row.seatHeightCm != null ? `${base} · SH${row.seatHeightCm}` : base;
 }
 
 function PriceListPrintBody() {
@@ -158,7 +94,29 @@ function PriceListPrintBody() {
     () => parsePriceListCategoriesFromSearchParams((key) => searchParams.getAll(key)),
     [searchParams]
   );
+  const seriesIdFilters = useMemo(
+    () => parsePriceListSeriesIdsFromSearchParams((key) => searchParams.getAll(key)),
+    [searchParams]
+  );
+  const validUntil = useMemo(
+    () => parsePriceListValidUntil((key) => searchParams.get(key)),
+    [searchParams]
+  );
+  const lang = useMemo(() => parseSheetLang((key) => searchParams.get(key)), [searchParams]);
 
+  /** 切換語言的 URL（保留其餘參數） */
+  const langUrl = useCallback(
+    (target: "zh" | "en") => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (target === "en") params.set("lang", "en");
+      else params.delete("lang");
+      const qs = params.toString();
+      return qs ? `/print/price-list?${qs}` : "/print/price-list";
+    },
+    [searchParams]
+  );
+
+  const [autoPrint, setAutoPrint] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [seriesList, setSeriesList] = useState<SeriesRow[]>([]);
@@ -168,17 +126,18 @@ function PriceListPrintBody() {
     setLoading(true);
     setLoadError(null);
 
-    let seriesRes = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT);
+    type LooseRes = { data: unknown[] | null; error: { message: string } | null };
+    let seriesRes: LooseRes = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT).is("deleted_at", null);
     if (seriesRes.error) {
-      seriesRes = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT_NO_WEBSITE);
+      seriesRes = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT_NO_WEBSITE).is("deleted_at", null);
     }
     if (seriesRes.error) {
-      seriesRes = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT_MINIMAL);
+      seriesRes = await supabase.from(TABLE_PRODUCT_SERIES).select(SERIES_SELECT_MINIMAL).is("deleted_at", null);
     }
 
-    let variantsRes = await supabase.from(TABLE_PRODUCT_VARIANTS).select(VARIANT_SELECT);
+    let variantsRes: LooseRes = await supabase.from(TABLE_PRODUCT_VARIANTS).select(VARIANT_SELECT).is("deleted_at", null);
     if (variantsRes.error) {
-      variantsRes = await supabase.from(TABLE_PRODUCT_VARIANTS).select(VARIANT_SELECT_MINIMAL);
+      variantsRes = await supabase.from(TABLE_PRODUCT_VARIANTS).select(VARIANT_SELECT_MINIMAL).is("deleted_at", null);
     }
 
     if (seriesRes.error || variantsRes.error) {
@@ -202,13 +161,26 @@ function PriceListPrintBody() {
     fetchData();
   }, [fetchData]);
 
-  const rows = useMemo(
-    () => buildPriceListRows(seriesList, variantsList, categoryFilters),
-    [seriesList, variantsList, categoryFilters]
-  );
+  useEffect(() => {
+    document.title = `價目表_${formatPrintDate().replaceAll("/", "")}`;
+  }, []);
 
-  const groups = useMemo(() => groupPriceListRowsByCategory(rows), [rows]);
-  const showCategorySections = groups.length > 1;
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("autoprint") === "1") setAutoPrint(true);
+  }, []);
+
+  const rows = useMemo(
+    () => buildPriceListRows(seriesList, variantsList, categoryFilters, seriesIdFilters),
+    [seriesList, variantsList, categoryFilters, seriesIdFilters]
+  );
+  const groups = useMemo(() => groupPriceListRowsBySeries(rows), [rows]);
+
+  useEffect(() => {
+    if (!autoPrint || loading || loadError) return;
+    const timer = setTimeout(() => window.print(), 500);
+    return () => clearTimeout(timer);
+  }, [autoPrint, loading, loadError]);
 
   if (loading) {
     return (
@@ -235,12 +207,78 @@ function PriceListPrintBody() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-black">
-      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white px-6 py-8 shadow-lg print:shadow-none print:px-8 print:py-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 print:hidden">
-          <Link href="/print" className="text-xs text-gray-500 hover:text-gray-800">
-            ← 列印頁面
-          </Link>
+    <div className="pricelist-root">
+      <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 14mm 15mm;
+        }
+        .pricelist-root {
+          min-height: 100vh;
+          background: #e9e7e2;
+          padding: 1.5rem 0.75rem 3rem;
+        }
+        .pricelist-sheet {
+          width: 210mm;
+          min-height: 297mm;
+          margin: 0 auto;
+          background: #fff;
+          color: #1c1c1c;
+          padding: 14mm 15mm;
+          box-shadow: 0 2px 14px rgba(0, 0, 0, 0.12);
+          box-sizing: border-box;
+          print-color-adjust: exact;
+          -webkit-print-color-adjust: exact;
+        }
+        .pricelist-en {
+          letter-spacing: 0.04em;
+        }
+        .pricelist-group {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        @media print {
+          .pricelist-root {
+            background: #fff;
+            padding: 0;
+          }
+          .pricelist-toolbar {
+            display: none;
+          }
+          .pricelist-sheet {
+            width: auto;
+            min-height: 0;
+            margin: 0;
+            padding: 0;
+            box-shadow: none;
+          }
+        }
+      `}</style>
+
+      <div className="pricelist-toolbar mx-auto mb-4 flex w-full max-w-[210mm] flex-wrap items-center justify-between gap-3">
+        <Link href="/print" className="text-xs text-gray-500 hover:text-gray-800">
+          ← 列印頁面
+        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          {rows.length === 0 && (
+            <span className="text-xs text-amber-700">
+              所選範圍沒有勾選「顯示於價目表」的規格
+            </span>
+          )}
+          <span className="inline-flex overflow-hidden rounded-md border border-gray-300 bg-white text-xs font-medium">
+            <Link
+              href={langUrl("zh")}
+              className={lang === "zh" ? "bg-gray-800 px-3 py-2 text-white" : "px-3 py-2 text-gray-700 hover:bg-gray-50"}
+            >
+              中文
+            </Link>
+            <Link
+              href={langUrl("en")}
+              className={lang === "en" ? "bg-gray-800 px-3 py-2 text-white" : "px-3 py-2 text-gray-700 hover:bg-gray-50"}
+            >
+              English
+            </Link>
+          </span>
           <button
             type="button"
             onClick={() => window.print()}
@@ -249,60 +287,115 @@ function PriceListPrintBody() {
             列印 / 存成 PDF
           </button>
         </div>
+      </div>
 
-        <header className="mb-6 border-b border-gray-200 pb-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <img
-                src="/logo.png"
-                alt="Føre Furniture"
-                className="block h-16 w-auto object-contain object-left-top mb-3"
-              />
-              <h1 className="text-xl font-semibold text-gray-900">產品價目表</h1>
-              <p className="mt-1 text-sm text-gray-600">建議售價 · 含稅與否請依公司對外說明為準</p>
-            </div>
-            <div className="text-sm text-gray-700 sm:text-right">
-              <p>
-                <span className="text-gray-500">類別：</span>
-                {priceListCategoryLabel(categoryFilters)}
-              </p>
-              <p className="mt-1">
-                <span className="text-gray-500">列印日期：</span>
-                {formatPrintDate()}
-              </p>
-              <p className="mt-1">
-                <span className="text-gray-500">規格數：</span>
-                {rows.length}
-              </p>
-            </div>
+      <div className="pricelist-sheet">
+        {/* 頁首：標題左、logo 右 */}
+        <header className="flex items-start justify-between">
+          <div>
+            <h1 style={{ fontSize: "13pt", fontWeight: 600, letterSpacing: "0.1em" }}>
+              {lang === "en" ? (
+                <span className="pricelist-en">Price List</span>
+              ) : (
+                <>
+                  價目表 <span className="pricelist-en" style={{ fontWeight: 400 }}>Price List</span>
+                </>
+              )}
+            </h1>
+            <p style={{ fontSize: "7.5pt", color: "#8a8a8a", marginTop: "3mm" }}>
+              {lang === "en" ? (
+                <>
+                  Date {formatPrintDate()}　·　Valid until {formatValidUntil(validUntil)}
+                  {categoryFilters.length > 0 && (
+                    <>　·　{categoryFilters.map((c) => categoryLabel(c, "en")).join(", ")}</>
+                  )}
+                </>
+              ) : (
+                <>
+                  製表日期 {formatPrintDate()}　·　有效期限至 {formatValidUntil(validUntil)}
+                  {categoryFilters.length > 0 && <>　·　{priceListCategoryLabel(categoryFilters)}</>}
+                </>
+              )}
+            </p>
           </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Føre Furniture" style={{ height: "18mm" }} className="w-auto object-contain" />
         </header>
 
-        {rows.length === 0 ? (
-          <p className="text-sm text-gray-600 py-8 text-center">所選類別目前沒有產品規格。</p>
-        ) : showCategorySections ? (
-          <div className="space-y-8">
-            {groups.map((g) => (
-              <section key={g.category} className="break-inside-avoid">
-                <h2 className="mb-3 text-base font-semibold text-gray-900 border-l-4 border-gray-800 pl-2">
-                  {g.category}
-                </h2>
-                <PriceListTable rows={g.rows} />
-              </section>
-            ))}
+        {/* 表頭欄位說明列 */}
+        {rows.length > 0 && (
+          <div
+            className="flex items-baseline"
+            style={{
+              marginTop: "10mm",
+              paddingBottom: "1.5mm",
+              borderBottom: "0.5pt solid #1c1c1c",
+              fontSize: "7pt",
+              color: "#8a8a8a",
+            }}
+          >
+            <span style={{ width: "30%" }}>{lang === "en" ? "Product code" : "產品代碼"}</span>
+            <span style={{ width: "18%" }}>{lang === "en" ? "Wood" : "木種"}</span>
+            <span style={{ width: "34%" }}>{lang === "en" ? "Dimensions (cm)" : "尺寸（cm）"}</span>
+            <span style={{ width: "18%", textAlign: "right" }}>{lang === "en" ? "Price" : "報價"}</span>
           </div>
-        ) : (
-          <section>
-            {categoryFilters.length === 1 ? (
-              <h2 className="mb-3 text-base font-semibold text-gray-900">{categoryFilters[0]}</h2>
-            ) : null}
-            <PriceListTable rows={rows} />
-          </section>
         )}
 
-        <footer className="mt-8 pt-4 border-t border-gray-200 text-[11px] text-gray-500 leading-relaxed print:mt-6">
-          <p>電話：06-2302861 · 台南市歸仁區丁厝街125號 · 上班日 9:00–17:00</p>
-          <p className="mt-1">本價目表僅供參考，實際售價與規格以訂單確認為準。</p>
+        {rows.length === 0 ? (
+          <p style={{ fontSize: "9pt", color: "#9a9a9a", padding: "20mm 0", textAlign: "center" }}>
+            {lang === "en" ? "No items in the selected scope." : "所選範圍目前沒有可列出的規格。"}
+          </p>
+        ) : (
+          groups.map((g) => (
+            <section key={g.seriesId} className="pricelist-group" style={{ marginTop: "7mm" }}>
+              <h2 style={{ fontSize: "8.5pt", fontWeight: 600, letterSpacing: "0.05em" }}>
+                {lang === "en" ? g.seriesNameEn || g.seriesName : g.seriesName}
+                {g.category?.trim() && (
+                  <span style={{ marginLeft: "0.75em", fontWeight: 400, color: "#999", fontSize: "7pt" }}>
+                    {categoryLabel(g.category, lang)}
+                  </span>
+                )}
+              </h2>
+              <div style={{ marginTop: "1.5mm" }}>
+                {g.rows.map((row) => (
+                  <div
+                    key={row.variantId}
+                    className="flex items-baseline"
+                    style={{
+                      borderBottom: "0.25pt solid #d8d8d8",
+                      padding: "2mm 0",
+                      fontSize: "7.5pt",
+                    }}
+                  >
+                    <span className="pricelist-en" style={{ width: "30%" }}>
+                      {row.productCode || "—"}
+                    </span>
+                    <span style={{ width: "18%", color: "#555" }}>
+                      {row.woodType ? woodTypeLabel(row.woodType, lang) : "—"}
+                    </span>
+                    <span className="pricelist-en" style={{ width: "34%", color: "#555" }}>
+                      {formatRowDimension(row)}
+                    </span>
+                    <span className="pricelist-en" style={{ width: "18%", textAlign: "right" }}>
+                      {row.basePrice != null ? `NT$ ${row.basePrice.toLocaleString()}` : "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))
+        )}
+
+        {/* 頁尾：聯絡資訊＋聲明 */}
+        <footer style={{ marginTop: "14mm" }}>
+          <p style={{ fontSize: "6.5pt", color: "#8a8a8a", letterSpacing: "0.02em" }}>
+            {footerContact(lang)}
+          </p>
+          <p style={{ fontSize: "6.5pt", color: "#8a8a8a", marginTop: "1.5mm" }}>
+            {lang === "en"
+              ? "Prices are for reference only; actual prices are subject to the official quotation."
+              : "本價目表僅供參考，實際售價以報價單為準。"}
+          </p>
         </footer>
       </div>
     </div>
