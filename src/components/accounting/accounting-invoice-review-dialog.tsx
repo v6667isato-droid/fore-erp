@@ -13,8 +13,10 @@ import {
   accountingArchivePath,
   DEDUCTION_CODE_OPTIONS,
   FORMAT_CODE_OPTIONS,
+  invoiceOwnerCategory,
   isValidInvoiceNumber,
   normalizeInvoiceNumber,
+  OWNER_CATEGORY_LABELS,
   TAX_TYPE_OPTIONS,
   type AccountingInvoiceRow,
   type InvoiceFormatCode,
@@ -137,6 +139,8 @@ export function AccountingInvoiceReviewDialog({
   const [focusField, setFocusField] = useState<FieldKey | null>(null);
   const [hoverField, setHoverField] = useState<FieldKey | null>(null);
   const activeField = focusField ?? hoverField;
+  /** 有買方統編＝公司發票；留空＝家庭發票（清單可自動對獎） */
+  const ownerCategory = invoiceOwnerCategory(buyerTaxId);
 
   // 開啟時載入採購單選項並預填表單
   useEffect(() => {
@@ -462,12 +466,19 @@ export function AccountingInvoiceReviewDialog({
     };
   }
 
-  /** 欄位下方的放大裁切浮層；離開 focus／hover 即收合 */
-  function fieldZoomPopover(key: FieldKey) {
+  /**
+   * 欄位下方的放大裁切浮層；離開 focus／hover 即收合。
+   * Dialog 外層是 overflow-y-auto（等同 overflow-x: auto），浮層超出右緣會被切掉，
+   * 所以最右欄的欄位在 sm 以上改為靠右對齊；手機為單欄，一律靠左。
+   */
+  function fieldZoomPopover(key: FieldKey, align: "left" | "right" = "left") {
     const box = fieldBoxMap[key];
     if (!invoice || activeField !== key || !box) return null;
+    const alignClass = align === "right" ? "left-0 sm:left-auto sm:right-0" : "left-0";
     return (
-      <div className="absolute left-0 top-full z-20 mt-1 w-80 max-w-[85vw] rounded-md border border-border bg-card p-1 shadow-lg">
+      <div
+        className={`absolute ${alignClass} top-full z-20 mt-1 w-80 max-w-[calc(100vw-5rem)] rounded-md border border-border bg-card p-1 shadow-lg`}
+      >
         <FieldCropZoom src={invoice.file_url} box={box} />
       </div>
     );
@@ -931,7 +942,7 @@ export function AccountingInvoiceReviewDialog({
                   {auditWarnDetail("period") && (
                     <p className="text-[11px] text-amber-700 dark:text-amber-500">{auditWarnDetail("period")}</p>
                   )}
-                  {fieldZoomPopover("invoiceDate")}
+                  {fieldZoomPopover("invoiceDate", "right")}
                 </div>
               </div>
 
@@ -991,6 +1002,21 @@ export function AccountingInvoiceReviewDialog({
                   <label htmlFor="acct-buyer-tax-id" className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     買方統編
                     <SourceBadge source={fieldSources.buyerTaxId} />
+                    {/* 有統編＝公司發票（可扣抵進項）；無統編＝家庭發票（可對獎） */}
+                    <span
+                      className={`rounded border px-1.5 py-px text-[11px] font-medium ${
+                        ownerCategory === "company"
+                          ? "border-primary/40 text-primary"
+                          : "border-amber-500/50 text-amber-700 dark:text-amber-500"
+                      }`}
+                      title={
+                        ownerCategory === "company"
+                          ? "有買方統編：歸類為公司發票，可申報扣抵進項"
+                          : "無買方統編：歸類為家庭發票，會自動對統一發票中獎號碼"
+                      }
+                    >
+                      {OWNER_CATEGORY_LABELS[ownerCategory]}
+                    </span>
                   </label>
                   <input
                     id="acct-buyer-tax-id"
@@ -1007,7 +1033,7 @@ export function AccountingInvoiceReviewDialog({
                     placeholder="無則留空"
                     className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   />
-                  {fieldZoomPopover("buyerTaxId")}
+                  {fieldZoomPopover("buyerTaxId", "right")}
                 </div>
               </div>
 
@@ -1081,7 +1107,7 @@ export function AccountingInvoiceReviewDialog({
                     {auditWarnDetail("amount_inc_tax") && (
                       <p className="text-[11px] text-amber-700 dark:text-amber-500">{auditWarnDetail("amount_inc_tax")}</p>
                     )}
-                    {fieldZoomPopover("amountIncTax")}
+                    {fieldZoomPopover("amountIncTax", "right")}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">

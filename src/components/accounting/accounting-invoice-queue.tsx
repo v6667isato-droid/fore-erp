@@ -10,7 +10,9 @@ import { fixRocDate } from "@/lib/invoice-scan";
 import {
   fetchInvoiceQueue,
   importInvoicesFromGmail,
+  invoiceOwnerCategory,
   normalizeInvoiceNumber,
+  OWNER_CATEGORY_LABELS,
   recognizeAccountingInvoice,
   recognizeAccountingInvoiceFromUrl,
   SOURCE_LABELS,
@@ -368,6 +370,27 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
                     >
                       {SOURCE_LABELS[row.source] ?? row.source}
                     </span>
+                    {/* 辨識完成才知道有沒有買方統編：有＝公司發票、無＝家庭發票（可對獎） */}
+                    {row.status === "ready" &&
+                      (() => {
+                        const category = invoiceOwnerCategory(row.recognized?.buyer_tax_id);
+                        return (
+                          <span
+                            className={`rounded border px-1.5 py-px text-[10px] font-medium ${
+                              category === "company"
+                                ? "border-primary/40 text-primary"
+                                : "border-amber-500/50 text-amber-700 dark:text-amber-500"
+                            }`}
+                            title={
+                              category === "company"
+                                ? "辨識到買方統編：公司發票"
+                                : "未辨識到買方統編：家庭發票（存檔後可自動對獎）"
+                            }
+                          >
+                            {OWNER_CATEGORY_LABELS[category]}
+                          </span>
+                        );
+                      })()}
                     <span className="truncate text-sm text-foreground">{rowSummary(row)}</span>
                   </div>
                   {row.status === "failed" && row.error && (

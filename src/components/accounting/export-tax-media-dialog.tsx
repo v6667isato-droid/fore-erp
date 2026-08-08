@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
-import type { AccountingInvoiceRow } from "@/lib/accounting-invoice";
+import { invoiceOwnerCategory, type AccountingInvoiceRow } from "@/lib/accounting-invoice";
 import {
   buildTaxMediaFile,
   fetchCompanySettings,
@@ -16,7 +16,7 @@ import {
 } from "@/lib/tax-media-file";
 
 export interface ExportTaxMediaDialogProps {
-  /** 全部已存檔發票（未套用畫面篩選） */
+  /** 全部已存檔發票（未套用畫面篩選；家庭發票會在本元件內排除） */
   invoices: AccountingInvoiceRow[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -32,14 +32,25 @@ export function ExportTaxMediaDialog({ invoices, open, onOpenChange, onExported 
   const [regNo, setRegNo] = useState("");
   const [exporting, setExporting] = useState(false);
 
-  // 期別選項：由已存檔發票日期推出的雙月期，新→舊
+  /**
+   * 只申報公司發票（有買方統編）。家庭發票沒有買方統編、不能扣抵進項，
+   * 若一併匯出會被蓋上公司統編變成不實申報，因此在此排除。
+   * 買方統編「有填但與公司統編不符」仍留給 buildTaxMediaFile 擋下並列出原因。
+   */
+  const declarable = useMemo(
+    () => invoices.filter((r) => invoiceOwnerCategory(r.buyer_tax_id) === "company"),
+    [invoices],
+  );
+  const familyExcluded = invoices.length - declarable.length;
+
+  // 期別選項：由可申報發票日期推出的雙月期，新→舊
   const periodOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const r of invoices) {
+    for (const r of declarable) {
       if (r.invoice_date) set.add(periodStartMonth(r.invoice_date));
     }
     return [...set].sort((a, b) => b.localeCompare(a));
-  }, [invoices]);
+  }, [declarable]);
 
   useEffect(() => {
     if (!open) return;
@@ -62,14 +73,14 @@ export function ExportTaxMediaDialog({ invoices, open, onOpenChange, onExported 
     const endMonth = `${startYear}-${String(startMonth + 1).padStart(2, "0")}`;
     const inPeriod: AccountingInvoiceRow[] = [];
     const carryOver: AccountingInvoiceRow[] = [];
-    for (const r of invoices) {
+    for (const r of declarable) {
       if (!r.invoice_date) continue;
       const ym = r.invoice_date.slice(0, 7);
       if (ym === period || ym === endMonth) inPeriod.push(r);
       else if (ym < period && r.exported_at == null) carryOver.push(r);
     }
     return { inPeriod, carryOver };
-  }, [invoices, period]);
+  }, [declarable, period]);
 
   const selected = useMemo(
     () => (includeCarryOver ? [...scope.inPeriod, ...scope.carryOver] : scope.inPeriod),
@@ -139,7 +150,7 @@ export function ExportTaxMediaDialog({ invoices, open, onOpenChange, onExported 
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">匯出報稅媒體檔（進項）</Dialog.Title>
               <p id="export-tax-media-desc" className="mt-1 text-sm text-muted-foreground">
-                產出營業人進項憑證媒體檔（81 字元 TXT），可匯入財政部營業稅電子申報系統
+                產出營業人進項憑證媒體檔（81 字元 TXT），可匯入財政部營業稅電子申報系統；只收有買方統編的公司發票
               </p>
             </div>
             <Dialog.Close asChild>
@@ -229,6 +240,11 @@ export function ExportTaxMediaDialog({ invoices, open, onOpenChange, onExported 
                   <span>
                     共 <span className="font-semibold">{selected.length}</span> 張
                   </span>
+                  {familyExcluded > 0 && (
+                    <span className="text-muted-foreground" title="無買方統編、不可扣抵進項，不列入申報">
+                      已排除家庭發票 {familyExcluded} 張
+                    </span>
+                  )}
                   {Object.entries(result.countByFormat)
                     .sort()
                     .map(([code, count]) => (

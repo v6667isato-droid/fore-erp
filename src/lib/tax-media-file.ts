@@ -114,7 +114,9 @@ export function buildTaxMediaFile(
     const roc = inv.invoice_date ? toRocYearMonth(inv.invoice_date) : null;
     if (!roc) problems.push("缺少發票日期");
     if (!/^\d{8}$/.test(inv.seller_tax_id ?? "")) problems.push("賣方統編須為 8 碼數字");
-    if (inv.buyer_tax_id && inv.buyer_tax_id.trim() !== taxId)
+    // 只申報公司發票：買方統編必須是本公司。無統編＝家庭發票（呼叫端已排除），不可蓋上公司統編申報
+    if (!(inv.buyer_tax_id ?? "").trim()) problems.push("無買方統編（家庭發票）不可列入申報");
+    else if (inv.buyer_tax_id!.trim() !== taxId)
       problems.push(`買方統編（${inv.buyer_tax_id}）與公司統編（${taxId}）不符`);
     if (inv.amount_ex_tax == null) problems.push("缺少未稅金額");
     if (inv.tax_amount == null) problems.push("缺少稅額");

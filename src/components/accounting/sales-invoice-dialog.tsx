@@ -18,12 +18,18 @@ import {
   CARRIER_TYPE_OPTIONS,
   fetchInvoiceOrderLinks,
   fetchSalesInvoiceItems,
+  formatOrderDateTw,
+  INVOICE_PREFILL_ITEM_SELECT,
+  invoiceItemName,
+  orderLinkLabel,
   SALES_STATUS_LABELS,
   saveSalesInvoiceOrderLinks,
   searchOrdersForInvoiceLink,
   suggestOrdersForInvoice,
+  unitPriceExTax,
+  unitPriceIncTax,
+  type InvoicePrefillItemRow,
   type OrderLinkOption,
-  type SalesInvoiceOrderSummary,
   type SalesInvoiceRow,
   type SalesInvoiceType,
 } from "@/lib/sales-invoice";
@@ -43,14 +49,18 @@ interface LineInput {
   order_item_id: string | null;
   description: string;
   quantity: string;
+  /** 使用者輸入的單價；是含稅或未稅由 priceIsTaxInclusive 決定 */
   unitPrice: string;
 }
 
-function lineAmount(line: LineInput): number {
+function lineQty(line: LineInput): number {
   const q = Number(line.quantity);
+  return Number.isNaN(q) ? 0 : q;
+}
+
+function linePrice(line: LineInput): number {
   const p = Number(line.unitPrice);
-  if (Number.isNaN(q) || Number.isNaN(p)) return 0;
-  return Math.round(q * p * 100) / 100;
+  return Number.isNaN(p) ? 0 : p;
 }
 
 let lineKeySeq = 0;
@@ -61,6 +71,44 @@ function nextLineKey(): string {
 
 function emptyLine(): LineInput {
   return { key: nextLineKey(), order_item_id: null, description: "", quantity: "1", unitPrice: "" };
+}
+
+/** 訂單品項（＋運費）轉成發票明細列 */
+function buildOrderLines(items: InvoicePrefillItemRow[], shippingFee: number | null): LineInput[] {
+  const lines: LineInput[] = items.map((it) => ({
+    key: nextLineKey(),
+    order_item_id: it.id,
+    description: invoiceItemName(it),
+    quantity: String(it.quantity),
+    unitPrice: String(it.channel_unit_price ?? it.unit_price),
+  }));
+  if (shippingFee && shippingFee > 0) {
+    lines.push({
+      key: nextLineKey(),
+      order_item_id: null,
+      description: "運費",
+      quantity: "1",
+      unitPrice: String(shippingFee),
+    });
+  }
+  return lines;
+}
+
+/** 讀某訂單的品項並轉成明細列（加入來源訂單時一併帶入品項用） */
+async function loadOrderLines(orderId: string): Promise<LineInput[]> {
+  const [itemsRes, orderRes] = await Promise.all([
+    supabase
+      .from("order_items")
+      .select(INVOICE_PREFILL_ITEM_SELECT)
+      .eq("order_id", orderId)
+      .order("line_order", { ascending: true }),
+    supabase.from("orders").select("shipping_fee").eq("id", orderId).maybeSingle(),
+  ]);
+  if (itemsRes.error) throw itemsRes.error;
+  return buildOrderLines(
+    (itemsRes.data ?? []) as unknown as InvoicePrefillItemRow[],
+    (orderRes.data as { shipping_fee: number | null } | null)?.shipping_fee ?? null,
+  );
 }
 
 /** 由訂單開票時帶入的訂單摘要 */
@@ -112,8 +160,10 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
   const [taxType, setTaxType] = useState(1);
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<LineInput[]>([emptyLine()]);
+  /** true=品項輸入的單價為含稅（預設，訂單金額慣例）；false=未稅 */
+  const [priceIsTaxInclusive, setPriceIsTaxInclusive] = useState(true);
   /** 連結的訂單（多對多；第一張同步為 order_id 主要訂單） */
-  const [linkedOrders, setLinkedOrders] = useState<SalesInvoiceOrderSummary[]>([]);
+  const [linkedOrders, setLinkedOrders] = useState<OrderLinkOption[]>([]);
   const [orderSearch, setOrderSearch] = useState("");
   const [orderResults, setOrderResults] = useState<OrderLinkOption[]>([]);
   /** 依買方統編／抬頭比對客戶後的建議訂單 */
@@ -146,6 +196,8 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
       setPrintFlag(invoice.print_flag);
       setTaxType(invoice.tax_type);
       setNotes(invoice.notes ?? "");
+      // 既有明細的 unit_price 語意：B2B 存未稅、B2C 存含稅
+      setPriceIsTaxInclusive(invoice.invoice_type !== "B2B");
       setLines([emptyLine()]);
       void fetchSalesInvoiceItems(invoice.id).then((items) => {
         if (items.length === 0) return;
@@ -176,7 +228,12 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     setTaxType(1);
     setNotes("");
     setLines([emptyLine()]);
-    setLinkedOrders(order ? [{ id: order.id, order_number: order.order_number }] : []);
+    setPriceIsTaxInclusive(true);
+    setLinkedOrders(
+      order
+        ? [{ id: order.id, order_number: order.order_number, order_date: null, customer_name: null, total_amount: null }]
+        : [],
+    );
 
     if (!order) return;
     setLoadingPrefill(true);
@@ -185,14 +242,12 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
         const [orderRes, itemsRes, customerRes] = await Promise.all([
           supabase
             .from("orders")
-            .select("id, deposit_amount, shipping_fee")
+            .select("id, order_number, order_date, total_amount, deposit_amount, shipping_fee, customers (name, company)")
             .eq("id", order.id)
             .maybeSingle(),
           supabase
             .from("order_items")
-            .select(
-              "id, quantity, unit_price, channel_unit_price, custom_name, custom_category, line_order, product_variants (product_code, product_series (name))",
-            )
+            .select(INVOICE_PREFILL_ITEM_SELECT)
             .eq("order_id", order.id)
             .order("line_order", { ascending: true }),
           order.customer_id
@@ -224,41 +279,36 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
           }
         }
 
-        type ItemRow = {
-          id: string;
-          quantity: number;
-          unit_price: number;
-          channel_unit_price: number | null;
-          custom_name: string | null;
-          custom_category: string | null;
-          product_variants: { product_code: string; product_series: { name: string } | null } | null;
-        };
-        const items = (itemsRes.data ?? []) as unknown as ItemRow[];
-        const itemLines: LineInput[] = items.map((it) => {
-          const seriesName = it.product_variants?.product_series?.name ?? "";
-          const fallback = [seriesName, it.product_variants?.product_code ?? ""].filter(Boolean).join(" ");
-          return {
-            key: nextLineKey(),
-            order_item_id: it.id,
-            description: it.custom_name?.trim() || fallback || "商品",
-            quantity: String(it.quantity),
-            unitPrice: String(it.channel_unit_price ?? it.unit_price),
-          };
-        });
-        const orderRow = orderRes.data as { deposit_amount: number | null; shipping_fee: number | null } | null;
-        if (orderRow?.shipping_fee && orderRow.shipping_fee > 0) {
-          itemLines.push({
-            key: nextLineKey(),
-            order_item_id: null,
-            description: "運費",
-            quantity: "1",
-            unitPrice: String(orderRow.shipping_fee),
-          });
+        if (itemsRes.error) throw itemsRes.error;
+        const items = (itemsRes.data ?? []) as unknown as InvoicePrefillItemRow[];
+        const orderRow = orderRes.data as {
+          order_number: string;
+          order_date: string | null;
+          total_amount: number | null;
+          deposit_amount: number | null;
+          shipping_fee: number | null;
+          customers: { name: string; company: string | null } | null;
+        } | null;
+        if (orderRow) {
+          setLinkedOrders((prev) =>
+            prev.map((o) =>
+              o.id === order.id
+                ? {
+                    ...o,
+                    order_date: orderRow.order_date,
+                    total_amount: orderRow.total_amount,
+                    customer_name: orderRow.customers?.name?.trim() || orderRow.customers?.company || null,
+                  }
+                : o,
+            ),
+          );
         }
+        const itemLines = buildOrderLines(items, orderRow?.shipping_fee ?? null);
         if (itemLines.length > 0) setLines(itemLines);
         setOrderPrefill({ depositAmount: orderRow?.deposit_amount ?? 0, lines: itemLines });
       } catch (err) {
         console.error("訂單預填失敗:", err);
+        setError(`訂單品項帶入失敗：${errText(err, "請手動輸入品項")}`);
       } finally {
         setLoadingPrefill(false);
       }
@@ -335,11 +385,80 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     };
   }, [open, readOnly, invoiceType, buyerTaxId, buyerName]);
 
-  const lineSum = useMemo(() => lines.reduce((acc, l) => acc + lineAmount(l), 0), [lines]);
+  /** 課稅（taxType 1）才需要換算未稅／含稅；零稅率與免稅兩者相同 */
+  const taxable = taxType === 1;
+  /** 該列的未稅單價（四捨五入到元） */
+  const unitEx = (l: LineInput) => unitPriceExTax(linePrice(l), priceIsTaxInclusive, taxable);
+  /** 該列的含稅單價（四捨五入到元） */
+  const unitInc = (l: LineInput) => unitPriceIncTax(linePrice(l), priceIsTaxInclusive, taxable);
+  /** 該列進入發票的小計：B2B 以未稅計、B2C 以含稅計 */
+  const lineAmount = (l: LineInput) =>
+    Math.round((invoiceType === "B2B" ? unitEx(l) : unitInc(l)) * lineQty(l) * 100) / 100;
+
+  const lineSum = useMemo(
+    () => lines.reduce((acc, l) => acc + lineAmount(l), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lineAmount 由下列三個狀態決定
+    [lines, invoiceType, priceIsTaxInclusive, taxable],
+  );
   const totals = useMemo(() => calcInvoiceTotals(invoiceType, taxType, lineSum), [invoiceType, taxType, lineSum]);
+
+  /** 已連結訂單的總金額（含稅）合計；皆無金額時為 null */
+  const linkedOrdersTotal = useMemo(() => {
+    const amounts = linkedOrders.map((o) => o.total_amount).filter((v): v is number => v != null);
+    if (amounts.length === 0) return null;
+    const sum = amounts.reduce((acc, v) => acc + Number(v), 0);
+    return sum > 0 ? sum : null;
+  }, [linkedOrders]);
+
+  /** 發票含稅總額與訂單總金額相符（容許 1 元換算誤差） */
+  const orderTotalMatched =
+    linkedOrdersTotal != null && Math.abs(totals.amount_inc_tax - linkedOrdersTotal) <= 1;
+
+  /** 加入來源訂單：同時把該訂單品項附加到明細（空白列不保留） */
+  function addLinkedOrder(o: OrderLinkOption) {
+    if (linkedOrders.some((x) => x.id === o.id)) return;
+    setLinkedOrders((prev) => [...prev, o]);
+    setOrderSearch("");
+    setOrderResults([]);
+    setLoadingPrefill(true);
+    void (async () => {
+      try {
+        const newLines = await loadOrderLines(o.id);
+        if (newLines.length === 0) return;
+        setLines((prev) => {
+          const kept = prev.filter((l) => l.description.trim() || l.unitPrice.trim());
+          return [...kept, ...newLines];
+        });
+        setOrderPrefill((prev) => (prev ? { ...prev, lines: [...prev.lines, ...newLines] } : prev));
+      } catch (err) {
+        console.error("訂單品項帶入失敗:", err);
+        setError(`訂單 ${o.order_number} 的品項帶入失敗：${errText(err, "請手動輸入品項")}`);
+      } finally {
+        setLoadingPrefill(false);
+      }
+    })();
+  }
 
   function updateLine(key: string, patch: Partial<LineInput>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  }
+
+  /** 改另一欄單價：換算回輸入欄（含稅／未稅）的值後存回 */
+  function updateUnitPrice(key: string, value: string, entered: "ex" | "inc") {
+    const v = Number(value);
+    if (value.trim() === "" || Number.isNaN(v)) {
+      updateLine(key, { unitPrice: value });
+      return;
+    }
+    const isInputColumn = priceIsTaxInclusive ? entered === "inc" : entered === "ex";
+    if (isInputColumn || !taxable) {
+      updateLine(key, { unitPrice: value });
+      return;
+    }
+    // 輸入的是換算欄：反推回輸入欄的單價
+    updateLine(key, {
+      unitPrice: String(entered === "ex" ? Math.round(v * 1.05) : Math.round(v / 1.05)),
+    });
   }
 
   /** 拆開訂金開票：明細改為單列「訂金」 */
@@ -356,10 +475,10 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     ]);
   }
 
-  /** 尾款＝訂單品項總額（含運費）－訂金 */
+  /** 尾款＝訂單品項總額（含運費）－訂金；皆為訂單原始金額，不做稅別換算 */
   const balanceAmount = useMemo(() => {
     if (!orderPrefill || orderPrefill.depositAmount <= 0) return 0;
-    const orderTotal = orderPrefill.lines.reduce((acc, l) => acc + lineAmount(l), 0);
+    const orderTotal = orderPrefill.lines.reduce((acc, l) => acc + linePrice(l) * lineQty(l), 0);
     return Math.round((orderTotal - orderPrefill.depositAmount) * 100) / 100;
   }, [orderPrefill]);
 
@@ -381,17 +500,6 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
   function useOrderLines() {
     if (!orderPrefill || orderPrefill.lines.length === 0) return;
     setLines(orderPrefill.lines.map((l) => ({ ...l, key: nextLineKey() })));
-  }
-
-  /** B2B 明細應為未稅：把目前（含稅）單價全部 ÷1.05 */
-  function convertLinesToExTax() {
-    setLines((prev) =>
-      prev.map((l) => {
-        const p = Number(l.unitPrice);
-        if (Number.isNaN(p) || p <= 0) return l;
-        return { ...l, unitPrice: String(Math.round(p / 1.05)) };
-      }),
-    );
   }
 
   async function save(issue: boolean) {
@@ -476,13 +584,14 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
         setCreatedId(invoiceId);
       }
 
+      // 明細落庫語意固定：B2B 存未稅單價、B2C 存含稅單價（與 calcInvoiceTotals 一致）
       const { error: itemsErr } = await supabase.from("sales_invoice_items").insert(
         validLines.map((l, i) => ({
           invoice_id: invoiceId,
           order_item_id: l.order_item_id,
           description: l.description.trim(),
-          quantity: Number(l.quantity) || 1,
-          unit_price: Number(l.unitPrice) || null,
+          quantity: lineQty(l) || 1,
+          unit_price: (invoiceType === "B2B" ? unitEx(l) : unitInc(l)) || null,
           amount: lineAmount(l),
           sort_order: i,
         })),
@@ -533,6 +642,13 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
     "h-8 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60";
   const labelCls = "text-xs font-medium text-muted-foreground";
 
+  /** 新開發票不加說明文字（欄位本身已足夠） */
+  const dialogDesc = readOnly
+    ? "唯讀檢視；如需修改請從列表按編輯（鉛筆）進入"
+    : isEdit
+      ? "調整發票內容後儲存；已作廢發票僅供檢視"
+      : "";
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -540,7 +656,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
         <Dialog.Content
           className="fixed left-1/2 top-1/2 z-50 max-h-[94vh] w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
           onCloseAutoFocus={(e) => e.preventDefault()}
-          aria-describedby="sales-invoice-dialog-desc"
+          aria-describedby={dialogDesc ? "sales-invoice-dialog-desc" : undefined}
         >
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -555,13 +671,11 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                         ? `開立發票：訂單 ${order.order_number}`
                         : "開立發票"}
               </Dialog.Title>
-              <p id="sales-invoice-dialog-desc" className="mt-1 text-sm text-muted-foreground">
-                {readOnly
-                  ? "唯讀檢視；如需修改請從列表按編輯（鉛筆）進入"
-                  : isEdit
-                    ? "調整發票內容後儲存；已作廢發票僅供檢視"
-                    : "號碼留空＝由光賀自動配號開立電子發票；已有紙本手開號碼可直接填入登記"}
-              </p>
+              {dialogDesc && (
+                <p id="sales-invoice-dialog-desc" className="mt-1 text-sm text-muted-foreground">
+                  {dialogDesc}
+                </p>
+              )}
             </div>
             <Dialog.Close asChild>
               <button
@@ -693,9 +807,9 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                 {linkedOrders.map((o) => (
                   <span
                     key={o.id}
-                    className="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-xs tabular-nums text-foreground"
+                    className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-xs tabular-nums text-foreground"
                   >
-                    {o.order_number.replace(/^ORD-/i, "")}
+                    <span className="truncate">{orderLinkLabel(o)}</span>
                     {!readOnly && (
                       <button
                         type="button"
@@ -729,17 +843,13 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                               key={r.id}
                               type="button"
                               className="block w-full px-2 py-1.5 text-left text-xs text-foreground hover:bg-accent/40"
-                              onClick={() => {
-                                setLinkedOrders((prev) => [...prev, r]);
-                                setOrderSearch("");
-                                setOrderResults([]);
-                              }}
+                              onClick={() => addLinkedOrder(r)}
                             >
                               <span className="tabular-nums">{r.order_number.replace(/^ORD-/i, "")}</span>
                               <span className="ml-1.5 text-muted-foreground">
                                 {r.customer_name ?? "—"}
-                                {r.total_amount != null ? `｜$${r.total_amount.toLocaleString()}` : ""}
-                                {r.order_date ? `｜${r.order_date}` : ""}
+                                {r.total_amount != null ? `｜$${Number(r.total_amount).toLocaleString()}` : ""}
+                                {r.order_date ? `｜${formatOrderDateTw(r.order_date)}` : ""}
                               </span>
                             </button>
                           ))}
@@ -758,12 +868,9 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                                 key={s.id}
                                 type="button"
                                 className="rounded border border-dashed border-border px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground hover:border-primary hover:text-foreground"
-                                onClick={() => setLinkedOrders((prev) => [...prev, s])}
+                                onClick={() => addLinkedOrder(s)}
                               >
-                                ＋{s.order_number.replace(/^ORD-/i, "")}
-                                {s.customer_name ? `｜${s.customer_name}` : ""}
-                                {s.total_amount != null ? `｜$${s.total_amount.toLocaleString()}` : ""}
-                                {s.order_date ? `｜${s.order_date}` : ""}
+                                ＋{orderLinkLabel(s)}
                               </button>
                             ))}
                         </div>
@@ -830,7 +937,7 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                 <p className="text-sm font-medium text-foreground">
                   品項明細
                   <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    {invoiceType === "B2B" ? "單價請填未稅" : "單價請填含稅"}
+                    發票以{invoiceType === "B2B" ? "未稅" : "含稅"}金額計算
                   </span>
                 </p>
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -849,60 +956,92 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                       帶入全部品項
                     </Button>
                   )}
-                  {invoiceType === "B2B" && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-7 px-2 text-xs"
-                      title="把目前的含稅單價全部 ÷1.05 轉為未稅"
-                      onClick={convertLinesToExTax}
-                    >
-                      含稅單價轉未稅
-                    </Button>
-                  )}
                 </div>
               </div>
+
+              {/* 輸入金額的稅別（同採購單）：預設含稅，勾選則視為未稅 */}
+              <div className="border-b border-border bg-muted/15 px-3 py-2">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={!priceIsTaxInclusive}
+                    onChange={(e) => setPriceIsTaxInclusive(!e.target.checked)}
+                    className="h-4 w-4 rounded border-input"
+                  />
+                  此金額<strong className="font-medium">未稅</strong>（未勾選＝含稅）
+                </label>
+              </div>
+
+              {/* 欄位標題（手機以輸入框 placeholder 標示） */}
+              <div className="hidden border-b border-border px-3 py-1 text-xs text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_3.5rem_6rem_6rem_5.5rem_2rem] sm:gap-2">
+                <span>品名</span>
+                <span className="text-right">數量</span>
+                <span className="text-right">未稅單價</span>
+                <span className="text-right">含稅單價</span>
+                <span className="text-right">小計</span>
+                <span />
+              </div>
+
               <div className="divide-y divide-border">
-                {lines.map((l) => (
-                  <div key={l.key} className="grid grid-cols-[minmax(0,1fr)_4.5rem_6rem_6rem_2rem] items-center gap-2 px-3 py-1.5">
-                    <input
-                      type="text"
-                      value={l.description}
-                      onChange={(e) => updateLine(l.key, { description: e.target.value })}
-                      placeholder="品名"
-                      aria-label="品名"
-                      className={inputCls}
-                    />
-                    <input
-                      type="number"
-                      value={l.quantity}
-                      onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
-                      aria-label="數量"
-                      className={`${inputCls} text-right`}
-                    />
-                    <input
-                      type="number"
-                      value={l.unitPrice}
-                      onChange={(e) => updateLine(l.key, { unitPrice: e.target.value })}
-                      placeholder="單價"
-                      aria-label="單價"
-                      className={`${inputCls} text-right`}
-                    />
-                    <span className="text-right text-sm tabular-nums text-foreground">
-                      {lineAmount(l).toLocaleString()}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                      title="刪除此列"
-                      onClick={() => setLines((prev) => (prev.length > 1 ? prev.filter((x) => x.key !== l.key) : prev))}
+                {lines.map((l) => {
+                  const blank = l.unitPrice.trim() === "";
+                  return (
+                    <div
+                      key={l.key}
+                      className="px-3 py-2 sm:grid sm:grid-cols-[minmax(0,1fr)_3.5rem_6rem_6rem_5.5rem_2rem] sm:items-center sm:gap-2 sm:py-1.5"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ))}
+                      <input
+                        type="text"
+                        value={l.description}
+                        onChange={(e) => updateLine(l.key, { description: e.target.value })}
+                        placeholder="品名"
+                        aria-label="品名"
+                        className={`${inputCls} mb-1.5 sm:mb-0`}
+                      />
+                      <div className="grid grid-cols-[3.25rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-1.5 sm:contents">
+                        <input
+                          type="number"
+                          value={l.quantity}
+                          onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
+                          placeholder="數量"
+                          aria-label="數量"
+                          className={`${inputCls} text-right`}
+                        />
+                        <input
+                          type="number"
+                          value={blank ? "" : String(unitEx(l))}
+                          onChange={(e) => updateUnitPrice(l.key, e.target.value, "ex")}
+                          placeholder="未稅"
+                          aria-label="未稅單價"
+                          className={`${inputCls} text-right ${priceIsTaxInclusive && taxable ? "text-muted-foreground" : ""}`}
+                        />
+                        <input
+                          type="number"
+                          value={blank ? "" : String(unitInc(l))}
+                          onChange={(e) => updateUnitPrice(l.key, e.target.value, "inc")}
+                          placeholder="含稅"
+                          aria-label="含稅單價"
+                          className={`${inputCls} text-right ${!priceIsTaxInclusive && taxable ? "text-muted-foreground" : ""}`}
+                        />
+                        <span className="hidden text-right text-sm tabular-nums text-foreground sm:block">
+                          {lineAmount(l).toLocaleString()}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          title="刪除此列"
+                          onClick={() =>
+                            setLines((prev) => (prev.length > 1 ? prev.filter((x) => x.key !== l.key) : prev))
+                          }
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <div className="flex items-center justify-between border-t border-border px-3 py-2">
                 <Button
@@ -919,6 +1058,11 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                     未稅 ${totals.amount_ex_tax.toLocaleString()}｜稅額 ${totals.tax_amount.toLocaleString()}｜
                   </span>
                   <span className="font-semibold text-foreground">含稅 ${totals.amount_inc_tax.toLocaleString()}</span>
+                  {orderTotalMatched && (
+                    <span className="ml-2 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                      訂單總金額吻合
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

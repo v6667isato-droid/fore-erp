@@ -26,6 +26,22 @@ export const SOURCE_LABELS: Record<AccountingInvoiceSource, string> = {
   gmail: "Gmail",
 };
 
+/**
+ * 發票歸類：company=公司發票（有買方統編，可扣抵進項）／family=家庭發票（無買方統編，可對獎）
+ * 由買方統編即時判斷，不另存欄位；買方統編改了分類就跟著改。
+ */
+export type InvoiceOwnerCategory = "company" | "family";
+
+export const OWNER_CATEGORY_LABELS: Record<InvoiceOwnerCategory, string> = {
+  company: "公司發票",
+  family: "家庭發票",
+};
+
+/** 依買方統編歸類：留空＝家庭發票，有統編＝公司發票 */
+export function invoiceOwnerCategory(buyerTaxId: string | null | undefined): InvoiceOwnerCategory {
+  return (buyerTaxId ?? "").trim() ? "company" : "family";
+}
+
 export interface AccountingInvoiceRow {
   id: string;
   file_path: string;

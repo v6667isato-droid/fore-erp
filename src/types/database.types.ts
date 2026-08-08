@@ -778,6 +778,7 @@ export type Database = {
       customers: {
         Row: {
           alias: string | null
+          brand_name: string | null
           channel_id: string | null
           company: string | null
           contact_method: string | null
@@ -801,6 +802,7 @@ export type Database = {
         }
         Insert: {
           alias?: string | null
+          brand_name?: string | null
           channel_id?: string | null
           company?: string | null
           contact_method?: string | null
@@ -824,6 +826,7 @@ export type Database = {
         }
         Update: {
           alias?: string | null
+          brand_name?: string | null
           channel_id?: string | null
           company?: string | null
           contact_method?: string | null
@@ -1086,6 +1089,39 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_lottery_draws: {
+        Row: {
+          first_prizes: string[]
+          grand_prize: string
+          label: string
+          period: string
+          sixth_extra_prizes: string[]
+          source_url: string | null
+          special_prize: string
+          synced_at: string
+        }
+        Insert: {
+          first_prizes?: string[]
+          grand_prize: string
+          label: string
+          period: string
+          sixth_extra_prizes?: string[]
+          source_url?: string | null
+          special_prize: string
+          synced_at?: string
+        }
+        Update: {
+          first_prizes?: string[]
+          grand_prize?: string
+          label?: string
+          period?: string
+          sixth_extra_prizes?: string[]
+          source_url?: string | null
+          special_prize?: string
+          synced_at?: string
+        }
+        Relationships: []
+      }
       invoice_scans: {
         Row: {
           created_at: string | null
@@ -1300,6 +1336,30 @@ export type Database = {
           sort_order?: number
           statutory_days?: number | null
           tracks_balance?: boolean
+        }
+        Relationships: []
+      }
+      material_category_groups: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+          subcategories: string[]
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+          subcategories?: string[]
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          subcategories?: string[]
         }
         Relationships: []
       }
