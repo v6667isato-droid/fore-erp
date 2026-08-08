@@ -476,10 +476,8 @@ function formatCurrency(n: number): string {
 
 function OrderFullDetailSections({
   order,
-  warm,
 }: {
   order: OverviewOrder;
-  warm: boolean;
 }) {
   const itemsSubtotal = order.lines.reduce(
     (sum, l) => sum + l.quantity * l.unit_price,
@@ -490,8 +488,8 @@ function OrderFullDetailSections({
     order.shipping_address?.trim() ||
     order.shipping_contact_phone?.trim() ||
     order.shipping_has_elevator != null;
-  const borderCls = warm ? "border-[#E6DFD3]" : "border-border";
-  const mutedBg = warm ? "bg-[#FAF8F4]" : "bg-muted/30";
+  const borderCls = "border-border";
+  const mutedBg = "bg-muted/30";
 
   return (
     <div className={cn("flex flex-col gap-4 border-t px-4 py-4 sm:px-5", borderCls)}>
@@ -558,7 +556,7 @@ function OrderFullDetailSections({
                   const lineTotal = line.quantity * line.unit_price;
                   return (
                     <Fragment key={line.order_item_id}>
-                      <tr className={cn("border-b align-top", warm ? "border-[#EEE8DE]" : "border-border")}>
+                      <tr className="border-b border-border align-top">
                         <td className="p-2">
                           {line.image_url ? (
                             <div className="h-14 w-14 overflow-hidden rounded border border-border bg-muted/40">
@@ -573,7 +571,6 @@ function OrderFullDetailSections({
                               imageUrl={line.thumbnail_url}
                               sizeClassName="h-14 w-14"
                               compactPlaceholder
-                              className={warm ? "border-[#E0D8CC] bg-white/80" : undefined}
                             />
                           )}
                         </td>
@@ -621,7 +618,7 @@ function OrderFullDetailSections({
                         </td>
                       </tr>
                       {notes ? (
-                        <tr className={cn("border-b", warm ? "border-[#EEE8DE]" : "border-border")}>
+                        <tr className="border-b border-border">
                           <td className="px-2 py-1.5 text-muted-foreground align-top">備註</td>
                           <td colSpan={10} className="px-2 py-1.5 text-muted-foreground whitespace-pre-line break-words">
                             {notes}
@@ -691,8 +688,6 @@ export function OrderOverviewCard({
   variant = "page",
   onEditOrder,
   showEditButton = true,
-  /** 通路／精簡檢視：米色摘要區，贴近訂單總覽示意 */
-  visualTone = "default",
   /** 完整訂單：明細、設計圖、金額與配送資訊 */
   detailLevel = "summary",
 }: {
@@ -701,24 +696,14 @@ export function OrderOverviewCard({
   onEditOrder?: () => void;
   /** dialog 時是否顯示「編輯訂單」（通路客戶端可關閉） */
   showEditButton?: boolean;
+  /** 視覺分支已統一為語意 token；保留 prop 以維持對外介面 */
   visualTone?: "default" | "warm";
   detailLevel?: "summary" | "full";
 }) {
-  const warm = visualTone === "warm";
   const full = detailLevel === "full";
   return (
-    <div
-      className={cn(
-        "overflow-x-auto rounded-xl border bg-card shadow-sm",
-        warm ? "border-[#E6DFD3]" : "border-border"
-      )}
-    >
-      <div
-        className={cn(
-          "flex flex-col gap-3 border-b px-4 py-3 sm:p-4",
-          warm ? "border-[#E6DFD3] bg-[#F4EFE8]" : "border-border bg-muted/30"
-        )}
-      >
+    <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-4 py-3 sm:p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
             <span className="font-mono text-base font-semibold tabular-nums text-foreground">
@@ -764,12 +749,7 @@ export function OrderOverviewCard({
             </Button>
           ) : null}
         </div>
-        <div
-          className={cn(
-            "flex flex-wrap items-center gap-2 text-xs",
-            warm ? "text-[#5c574f]" : "text-muted-foreground"
-          )}
-        >
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <Badge
             variant="outline"
             className={cn(
@@ -806,7 +786,7 @@ export function OrderOverviewCard({
         </div>
       </div>
 
-      {full ? <OrderFullDetailSections order={order} warm={warm} /> : null}
+      {full ? <OrderFullDetailSections order={order} /> : null}
 
       {/* 精簡檢視：品項負責人與工序進度表（完整檢視已併入訂單明細） */}
       {!full ? (
@@ -814,12 +794,7 @@ export function OrderOverviewCard({
       {/* 欄位皆不換行；容器（ui/table 外層）在寬度不足時整表橫向捲動（含手機） */}
       <Table className="min-w-[48rem] w-full text-xs">
         <TableHeader>
-          <TableRow
-            className={cn(
-              "hover:bg-transparent border-b",
-              warm ? "border-[#E8E0D4] bg-[#FAF8F4]" : "border-border"
-            )}
-          >
+          <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
             <TableHead className="px-2 text-xs font-semibold whitespace-nowrap">
               品項
             </TableHead>
@@ -869,10 +844,7 @@ export function OrderOverviewCard({
                 ? `${line.product_code} ${line.item_name}`
                 : line.item_name;
               return (
-                <TableRow
-                  key={line.order_item_id}
-                  className={cn("border-b", warm ? "border-[#EEE8DE]" : "border-border")}
-                >
+                <TableRow key={line.order_item_id} className="border-b border-border">
                   <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       {full && line.image_url ? (
@@ -888,7 +860,6 @@ export function OrderOverviewCard({
                         imageUrl={line.thumbnail_url}
                         sizeClassName="h-10 w-10"
                         compactPlaceholder
-                        className={warm ? "border-[#E0D8CC] bg-white/80" : undefined}
                       />
                       )}
                       <span className="text-foreground">{itemDisplay}</span>

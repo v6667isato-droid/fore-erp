@@ -68,14 +68,14 @@ export function LeadTimeWaterLevelRow({
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className={`relative ${md ? "h-3.5" : "h-3"} w-full overflow-hidden rounded-full bg-secondary`}>
+        <div className={`relative ${md ? "h-3.5" : "h-3"} w-full overflow-hidden rounded-full bg-bar-track`}>
           <div className="absolute inset-y-0 left-0 flex w-full">
             <div
-              className="h-full bg-[var(--badge-progress)] transition-all"
+              className="h-full bg-bar-fill transition-all"
               style={{ width: `${normalPct}%` }}
             />
             {excessPct > 0 && (
-              <div className="h-full bg-amber-500 transition-all" style={{ width: `${excessPct}%` }} />
+              <div className="h-full bg-accent-warn transition-all" style={{ width: `${excessPct}%` }} />
             )}
           </div>
           {/* 月分隔線（每格＝一個月產能） */}
@@ -97,7 +97,7 @@ export function LeadTimeWaterLevelRow({
       </div>
       <div className={`shrink-0 ${textCls} text-foreground sm:w-36 sm:text-right`} title={detailTitle}>
         預估交期：
-        <span className={`font-semibold ${overloaded ? "text-amber-600 dark:text-amber-400" : ""}`}>
+        <span className={`font-semibold ${overloaded ? "text-accent-warn" : ""}`}>
           {displayMonths.toFixed(1)} 個月
         </span>
       </div>

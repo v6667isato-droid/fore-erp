@@ -133,7 +133,7 @@ function normalizeHistoryRow(raw: Record<string, unknown>): AttendanceHistoryRow
 }
 
 const selectClass =
-  "h-10 w-full max-w-xs rounded-lg border border-stone-200/90 bg-white px-3 text-sm text-stone-800 shadow-sm focus:border-amber-600/40 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-border dark:bg-background dark:text-foreground";
+  "h-10 w-full max-w-xs rounded-lg border border-input bg-card px-3 text-sm text-foreground shadow-sm focus:border-ring/40 focus:outline-none focus:ring-2 focus:ring-ring/20";
 
 export function AttendanceHistoryPanel() {
   const [monthYm, setMonthYm] = useState(currentYmLocal);
@@ -243,10 +243,10 @@ export function AttendanceHistoryPanel() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="rounded-xl border border-stone-200/80 bg-gradient-to-br from-stone-50/90 to-amber-50/30 p-4 shadow-sm dark:border-border dark:from-card dark:to-card">
+      <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
           <div className="flex flex-col gap-1">
-            <label htmlFor="hist-month" className="text-xs font-medium text-stone-700 dark:text-foreground">
+            <label htmlFor="hist-month" className="text-xs font-medium text-foreground">
               月份
             </label>
             <input
@@ -258,7 +258,7 @@ export function AttendanceHistoryPanel() {
             />
           </div>
           <div className="flex min-w-[12rem] flex-col gap-1 sm:min-w-[14rem]">
-            <label htmlFor="hist-emp" className="text-xs font-medium text-stone-700 dark:text-foreground">
+            <label htmlFor="hist-emp" className="text-xs font-medium text-foreground">
               員工
             </label>
             <select
@@ -283,7 +283,7 @@ export function AttendanceHistoryPanel() {
             </span>
           )}
           <div
-            className="inline-flex rounded-lg border border-stone-200/80 bg-white p-0.5 shadow-sm dark:border-border dark:bg-background"
+            className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-sm"
             role="group"
             aria-label="查詢結果顯示方式"
           >
@@ -293,7 +293,7 @@ export function AttendanceHistoryPanel() {
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors",
                 viewMode === "list"
-                  ? "bg-amber-600/15 text-stone-900 shadow-sm dark:bg-primary/15 dark:text-foreground"
+                  ? "bg-primary/15 text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -306,7 +306,7 @@ export function AttendanceHistoryPanel() {
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors",
                 viewMode === "calendar"
-                  ? "bg-amber-600/15 text-stone-900 shadow-sm dark:bg-primary/15 dark:text-foreground"
+                  ? "bg-primary/15 text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -323,9 +323,9 @@ export function AttendanceHistoryPanel() {
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-stone-200/90 bg-white shadow-sm dark:border-border dark:bg-card">
-        <div className="border-b border-stone-100 bg-stone-50/80 px-4 py-3 dark:border-border dark:bg-muted/30">
-          <p className="text-sm font-medium text-stone-800 dark:text-foreground">
+      <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+        <div className="border-b border-border bg-muted/50 px-4 py-3">
+          <p className="text-sm font-medium text-foreground">
             查詢結果
             <span className="ml-2 font-normal tabular-nums text-muted-foreground">· {monthLabel}</span>
           </p>
@@ -350,13 +350,13 @@ export function AttendanceHistoryPanel() {
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-7 gap-px rounded-lg border border-stone-200/90 bg-stone-200/90 dark:border-border dark:bg-border">
+            <div className="grid grid-cols-7 gap-px rounded-lg border border-border bg-border">
               {calendarCells.map((cell, idx) => {
                 if (!cell.dateIso) {
                   return (
                     <div
                       key={`pad-${idx}`}
-                      className="min-h-[6rem] bg-stone-50/40 sm:min-h-[6.5rem] dark:bg-muted/30"
+                      className="min-h-[6rem] bg-muted/40 sm:min-h-[6.5rem]"
                       aria-hidden
                     />
                   );
@@ -369,13 +369,13 @@ export function AttendanceHistoryPanel() {
                   <div
                     key={cell.dateIso}
                     className={cn(
-                      "flex min-h-[6rem] flex-col bg-white p-1.5 sm:min-h-[6.5rem] dark:bg-card",
-                      weekend && !abnormal && "bg-stone-50/50 dark:bg-muted/15",
+                      "flex min-h-[6rem] flex-col bg-card p-1.5 sm:min-h-[6.5rem]",
+                      weekend && !abnormal && "bg-muted/50",
                       abnormal && "bg-red-50/90 dark:bg-red-950/25",
                     )}
                   >
                     <div className="flex shrink-0 justify-end">
-                      <span className="text-[11px] font-semibold tabular-nums text-stone-600 dark:text-muted-foreground">
+                      <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">
                         {dayNum}
                       </span>
                     </div>
@@ -390,10 +390,10 @@ export function AttendanceHistoryPanel() {
                           return (
                             <div
                               key={rowKey}
-                              className="rounded-md border border-stone-100/90 bg-white/60 px-1 py-0.5 text-[10px] leading-snug dark:border-border dark:bg-background/40"
+                              className="rounded-md border border-border bg-card/60 px-1 py-0.5 text-[10px] leading-snug"
                             >
                               {!employeeId && (
-                                <div className="truncate font-medium text-stone-800 dark:text-foreground">
+                                <div className="truncate font-medium text-foreground">
                                   {r.employees?.name?.trim() || "—"}
                                 </div>
                               )}
@@ -423,26 +423,26 @@ export function AttendanceHistoryPanel() {
           <div className="overflow-x-auto">
             <Table className="min-w-[48rem]">
               <TableHeader>
-                <TableRow className="border-stone-200/90 bg-stone-100/60 hover:bg-stone-100/60 dark:border-border dark:bg-muted/40 dark:hover:bg-muted/40">
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-stone-700 dark:text-foreground">
+                <TableRow className="border-border bg-muted/60 hover:bg-muted/60">
+                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
                     日期
                   </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-stone-700 dark:text-foreground">
+                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
                     星期
                   </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-stone-700 dark:text-foreground">
+                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
                     員工姓名
                   </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-stone-700 dark:text-foreground">
+                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
                     上班
                   </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-stone-700 dark:text-foreground">
+                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
                     下班
                   </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-stone-700 dark:text-foreground">
+                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
                     總工時
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-stone-700 dark:text-foreground">
+                  <TableHead className="text-xs font-semibold text-foreground">
                     狀態／標籤
                   </TableHead>
                 </TableRow>
@@ -459,31 +459,31 @@ export function AttendanceHistoryPanel() {
                     <TableRow
                       key={rowKey}
                       className={cn(
-                        "border-stone-100 dark:border-border",
+                        "border-border",
                         r.is_abnormal &&
                           "bg-red-50/85 dark:bg-red-950/20 dark:hover:bg-red-950/25",
-                        !r.is_abnormal && "hover:bg-stone-50/80 dark:hover:bg-muted/25",
+                        !r.is_abnormal && "hover:bg-muted/50",
                       )}
                     >
-                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-stone-800 dark:text-foreground">
+                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
                         {formatDisplayDate(iso)}
                       </TableCell>
-                      <TableCell className="text-sm text-stone-600 dark:text-muted-foreground">
+                      <TableCell className="text-sm text-muted-foreground">
                         {weekdayLabelFromIso(iso)}
                       </TableCell>
-                      <TableCell className="text-sm font-medium text-stone-800 dark:text-foreground">
+                      <TableCell className="text-sm font-medium text-foreground">
                         {name}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-stone-700 dark:text-foreground">
+                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
                         {formatClockDb(r.clock_in)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-stone-700 dark:text-foreground">
+                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
                         {formatClockDb(r.clock_out)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-stone-700 dark:text-foreground">
+                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
                         {r.total_hours != null ? `${r.total_hours} 小時` : "—"}
                       </TableCell>
-                      <TableCell className="min-w-[10rem] text-sm text-stone-700 dark:text-foreground">
+                      <TableCell className="min-w-[10rem] text-sm text-foreground">
                         {statusText ? (
                           <span className="leading-relaxed">{statusText}</span>
                         ) : (

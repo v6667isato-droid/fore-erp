@@ -224,7 +224,7 @@ function WarCalendar({
                   className={cn(
                     "flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border px-2 py-1 text-[11px] font-medium",
                     h.is_workday
-                      ? "border-slate-400/50 bg-slate-100/90 text-slate-900 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                      ? "border-ring/50 bg-accent text-accent-foreground"
                       : !h.is_paid
                         ? "border-fuchsia-500/45 bg-fuchsia-100/80 text-fuchsia-950 dark:border-fuchsia-700/40 dark:bg-fuchsia-950/50 dark:text-fuchsia-50"
                         : "border-emerald-600/35 bg-emerald-100/80 text-emerald-950 dark:border-emerald-800/40 dark:bg-emerald-950/45 dark:text-emerald-50",
@@ -241,7 +241,7 @@ function WarCalendar({
                     className={cn(
                       "rounded px-1.5 py-0.5 text-[10px] font-semibold",
                       h.is_workday
-                        ? "bg-slate-200/90 text-slate-800 dark:bg-slate-800 dark:text-slate-200"
+                        ? "bg-muted text-foreground"
                         : !h.is_paid
                           ? "bg-fuchsia-200/90 text-fuchsia-900 dark:bg-fuchsia-900/70 dark:text-fuchsia-100"
                           : "bg-emerald-200/90 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-100",
@@ -301,13 +301,13 @@ function WarCalendar({
               : entries.length > 0 || compOffLines.length > 0
                 ? "bg-amber-50/55 dark:bg-amber-950/20"
                 : hasRestHoliday
-                  ? "bg-slate-100/80 dark:bg-slate-900/45"
+                  ? "bg-muted/70"
                   : showAllPunchNormal
                     ? "bg-blue-50/90 dark:bg-blue-950/40"
                     : hasLeaves
                       ? "bg-emerald-50/35 dark:bg-emerald-950/20"
                       : hasMakeupOnly
-                        ? "bg-slate-100/55 dark:bg-slate-950/30"
+                        ? "bg-muted/50"
                         : !hasCalendarContent
                           ? "bg-card/60 dark:bg-card/20"
                           : null;
@@ -327,7 +327,7 @@ function WarCalendar({
                   </div>
 
                   {showRestDayStrip && (
-                    <div className="shrink-0 rounded-md border border-slate-400/35 bg-slate-200/70 px-1.5 py-1 text-center text-[9px] font-semibold text-slate-900 dark:border-slate-600/50 dark:bg-slate-800/70 dark:text-slate-100">
+                    <div className="shrink-0 rounded-md border border-border bg-muted px-1.5 py-1 text-center text-[9px] font-semibold text-foreground">
                       本日為休假日
                     </div>
                   )}

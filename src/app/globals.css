@@ -1,20 +1,49 @@
 @import "tailwindcss";
 
+/* dark: variant 綁定主題系統（深夜工坊），而非作業系統偏好 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * ============================================================
+ * Token 架構
+ * 換主題＝換色相，不動明度架構。
+ * - 中性 token（文字、卡片、邊框、placeholder）淺色主題共用，禁止覆寫
+ * - 主題只覆寫色相 token：背景、側欄、強調色、bar、active 淡底
+ * - 深夜工坊（dark）是唯一可覆寫中性 token 的主題
+ * - --accent-warn 為語意警示色（已到期／未建），六主題一律橘色系
+ * ============================================================
+ */
+
 :root {
+  /* ---- 中性 token（所有淺色主題共用） ---- */
+  --foreground: #1a1a1a;        /* text-primary：永遠近黑，不隨主題染色 */
+  --muted-foreground: #6b6b6b;  /* text-muted：中性灰 */
+  --card: #ffffff;              /* 純白卡片，浮在背景上 */
+  --card-foreground: #1a1a1a;
+  --muted: #f0efec;
+  --border: #e5e5e3;
+  --input: #e5e5e3;
+  --placeholder: #f0f0ee;       /* 表格縮圖底色 */
+  --accent-warn: #e8940a;       /* 交期警示／缺漏。語意色，全主題不變 */
+  --accent-warn-bg: #fdf3e1;    /* 警示 badge 淡底 */
+
+  /* ---- 狀態色（語意，淺色主題共用） ---- */
+  --kanban-todo: #f0efec;
+  --kanban-progress: #faf3e2;
+  --kanban-done: #e9f1e7;
+  --badge-pending: #eceae6;
+  --badge-pending-fg: #55524c;
+  --badge-done: #e3efe1;
+  --badge-done-fg: #2f6b38;
+
+  /* ---- default 曉雨原色（現行基準）色相 token ---- */
   --background: #faf7f2;
-  --foreground: #2c2418;
-  --card: #ffffff;
-  --card-foreground: #2c2418;
   --primary: #5c4033;
   --primary-foreground: #faf7f2;
   --secondary: #f0e8da;
   --secondary-foreground: #3d2e1e;
-  --muted: #ede5d8;
-  --muted-foreground: #7a6b5d;
-  --accent: #c4a882;
-  --accent-foreground: #2c2418;
-  --border: #ddd4c4;
-  --input: #ddd4c4;
+  --accent: #f0e8da;            /* active tab / hover 淡色底 */
+  --accent-foreground: #3d2e1e;
   --ring: #c4a882;
   --sidebar: #2c2418;
   --sidebar-foreground: #ede5d8;
@@ -22,250 +51,139 @@
   --sidebar-primary-foreground: #2c2418;
   --sidebar-accent: #3d2e1e;
   --sidebar-border: #3d2e1e;
-  --kanban-todo: #f0e8da;
-  --kanban-progress: #fff8e7;
-  --kanban-done: #e8f0e4;
-  --badge-pending: #e8d5b8;
-  --badge-pending-fg: #5c4033;
-  --badge-progress: #c4a882;
-  --badge-progress-fg: #2c2418;
-  --badge-done: #7a9a6d;
-  --badge-done-fg: #ffffff;
+  --bar-track: #e8e0d2;
+  --bar-fill: #c4a882;
+  --badge-progress: #f0e8da;
+  --badge-progress-fg: #5c4033;
 }
 
-/* 夜間模式（深色主題） */
-html.dark {
-  --background: #1a1714;
-  --foreground: #ede5d8;
-  --card: #252119;
-  --card-foreground: #ede5d8;
-  --primary: #c4a882;
-  --primary-foreground: #1a1714;
-  --secondary: #2c2418;
-  --secondary-foreground: #ede5d8;
-  --muted: #2c2418;
-  --muted-foreground: #a89984;
-  --accent: #5c4033;
-  --accent-foreground: #ede5d8;
-  --border: #3d2e1e;
-  --input: #3d2e1e;
-  --ring: #c4a882;
-  --sidebar: #1a1714;
-  --sidebar-foreground: #ede5d8;
-  --sidebar-primary: #c4a882;
-  --sidebar-primary-foreground: #1a1714;
-  --sidebar-accent: #2c2418;
-  --sidebar-border: #3d2e1e;
-  --kanban-todo: #2c2418;
-  --kanban-progress: #3d2e1e;
-  --kanban-done: #2a3320;
-  --badge-pending: #3d2e1e;
-  --badge-pending-fg: #c4a882;
-  --badge-progress: #5c4033;
-  --badge-progress-fg: #ede5d8;
-  --badge-done: #4a5c3d;
-  --badge-done-fg: #e8f0e4;
+/* ===== 深夜工坊（唯一可覆寫中性 token 的主題） ===== */
+html[data-theme="dark"] {
+  --background: #1c1611;
+  --foreground: #ede6db;
+  --card: #26201a;
+  --card-foreground: #ede6db;
+  --muted: #2e2721;
+  --muted-foreground: #a89b8c;
+  --border: #3a322a;
+  --input: #3a322a;
+  --placeholder: #322b23;
+  --accent-warn: #f0a030;       /* 深底微調提高可讀性，仍為橘色系 */
+  --accent-warn-bg: #3a2e1a;
+
+  --primary: #f0a030;
+  --primary-foreground: #241603;
+  --secondary: #3a2e1a;
+  --secondary-foreground: #ecd9b8;
+  --accent: #3a2e1a;
+  --accent-foreground: #ecd9b8;
+  --ring: #f0a030;
+  --sidebar: #141008;
+  --sidebar-foreground: #d8cdbd;
+  --sidebar-primary: #f0a030;
+  --sidebar-primary-foreground: #141008;
+  --sidebar-accent: #241c12;
+  --sidebar-border: #241c12;
+  --bar-track: #4a3e30;
+  --bar-fill: #a08454;
+
+  --kanban-todo: #2e2721;
+  --kanban-progress: #3b3220;
+  --kanban-done: #243122;
+  --badge-pending: #332c24;
+  --badge-pending-fg: #b8ab99;
+  --badge-progress: #3a2e1a;
+  --badge-progress-fg: #f0c070;
+  --badge-done: #2a3d2c;
+  --badge-done-fg: #a8d0a8;
 }
 
-/* ===== 配色主題：墨綠 ===== */
+/* ===== 墨青 ===== */
+html[data-theme="ink"] {
+  --background: #f5f6f8;
+  --primary: #2563a8;
+  --primary-foreground: #ffffff;
+  --secondary: #e7eef7;
+  --secondary-foreground: #1e466e;
+  --accent: #e7eef7;
+  --accent-foreground: #1e466e;
+  --ring: #2563a8;
+  --sidebar: #16202e;
+  --sidebar-foreground: #dbe3ec;
+  --sidebar-primary: #7fa8d9;
+  --sidebar-primary-foreground: #16202e;
+  --sidebar-accent: #223040;
+  --sidebar-border: #223040;
+  --bar-track: #d8dee6;
+  --bar-fill: #8fa8c4;
+  --badge-progress: #e7eef7;
+  --badge-progress-fg: #2563a8;
+}
+
+/* ===== 森林 ===== */
 html[data-theme="forest"] {
-  --background: #f4f7f2;
-  --foreground: #1e2a1e;
-  --card: #ffffff;
-  --card-foreground: #1e2a1e;
-  --primary: #3d5a3d;
-  --primary-foreground: #f4f7f2;
-  --secondary: #e3ece0;
-  --secondary-foreground: #263a26;
-  --muted: #e0e9dc;
-  --muted-foreground: #647560;
-  --accent: #8faf83;
-  --accent-foreground: #1e2a1e;
-  --border: #ccdac6;
-  --input: #ccdac6;
-  --ring: #8faf83;
-  --sidebar: #1e2a1e;
-  --sidebar-foreground: #e0e9dc;
-  --sidebar-primary: #9dc08b;
-  --sidebar-primary-foreground: #1e2a1e;
-  --sidebar-accent: #2c3f2c;
-  --sidebar-border: #2c3f2c;
-  --kanban-todo: #e3ece0;
-  --kanban-progress: #f2f5e3;
-  --kanban-done: #dfeee7;
-  --badge-pending: #cfe0c4;
-  --badge-pending-fg: #3d5a3d;
-  --badge-progress: #8faf83;
-  --badge-progress-fg: #1e2a1e;
-  --badge-done: #5a8a6d;
-  --badge-done-fg: #ffffff;
+  --background: #f5f6f2;
+  --primary: #3d7a34;
+  --primary-foreground: #ffffff;
+  --secondary: #e9f2e6;
+  --secondary-foreground: #2c5726;
+  --accent: #e9f2e6;
+  --accent-foreground: #2c5726;
+  --ring: #3d7a34;
+  --sidebar: #22301f;
+  --sidebar-foreground: #dde5d9;
+  --sidebar-primary: #8fbb84;
+  --sidebar-primary-foreground: #22301f;
+  --sidebar-accent: #2e3f2a;
+  --sidebar-border: #2e3f2a;
+  --bar-track: #dde2d8;
+  --bar-fill: #9bb392;
+  --badge-progress: #e9f2e6;
+  --badge-progress-fg: #2f6b28;
 }
 
-html[data-theme="forest"].dark {
-  --background: #141a14;
-  --foreground: #dce6d8;
-  --card: #1c241c;
-  --card-foreground: #dce6d8;
-  --primary: #9dc08b;
-  --primary-foreground: #141a14;
-  --secondary: #222e22;
-  --secondary-foreground: #dce6d8;
-  --muted: #222e22;
-  --muted-foreground: #93a68d;
-  --accent: #3d5a3d;
-  --accent-foreground: #dce6d8;
-  --border: #2c3f2c;
-  --input: #2c3f2c;
-  --ring: #9dc08b;
-  --sidebar: #141a14;
-  --sidebar-foreground: #dce6d8;
-  --sidebar-primary: #9dc08b;
-  --sidebar-primary-foreground: #141a14;
-  --sidebar-accent: #222e22;
-  --sidebar-border: #2c3f2c;
-  --kanban-todo: #222e22;
-  --kanban-progress: #2e3a26;
-  --kanban-done: #1f3326;
-  --badge-pending: #2c3f2c;
-  --badge-pending-fg: #9dc08b;
-  --badge-progress: #3d5a3d;
-  --badge-progress-fg: #dce6d8;
-  --badge-done: #4a6b52;
-  --badge-done-fg: #e2efe6;
+/* ===== 紙上極簡 ===== */
+html[data-theme="mono"] {
+  --background: #fafaf8;
+  --primary: #e8940a;           /* 唯一彩色 */
+  --primary-foreground: #2b1a02;
+  --secondary: #f5efe3;
+  --secondary-foreground: #7a4e06;
+  --accent: #f5efe3;
+  --accent-foreground: #7a4e06;
+  --ring: #e8940a;
+  --sidebar: #111111;
+  --sidebar-foreground: #e6e6e4;
+  --sidebar-primary: #e8940a;
+  --sidebar-primary-foreground: #111111;
+  --sidebar-accent: #222222;
+  --sidebar-border: #222222;
+  --bar-track: #e8e8e6;
+  --bar-fill: #b5b5b2;
+  --badge-progress: #f5efe3;
+  --badge-progress-fg: #8a5a08;
 }
 
-/* ===== 配色主題：靛藍 ===== */
-html[data-theme="indigo"] {
-  --background: #f4f6fa;
-  --foreground: #1e2433;
-  --card: #ffffff;
-  --card-foreground: #1e2433;
-  --primary: #3d5177;
-  --primary-foreground: #f4f6fa;
-  --secondary: #e3e8f1;
-  --secondary-foreground: #26304a;
-  --muted: #e0e6ef;
-  --muted-foreground: #64708a;
-  --accent: #8298c0;
-  --accent-foreground: #1e2433;
-  --border: #ccd5e4;
-  --input: #ccd5e4;
-  --ring: #8298c0;
-  --sidebar: #1e2433;
-  --sidebar-foreground: #e0e6ef;
-  --sidebar-primary: #9db4dd;
-  --sidebar-primary-foreground: #1e2433;
-  --sidebar-accent: #2a3450;
-  --sidebar-border: #2a3450;
-  --kanban-todo: #e3e8f1;
-  --kanban-progress: #eceffb;
-  --kanban-done: #e2efe8;
-  --badge-pending: #c6d3e8;
-  --badge-pending-fg: #3d5177;
-  --badge-progress: #8298c0;
-  --badge-progress-fg: #1e2433;
-  --badge-done: #6a9480;
-  --badge-done-fg: #ffffff;
-}
-
-html[data-theme="indigo"].dark {
-  --background: #14171f;
-  --foreground: #dce2ee;
-  --card: #1c2029;
-  --card-foreground: #dce2ee;
-  --primary: #9db4dd;
-  --primary-foreground: #14171f;
-  --secondary: #222839;
-  --secondary-foreground: #dce2ee;
-  --muted: #222839;
-  --muted-foreground: #8f9ab3;
-  --accent: #3d5177;
-  --accent-foreground: #dce2ee;
-  --border: #2a3450;
-  --input: #2a3450;
-  --ring: #9db4dd;
-  --sidebar: #14171f;
-  --sidebar-foreground: #dce2ee;
-  --sidebar-primary: #9db4dd;
-  --sidebar-primary-foreground: #14171f;
-  --sidebar-accent: #222839;
-  --sidebar-border: #2a3450;
-  --kanban-todo: #222839;
-  --kanban-progress: #262e45;
-  --kanban-done: #203028;
-  --badge-pending: #2a3450;
-  --badge-pending-fg: #9db4dd;
-  --badge-progress: #3d5177;
-  --badge-progress-fg: #dce2ee;
-  --badge-done: #4a6b58;
-  --badge-done-fg: #e2efe8;
-}
-
-/* ===== 配色主題：暖灰紫 ===== */
+/* ===== 暖灰紫（主內容區與 mono 幾乎無異，質感靠側欄深茄紫） ===== */
 html[data-theme="mauve"] {
-  --background: #f9f5f6;
-  --foreground: #2e2430;
-  --card: #ffffff;
-  --card-foreground: #2e2430;
-  --primary: #6d5570;
-  --primary-foreground: #f9f5f6;
-  --secondary: #efe5ec;
-  --secondary-foreground: #3e2e42;
-  --muted: #ece2e8;
-  --muted-foreground: #7d6b7d;
-  --accent: #b394ab;
-  --accent-foreground: #2e2430;
-  --border: #ddccd6;
-  --input: #ddccd6;
-  --ring: #b394ab;
-  --sidebar: #2e2430;
-  --sidebar-foreground: #ece2e8;
-  --sidebar-primary: #c0a2b8;
-  --sidebar-primary-foreground: #2e2430;
-  --sidebar-accent: #3e2e42;
-  --sidebar-border: #3e2e42;
-  --kanban-todo: #efe5ec;
-  --kanban-progress: #fdf3ec;
-  --kanban-done: #e8f0e8;
-  --badge-pending: #e3cdd9;
-  --badge-pending-fg: #6d5570;
-  --badge-progress: #b394ab;
-  --badge-progress-fg: #2e2430;
-  --badge-done: #7a9a7d;
-  --badge-done-fg: #ffffff;
-}
-
-html[data-theme="mauve"].dark {
-  --background: #1b1520;
-  --foreground: #ece2e8;
-  --card: #251d2a;
-  --card-foreground: #ece2e8;
-  --primary: #c0a2b8;
-  --primary-foreground: #1b1520;
-  --secondary: #2e2430;
-  --secondary-foreground: #ece2e8;
-  --muted: #2e2430;
-  --muted-foreground: #a58fa3;
-  --accent: #6d5570;
-  --accent-foreground: #ece2e8;
-  --border: #3e2e42;
-  --input: #3e2e42;
-  --ring: #c0a2b8;
-  --sidebar: #1b1520;
-  --sidebar-foreground: #ece2e8;
-  --sidebar-primary: #c0a2b8;
-  --sidebar-primary-foreground: #1b1520;
-  --sidebar-accent: #2e2430;
-  --sidebar-border: #3e2e42;
-  --kanban-todo: #2e2430;
-  --kanban-progress: #3a2c3a;
-  --kanban-done: #2a3326;
-  --badge-pending: #3e2e42;
-  --badge-pending-fg: #c0a2b8;
-  --badge-progress: #6d5570;
-  --badge-progress-fg: #ece2e8;
-  --badge-done: #4a5c48;
-  --badge-done-fg: #e8f0e6;
+  --background: #f6f4f6;        /* 紫味壓到 2%，寧可偏灰 */
+  --primary: #7c5299;           /* 明度壓低，避免粉紫馬卡龍感 */
+  --primary-foreground: #ffffff;
+  --secondary: #f0e8f5;
+  --secondary-foreground: #5a3a73;
+  --accent: #f0e8f5;
+  --accent-foreground: #5a3a73;
+  --ring: #7c5299;
+  --sidebar: #2e2633;
+  --sidebar-foreground: #e6e0e8;
+  --sidebar-primary: #c9a9dd;
+  --sidebar-primary-foreground: #2e2633;
+  --sidebar-accent: #3d3344;
+  --sidebar-border: #3d3344;
+  --bar-track: #e2dee4;
+  --bar-fill: #a992bc;
+  --badge-progress: #f0e8f5;
+  --badge-progress-fg: #6b4488;
 }
 
 @theme inline {
@@ -306,6 +224,11 @@ html[data-theme="mauve"].dark {
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-border: var(--sidebar-border);
+  --color-placeholder: var(--placeholder);
+  --color-accent-warn: var(--accent-warn);
+  --color-accent-warn-bg: var(--accent-warn-bg);
+  --color-bar-track: var(--bar-track);
+  --color-bar-fill: var(--bar-fill);
   --color-kanban-todo: var(--kanban-todo);
   --color-kanban-progress: var(--kanban-progress);
   --color-kanban-done: var(--kanban-done);

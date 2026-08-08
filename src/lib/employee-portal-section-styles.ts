@@ -26,7 +26,7 @@ export const epSection = {
     "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary",
   /** 左側圖示（工坊輪替 amber） */
   iconBoxAmber:
-    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/12 text-amber-800 dark:text-amber-200",
+    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-warn/15 text-accent-warn",
   /** 表格外框 */
   tableWrap: "overflow-x-auto rounded-xl border border-border/60",
   /** 資料表本體 */

@@ -19,7 +19,7 @@ type OrderItemRow = {
   unit_price: number;
   channel_unit_price: number | null;
   custom_name: string | null;
-  product_variants: { product_code: string; product_series: { name: string } | null } | null;
+  product_variants: { product_code: string; product_series: { series_name: string } | null } | null;
 };
 
 type ReturnRecord = {
@@ -32,7 +32,7 @@ type ReturnRecord = {
 };
 
 function itemLabel(it: OrderItemRow): string {
-  const seriesName = it.product_variants?.product_series?.name ?? "";
+  const seriesName = it.product_variants?.product_series?.series_name ?? "";
   const fallback = [seriesName, it.product_variants?.product_code ?? ""].filter(Boolean).join(" ");
   return it.custom_name?.trim() || fallback || "商品";
 }
@@ -104,7 +104,7 @@ export function OrderReturnDialog({
         supabase
           .from("order_items")
           .select(
-            "id, quantity, unit_price, channel_unit_price, custom_name, line_order, product_variants (product_code, product_series (name))",
+            "id, quantity, unit_price, channel_unit_price, custom_name, line_order, product_variants (product_code, product_series (series_name))",
           )
           .eq("order_id", order.id)
           .order("line_order", { ascending: true }),

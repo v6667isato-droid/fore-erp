@@ -409,7 +409,7 @@ export function CostStatisticsPage() {
           --cr-6: #008300;
           --cr-7: #4a3aa7;
         }
-        html.dark .cost-structure-viz {
+        html[data-theme="dark"] .cost-structure-viz {
           --cr-1: #3987e5;
           --cr-2: #d95926;
           --cr-3: #199e70;

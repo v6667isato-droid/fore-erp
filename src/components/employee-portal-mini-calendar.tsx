@@ -60,7 +60,7 @@ const KIND_DOT: Record<DataKind, string> = {
   calendar_event: "bg-sky-500",
   work_order: "bg-blue-500",
   company: "bg-emerald-500",
-  production: "bg-amber-500",
+  production: "bg-accent-warn",
   memo: "bg-sky-500",
 };
 
@@ -628,7 +628,7 @@ export function EmployeePortalMiniCalendar({
                   公司
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  <span className="h-2 w-2 rounded-full bg-accent-warn" />
                   生產
                 </span>
                 <span className="inline-flex items-center gap-1.5">
@@ -704,7 +704,14 @@ export function EmployeePortalMiniCalendar({
                     className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", KIND_DOT[ev.kind])}
                     aria-hidden
                   />
-                  <span className="min-w-0 flex-1 leading-snug text-foreground">{ev.title}</span>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 leading-snug",
+                      ev.title.includes("已到期") ? "text-accent-warn" : "text-foreground",
+                    )}
+                  >
+                    {ev.title}
+                  </span>
                   {ev.sub ? (
                     <span className="shrink-0 text-xs text-muted-foreground">{ev.sub}</span>
                   ) : null}

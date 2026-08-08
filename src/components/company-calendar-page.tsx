@@ -709,7 +709,7 @@ export function CompanyCalendarPage() {
                   "flex min-h-[64px] flex-col gap-1 p-1.5 transition-colors sm:min-h-[120px] sm:p-2",
                   !cell.isCurrentMonth && "bg-muted/25 text-muted-foreground/70",
                   cell.isCurrentMonth &&
-                    "cursor-pointer bg-card/60 hover:bg-[#F5F2E9] dark:bg-card/20 dark:hover:bg-muted/35"
+                    "cursor-pointer bg-card/60 hover:bg-muted/60 dark:bg-card/20 dark:hover:bg-muted/35"
                 )}
               >
                 <div className="flex items-start justify-between gap-1">

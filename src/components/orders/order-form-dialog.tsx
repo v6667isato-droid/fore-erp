@@ -279,32 +279,32 @@ function CustomerSearchSelect({
         }}
         placeholder={selected ? selected.name : "輸入名稱搜尋或點選客戶"}
         autoComplete="off"
-        className="h-10 w-full max-w-full rounded-lg border border-[#625E55]/28 bg-white px-3 text-sm text-[#625E55] outline-none transition placeholder:text-[#7D7767]/55 focus:border-[#625E55] focus:ring-2 focus:ring-[#625E55]/30"
+        className="h-10 w-full max-w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/30"
       />
       {open ? (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-[#625E55]/20 bg-white py-1 shadow-lg">
+        <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-lg">
           {filtered.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-[#7D7767]">找不到符合的客戶</p>
+            <p className="px-3 py-2 text-xs text-muted-foreground">找不到符合的客戶</p>
           ) : (
             filtered.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => choose(c.id)}
-                className={`flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-[#FAF9F6] ${
+                className={`flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-muted/60 ${
                   c.id === value ? "font-semibold" : ""
-                } text-[#625E55]`}
+                } text-foreground`}
               >
                 <span>
                   {c.name}
                   {c.alias ? (
-                    <span className="ml-1.5 text-xs text-[#7D7767]">
+                    <span className="ml-1.5 text-xs text-muted-foreground">
                       （{c.alias}）
                     </span>
                   ) : null}
                 </span>
                 {c.company ? (
-                  <span className="text-xs text-[#7D7767]">{c.company}</span>
+                  <span className="text-xs text-muted-foreground">{c.company}</span>
                 ) : null}
               </button>
             ))
@@ -334,19 +334,19 @@ function OrderFormDialog({
     isOrderStatusLockedForManualEdit(initialOrder.status);
   /** 結案檢視：勿用 fieldset disabled（會讓 select 無法展開閱讀），改以唯讀欄位呈現 */
   const viewFieldClass =
-    "flex min-h-10 w-full items-center rounded-lg border border-[#625E55]/25 bg-[#FAF9F6] px-3 py-2 text-sm text-[#625E55] [overflow-wrap:anywhere]";
+    "flex min-h-10 w-full items-center rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground [overflow-wrap:anywhere]";
   /** Warm Ivory Ledger：表單輸入共用樣式 */
   const ledgerIn =
-    "h-10 w-full max-w-full rounded-lg border border-[#625E55]/28 bg-white px-3 text-sm text-[#625E55] outline-none transition placeholder:text-[#7D7767]/55 focus:border-[#625E55] focus:ring-2 focus:ring-[#625E55]/30 read-only:bg-[#FAF9F6] read-only:cursor-default";
+    "h-10 w-full max-w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/30 read-only:bg-background read-only:cursor-default";
   const ledgerSelect =
-    "h-10 w-full max-w-full rounded-lg border border-[#625E55]/28 bg-white px-3 text-sm text-[#625E55] outline-none focus:border-[#625E55] focus:ring-2 focus:ring-[#625E55]/30";
+    "h-10 w-full max-w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30";
   const ledgerTa =
-    "min-h-[72px] w-full rounded-lg border border-[#625E55]/28 bg-white px-3 py-2 text-sm text-[#625E55] outline-none transition placeholder:text-[#7D7767]/55 focus:border-[#625E55] focus:ring-2 focus:ring-[#625E55]/30 read-only:bg-[#FAF9F6] read-only:cursor-default";
+    "min-h-[72px] w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/30 read-only:bg-background read-only:cursor-default";
   const ledgerCard =
-    "rounded-lg border border-[#625E55]/22 bg-white p-4 shadow-[0_2px_10px_rgba(98,94,85,0.07)]";
+    "rounded-lg border border-border bg-card p-4 shadow-sm";
   const ledgerLabel =
-    "text-[11px] font-medium uppercase tracking-[0.06em] text-[#7D7767]";
-  const ledgerLabelZh = "text-xs text-[#7D7767]";
+    "text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground";
+  const ledgerLabelZh = "text-xs text-muted-foreground";
   const [saving, setSaving] = useState(false);
   const todayLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
     .toISOString()
@@ -1343,36 +1343,36 @@ function OrderFormDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
-          className="fixed inset-0 z-50 flex max-h-[100dvh] flex-col overflow-hidden bg-[#FAF9F6] shadow-xl focus:outline-none sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-h-[90vh] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:border-[#625E55]/12"
+          className="fixed inset-0 z-50 flex max-h-[100dvh] flex-col overflow-hidden bg-background shadow-xl focus:outline-none sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-h-[90vh] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:border-border"
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
-          <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-2 border-b border-[#625E55]/12 bg-[#FAF9F6]/95 px-3 py-3 backdrop-blur-sm sm:px-4">
+          <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background/95 px-3 py-3 backdrop-blur-sm sm:px-4">
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[#625E55] hover:bg-[#625E55]/10 focus:outline-none focus:ring-2 focus:ring-[#625E55]/30"
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-foreground hover:bg-muted/60 focus:outline-none focus:ring-2 focus:ring-ring/30"
                   aria-label="返回"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </button>
               </Dialog.Close>
-              <Dialog.Title className="min-w-0 truncate font-[family-name:var(--font-manrope)] text-base font-semibold tracking-tight text-[#625E55]">
+              <Dialog.Title className="min-w-0 truncate font-[family-name:var(--font-manrope)] text-base font-semibold tracking-tight text-foreground">
                 {isEdit ? (readOnly ? "檢視訂單" : "編輯訂單") : "新增訂單"}
               </Dialog.Title>
             </div>
             <details className="relative shrink-0">
-              <summary className="flex cursor-pointer list-none items-center justify-center rounded-lg p-2 text-[#625E55] hover:bg-[#625E55]/10 focus:outline-none focus:ring-2 focus:ring-[#625E55]/30 [&::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-center rounded-lg p-2 text-foreground hover:bg-muted/60 focus:outline-none focus:ring-2 focus:ring-ring/30 [&::-webkit-details-marker]:hidden">
                 <MoreVertical className="h-5 w-5" aria-hidden />
                 <span className="sr-only">更多</span>
               </summary>
-              <div className="absolute right-0 top-full z-30 mt-1 min-w-[10rem] rounded-lg border border-[#625E55]/15 bg-white py-1 text-sm shadow-lg">
+              <div className="absolute right-0 top-full z-30 mt-1 min-w-[10rem] rounded-lg border border-border bg-card py-1 text-sm shadow-lg">
                 {orderPrintHref ? (
                   <Link
                     href={orderPrintHref}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-3 py-2 text-[#625E55] hover:bg-[#FAF9F6]"
+                    className="flex items-center gap-2 px-3 py-2 text-foreground hover:bg-muted/60"
                     onClick={() => {
                       const el = document.activeElement as HTMLElement | null;
                       el?.blur?.();
@@ -1382,7 +1382,7 @@ function OrderFormDialog({
                     列印訂單
                   </Link>
                 ) : (
-                  <p className="px-3 py-2 text-xs text-[#7D7767]">儲存後可列印</p>
+                  <p className="px-3 py-2 text-xs text-muted-foreground">儲存後可列印</p>
                 )}
               </div>
             </details>
@@ -1408,7 +1408,7 @@ function OrderFormDialog({
             <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4 pt-2 sm:px-5 sm:pb-6">
               <div className="px-0.5">
                 <p className={ledgerLabel}>Order reference</p>
-                <p className="mt-1 font-[family-name:var(--font-manrope)] text-xl font-semibold tracking-tight text-[#625E55] sm:text-2xl">
+                <p className="mt-1 font-[family-name:var(--font-manrope)] text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
                   {draftOrderNumber || "—"}
                 </p>
               </div>
@@ -1419,7 +1419,7 @@ function OrderFormDialog({
               </datalist>
               <section className={`${ledgerCard} space-y-3`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-[#625E55]">
+                  <h3 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-foreground">
                     客戶選擇
                   </h3>
                   {!readOnly ? (
@@ -1428,7 +1428,7 @@ function OrderFormDialog({
                         type="button"
                         variant="outline"
                         size="icon"
-                        className="h-9 w-9 shrink-0 rounded-lg border-[#625E55]/20 text-[#625E55] hover:bg-[#625E55]/10"
+                        className="h-9 w-9 shrink-0 rounded-lg border-border text-foreground hover:bg-muted/60"
                         onClick={() => {
                           if (!customerId) return;
                           setEditCustomerOpen(true);
@@ -1442,7 +1442,7 @@ function OrderFormDialog({
                         type="button"
                         variant="outline"
                         size="icon"
-                        className="h-9 w-9 shrink-0 rounded-lg border-[#625E55]/20 text-[#625E55] hover:bg-[#625E55]/10"
+                        className="h-9 w-9 shrink-0 rounded-lg border-border text-foreground hover:bg-muted/60"
                         onClick={() => setAddCustomerOpen(true)}
                         title="新增客戶"
                       >
@@ -1513,7 +1513,7 @@ function OrderFormDialog({
               </section>
 
               <section className={`${ledgerCard} space-y-3`}>
-                <h3 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-[#625E55]">
+                <h3 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-foreground">
                   訂單資訊
                 </h3>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
@@ -1599,13 +1599,13 @@ function OrderFormDialog({
                 <section className={`${ledgerCard} space-y-3`}>
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h4 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-[#625E55]">
+                      <h4 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-foreground">
                         寄送資訊
                       </h4>
                       <Button
                         type="button"
                         variant="outline"
-                        className="h-8 rounded-lg border-[#625E55]/25 px-2.5 text-[11px] font-medium uppercase tracking-wide text-[#625E55] hover:bg-[#625E55]/10"
+                        className="h-8 rounded-lg border-border px-2.5 text-[11px] font-medium uppercase tracking-wide text-foreground hover:bg-muted/60"
                         onClick={applyShippingFromCustomer}
                         disabled={readOnly || !customerId}
                       >
@@ -1715,7 +1715,7 @@ function OrderFormDialog({
                             ) : (
                               <label
                                 htmlFor="order-ship-elevator"
-                                className="flex cursor-pointer items-center gap-2 text-sm text-[#625E55]"
+                                className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
                               >
                                 <input
                                   id="order-ship-elevator"
@@ -1724,7 +1724,7 @@ function OrderFormDialog({
                                   onChange={(e) =>
                                     setShippingHasElevator(e.target.checked ? true : false)
                                   }
-                                  className="h-4 w-4 rounded border-[#625E55]/30 text-[#625E55] focus:ring-[#625E55]/30"
+                                  className="h-4 w-4 rounded border-border text-primary focus:ring-ring/30"
                                 />
                                 <span className="whitespace-nowrap">有電梯</span>
                               </label>
@@ -1748,7 +1748,7 @@ function OrderFormDialog({
                   />
                 </section>
                 <div className="grid grid-cols-1 gap-3">
-                  <div className={`flex flex-col gap-1.5 rounded-lg border border-dashed border-[#625E55]/25 bg-[#FAF9F6] p-4`}>
+                  <div className={`flex flex-col gap-1.5 rounded-lg border border-dashed border-border bg-background p-4`}>
                     <span className={`${ledgerLabelZh} font-medium`}>
                       訂單說明圖（用於列印，建議放訂製品尺寸／圖樣示意，可多張）
                     </span>
@@ -1871,14 +1871,14 @@ function OrderFormDialog({
 
               <section className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-[#625E55]">
+                  <h3 className="font-[family-name:var(--font-manrope)] text-sm font-semibold text-foreground">
                     品項明細（{itemRows.length}）
                   </h3>
                   {!readOnly ? (
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-9 rounded-lg border-[#625E55]/25 px-3 text-xs font-semibold uppercase tracking-wide text-[#625E55] hover:bg-[#625E55]/10"
+                      className="h-9 rounded-lg border-border px-3 text-xs font-semibold uppercase tracking-wide text-foreground hover:bg-muted/60"
                       onClick={addItem}
                     >
                       <Plus className="mr-1 h-3.5 w-3.5" />
@@ -1894,8 +1894,8 @@ function OrderFormDialog({
                       key={it.id}
                       className={`${ledgerCard} space-y-2 p-3 sm:p-4`}
                     >
-                      <div className="flex gap-3 border-b border-[#625E55]/10 pb-3">
-                        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[#625E55]/15 bg-[#FAF9F6]">
+                      <div className="flex gap-3 border-b border-border pb-3">
+                        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border bg-background">
                           {summary.thumb ? (
                             <img
                               src={summary.thumb}
@@ -1903,19 +1903,19 @@ function OrderFormDialog({
                               className="h-full w-full object-cover"
                             />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center text-[10px] font-medium text-[#7D7767]/70">
+                            <div className="flex h-full w-full items-center justify-center text-[10px] font-medium text-muted-foreground/70">
                               無圖
                             </div>
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="font-mono text-xs font-semibold text-[#625E55]">
+                          <p className="font-mono text-xs font-semibold text-foreground">
                             {summary.code}
                           </p>
-                          <p className="mt-0.5 line-clamp-2 text-sm text-[#625E55]">
+                          <p className="mt-0.5 line-clamp-2 text-sm text-foreground">
                             {summary.title}
                           </p>
-                          <p className="mt-1 text-xs tabular-nums text-[#7D7767]">
+                          <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                             NTD{" "}
                             {(it.kind === "variant" &&
                             it.variant_id &&
@@ -1930,7 +1930,7 @@ function OrderFormDialog({
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-[#7D7767]">
+                        <p className="text-xs font-medium text-muted-foreground">
                           品項 {idx + 1}
                         </p>
                         {!readOnly && itemRows.length > 1 && (
@@ -2774,7 +2774,7 @@ function OrderFormDialog({
                           </div>
                         </>
                       )}
-                      <div className="grid grid-cols-1 gap-3 border-t border-[#625E55]/10 pt-3 sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2">
                         <div className="flex flex-col gap-1.5">
                           <label
                             className="text-xs text-muted-foreground"
@@ -2840,9 +2840,9 @@ function OrderFormDialog({
                           )}
                         </div>
                       </div>
-                      <p className="text-xs text-[#7D7767] text-right">
+                      <p className="text-xs text-muted-foreground text-right">
                         小計：{" "}
-                        <span className="font-semibold text-[#625E55]">
+                        <span className="font-semibold text-foreground">
                           {itemSubtotals[idx].toLocaleString()}
                         </span>
                       </p>
@@ -3049,22 +3049,22 @@ function OrderFormDialog({
             </div>
             </div>
 
-            <div className="sticky bottom-0 z-20 shrink-0 border-t border-[#625E55]/25 bg-[#3d3a35] px-4 py-4 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] sm:px-5">
+            <div className="sticky bottom-0 z-20 shrink-0 border-t border-sidebar-border bg-sidebar px-4 py-4 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] sm:px-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-8">
                   <div>
-                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/55">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-sidebar-foreground/55">
                       應收總額（NTD）
                     </p>
-                    <p className="mt-0.5 font-[family-name:var(--font-manrope)] text-2xl font-semibold tabular-nums tracking-tight text-[#FAF9F6]">
+                    <p className="mt-0.5 font-[family-name:var(--font-manrope)] text-2xl font-semibold tabular-nums tracking-tight text-sidebar-foreground">
                       {grandTotal.toLocaleString()}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/55">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-sidebar-foreground/55">
                       應收訂金金額
                     </p>
-                    <p className="mt-0.5 font-[family-name:var(--font-manrope)] text-2xl font-semibold tabular-nums tracking-tight text-[#FAF9F6]">
+                    <p className="mt-0.5 font-[family-name:var(--font-manrope)] text-2xl font-semibold tabular-nums tracking-tight text-sidebar-foreground">
                       {(Number(deposit) || 0).toLocaleString()}
                     </p>
                   </div>
@@ -3075,7 +3075,7 @@ function OrderFormDialog({
                       type="button"
                       variant="ghost"
                       disabled={saving}
-                      className="h-11 rounded-lg text-white/85 hover:bg-white/10 hover:text-white"
+                      className="h-11 rounded-lg text-sidebar-foreground/85 hover:bg-sidebar-foreground/10 hover:text-sidebar-foreground"
                     >
                       {readOnly ? "關閉" : "取消"}
                     </Button>
@@ -3084,7 +3084,7 @@ function OrderFormDialog({
                     <Button
                       type="submit"
                       disabled={saving}
-                      className="h-12 min-w-[10rem] rounded-lg border-0 bg-[#FAF9F6] font-semibold text-[#625E55] shadow-sm hover:bg-[#f0efe8] focus-visible:ring-2 focus-visible:ring-[#FAF9F6]/40"
+                      className="h-12 min-w-[10rem] rounded-lg border-0 bg-sidebar-primary font-semibold text-sidebar-primary-foreground shadow-sm hover:bg-sidebar-primary/90 focus-visible:ring-2 focus-visible:ring-sidebar-primary/40"
                     >
                       {saving ? "儲存中…" : "儲存訂單"}
                     </Button>

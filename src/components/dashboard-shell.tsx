@@ -37,7 +37,11 @@ import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompanyCalendarPage } from "@/components/company-calendar-page";
 import { CostStatisticsTabs } from "@/components/cost-statistics-tabs";
 import { AccountingPage } from "@/components/accounting/accounting-page";
-import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  ThemeToggle,
+  applyColorTheme,
+  isColorThemeId,
+} from "@/components/theme-toggle";
 import {
   getSupabaseSession,
   isAuthSessionMissingError,
@@ -449,11 +453,23 @@ export default function DashboardShell() {
         setUserEmail(user.email ?? null);
         const { data: profile } = await supabase
           .from("user_profiles")
-          .select("role")
+          .select("role, theme")
           .eq("user_id", user.id)
           .single();
 
         if (cancelled) return;
+
+        // 套用雲端主題偏好（localStorage 只是快取；DB 為準）
+        const dbTheme = (profile as { theme?: string | null } | null)?.theme;
+        if (isColorThemeId(dbTheme)) {
+          try {
+            if (localStorage.getItem("colorTheme") !== dbTheme) {
+              applyColorTheme(dbTheme);
+            }
+          } catch {
+            applyColorTheme(dbTheme);
+          }
+        }
 
         const raw = ((profile?.role as string) ?? "").trim().toLowerCase();
         if (!isAdminOrManagerRole(raw)) {

@@ -748,7 +748,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                         {bomCount > 0 ? (
                           <span className="text-muted-foreground">{bomCount}</span>
                         ) : (
-                          <span className="text-amber-700 dark:text-amber-400">未建</span>
+                          <span className="text-accent-warn">未建</span>
                         )}
                       </TableCell>
                       <TableCell className="text-sm p-2 max-w-[180px]">

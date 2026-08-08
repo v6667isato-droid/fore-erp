@@ -14,7 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const inputFocusClass =
-  "focus:border-[#5c4033] focus:outline-none focus:ring-2 focus:ring-[#5c4033]/30 focus:ring-offset-0";
+  "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-0";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -110,23 +110,23 @@ export default function LoginPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-[#F5F2E9] px-4">
-        <p className="text-sm text-[#5c4033]/70">載入中…</p>
+      <div className="flex min-h-dvh items-center justify-center bg-background px-4">
+        <p className="text-sm text-muted-foreground">載入中…</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-dvh bg-[#F5F2E9] px-4 py-10 flex items-center justify-center">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
+    <div className="min-h-dvh bg-background px-4 py-10 flex items-center justify-center">
+      <div className="w-full max-w-md rounded-2xl bg-card p-8 shadow-xl">
         <div className="mb-8 text-center">
-          <p className="font-serif text-2xl font-semibold tracking-wide text-[#2c2418] md:text-[1.65rem]">
+          <p className="font-serif text-2xl font-semibold tracking-wide text-foreground md:text-[1.65rem]">
             Føre Furniture
           </p>
-          <p className="mt-2 text-sm font-medium tracking-[0.12em] text-[#5c4033]">
+          <p className="mt-2 text-sm font-medium tracking-[0.12em] text-primary">
             員工專屬入口
           </p>
-          <p className="mt-3 text-xs leading-relaxed text-[#7a6b5d]">
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
             請使用工坊配發之帳號登入。驗證由 Supabase Auth 處理。
           </p>
         </div>
@@ -142,7 +142,7 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="flex flex-col gap-2">
-            <label htmlFor="employee-email" className="text-xs font-medium text-[#5c4033]">
+            <label htmlFor="employee-email" className="text-xs font-medium text-primary">
               工坊信箱 (Email)
             </label>
             <input
@@ -156,15 +156,15 @@ export default function LoginPage() {
               autoComplete="email"
               placeholder="name@workshop.tw"
               className={cn(
-                "h-11 w-full rounded-xl border border-[#ddd4c4] bg-white px-4 text-sm text-[#2c2418]",
-                "placeholder:text-[#a89984]",
+                "h-11 w-full rounded-xl border border-input bg-card px-4 text-sm text-foreground",
+                "placeholder:text-muted-foreground",
                 inputFocusClass
               )}
             />
           </div>
 
           <div className="flex flex-col gap-2">
-            <label htmlFor="employee-password" className="text-xs font-medium text-[#5c4033]">
+            <label htmlFor="employee-password" className="text-xs font-medium text-primary">
               通行密碼 (Password)
             </label>
             <input
@@ -178,8 +178,8 @@ export default function LoginPage() {
               autoComplete="current-password"
               placeholder="請輸入密碼"
               className={cn(
-                "h-11 w-full rounded-xl border border-[#ddd4c4] bg-white px-4 text-sm text-[#2c2418]",
-                "placeholder:text-[#a89984]",
+                "h-11 w-full rounded-xl border border-input bg-card px-4 text-sm text-foreground",
+                "placeholder:text-muted-foreground",
                 inputFocusClass
               )}
             />
@@ -198,8 +198,8 @@ export default function LoginPage() {
             type="submit"
             disabled={submitting || !isSupabaseConfigured}
             className={cn(
-              "h-11 w-full rounded-xl bg-[#5c4033] text-sm font-semibold text-white",
-              "transition-colors hover:bg-[#4a3429] active:bg-[#3d2e1e]",
+              "h-11 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground",
+              "transition-colors hover:bg-primary/90 active:bg-primary/80",
               "disabled:pointer-events-none disabled:opacity-55"
             )}
           >
@@ -207,7 +207,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-[11px] leading-relaxed text-[#7a6b5d]">
+        <p className="mt-6 text-center text-[11px] leading-relaxed text-muted-foreground">
           此入口僅供 Føre 工坊同仁使用。如有問題請聯繫管理者。
         </p>
       </div>

@@ -8,7 +8,7 @@ export function plannedVsDeliveryTone(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(p) || !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
     return "";
   }
-  if (p > d) return "text-red-600 dark:text-red-400 font-semibold";
+  if (p > d) return "text-accent-warn font-semibold";
   if (p < d) return "text-emerald-700 dark:text-emerald-400 font-semibold";
   return "";
 }

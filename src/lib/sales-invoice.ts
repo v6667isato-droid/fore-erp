@@ -160,20 +160,21 @@ export async function fetchOrderInvoiceCounts(): Promise<Record<string, number>>
   return map;
 }
 
-/** 單張發票目前連結的訂單清單 */
-export async function fetchInvoiceOrderLinks(invoiceId: string): Promise<SalesInvoiceOrderSummary[]> {
+/** 單張發票目前連結的訂單清單（含聯絡人／總金額／日期，供來源訂單標籤顯示） */
+export async function fetchInvoiceOrderLinks(invoiceId: string): Promise<OrderLinkOption[]> {
   const { data, error } = await supabase
     .from("sales_invoice_orders")
-    .select("orders (id, order_number)")
+    .select(`orders (${ORDER_LINK_SELECT})`)
     .eq("invoice_id", invoiceId)
     .order("created_at", { ascending: true });
   if (error) {
     console.error("發票訂單連結讀取失敗:", error.message);
     return [];
   }
-  return ((data ?? []) as unknown as { orders: SalesInvoiceOrderSummary | null }[])
+  return ((data ?? []) as unknown as { orders: OrderLinkQueryRow | null }[])
     .map((r) => r.orders)
-    .filter((o): o is SalesInvoiceOrderSummary => o != null);
+    .filter((o): o is OrderLinkQueryRow => o != null)
+    .map(toOrderLinkOption);
 }
 
 /**
@@ -223,6 +224,26 @@ function toOrderLinkOption(r: OrderLinkQueryRow): OrderLinkOption {
     customer_name: r.customers?.name?.trim() || r.customers?.company || null,
     total_amount: r.total_amount,
   };
+}
+
+/** 訂單日期顯示格式：2026-06-01 → 2026/6/1（不補零） */
+export function formatOrderDateTw(date: string | null | undefined): string {
+  const s = (date ?? "").slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return s;
+  return `${m[1]}/${Number(m[2])}/${Number(m[3])}`;
+}
+
+/** 來源訂單標籤文字：訂單號｜聯絡人｜$總金額｜2026/6/1 */
+export function orderLinkLabel(o: Partial<OrderLinkOption> & SalesInvoiceOrderSummary): string {
+  return [
+    o.order_number.replace(/^ORD-/i, ""),
+    o.customer_name?.trim() || null,
+    o.total_amount != null ? `$${Number(o.total_amount).toLocaleString()}` : null,
+    o.order_date ? formatOrderDateTw(o.order_date) : null,
+  ]
+    .filter(Boolean)
+    .join("｜");
 }
 
 /** or() 過濾式中的保留字元先移除，避免使用者輸入破壞語法 */
@@ -296,6 +317,52 @@ export async function suggestOrdersForInvoice(
     return [];
   }
   return ((data ?? []) as unknown as OrderLinkQueryRow[]).map(toOrderLinkOption);
+}
+
+/** 由訂單開票時要讀的品項欄位（含尺寸，用來組發票品名） */
+export const INVOICE_PREFILL_ITEM_SELECT =
+  "id, quantity, unit_price, channel_unit_price, custom_name, custom_dimension_w, custom_dimension_d, custom_dimension_h, line_order, product_variants (product_code, dimension_w, dimension_d, dimension_h, product_series (series_name))";
+
+export interface InvoicePrefillItemRow {
+  id: string;
+  quantity: number;
+  unit_price: number;
+  channel_unit_price: number | null;
+  custom_name: string | null;
+  custom_dimension_w: number | null;
+  custom_dimension_d: number | null;
+  custom_dimension_h: number | null;
+  product_variants: {
+    product_code: string;
+    dimension_w: number | null;
+    dimension_d: number | null;
+    dimension_h: number | null;
+    product_series: { series_name: string } | null;
+  } | null;
+}
+
+/** 尺寸標籤：W150xD45xH85（缺的軸略過；訂單自訂尺寸優先於規格尺寸） */
+function itemDimensionLabel(it: InvoicePrefillItemRow): string {
+  const v = it.product_variants;
+  const pairs: [string, number | null][] = [
+    ["W", it.custom_dimension_w ?? v?.dimension_w ?? null],
+    ["D", it.custom_dimension_d ?? v?.dimension_d ?? null],
+    ["H", it.custom_dimension_h ?? v?.dimension_h ?? null],
+  ];
+  return pairs
+    .filter(([, n]) => n != null)
+    .map(([k, n]) => `${k}${Number(n)}`)
+    .join("x");
+}
+
+/** 發票品名：系列名稱＋尺寸；無系列（客製品）時退回自訂品名，再退回型號 */
+export function invoiceItemName(it: InvoicePrefillItemRow): string {
+  const base =
+    it.product_variants?.product_series?.series_name?.trim() ||
+    it.custom_name?.trim() ||
+    it.product_variants?.product_code?.trim() ||
+    "";
+  return [base, itemDimensionLabel(it)].filter(Boolean).join(" ") || "商品";
 }
 
 /** 光賀 API 呼叫結果：ok=false 時 error 為可顯示訊息 */
@@ -414,6 +481,21 @@ export async function fetchSalesInvoicesByOrder(orderId: string): Promise<SalesI
 /** 統編查公司名稱（自動帶買方抬頭；查不到回空字串） */
 export function amegoBanQuery(ban: string) {
   return callAmegoApi<{ name: string }>({ action: "ban", ban });
+}
+
+/** 營業稅率固定 5% */
+export const VAT_RATE = 0.05;
+
+/** 未稅單價：輸入為含稅時 ÷1.05；免稅／零稅率（taxable=false）不換算 */
+export function unitPriceExTax(price: number, inputIsTaxInclusive: boolean, taxable: boolean): number {
+  if (!taxable || !inputIsTaxInclusive) return price;
+  return Math.round(price / (1 + VAT_RATE));
+}
+
+/** 含稅單價：輸入為未稅時 ×1.05；免稅／零稅率（taxable=false）不換算 */
+export function unitPriceIncTax(price: number, inputIsTaxInclusive: boolean, taxable: boolean): number {
+  if (!taxable || inputIsTaxInclusive) return price;
+  return Math.round(price * (1 + VAT_RATE));
 }
 
 export interface SalesInvoiceTotals {

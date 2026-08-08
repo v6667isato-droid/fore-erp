@@ -989,7 +989,7 @@ export function OrdersPage({
                   <p
                     className={`text-[9px] leading-snug break-words ${
                       s.subWarning
-                        ? "font-medium text-amber-600 dark:text-amber-400"
+                        ? "font-medium text-accent-warn"
                         : "text-muted-foreground/90"
                     }`}
                   >
