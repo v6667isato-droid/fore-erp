@@ -2427,48 +2427,6 @@ export type Database = {
         }
         Relationships: []
       }
-      product_accessories: {
-        Row: {
-          category: string
-          created_at: string | null
-          deleted_at: string | null
-          id: string
-          image_url: string | null
-          material: string | null
-          name: string
-          notes: string | null
-          price: number | null
-          sort_order: number | null
-          spec: string | null
-        }
-        Insert: {
-          category: string
-          created_at?: string | null
-          deleted_at?: string | null
-          id?: string
-          image_url?: string | null
-          material?: string | null
-          name: string
-          notes?: string | null
-          price?: number | null
-          sort_order?: number | null
-          spec?: string | null
-        }
-        Update: {
-          category?: string
-          created_at?: string | null
-          deleted_at?: string | null
-          id?: string
-          image_url?: string | null
-          material?: string | null
-          name?: string
-          notes?: string | null
-          price?: number | null
-          sort_order?: number | null
-          spec?: string | null
-        }
-        Relationships: []
-      }
       product_options: {
         Row: {
           option_value_id: string
