@@ -506,10 +506,7 @@ export default function SeriesIntroPrintPage({
 
       {/* ── 第二頁：規格＋色樣 ── */}
       <section className="sheet-page sheet-page-2">
-        <div className="flex items-start justify-between">
-          <h2 style={{ fontSize: "11pt", fontWeight: 600, letterSpacing: "0.06em" }}>
-            {displayName}
-          </h2>
+        <div className="flex items-start justify-end">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="Føre Furniture" style={{ height: "18mm" }} className="w-auto object-contain" />
         </div>
@@ -608,12 +605,12 @@ export default function SeriesIntroPrintPage({
                   .map((group, gi) => (
                     <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>
                       {group.map((s) => (
-                        <div key={s.id} className="flex flex-col" style={{ width: "24mm" }}>
+                        <div key={s.id} className="flex flex-col" style={{ width: "20mm" }}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={s.image_url}
                             alt={s.name}
-                            style={{ width: "24mm", height: "24mm", objectFit: "cover" }}
+                            style={{ width: "20mm", height: "20mm", objectFit: "cover" }}
                           />
                           {lang === "en" ? (
                             <p className="sheet-en" style={{ fontSize: "8pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
