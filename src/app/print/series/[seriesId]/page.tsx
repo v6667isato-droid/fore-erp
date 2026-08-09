@@ -521,7 +521,8 @@ export default function SeriesIntroPrintPage({
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
+                  // minmax(0, 1fr)：欄寬固定均分，不被格內寬圖撐開（寬圖改用跨欄處理）
+                  gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
                   columnGap: "8mm",
                   rowGap: "10mm",
                 }}
@@ -529,8 +530,14 @@ export default function SeriesIntroPrintPage({
                 {sheetCells.map((v) => {
                   const drawingUrl = v.dimension_drawing_url?.trim() || null;
                   const drawingSize = drawingUrl ? parseDrawingSize(drawingUrl) : null;
+                  // 依 300DPI 實寬決定跨欄數：多視圖寬圖（如 CH03 正視＋側視）自動佔 2 格以上
+                  // 格寬近似值：內容區 267mm，左區 70%（有價目）→ 3 欄約 57mm；全寬 4 欄約 60.7mm
+                  const cellMm = showPrice ? 57 : 60.7;
+                  const drawingMm = drawingSize ? drawingSize.w * DRAWING_MM_PER_PX : 0;
+                  let span = 1;
+                  while (span < gridCols && drawingMm > span * cellMm + (span - 1) * 8) span++;
                   return (
-                  <div key={v.id} className="flex flex-col">
+                  <div key={v.id} className="flex flex-col" style={span > 1 ? { gridColumn: `span ${span}` } : undefined}>
                     {/* 線圖區：固定比例（300DPI）時各圖高矮不一、底對齊，列高隨最高者長；無線圖時留白 */}
                     <div
                       className="flex items-end"
@@ -545,9 +552,9 @@ export default function SeriesIntroPrintPage({
                           style={
                             drawingSize
                               ? {
-                                  // 不設 maxWidth：多視圖的寬圖（如 CH03 正視＋側視）維持 300DPI 原比例，允許超出格寬
+                                  // 寬圖靠跨欄取得空間；maxWidth 100% 只擋「比整列還寬」的極端情況
                                   width: `${(drawingSize.w * DRAWING_MM_PER_PX).toFixed(2)}mm`,
-                                  maxWidth: "none",
+                                  maxWidth: "100%",
                                 }
                               : { maxHeight: "33mm", maxWidth: "100%" }
                           }
