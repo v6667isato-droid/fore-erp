@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { formatDate, relName } from "@/lib/utils";
@@ -14,6 +14,12 @@ import {
   parseInvoiceFiles,
   type PurchaseOrderGroup,
 } from "@/lib/purchase-order";
+import {
+  computePoInvoiceMatches,
+  fetchInvoicesForPoMatch,
+  PO_INVOICE_MATCH_LABELS,
+  type InvoiceForPoMatch,
+} from "@/lib/po-invoice-match";
 import { ProcurementSummaryCard } from "@/components/procurement/procurement-summary-card";
 import { ProcurementFilters } from "@/components/procurement/procurement-filters";
 import { PurchaseTable } from "@/components/procurement/purchase-table";
@@ -313,9 +319,12 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
   const [invoiceUploadTarget, setInvoiceUploadTarget] = useState<PurchaseOrderGroup | null>(null);
   const [uploadingInvoice, setUploadingInvoice] = useState(false);
   const invoiceFileInputRef = useRef<HTMLInputElement>(null);
+  /** 已存檔發票（判斷各採購單「已對應／有相符／無對應」用） */
+  const [invoicesForMatch, setInvoicesForMatch] = useState<InvoiceForPoMatch[]>([]);
 
   async function fetchPurchases() {
     setLoading(true);
+    void fetchInvoicesForPoMatch().then(setInvoicesForMatch);
 
     const resWithPo = await supabase
       .from("purchases")
@@ -437,6 +446,12 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
   });
 
   const filteredGroups = groupPurchaseRows(filteredRecords);
+
+  /** 各採購單的發票對應狀態（key=group.key）；以未篩選的全部採購單計算，避免相符發票被篩掉的單搶走 */
+  const invoiceMatches = useMemo(
+    () => computePoInvoiceMatches(groupPurchaseRows(records), invoicesForMatch),
+    [records, invoicesForMatch],
+  );
 
   const today = new Date().toISOString().slice(0, 10);
   const thisYear = new Date().getFullYear();
@@ -660,6 +675,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
         <PurchaseTable
           groups={filteredGroups}
           totalUnfilteredCount={records.length}
+          invoiceMatches={invoiceMatches}
           onEdit={setEditRow}
           onDelete={requestDelete}
           onEditGroup={setEditGroup}
@@ -739,8 +755,28 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
         ) : (
           filteredGroups.map((group) => (
             <div key={group.key} className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs text-primary">{displayPoNumber(group.po_number)}</span>
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="font-mono text-xs text-primary">{displayPoNumber(group.po_number)}</span>
+                  {(() => {
+                    const match = invoiceMatches.get(group.key);
+                    const state = match?.state ?? "none";
+                    return (
+                      <span
+                        className={`rounded border px-1.5 py-px text-[10px] font-medium ${
+                          state === "matched"
+                            ? "border-emerald-500/50 text-emerald-700 dark:text-emerald-400"
+                            : state === "candidate"
+                              ? "border-sky-500/50 text-sky-700 dark:text-sky-400"
+                              : "border-border text-muted-foreground"
+                        }`}
+                        title={match?.detail || undefined}
+                      >
+                        發票{PO_INVOICE_MATCH_LABELS[state]}
+                      </span>
+                    );
+                  })()}
+                </span>
                 <span className="text-xs text-muted-foreground">{group.purchase_date}</span>
               </div>
               <div className="mt-1 flex items-center justify-between">

@@ -13,6 +13,7 @@ import {
 import { formatAmortizationLabel } from "@/lib/purchase-amortization";
 import type { PurchaseRow } from "@/types/procurement";
 import { displayPoNumber, type PurchaseOrderGroup } from "@/lib/purchase-order";
+import { PO_INVOICE_MATCH_LABELS, type PoInvoiceMatch } from "@/lib/po-invoice-match";
 import {
   Pencil,
   Trash2,
@@ -30,11 +31,29 @@ const PAGE_SIZE = 20;
 
 const COL_SPAN_BASE = 7;
 
+/** 對應發票狀態徽章（與會計管理發票清單的「對應採購單」欄同款三態） */
+function InvoiceMatchBadge({ match }: { match?: PoInvoiceMatch }) {
+  const state = match?.state ?? "none";
+  const tone =
+    state === "matched"
+      ? "border-emerald-500/50 text-emerald-700 dark:text-emerald-400"
+      : state === "candidate"
+        ? "border-sky-500/50 text-sky-700 dark:text-sky-400"
+        : "border-border text-muted-foreground";
+  return (
+    <span className={`rounded border px-1.5 py-px text-xs font-medium whitespace-nowrap ${tone}`} title={match?.detail || undefined}>
+      {PO_INVOICE_MATCH_LABELS[state]}
+    </span>
+  );
+}
+
 type GroupSortKey = "po_number" | "purchase_date" | "vendor_name" | "total_inc_tax";
 
 export interface PurchaseTableProps {
   groups: PurchaseOrderGroup[];
   totalUnfilteredCount: number;
+  /** 各採購單的發票對應狀態（key=group.key）；未提供則不顯示「對應發票」欄 */
+  invoiceMatches?: Map<string, PoInvoiceMatch>;
   onEdit?: (row: PurchaseRow) => void;
   onDelete?: (row: PurchaseRow) => void;
   /** 編輯整張採購單（單頭＋所有品項） */
@@ -48,6 +67,7 @@ export interface PurchaseTableProps {
 export function PurchaseTable({
   groups,
   totalUnfilteredCount,
+  invoiceMatches,
   onEdit,
   onDelete,
   onEditGroup,
@@ -138,7 +158,7 @@ export function PurchaseTable({
   }
 
   const hasActions = Boolean(onEdit || onDelete || onEditGroup || onDeleteGroup || onUploadInvoice);
-  const emptyColSpan = hasActions ? COL_SPAN_BASE + 1 : COL_SPAN_BASE;
+  const emptyColSpan = COL_SPAN_BASE + (invoiceMatches ? 1 : 0) + (hasActions ? 1 : 0);
 
   return (
     <>
@@ -156,6 +176,9 @@ export function PurchaseTable({
             </TableHead>
             <TableHead className="text-xs font-semibold p-2 align-middle">品項</TableHead>
             <TableHead className="text-xs font-semibold p-2 align-middle text-center">附件</TableHead>
+            {invoiceMatches && (
+              <TableHead className="text-xs font-semibold p-2 align-middle">對應發票</TableHead>
+            )}
             <TableHead className="p-2 text-right align-middle">
               <SortHeader label="含稅總計" sortKey="total_inc_tax" align="right" />
             </TableHead>
@@ -224,6 +247,11 @@ export function PurchaseTable({
                         <span className="text-muted-foreground text-xs">—</span>
                       )}
                     </TableCell>
+                    {invoiceMatches && (
+                      <TableCell className="text-sm p-2">
+                        <InvoiceMatchBadge match={invoiceMatches.get(group.key)} />
+                      </TableCell>
+                    )}
                     <TableCell className="text-sm text-right p-2 font-medium tabular-nums">
                       {group.total_inc_tax.toLocaleString()}
                     </TableCell>
