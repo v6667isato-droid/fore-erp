@@ -446,7 +446,7 @@ export default function SeriesIntroPrintPage({
 
           {/* 右：產品名稱＋設計理念 */}
           <div className="flex flex-col" style={{ width: "32%", paddingTop: "18mm" }}>
-            <h1 style={{ fontSize: "10.5pt", fontWeight: 600, letterSpacing: "0.06em" }}>
+            <h1 style={{ fontSize: "12pt", fontWeight: 600, letterSpacing: "0.06em" }}>
               {displayName}
             </h1>
             {displayConcept.trim() && (
@@ -503,7 +503,7 @@ export default function SeriesIntroPrintPage({
       {/* ── 第二頁：規格＋色樣 ── */}
       <section className="sheet-page sheet-page-2">
         <div className="flex items-start justify-between">
-          <h2 style={{ fontSize: "9pt", fontWeight: 600, letterSpacing: "0.06em" }}>
+          <h2 style={{ fontSize: "11pt", fontWeight: 600, letterSpacing: "0.06em" }}>
             {displayName}
           </h2>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -556,14 +556,14 @@ export default function SeriesIntroPrintPage({
                       )}
                     </div>
                     {/* 線稿展示不出木種：代碼跳過木種代號、不標木種名 */}
-                    <p className="sheet-en" style={{ fontSize: "7.5pt", color: "#1c1c1c" }}>
+                    <p className="sheet-en" style={{ fontSize: "9pt", color: "#1c1c1c" }}>
                       {v.displayCode}
                     </p>
-                    <p className="sheet-en" style={{ fontSize: "7pt", color: "#777", marginTop: "1mm" }}>
+                    <p className="sheet-en" style={{ fontSize: "8pt", color: "#777", marginTop: "1mm" }}>
                       {formatDims(v) || "—"}
                     </p>
                     {v.seat_height_cm != null && (
-                      <p className="sheet-en" style={{ fontSize: "7pt", color: "#777" }}>
+                      <p className="sheet-en" style={{ fontSize: "8pt", color: "#777" }}>
                         SH{formatCm(v.seat_height_cm)}
                       </p>
                     )}
@@ -612,16 +612,16 @@ export default function SeriesIntroPrintPage({
                             style={{ width: "19mm", height: "19mm", objectFit: "cover" }}
                           />
                           {lang === "en" ? (
-                            <p className="sheet-en" style={{ fontSize: "6pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                            <p className="sheet-en" style={{ fontSize: "8pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
                               {s.name_en?.trim() || s.name.replace(/^\[DEMO\]\s*/, "")}
                             </p>
                           ) : (
                             <>
-                              <p style={{ fontSize: "6pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                              <p style={{ fontSize: "8pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
                                 {s.name.replace(/^\[DEMO\]\s*/, "")}
                               </p>
                               {s.name_en?.trim() && (
-                                <p className="sheet-en" style={{ fontSize: "5.5pt", color: "#999", lineHeight: 1.4 }}>
+                                <p className="sheet-en" style={{ fontSize: "8pt", color: "#999", lineHeight: 1.4 }}>
                                   {s.name_en}
                                 </p>
                               )}
