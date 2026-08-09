@@ -604,12 +604,12 @@ export default function SeriesIntroPrintPage({
                   .map((group, gi) => (
                     <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>
                       {group.map((s) => (
-                        <div key={s.id} className="flex flex-col" style={{ width: "19mm" }}>
+                        <div key={s.id} className="flex flex-col" style={{ width: "24mm" }}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={s.image_url}
                             alt={s.name}
-                            style={{ width: "19mm", height: "19mm", objectFit: "cover" }}
+                            style={{ width: "24mm", height: "24mm", objectFit: "cover" }}
                           />
                           {lang === "en" ? (
                             <p className="sheet-en" style={{ fontSize: "8pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
