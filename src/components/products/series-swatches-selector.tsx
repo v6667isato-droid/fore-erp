@@ -11,7 +11,10 @@ import { ArrowUp, ArrowDown } from "lucide-react";
 function mapSwatch(r: Record<string, unknown>): SwatchRow {
   return {
     id: String(r.id),
-    category: r.category === "fabric" || r.category === "door" ? r.category : "wood",
+    category:
+      r.category === "fabric" || r.category === "door" || r.category === "cloth"
+        ? r.category
+        : "wood",
     name: String(r.name ?? ""),
     name_en: r.name_en != null ? String(r.name_en) : null,
     image_url: r.image_url != null && String(r.image_url) ? String(r.image_url) : null,
@@ -69,6 +72,7 @@ export function SeriesSwatchesSelector({ value, onChange, disabled = false }: Se
   const woodList = selectable.filter((s) => s.category === "wood");
   const doorList = selectable.filter((s) => s.category === "door");
   const fabricList = selectable.filter((s) => s.category === "fabric");
+  const clothList = selectable.filter((s) => s.category === "cloth");
 
   function toggle(id: string) {
     if (selectedSet.has(id)) onChange(value.filter((v) => v !== id));
@@ -93,7 +97,7 @@ export function SeriesSwatchesSelector({ value, onChange, disabled = false }: Se
   if (swatches.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        尚無色樣主檔。請先到「產品資料 → 材料色樣」建立材種／布墊色樣。
+        尚無色樣主檔。請先到「產品資料 → 材料色樣」建立材種／座墊／布樣色樣。
       </p>
     );
   }
@@ -103,7 +107,8 @@ export function SeriesSwatchesSelector({ value, onChange, disabled = false }: Se
       {[
         { label: "材種", list: woodList },
         { label: "門片種類", list: doorList },
-        { label: "布墊", list: fabricList },
+        { label: "座墊", list: fabricList },
+        { label: "布樣", list: clothList },
       ].map(({ label, list }) =>
         list.length === 0 ? null : (
           <div key={label} className="flex flex-col gap-2">
@@ -152,7 +157,7 @@ export function SeriesSwatchesSelector({ value, onChange, disabled = false }: Se
       {value.length > 0 && (
         <div className="flex flex-col gap-2 border-t border-border pt-3">
           <span className="text-xs font-medium text-muted-foreground">
-            顯示順序（介紹表上材種 → 門片 → 布墊分群，各群內依此排序）
+            顯示順序（介紹表上材種 → 門片 → 座墊 → 布樣分群，各群內依此排序）
           </span>
           <ul className="flex flex-col gap-1">
             {value.map((id, idx) => {
@@ -171,7 +176,7 @@ export function SeriesSwatchesSelector({ value, onChange, disabled = false }: Se
                   <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                     {s.name}
                     <span className="ml-1 text-[10px] text-muted-foreground">
-                      {s.category === "wood" ? "材種" : s.category === "door" ? "門片" : "布墊"}
+                      {s.category === "wood" ? "材種" : s.category === "door" ? "門片" : s.category === "cloth" ? "布樣" : "座墊"}
                     </span>
                   </span>
                   <Button

@@ -12,18 +12,22 @@ import { Palette, Plus, Pencil, Trash2, ArrowUp, ArrowDown, X } from "lucide-rea
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 
-type SwatchCategory = "wood" | "fabric" | "door";
+type SwatchCategory = "wood" | "fabric" | "door" | "cloth";
 
 const CATEGORY_TABS: { key: SwatchCategory; label: string }[] = [
   { key: "wood", label: "材種" },
-  { key: "fabric", label: "布墊" },
+  { key: "fabric", label: "座墊" },
   { key: "door", label: "門片種類" },
+  { key: "cloth", label: "布樣" },
 ];
 
 function mapSwatch(r: Record<string, unknown>): SwatchRow {
   return {
     id: String(r.id),
-    category: r.category === "fabric" || r.category === "door" ? r.category : "wood",
+    category:
+      r.category === "fabric" || r.category === "door" || r.category === "cloth"
+        ? r.category
+        : "wood",
     name: String(r.name ?? ""),
     name_en: r.name_en != null ? String(r.name_en) : null,
     image_url: r.image_url != null && String(r.image_url) ? String(r.image_url) : null,
@@ -32,7 +36,7 @@ function mapSwatch(r: Record<string, unknown>): SwatchRow {
   };
 }
 
-/** 材料色樣管理：介紹表第二頁色樣區的主檔（材種／布墊），供各系列勾選 */
+/** 材料色樣管理：介紹表第二頁色樣區的主檔（材種／座墊／門片／布樣），供各系列勾選 */
 export function MaterialSwatchesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [rows, setRows] = useState<SwatchRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,7 +200,7 @@ export function MaterialSwatchesPanel({ isAdmin = false }: { isAdmin?: boolean }
             ))}
           </div>
           <span className="ml-auto text-xs text-muted-foreground">
-            介紹表色樣區順序依此排序（材種 → 門片 → 布墊）
+            介紹表色樣區順序依此排序（材種 → 門片 → 座墊 → 布樣）
           </span>
         </div>
 

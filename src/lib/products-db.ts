@@ -9,7 +9,7 @@ export const TABLE_PRODUCT_SERIES = "product_series";
 /** Supabase 表名：產品規格（關聯 product_series.id  via series_id） */
 export const TABLE_PRODUCT_VARIANTS = "product_variants";
 
-/** Supabase 表名：材料色樣主檔（材種／布墊，介紹表色樣區） */
+/** Supabase 表名：材料色樣主檔（材種／座墊／門片／布樣，介紹表色樣區） */
 export const TABLE_MATERIAL_SWATCHES = "material_swatches";
 
 /** Supabase 表名：系列 ↔ 色樣關聯（介紹表要顯示的色樣與順序） */

@@ -480,7 +480,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-medium text-foreground">介紹表色樣</span>
                     <span className="text-[11px] text-muted-foreground">
-                      勾選要顯示在介紹表第二頁底部的材種／布墊色樣。
+                      勾選要顯示在介紹表第二頁底部的材種／門片／座墊／布樣色樣。
                     </span>
                     <SeriesSwatchesSelector
                       value={sheetSwatchIds}

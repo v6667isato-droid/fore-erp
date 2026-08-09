@@ -76,7 +76,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
 
 type SheetSwatch = {
   id: string;
-  category: "wood" | "fabric" | "door";
+  category: "wood" | "fabric" | "door" | "cloth";
   name: string;
   name_en: string | null;
   image_url: string;
@@ -211,7 +211,10 @@ export default function SeriesIntroPrintPage({
       if (!s || !s.image_url) continue;
       swatchRows.push({
         id: String(s.id),
-        category: s.category === "fabric" || s.category === "door" ? (s.category as "fabric" | "door") : "wood",
+        category:
+          s.category === "fabric" || s.category === "door" || s.category === "cloth"
+            ? (s.category as "fabric" | "door" | "cloth")
+            : "wood",
         name: String(s.name ?? ""),
         name_en: s.name_en != null ? String(s.name_en) : null,
         image_url: String(s.image_url),
@@ -270,10 +273,11 @@ export default function SeriesIntroPrintPage({
     return [...map.values()];
   }, [sheetVariants, woodCodes]);
 
-  /** 分群順序：材種 → 門片 → 布墊（各群內依勾選順序） */
+  /** 分群順序：材種 → 門片 → 座墊 → 布樣（各群內依勾選順序） */
   const woodSwatches = useMemo(() => swatches.filter((s) => s.category === "wood"), [swatches]);
   const doorSwatches = useMemo(() => swatches.filter((s) => s.category === "door"), [swatches]);
   const fabricSwatches = useMemo(() => swatches.filter((s) => s.category === "fabric"), [swatches]);
+  const clothSwatches = useMemo(() => swatches.filter((s) => s.category === "cloth"), [swatches]);
 
   if (loading) {
     return (
@@ -589,7 +593,7 @@ export default function SeriesIntroPrintPage({
               </p>
             )}
 
-            {/* 色樣區：材種在前、布墊在後，兩群之間較大間距 */}
+            {/* 色樣區：材種 → 門片 → 座墊 → 布樣，各群之間較大間距 */}
             {swatches.length > 0 && (
               <div
                 className="flex flex-wrap items-start"
@@ -599,7 +603,7 @@ export default function SeriesIntroPrintPage({
                   paddingTop: displayCustomization.trim() ? undefined : "10mm",
                 }}
               >
-                {[woodSwatches, doorSwatches, fabricSwatches]
+                {[woodSwatches, doorSwatches, fabricSwatches, clothSwatches]
                   .filter((group) => group.length > 0)
                   .map((group, gi) => (
                     <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>

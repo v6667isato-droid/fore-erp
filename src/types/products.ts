@@ -82,8 +82,8 @@ export interface VariantRow {
  */
 export interface SwatchRow {
   id: string;
-  /** wood=材種, fabric=布墊, door=門片種類 */
-  category: "wood" | "fabric" | "door";
+  /** wood=材種, fabric=座墊, door=門片種類, cloth=布樣 */
+  category: "wood" | "fabric" | "door" | "cloth";
   /** 中文名，例：白橡木 */
   name: string;
   /** 英文標示，例：Oak / Natural white（印在介紹表上） */
