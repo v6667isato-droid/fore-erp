@@ -9,7 +9,7 @@ import {
   type CustomCaseKind,
   type CustomCaseRow,
 } from "@/lib/custom-cases-db";
-import { WOOD_TYPE_OPTIONS } from "@/lib/products-db";
+import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { Button } from "@/components/ui/button";
 import { X, Globe, Images } from "lucide-react";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
@@ -47,6 +47,7 @@ export function CustomCaseFormDialog({
   const isEdit = row != null;
   const kindLabel = CUSTOM_CASE_KIND_LABEL[kind];
   const firstRef = useRef<HTMLInputElement>(null);
+  const woodTypeOptions = useWoodTypeOptions(open && kind === "custom");
 
   const [caseCode, setCaseCode] = useState("");
   const [nameZh, setNameZh] = useState("");
@@ -301,7 +302,7 @@ export function CustomCaseFormDialog({
                       {/* 基本木種只給訂製案例；加工區僅顯示自己累積的材質 */}
                       {[
                         ...new Set([
-                          ...(kind === "custom" ? WOOD_TYPE_OPTIONS : []),
+                          ...(kind === "custom" ? woodTypeOptions : []),
                           ...(materialSuggestions ?? []),
                         ]),
                       ].map((o) => (

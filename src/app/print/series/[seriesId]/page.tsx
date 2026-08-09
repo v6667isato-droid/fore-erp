@@ -305,7 +305,8 @@ export default function SeriesIntroPrintPage({
   const photos = [series.image_url, series.detail_image_urls?.[0]].filter(Boolean) as string[];
   const gridCols = showPrice ? 3 : 4;
   // 線圖整頁統一縮放：有圖超過格寬時，全部圖用同一縮放率縮小（字高線粗才會一致）；都塞得下則 1:1
-  const cellMm = showPrice ? 57 : 60.7;
+  // 格寬＝(區寬 − 欄距16mm×(欄數−1)) ÷ 欄數：有價目 3 欄約 51.6mm、無價目 4 欄約 54.8mm
+  const cellMm = showPrice ? 51.6 : 54.8;
   const maxDrawingMm = Math.max(
     0,
     ...sheetCells.map((v) => {
@@ -536,7 +537,7 @@ export default function SeriesIntroPrintPage({
                   display: "grid",
                   // minmax(0, 1fr)：欄寬固定均分，不被格內寬圖撐開（寬圖改用跨欄處理）
                   gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-                  columnGap: "8mm",
+                  columnGap: "16mm",
                   rowGap: "10mm",
                 }}
               >

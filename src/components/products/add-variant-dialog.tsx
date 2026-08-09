@@ -5,8 +5,8 @@ import { supabase } from "@/lib/supabase";
 import {
   TABLE_PRODUCT_SERIES,
   TABLE_PRODUCT_VARIANTS,
-  WOOD_TYPE_OPTIONS,
 } from "@/lib/products-db";
+import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -101,6 +101,7 @@ const inputCls =
 
 export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddVariantDialogProps) {
   const firstRef = useRef<HTMLInputElement>(null);
+  const woodTypeOptions = useWoodTypeOptions(open);
   // 手動輸入模式欄位（維持原行為）
   const [code, setCode] = useState("");
   const [woodType, setWoodType] = useState("");
@@ -934,7 +935,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                     placeholder="例：白橡木"
                   />
                   <datalist id="add-variant-wood-list">
-                    {WOOD_TYPE_OPTIONS.map((o) => (
+                    {woodTypeOptions.map((o) => (
                       <option key={o} value={o} />
                     ))}
                   </datalist>

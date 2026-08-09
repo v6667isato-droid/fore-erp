@@ -13,6 +13,7 @@ import {
   type WorkOrderStage,
 } from "@/lib/work-order-stages";
 import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
+import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { Button } from "@/components/ui/button";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
@@ -76,7 +77,6 @@ const ORDER_EXPLANATION_COMPRESSION_OPTIONS = {
   useWebWorker: true,
 } as const;
 
-const WOOD_TYPE_OPTIONS = ["白橡木", "胡桃木", "柚木", "雞翅木"] as const;
 
 /** 品項類型切換選項：規格庫（產品系列）／訂製案例／加工項目（加工區）／客製品項（手填） */
 const ITEM_KIND_OPTIONS: { kind: OrderItemKind; label: string }[] = [
@@ -326,6 +326,7 @@ function OrderFormDialog({
   onSaved,
   onRefreshCustomers,
 }: OrderFormProps) {
+  const woodTypeOptions = useWoodTypeOptions(open);
   const isEdit = Boolean(initialOrder);
   /** 依「已儲存」訂單狀態鎖定；未儲存前可從繪圖改回，避免誤選生產中後無法復原 */
   const savedOrderStatusLocked =
@@ -1413,7 +1414,7 @@ function OrderFormDialog({
                 </p>
               </div>
               <datalist id={WOOD_TYPE_DATALIST_ID}>
-                {WOOD_TYPE_OPTIONS.map((w) => (
+                {woodTypeOptions.map((w) => (
                   <option key={w} value={w} />
                 ))}
               </datalist>

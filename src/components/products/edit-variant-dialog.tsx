@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_VARIANTS, TABLE_PRODUCT_SERIES, WOOD_TYPE_OPTIONS } from "@/lib/products-db";
+import { TABLE_PRODUCT_VARIANTS, TABLE_PRODUCT_SERIES } from "@/lib/products-db";
+import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { DimensionDrawingUpload } from "@/components/products/dimension-drawing-upload";
@@ -21,6 +22,7 @@ export interface EditVariantDialogProps {
 
 export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVariantDialogProps) {
   const firstRef = useRef<HTMLInputElement>(null);
+  const woodTypeOptions = useWoodTypeOptions(open);
   const [code, setCode] = useState("");
   const [woodType, setWoodType] = useState("");
   const [w, setW] = useState("");
@@ -231,7 +233,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
                 placeholder="例：白橡木"
               />
               <datalist id="edit-variant-wood-list">
-                {WOOD_TYPE_OPTIONS.map((o) => (
+                {woodTypeOptions.map((o) => (
                   <option key={o} value={o} />
                 ))}
               </datalist>

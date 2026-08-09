@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/button";
-import { X, Pencil, Check, Plus } from "lucide-react";
+import { X, Pencil, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { TABLE_PRODUCT_VARIANTS } from "@/lib/products-db";
 import { toast } from "sonner";
@@ -41,6 +41,13 @@ interface AddFormState {
 
 const EMPTY_ADD_FORM: AddFormState = { open: false, code: "", name: "", delta: "", sort: "" };
 
+interface EditFormState {
+  code: string;
+  name: string;
+  delta: string;
+  sort: string;
+}
+
 const inputCls =
   "h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
 const smallInputCls =
@@ -75,8 +82,9 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
   const [usedIds, setUsedIds] = useState<Set<string>>(new Set());
   /** 覆寫欄輸入草稿（字串，空＝沿用全域） */
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({});
-  const [editingGlobalId, setEditingGlobalId] = useState<string | null>(null);
-  const [globalDraft, setGlobalDraft] = useState("");
+  /** 正在整筆編輯的 option_value_id（代碼／名稱／全域價差／排序） */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditFormState>({ code: "", name: "", delta: "", sort: "" });
   const [addForms, setAddForms] = useState<Record<string, AddFormState>>({});
   const [busy, setBusy] = useState(false);
   /** 系列基礎價草稿（字串；空＝未設定）；生成規格的定價＝基礎價＋Σ有效價差 */
@@ -92,7 +100,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     setAttached({});
     setUsedIds(new Set());
     setOverrideDrafts({});
-    setEditingGlobalId(null);
+    setEditingId(null);
     setAddForms({});
 
     let cancelled = false;
@@ -251,31 +259,137 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     onChanged?.();
   }
 
-  function startGlobalEdit(v: OptionValueRow) {
-    setEditingGlobalId(v.id);
-    setGlobalDraft(String(v.price_delta));
+  function startEdit(v: OptionValueRow) {
+    setEditingId(v.id);
+    setEditDraft({
+      code: v.code,
+      name: v.name_zh,
+      delta: String(v.price_delta),
+      sort: String(v.sort_order),
+    });
   }
 
-  async function saveGlobal(v: OptionValueRow) {
-    const num = Number(globalDraft.trim());
-    if (globalDraft.trim() === "" || !Number.isInteger(num)) {
+  async function saveEdit(v: OptionValueRow, typeName: string) {
+    if (busy) return;
+    const code = editDraft.code.trim();
+    const name = editDraft.name.trim();
+    if (!code || !name) {
+      toast.error("請輸入代碼與名稱");
+      return;
+    }
+    const delta = Number(editDraft.delta.trim());
+    if (editDraft.delta.trim() === "" || !Number.isInteger(delta)) {
       toast.error("全域價差必須是整數");
       return;
     }
-    if (num === v.price_delta) {
-      setEditingGlobalId(null);
+    const sort = Number(editDraft.sort.trim());
+    if (editDraft.sort.trim() === "" || !Number.isInteger(sort)) {
+      toast.error("排序必須是整數");
       return;
     }
+    if (
+      code === v.code &&
+      name === v.name_zh &&
+      delta === v.price_delta &&
+      sort === v.sort_order
+    ) {
+      setEditingId(null);
+      return;
+    }
+    setBusy(true);
     const { error } = await supabase
       .from("option_values")
-      .update({ price_delta: num })
+      .update({ code, name_zh: name, price_delta: delta, sort_order: sort })
       .eq("id", v.id);
+    setBusy(false);
     if (error) {
-      toast.error(error.message || "儲存全域價差失敗");
+      if (isDuplicateError(error.message)) {
+        toast.error(`「${typeName}」已有代碼「${code}」的選項值，請改用其他代碼`);
+      } else {
+        toast.error(error.message || "儲存選項值失敗");
+      }
       return;
     }
-    setValues((prev) => prev.map((x) => (x.id === v.id ? { ...x, price_delta: num } : x)));
-    setEditingGlobalId(null);
+    setValues((prev) =>
+      prev
+        .map((x) =>
+          x.id === v.id ? { ...x, code, name_zh: name, price_delta: delta, sort_order: sort } : x
+        )
+        .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
+    );
+    setEditingId(null);
+    toast.success(`已更新「${name}」`);
+    onChanged?.();
+  }
+
+  async function deleteValue(v: OptionValueRow) {
+    if (!series || busy) return;
+    if (usedIds.has(v.id)) {
+      toast.error(`「${v.name_zh}」已被此系列的規格使用，無法刪除`);
+      return;
+    }
+    if (
+      !window.confirm(
+        `確定刪除選項值「${v.name_zh} (${v.code})」？\n刪除後所有系列都無法再選用此值，且無法復原。`
+      )
+    )
+      return;
+    setBusy(true);
+    // 先確認沒有其他系列的規格或選項設定引用，避免刪到一半被外鍵擋下
+    const [varsRes, optsRes] = await Promise.all([
+      supabase
+        .from(TABLE_PRODUCT_VARIANTS)
+        .select("id", { count: "exact", head: true })
+        .or(
+          `wood_value_id.eq.${v.id},size_value_id.eq.${v.id},cushion_value_id.eq.${v.id},config_value_id.eq.${v.id}`
+        ),
+      supabase
+        .from("product_options")
+        .select("series_id", { count: "exact", head: true })
+        .eq("option_value_id", v.id)
+        .neq("series_id", series.id),
+    ]);
+    if (varsRes.error || optsRes.error) {
+      setBusy(false);
+      toast.error(varsRes.error?.message || optsRes.error?.message || "檢查引用狀態失敗");
+      return;
+    }
+    if ((varsRes.count ?? 0) > 0) {
+      setBusy(false);
+      toast.error(`「${v.name_zh}」已被規格使用（含其他系列），無法刪除`);
+      return;
+    }
+    if ((optsRes.count ?? 0) > 0) {
+      setBusy(false);
+      toast.error(`「${v.name_zh}」已被其他系列的選項設定選用，無法刪除`);
+      return;
+    }
+    if (v.id in attached) {
+      const { error: detachErr } = await supabase
+        .from("product_options")
+        .delete()
+        .eq("series_id", series.id)
+        .eq("option_value_id", v.id);
+      if (detachErr) {
+        setBusy(false);
+        toast.error(detachErr.message || "移除系列選項失敗");
+        return;
+      }
+    }
+    const { error } = await supabase.from("option_values").delete().eq("id", v.id);
+    setBusy(false);
+    if (error) {
+      toast.error(error.message || "刪除選項值失敗");
+      return;
+    }
+    setValues((prev) => prev.filter((x) => x.id !== v.id));
+    setAttached((prev) => {
+      const next = { ...prev };
+      delete next[v.id];
+      return next;
+    });
+    setEditingId(null);
+    toast.success(`已刪除「${v.name_zh}」`);
     onChanged?.();
   }
 
@@ -447,7 +561,90 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                       <ul className="divide-y divide-border">
                         {typeValues.map((v) => {
                           const isAttached = v.id in attached;
-                          const editingGlobal = editingGlobalId === v.id;
+                          const isEditing = editingId === v.id;
+                          if (isEditing) {
+                            return (
+                              <li key={v.id} className="px-3 py-2">
+                                <div className="space-y-2">
+                                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                    <div className="flex flex-col gap-1">
+                                      <label htmlFor={`edit-code-${v.id}`} className="text-[11px] text-muted-foreground">代碼 *</label>
+                                      <input
+                                        id={`edit-code-${v.id}`}
+                                        type="text"
+                                        value={editDraft.code}
+                                        onChange={(e) => setEditDraft((prev) => ({ ...prev, code: e.target.value }))}
+                                        className={inputCls}
+                                      />
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <label htmlFor={`edit-name-${v.id}`} className="text-[11px] text-muted-foreground">名稱 *</label>
+                                      <input
+                                        id={`edit-name-${v.id}`}
+                                        type="text"
+                                        value={editDraft.name}
+                                        onChange={(e) => setEditDraft((prev) => ({ ...prev, name: e.target.value }))}
+                                        className={inputCls}
+                                      />
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <label htmlFor={`edit-delta-${v.id}`} className="text-[11px] text-muted-foreground">全域價差</label>
+                                      <input
+                                        id={`edit-delta-${v.id}`}
+                                        type="number"
+                                        value={editDraft.delta}
+                                        onChange={(e) => setEditDraft((prev) => ({ ...prev, delta: e.target.value }))}
+                                        className={inputCls}
+                                      />
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <label htmlFor={`edit-sort-${v.id}`} className="text-[11px] text-muted-foreground">排序</label>
+                                      <input
+                                        id={`edit-sort-${v.id}`}
+                                        type="number"
+                                        value={editDraft.sort}
+                                        onChange={(e) => setEditDraft((prev) => ({ ...prev, sort: e.target.value }))}
+                                        className={inputCls}
+                                      />
+                                    </div>
+                                  </div>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    改代碼／名稱／價差不會回溯已生成規格的編號與定價。全域價差影響所有未設覆寫的系列。
+                                  </p>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      className="h-8 px-3 text-xs"
+                                      onClick={() => saveEdit(v, t.name_zh)}
+                                      disabled={busy}
+                                    >
+                                      儲存
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      className="h-8 px-3 text-xs"
+                                      onClick={() => setEditingId(null)}
+                                      disabled={busy}
+                                    >
+                                      取消
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      className="ml-auto h-8 px-3 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                      onClick={() => deleteValue(v)}
+                                      disabled={busy || usedIds.has(v.id)}
+                                      title={usedIds.has(v.id) ? "已被此系列的規格使用，無法刪除" : "刪除此選項值（所有系列）"}
+                                    >
+                                      <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                      刪除
+                                    </Button>
+                                  </div>
+                                </div>
+                              </li>
+                            );
+                          }
                           return (
                             <li key={v.id} className="px-3 py-2">
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -467,46 +664,16 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                 </label>
                                 <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                                   <span>全域</span>
-                                  {editingGlobal ? (
-                                    <>
-                                      <input
-                                        type="number"
-                                        value={globalDraft}
-                                        onChange={(e) => setGlobalDraft(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") {
-                                            e.preventDefault();
-                                            saveGlobal(v);
-                                          }
-                                          if (e.key === "Escape") setEditingGlobalId(null);
-                                        }}
-                                        className={`${smallInputCls} w-20 text-right`}
-                                        aria-label={`${v.name_zh} 全域價差`}
-                                        autoFocus
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => saveGlobal(v)}
-                                        className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
-                                        aria-label="儲存全域價差"
-                                      >
-                                        <Check className="h-3.5 w-3.5 text-primary" />
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <span className="font-mono text-foreground">{formatDelta(v.price_delta)}</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => startGlobalEdit(v)}
-                                        className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
-                                        aria-label={`編輯 ${v.name_zh} 全域價差`}
-                                        title="全域價差，影響所有未設覆寫的系列"
-                                      >
-                                        <Pencil className="h-3 w-3 text-muted-foreground" />
-                                      </button>
-                                    </>
-                                  )}
+                                  <span className="font-mono text-foreground">{formatDelta(v.price_delta)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => startEdit(v)}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
+                                    aria-label={`編輯 ${v.name_zh}`}
+                                    title="編輯代碼／名稱／全域價差／排序"
+                                  >
+                                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                                  </button>
                                 </span>
                                 <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                                   <span>覆寫</span>
@@ -524,11 +691,6 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                   />
                                 </span>
                               </div>
-                              {editingGlobal && (
-                                <p className="mt-1 text-[11px] text-muted-foreground">
-                                  全域價差，影響所有未設覆寫的系列。
-                                </p>
-                              )}
                             </li>
                           );
                         })}
