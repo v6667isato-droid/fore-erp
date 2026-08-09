@@ -242,7 +242,7 @@ export function DimensionDrawingUpload({
             <Upload className="h-4 w-4 text-muted-foreground" aria-hidden />
             <p className="text-[11px] text-muted-foreground">上傳尺寸線圖（SVG / PNG）</p>
             <p className="text-[10px] text-muted-foreground/80">
-              LayOut 匯出 PNG 請設 300 DPI（紙面多大就印多大）
+              LayOut 匯出 PNG 設 300 DPI＝紙面 1:1 印出（調高 DPI 可放大，寬度上限一格）
             </p>
           </div>
         )}

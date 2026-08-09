@@ -89,7 +89,7 @@ function formatCm(v: number): string {
 
 /**
  * 從線圖檔名解析裁切後像素尺寸（uuid_WxH.png）。
- * 有尺寸 → 以 300DPI 固定比例渲染（LayOut 紙面多大就印多大，各產品字高、線粗一致）；
+ * 有尺寸 → 以 300DPI 換算定寬渲染（上限＝格寬，高度不限）；提高匯出 DPI 可讓圖變大。
  * 無尺寸（舊檔）→ fallback 塞 33mm 高的盒子。
  */
 function parseDrawingSize(url: string): { w: number; h: number } | null {
@@ -530,14 +530,8 @@ export default function SeriesIntroPrintPage({
                 {sheetCells.map((v) => {
                   const drawingUrl = v.dimension_drawing_url?.trim() || null;
                   const drawingSize = drawingUrl ? parseDrawingSize(drawingUrl) : null;
-                  // 依 300DPI 實寬決定跨欄數：多視圖寬圖（如 CH03 正視＋側視）自動佔 2 格以上
-                  // 格寬近似值：內容區 267mm，左區 70%（有價目）→ 3 欄約 57mm；全寬 4 欄約 60.7mm
-                  const cellMm = showPrice ? 57 : 60.7;
-                  const drawingMm = drawingSize ? drawingSize.w * DRAWING_MM_PER_PX : 0;
-                  let span = 1;
-                  while (span < gridCols && drawingMm > span * cellMm + (span - 1) * 8) span++;
                   return (
-                  <div key={v.id} className="flex flex-col" style={span > 1 ? { gridColumn: `span ${span}` } : undefined}>
+                  <div key={v.id} className="flex flex-col">
                     {/* 線圖區：固定比例（300DPI）時各圖高矮不一、底對齊，列高隨最高者長；無線圖時留白 */}
                     <div
                       className="flex items-end"
@@ -552,7 +546,7 @@ export default function SeriesIntroPrintPage({
                           style={
                             drawingSize
                               ? {
-                                  // 寬圖靠跨欄取得空間；maxWidth 100% 只擋「比整列還寬」的極端情況
+                                  // 300DPI 定寬、上限＝格寬；高度不限制（列高隨圖長）。想放大就提高匯出 DPI
                                   width: `${(drawingSize.w * DRAWING_MM_PER_PX).toFixed(2)}mm`,
                                   maxWidth: "100%",
                                 }
