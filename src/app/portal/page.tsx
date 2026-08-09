@@ -32,6 +32,7 @@ import {
 import {
   DEFAULT_SEAT_HEIGHT_CM,
   SEAT_HEIGHT_UPCHARGE_NTD,
+  hasSeatSpecs,
 } from "@/lib/product-seat-height";
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
@@ -46,8 +47,7 @@ function resolvePortalSeatHeight(v: {
   if (v.seat_height_cm != null && Number.isFinite(Number(v.seat_height_cm))) {
     return Number(v.seat_height_cm);
   }
-  const cat = v.series_category ?? "";
-  if (cat === "椅" || cat === "凳") return DEFAULT_SEAT_HEIGHT_CM;
+  if (hasSeatSpecs(v.series_category)) return DEFAULT_SEAT_HEIGHT_CM;
   return null;
 }
 

@@ -12,7 +12,7 @@ import {
   WORK_ORDER_STAGES,
   type WorkOrderStage,
 } from "@/lib/work-order-stages";
-import { DEFAULT_SEAT_HEIGHT_CM } from "@/lib/product-seat-height";
+import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
 import { Button } from "@/components/ui/button";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
@@ -788,7 +788,7 @@ function OrderFormDialog({
     const seatResolved =
       selected?.seat_height_cm != null
         ? Number(selected.seat_height_cm)
-        : selected?.series_category === "椅" || selected?.series_category === "凳"
+        : hasSeatSpecs(selected?.series_category)
           ? DEFAULT_SEAT_HEIGHT_CM
           : null;
     const nextUnitPrice = resolveListUnitPrice(variantId);

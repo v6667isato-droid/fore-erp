@@ -16,7 +16,6 @@ import {
 import type { SeriesRow, VariantRow } from "@/types/products";
 import {
   DEFAULT_WOOD_CODES,
-  categoryLabel,
   footerContact,
   stripWoodCode,
   type SheetLang,
@@ -312,19 +311,15 @@ export default function SeriesIntroPrintPage({
   const displayCustomization =
     (lang === "en" && series.customization_rules_en?.trim()) || series.customization_rules || "";
   const unitNote = lang === "en" ? "Unit: cm" : "尺寸單位: cm";
-  // 類別＋交期（原第一頁頁尾）：移到第二頁與尺寸說明並列
+  // 交期（原第一頁頁尾，類別不顯示）：與尺寸說明並列
   const specFootnote = [
-    ...(lang === "en"
-      ? [
-          series.category?.trim() ? categoryLabel(series.category, "en") : null,
-          series.production_time?.trim()
-            ? `Lead time approx. ${series.production_time} weeks`
-            : null,
-        ]
-      : [
-          series.category?.trim() ? `類別 ${series.category}` : null,
-          series.production_time?.trim() ? `交期約 ${series.production_time} 週` : null,
-        ]),
+    lang === "en"
+      ? series.production_time?.trim()
+        ? `Lead time approx. ${series.production_time} weeks`
+        : null
+      : series.production_time?.trim()
+        ? `交期約 ${series.production_time} 週`
+        : null,
     unitNote,
   ]
     .filter(Boolean)

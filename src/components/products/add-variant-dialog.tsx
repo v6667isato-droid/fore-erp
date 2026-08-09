@@ -447,7 +447,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       show_on_price_list: showOnPriceList,
     };
     payload.spec1 = spec1.trim() || null;
-    const showSeatHeight = series.category === "椅" || series.category === "凳";
+    const showSeatHeight = hasSeatSpecs(series.category);
     if (showSeatHeight) {
       payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
       // 扶手高度無預設：留空即不寫入，訂單／產品資料表也不會顯示
@@ -546,7 +546,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         }
       }
     }
-    const showSeatHeight = series.category === "椅" || series.category === "凳";
+    const showSeatHeight = hasSeatSpecs(series.category);
     const rows: TablesInsert<"product_variants">[] = newCombos.map((c) => ({
       series_id: series.id,
       product_code: c.code,
@@ -953,7 +953,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                     <input id="add-variant-h" type="number" value={h} onChange={(e) => setH(e.target.value)} className={inputCls} placeholder="cm" />
                   </div>
                 </div>
-                {(series.category === "椅" || series.category === "凳") && (
+                {hasSeatSpecs(series.category) && (
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="add-variant-seat-h" className="text-xs text-muted-foreground">座高（cm）</label>
                     <input
@@ -966,7 +966,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                     />
                   </div>
                 )}
-                {(series.category === "椅" || series.category === "凳") && (
+                {hasSeatSpecs(series.category) && (
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="add-variant-arm-h" className="text-xs text-muted-foreground">扶手高度 AH（cm）</label>
                     <input

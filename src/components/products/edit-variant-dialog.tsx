@@ -10,7 +10,7 @@ import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { VariantRow } from "@/types/products";
-import { DEFAULT_SEAT_HEIGHT_CM } from "@/lib/product-seat-height";
+import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
 
 export interface EditVariantDialogProps {
   open: boolean;
@@ -125,10 +125,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
         }
         if (typeof data.category === "string") {
           setSeriesCategory(data.category);
-          if (
-            (data.category === "椅" || data.category === "凳") &&
-            row.seat_height_cm == null
-          ) {
+          if (hasSeatSpecs(data.category) && row.seat_height_cm == null) {
             setSeatHeightCm(String(DEFAULT_SEAT_HEIGHT_CM));
           }
         } else {
@@ -168,7 +165,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       show_on_price_list: showOnPriceList,
       dimension_drawing_url: drawingUrl?.trim() || null,
     };
-    if (seriesCategory === "椅" || seriesCategory === "凳") {
+    if (hasSeatSpecs(seriesCategory)) {
       payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
       payload.arm_height_cm = armHeightCmInput.trim() ? Number(armHeightCmInput) : null;
     }
@@ -253,7 +250,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
                 <input id="edit-variant-h" type="number" value={h} onChange={(e) => setH(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
               </div>
             </div>
-            {(seriesCategory === "椅" || seriesCategory === "凳") && (
+            {hasSeatSpecs(seriesCategory) && (
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-variant-seat-h" className="text-xs text-muted-foreground">座高（cm）</label>
                 <input
@@ -266,7 +263,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
                 />
               </div>
             )}
-            {(seriesCategory === "椅" || seriesCategory === "凳") && (
+            {hasSeatSpecs(seriesCategory) && (
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-variant-arm-h" className="text-xs text-muted-foreground">扶手高度 AH（cm）</label>
                 <input
