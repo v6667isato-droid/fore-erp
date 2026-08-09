@@ -545,8 +545,9 @@ export default function SeriesIntroPrintPage({
                           style={
                             drawingSize
                               ? {
+                                  // 不設 maxWidth：多視圖的寬圖（如 CH03 正視＋側視）維持 300DPI 原比例，允許超出格寬
                                   width: `${(drawingSize.w * DRAWING_MM_PER_PX).toFixed(2)}mm`,
-                                  maxWidth: "100%",
+                                  maxWidth: "none",
                                 }
                               : { maxHeight: "33mm", maxWidth: "100%" }
                           }

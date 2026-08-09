@@ -241,6 +241,9 @@ export function DimensionDrawingUpload({
           <div className="flex flex-col items-center justify-center gap-1 px-3 py-4 text-center">
             <Upload className="h-4 w-4 text-muted-foreground" aria-hidden />
             <p className="text-[11px] text-muted-foreground">上傳尺寸線圖（SVG / PNG）</p>
+            <p className="text-[10px] text-muted-foreground/80">
+              LayOut 匯出 PNG 請設 300 DPI（紙面多大就印多大）
+            </p>
           </div>
         )}
       </div>
