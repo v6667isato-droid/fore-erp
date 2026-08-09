@@ -87,6 +87,22 @@ function formatCm(v: number): string {
   return Number.isInteger(v) ? String(v) : String(v);
 }
 
+/**
+ * 從線圖檔名解析裁切後像素尺寸（uuid_WxH.png）。
+ * 有尺寸 → 以 300DPI 固定比例渲染（LayOut 紙面多大就印多大，各產品字高、線粗一致）；
+ * 無尺寸（舊檔）→ fallback 塞 33mm 高的盒子。
+ */
+function parseDrawingSize(url: string): { w: number; h: number } | null {
+  const m = url.match(/_(\d+)x(\d+)\.png(?:\?|$)/);
+  if (!m) return null;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  return w > 0 && h > 0 ? { w, h } : null;
+}
+
+/** 300DPI：1px = 25.4/300 mm */
+const DRAWING_MM_PER_PX = 25.4 / 300;
+
 /** W × D × H 尺寸行（只組出有值的部分） */
 function formatDims(v: VariantRow): string {
   const parts: string[] = [];
@@ -510,20 +526,30 @@ export default function SeriesIntroPrintPage({
                   rowGap: "10mm",
                 }}
               >
-                {sheetCells.map((v) => (
+                {sheetCells.map((v) => {
+                  const drawingUrl = v.dimension_drawing_url?.trim() || null;
+                  const drawingSize = drawingUrl ? parseDrawingSize(drawingUrl) : null;
+                  return (
                   <div key={v.id} className="flex flex-col">
-                    {/* 線圖等高區：無線圖時留白（不放 placeholder） */}
+                    {/* 線圖區：固定比例（300DPI）時各圖高矮不一、底對齊，列高隨最高者長；無線圖時留白 */}
                     <div
                       className="flex items-end"
-                      style={{ height: "33mm", marginBottom: "3mm" }}
+                      style={{ minHeight: "33mm", marginBottom: "3mm" }}
                     >
-                      {v.dimension_drawing_url?.trim() && (
+                      {drawingUrl && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={v.dimension_drawing_url}
+                          src={drawingUrl}
                           alt={`${v.displayCode} 尺寸線圖`}
                           className="object-contain"
-                          style={{ maxHeight: "33mm", maxWidth: "100%" }}
+                          style={
+                            drawingSize
+                              ? {
+                                  width: `${(drawingSize.w * DRAWING_MM_PER_PX).toFixed(2)}mm`,
+                                  maxWidth: "100%",
+                                }
+                              : { maxHeight: "33mm", maxWidth: "100%" }
+                          }
                         />
                       )}
                     </div>
@@ -540,7 +566,8 @@ export default function SeriesIntroPrintPage({
                       </p>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 

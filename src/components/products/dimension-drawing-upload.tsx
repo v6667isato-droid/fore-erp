@@ -18,10 +18,11 @@ function getPathFromPublicUrl(publicUrl: string, bucket: string): string | null 
 }
 
 /**
- * PNG 自動裁切留白：Fusion 360 匯出的是整張大畫布，線圖常只佔一角。
- * 掃描非白（且非透明）像素的外框，加少量邊距後裁下；掃不到內容或本來就滿版時原樣回傳。
+ * PNG 自動裁切留白：LayOut／Fusion 匯出的是整張大畫布，線圖常只佔一角。
+ * 掃描非白（且非透明）像素的外框，加固定邊距後裁下；掃不到內容時原樣回傳。
+ * 回傳裁切後的像素尺寸，供檔名編碼（列印頁據此以 300DPI 固定比例渲染）。
  */
-async function trimPngWhitespace(file: File): Promise<Blob> {
+async function trimPngWhitespace(file: File): Promise<{ blob: Blob; w: number; h: number }> {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -36,7 +37,7 @@ async function trimPngWhitespace(file: File): Promise<Blob> {
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return file;
+    if (!ctx) return { blob: file, w, h };
     ctx.drawImage(img, 0, 0);
     const { data } = ctx.getImageData(0, 0, w, h);
 
@@ -53,25 +54,26 @@ async function trimPngWhitespace(file: File): Promise<Blob> {
         }
       }
     }
-    // 全白／全透明，或內容已幾乎滿版（裁不到 3%）→ 不裁
-    if (maxX < 0) return file;
-    const pad = Math.round(Math.max(w, h) * 0.02) + 4;
+    // 全白／全透明 → 不裁
+    if (maxX < 0) return { blob: file, w, h };
+    // 固定邊距（300DPI 下約 1mm），不隨圖大小變動，維持各產品一致的留白
+    const pad = 12;
     const cx = Math.max(0, minX - pad);
     const cy = Math.max(0, minY - pad);
     const cw = Math.min(w, maxX + pad + 1) - cx;
     const ch = Math.min(h, maxY + pad + 1) - cy;
-    if (cw >= w * 0.97 && ch >= h * 0.97) return file;
+    if (cw >= w * 0.97 && ch >= h * 0.97) return { blob: file, w, h };
 
     const out = document.createElement("canvas");
     out.width = cw;
     out.height = ch;
     const outCtx = out.getContext("2d");
-    if (!outCtx) return file;
+    if (!outCtx) return { blob: file, w, h };
     outCtx.drawImage(canvas, cx, cy, cw, ch, 0, 0, cw, ch);
     const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, "image/png"));
-    return blob ?? file;
+    return blob ? { blob, w: cw, h: ch } : { blob: file, w, h };
   } catch {
-    return file;
+    return { blob: file, w: 0, h: 0 };
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -105,10 +107,21 @@ export function DimensionDrawingUpload({
       }
       setUploading(true);
       try {
-        const ext = isSvg ? "svg" : "png";
-        const filename = `${crypto.randomUUID()}.${ext}`;
-        // PNG 自動裁掉四周留白（Fusion 360 匯出常是整張畫布）；SVG 原樣直傳
-        const payload = isSvg ? file : await trimPngWhitespace(file);
+        // PNG 自動裁掉四周留白（LayOut 匯出常是整張畫布）；SVG 原樣直傳。
+        // 裁切後像素尺寸編進檔名（uuid_WxH.png），列印頁據此以 300DPI 固定比例渲染
+        let filename: string;
+        let payload: Blob;
+        if (isSvg) {
+          filename = `${crypto.randomUUID()}.svg`;
+          payload = file;
+        } else {
+          const trimmed = await trimPngWhitespace(file);
+          payload = trimmed.blob;
+          filename =
+            trimmed.w > 0 && trimmed.h > 0
+              ? `${crypto.randomUUID()}_${trimmed.w}x${trimmed.h}.png`
+              : `${crypto.randomUUID()}.png`;
+        }
         const { data, error } = await supabase.storage
           .from(DIMENSION_DRAWING_BUCKET)
           .upload(filename, payload, {
