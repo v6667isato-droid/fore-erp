@@ -465,8 +465,8 @@ export default function SeriesIntroPrintPage({
           {/* 中間留白 */}
           <div style={{ width: "10%" }} />
 
-          {/* 右：產品名稱＋設計理念 */}
-          <div className="flex flex-col" style={{ width: "32%", paddingTop: "18mm" }}>
+          {/* 右：產品名稱＋設計理念（垂直置中，與左側照片同軸） */}
+          <div className="flex flex-col justify-center" style={{ width: "32%" }}>
             <h1 style={{ fontSize: "12pt", fontWeight: 600, letterSpacing: "0.06em" }}>
               {displayName}
             </h1>
@@ -534,12 +534,18 @@ export default function SeriesIntroPrintPage({
                   const drawingUrl = v.dimension_drawing_url?.trim() || null;
                   const drawingSize = drawingUrl ? parseDrawingSize(drawingUrl) : null;
                   return (
-                  <div key={v.id} className="flex flex-col">
-                    {/* 線圖區：固定比例（300DPI）時各圖高矮不一、底對齊，列高隨最高者長；無線圖時留白 */}
-                    <div
-                      className="flex items-end"
-                      style={{ minHeight: "33mm", marginBottom: "3mm" }}
-                    >
+                  // subgrid：同列所有格共用「線圖／文字」兩條 row 軌，線圖高度不同時文字仍對齊同一條線
+                  <div
+                    key={v.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateRows: "subgrid",
+                      gridRow: "span 2",
+                      rowGap: "3mm",
+                    }}
+                  >
+                    {/* 線圖區：固定比例（300DPI）各圖高矮不一、底對齊；軌高＝該列最高者；無線圖時留白 */}
+                    <div className="flex items-end" style={{ minHeight: "33mm" }}>
                       {drawingUrl && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -558,24 +564,26 @@ export default function SeriesIntroPrintPage({
                         />
                       )}
                     </div>
-                    {/* 線稿展示不出木種：代碼跳過木種代號、不標木種名 */}
-                    <p className="sheet-en" style={{ fontSize: "9pt", color: "#1c1c1c" }}>
-                      {v.displayCode}
-                    </p>
-                    <p className="sheet-en" style={{ fontSize: "8pt", color: "#777", marginTop: "1mm" }}>
-                      {formatDims(v) || "—"}
-                    </p>
-                    {(v.seat_height_cm != null || v.arm_height_cm != null) && (
-                      <p className="sheet-en" style={{ fontSize: "8pt", color: "#777" }}>
-                        {[
-                          v.seat_height_cm != null ? `SH${formatCm(v.seat_height_cm)}` : null,
-                          // 扶手高度未填寫者不出現
-                          v.arm_height_cm != null ? `AH${formatCm(v.arm_height_cm)}` : null,
-                        ]
-                          .filter(Boolean)
-                          .join("　")}
+                    <div>
+                      {/* 線稿展示不出木種：代碼跳過木種代號、不標木種名 */}
+                      <p className="sheet-en" style={{ fontSize: "9pt", color: "#1c1c1c" }}>
+                        {v.displayCode}
                       </p>
-                    )}
+                      <p className="sheet-en" style={{ fontSize: "8pt", color: "#777", marginTop: "1mm" }}>
+                        {formatDims(v) || "—"}
+                      </p>
+                      {(v.seat_height_cm != null || v.arm_height_cm != null) && (
+                        <p className="sheet-en" style={{ fontSize: "8pt", color: "#777" }}>
+                          {[
+                            v.seat_height_cm != null ? `SH${formatCm(v.seat_height_cm)}` : null,
+                            // 扶手高度未填寫者不出現
+                            v.arm_height_cm != null ? `AH${formatCm(v.arm_height_cm)}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join("　")}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   );
                 })}
