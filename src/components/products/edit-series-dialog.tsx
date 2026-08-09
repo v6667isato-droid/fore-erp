@@ -462,6 +462,58 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
 
               {activeTab === "sheet" && (
                 <div className="flex flex-col gap-4">
+                  {/* 介紹表用到的物件集中在此分頁編輯；與「圖片」「設計與行銷」「客服與保養」分頁為同一份資料，雙向同步 */}
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-foreground">主視覺圖（介紹表第一頁）</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      與「圖片」分頁的主視覺圖為同一張，在任一處更換都會同步。
+                    </span>
+                    <ProductImageDropzone value={imageUrl} onChange={setImageUrl} disabled={saving} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="sheet-design-concept" className="text-xs font-medium text-foreground">
+                      設計理念（介紹表第一頁右欄）
+                    </label>
+                    <textarea
+                      id="sheet-design-concept"
+                      value={contentValues.design_concept ?? ""}
+                      onChange={(e) => setField("design_concept", e.target.value)}
+                      rows={4}
+                      className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
+                    />
+                    <label htmlFor="sheet-design-concept-en" className="mt-1 text-xs text-muted-foreground">
+                      設計理念（英）— 英文版用，留空則顯示中文
+                    </label>
+                    <textarea
+                      id="sheet-design-concept-en"
+                      value={designConceptEn}
+                      onChange={(e) => setDesignConceptEn(e.target.value)}
+                      rows={3}
+                      className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[60px]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="sheet-customization-rules" className="text-xs font-medium text-foreground">
+                      客製與保養提示（介紹表第二頁色樣區上方小字）
+                    </label>
+                    <textarea
+                      id="sheet-customization-rules"
+                      value={contentValues.customization_rules ?? ""}
+                      onChange={(e) => setField("customization_rules", e.target.value)}
+                      rows={4}
+                      className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
+                    />
+                    <label htmlFor="sheet-customization-rules-en" className="mt-1 text-xs text-muted-foreground">
+                      客製與保養（英）— 英文版用，留空則顯示中文
+                    </label>
+                    <textarea
+                      id="sheet-customization-rules-en"
+                      value={customizationRulesEn}
+                      onChange={(e) => setCustomizationRulesEn(e.target.value)}
+                      rows={3}
+                      className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[60px]"
+                    />
+                  </div>
                   <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
                     <input
                       type="checkbox"
