@@ -33,6 +33,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
   const [seriesCategory, setSeriesCategory] = useState<string | null>(null);
   const [spec1, setSpec1] = useState("");
   const [seatHeightCm, setSeatHeightCm] = useState("");
+  const [armHeightCmInput, setArmHeightCmInput] = useState("");
   const [isCustomOrder, setIsCustomOrder] = useState(false);
   const [showOnSheet, setShowOnSheet] = useState(false);
   const [showOnPriceList, setShowOnPriceList] = useState(false);
@@ -56,6 +57,8 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       setSeatHeightCm(
         row.seat_height_cm != null ? String(row.seat_height_cm) : ""
       );
+      // 扶手高度不補預設：留空即代表沒有這個規格
+      setArmHeightCmInput(row.arm_height_cm != null ? String(row.arm_height_cm) : "");
       setIsCustomOrder(row.is_custom_order === true);
       setShowOnSheet(row.show_on_sheet === true);
       setShowOnPriceList(row.show_on_price_list === true);
@@ -167,6 +170,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
     };
     if (seriesCategory === "椅" || seriesCategory === "凳") {
       payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
+      payload.arm_height_cm = armHeightCmInput.trim() ? Number(armHeightCmInput) : null;
     }
     const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).update(payload).eq("id", row.id);
     if (err) {
@@ -259,6 +263,19 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
                   onChange={(e) => setSeatHeightCm(e.target.value)}
                   className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}cm，座面離地高度`}
+                />
+              </div>
+            )}
+            {(seriesCategory === "椅" || seriesCategory === "凳") && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="edit-variant-arm-h" className="text-xs text-muted-foreground">扶手高度 AH（cm）</label>
+                <input
+                  id="edit-variant-arm-h"
+                  type="number"
+                  value={armHeightCmInput}
+                  onChange={(e) => setArmHeightCmInput(e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="無扶手請留空，留空則各處不顯示"
                 />
               </div>
             )}

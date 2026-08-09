@@ -63,6 +63,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     dimension_d: r.dimension_d != null ? Number(r.dimension_d) : null,
     dimension_h: r.dimension_h != null ? Number(r.dimension_h) : null,
     seat_height_cm: r.seat_height_cm != null ? Number(r.seat_height_cm) : null,
+    arm_height_cm: r.arm_height_cm != null ? Number(r.arm_height_cm) : null,
     base_price: r.base_price != null ? Number(r.base_price) : null,
     desktop_area: null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
@@ -160,7 +161,9 @@ export default function SeriesIntroPrintPage({
         .maybeSingle();
     }
 
-    let variantsRes = await supabase
+    // 完整欄位與 fallback 欄位集合不同（fallback 少 arm_height_cm），故放寬型別
+    type LooseRes = { data: unknown[] | null; error: { message: string } | null };
+    let variantsRes: LooseRes = await supabase
       .from(TABLE_PRODUCT_VARIANTS)
       .select(VARIANT_SELECT)
       .eq("series_id", seriesId)
@@ -262,7 +265,7 @@ export default function SeriesIntroPrintPage({
     const map = new Map<string, VariantRow & { displayCode: string }>();
     for (const v of sheetVariants) {
       const displayCode = stripWoodCode(v.product_code || "", woodCodes);
-      const key = `${displayCode}|${v.dimension_w}|${v.dimension_d}|${v.dimension_h}|${v.seat_height_cm}`;
+      const key = `${displayCode}|${v.dimension_w}|${v.dimension_d}|${v.dimension_h}|${v.seat_height_cm}|${v.arm_height_cm}`;
       const existing = map.get(key);
       if (!existing) {
         map.set(key, { ...v, displayCode });
@@ -309,6 +312,23 @@ export default function SeriesIntroPrintPage({
   const displayCustomization =
     (lang === "en" && series.customization_rules_en?.trim()) || series.customization_rules || "";
   const unitNote = lang === "en" ? "Unit: cm" : "尺寸單位: cm";
+  // 類別＋交期（原第一頁頁尾）：移到第二頁與尺寸說明並列
+  const specFootnote = [
+    ...(lang === "en"
+      ? [
+          series.category?.trim() ? categoryLabel(series.category, "en") : null,
+          series.production_time?.trim()
+            ? `Lead time approx. ${series.production_time} weeks`
+            : null,
+        ]
+      : [
+          series.category?.trim() ? `類別 ${series.category}` : null,
+          series.production_time?.trim() ? `交期約 ${series.production_time} 週` : null,
+        ]),
+    unitNote,
+  ]
+    .filter(Boolean)
+    .join("　·　");
 
   return (
     <div className="sheet-root">
@@ -341,6 +361,8 @@ export default function SeriesIntroPrintPage({
         .sheet-page-2 {
           min-height: 210mm;
           margin-top: 1.25rem;
+          display: flex;
+          flex-direction: column;
         }
         .sheet-brand {
           font-size: 10pt;
@@ -485,22 +507,6 @@ export default function SeriesIntroPrintPage({
           <p style={{ fontSize: "6.5pt", color: "#8a8a8a", letterSpacing: "0.02em" }}>
             {footerContact(lang)}
           </p>
-          <p style={{ fontSize: "6.5pt", color: "#8a8a8a" }}>
-            {(lang === "en"
-              ? [
-                  series.category?.trim() ? categoryLabel(series.category, "en") : null,
-                  series.production_time?.trim()
-                    ? `Lead time approx. ${series.production_time} weeks`
-                    : null,
-                ]
-              : [
-                  series.category?.trim() ? `類別 ${series.category}` : null,
-                  series.production_time?.trim() ? `交期約 ${series.production_time} 週` : null,
-                ]
-            )
-              .filter(Boolean)
-              .join("　·　")}
-          </p>
         </div>
       </section>
 
@@ -511,7 +517,8 @@ export default function SeriesIntroPrintPage({
           <img src="/logo.png" alt="Føre Furniture" style={{ height: "18mm" }} className="w-auto object-contain" />
         </div>
 
-        <div className="flex" style={{ marginTop: "6mm", minHeight: "151mm" }}>
+        {/* flex:1 撐滿到頁面下緣（padding 15mm），讓色樣區能貼齊下邊距 */}
+        <div className="flex" style={{ marginTop: "6mm", flex: 1 }}>
           {/* 左區：線圖 grid＋客製與保養＋色樣 */}
           <div className="flex flex-col" style={{ width: showPrice ? "70%" : "100%" }}>
             {sheetVariants.length === 0 ? (
@@ -563,9 +570,15 @@ export default function SeriesIntroPrintPage({
                     <p className="sheet-en" style={{ fontSize: "8pt", color: "#777", marginTop: "1mm" }}>
                       {formatDims(v) || "—"}
                     </p>
-                    {v.seat_height_cm != null && (
+                    {(v.seat_height_cm != null || v.arm_height_cm != null) && (
                       <p className="sheet-en" style={{ fontSize: "8pt", color: "#777" }}>
-                        SH{formatCm(v.seat_height_cm)}
+                        {[
+                          v.seat_height_cm != null ? `SH${formatCm(v.seat_height_cm)}` : null,
+                          // 扶手高度未填寫者不出現
+                          v.arm_height_cm != null ? `AH${formatCm(v.arm_height_cm)}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join("　")}
                       </p>
                     )}
                   </div>
@@ -590,59 +603,59 @@ export default function SeriesIntroPrintPage({
               </p>
             )}
 
-            {/* 色樣區：材種 → 門片 → 座墊 → 布樣，各群之間較大間距 */}
-            {swatches.length > 0 && (
+            {/* 底部列：色樣（材種 → 門片 → 座墊 → 布樣）貼齊頁面下緣，右側並列類別／交期／尺寸單位 */}
+            {(swatches.length > 0 || (!showPrice && sheetVariants.length > 0)) && (
               <div
-                className="flex flex-wrap items-start"
+                className="flex items-end"
                 style={{
                   gap: "8mm",
                   marginTop: displayCustomization.trim() ? "5mm" : "auto",
                   paddingTop: displayCustomization.trim() ? undefined : "10mm",
                 }}
               >
-                {[woodSwatches, doorSwatches, fabricSwatches, clothSwatches]
-                  .filter((group) => group.length > 0)
-                  .map((group, gi) => (
-                    <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>
-                      {group.map((s) => (
-                        <div key={s.id} className="flex flex-col" style={{ width: "24mm" }}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={s.image_url}
-                            alt={s.name}
-                            style={{ width: "24mm", height: "24mm", objectFit: "cover" }}
-                          />
-                          {lang === "en" ? (
-                            <p className="sheet-en" style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
-                              {s.name_en?.trim() || s.name.replace(/^\[DEMO\]\s*/, "")}
-                            </p>
-                          ) : (
-                            <>
-                              <p style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
-                                {s.name.replace(/^\[DEMO\]\s*/, "")}
+                <div className="flex flex-wrap items-start" style={{ gap: "8mm", flex: 1 }}>
+                  {[woodSwatches, doorSwatches, fabricSwatches, clothSwatches]
+                    .filter((group) => group.length > 0)
+                    .map((group, gi) => (
+                      <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>
+                        {group.map((s) => (
+                          <div key={s.id} className="flex flex-col" style={{ width: "32mm" }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={s.image_url}
+                              alt={s.name}
+                              style={{ width: "32mm", height: "32mm", objectFit: "cover" }}
+                            />
+                            {lang === "en" ? (
+                              <p className="sheet-en" style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                                {s.name_en?.trim() || s.name.replace(/^\[DEMO\]\s*/, "")}
                               </p>
-                              {s.name_en?.trim() && (
-                                <p className="sheet-en" style={{ fontSize: "6.5pt", color: "#999", lineHeight: 1.4 }}>
-                                  {s.name_en}
+                            ) : (
+                              <>
+                                <p style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                                  {s.name.replace(/^\[DEMO\]\s*/, "")}
                                 </p>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ))}
+                                {s.name_en?.trim() && (
+                                  <p className="sheet-en" style={{ fontSize: "6.5pt", color: "#999", lineHeight: 1.4 }}>
+                                    {s.name_en}
+                                  </p>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                </div>
+                {!showPrice && sheetVariants.length > 0 && (
+                  <p
+                    className="sheet-en"
+                    style={{ fontSize: "6.5pt", color: "#999", whiteSpace: "nowrap" }}
+                  >
+                    {specFootnote}
+                  </p>
+                )}
               </div>
-            )}
-
-            {/* 無報價欄時，尺寸單位小字移到色樣區下方靠右 */}
-            {!showPrice && sheetVariants.length > 0 && (
-              <p
-                className="sheet-en"
-                style={{ fontSize: "6.5pt", color: "#999", textAlign: "right", marginTop: "6mm" }}
-              >
-                {unitNote}
-              </p>
             )}
           </div>
 
@@ -673,7 +686,7 @@ export default function SeriesIntroPrintPage({
                   ))}
                 </div>
                 <p className="sheet-en" style={{ fontSize: "6.5pt", color: "#999", marginTop: "5mm" }}>
-                  {unitNote}
+                  {specFootnote}
                 </p>
               </div>
             </>

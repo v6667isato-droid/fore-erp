@@ -7,6 +7,7 @@ import type { VariantRow } from "@/types/products";
 import { supabase } from "@/lib/supabase";
 import { TABLE_PRODUCT_SERIES } from "@/lib/products-db";
 import { resolveVariantBom, type ResolvedBomItem } from "@/lib/part-variants";
+import { appendArmHeight } from "@/lib/product-arm-height";
 
 export interface ViewVariantDialogProps {
   open: boolean;
@@ -31,7 +32,7 @@ function formatDim(v: VariantRow): string {
   if (Number.isFinite(sh)) {
     base = base === "—" ? `座高 ${sh} cm` : `${base} · 座高 ${sh} cm`;
   }
-  return base;
+  return appendArmHeight(base, v.arm_height_cm) ?? base;
 }
 
 export function ViewVariantDialog({ open, onOpenChange, row }: ViewVariantDialogProps) {

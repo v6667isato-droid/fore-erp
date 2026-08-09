@@ -44,6 +44,7 @@ export const ORDER_OVERVIEW_SELECT = `
             dimension_d,
             dimension_h,
             seat_height_cm,
+            arm_height_cm,
             image_url,
             product_series(series_name, image_url)
           ),

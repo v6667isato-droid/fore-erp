@@ -35,6 +35,7 @@ import {
   type SalesInvoiceOrderContext,
 } from "@/components/accounting/sales-invoice-dialog";
 import { fetchOrderInvoiceCounts } from "@/lib/sales-invoice";
+import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
 import { OrderInvoicesDialog } from "@/components/orders/order-invoices-dialog";
 import { OrderReturnDialog } from "@/components/orders/order-return-dialog";
 import type {
@@ -248,7 +249,7 @@ export function OrdersPage({
       const { data: variantData } = await supabase
         .from("product_variants")
         .select(
-          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1, image_url, is_custom_order"
+          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, spec1, image_url, is_custom_order"
         )
         .order("product_code", { ascending: true });
       setVariants(
@@ -269,6 +270,8 @@ export function OrdersPage({
                 ? `座高 ${seatH} cm`
                 : `${dim} · 座高 ${seatH} cm`;
           }
+          // 扶手高度未填寫者不進標籤
+          dim = appendArmHeight(dim, v.arm_height_cm) ?? dim;
           const seriesId = String(v.series_id ?? "");
           const seriesName = seriesNameMap.get(seriesId) ?? "";
           const labelParts = [
@@ -300,6 +303,7 @@ export function OrdersPage({
             dimension_h: v.dimension_h != null ? Number(v.dimension_h) : null,
             seat_height_cm:
               v.seat_height_cm != null ? Number(v.seat_height_cm) : null,
+            arm_height_cm: armHeightCm(v.arm_height_cm),
           };
         })
       );

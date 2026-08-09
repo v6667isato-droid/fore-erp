@@ -39,6 +39,7 @@ import {
 import { parseExplanationImages, type ExplanationImage } from "@/lib/explanation-images";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
 import { ORDER_OVERVIEW_SELECT } from "@/lib/order-overview-select";
+import { appendArmHeight } from "@/lib/product-arm-height";
 
 /** 與訂單／生產列表一致之訂單狀態排序 */
 const ORDER_STATUS_SEQUENCE = [
@@ -217,6 +218,7 @@ function buildLineDetail(oi: any): {
         dimension_d?: number | null;
         dimension_h?: number | null;
         seat_height_cm?: number | null;
+        arm_height_cm?: number | null;
         image_url?: string | null;
         product_series?:
           | { series_name?: string | null; image_url?: string | null }
@@ -297,6 +299,9 @@ function buildLineDetail(oi: any): {
   ) {
     dimText = `${dimText} 座高:${Number(variant.seat_height_cm)}cm`;
   }
+
+  // 扶手高度取自規格庫；未填寫者不加這一段
+  dimText = appendArmHeight(dimText, variant?.arm_height_cm, " ", true);
 
   return {
     item_name,

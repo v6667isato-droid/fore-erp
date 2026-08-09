@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import type { SeriesRow } from "@/types/products";
 import type { TablesInsert } from "@/types/database.types";
 import { seriesCodeFromName } from "@/types/inventory";
-import { DEFAULT_SEAT_HEIGHT_CM } from "@/lib/product-seat-height";
+import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
 
 export interface AddVariantDialogProps {
   open: boolean;
@@ -110,6 +110,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const [price, setPrice] = useState("");
   const [spec1, setSpec1] = useState("");
   const [seatHeightCm, setSeatHeightCm] = useState("");
+  const [armHeightCmInput, setArmHeightCmInput] = useState("");
   const [isCustomOrder, setIsCustomOrder] = useState(false);
   const [showOnSheet, setShowOnSheet] = useState(false);
   const [showOnPriceList, setShowOnPriceList] = useState(false);
@@ -154,11 +155,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     setIsCustomOrder(false);
     setShowOnSheet(false);
     setShowOnPriceList(false);
-    setSeatHeightCm(
-      series.category === "椅" || series.category === "凳"
-        ? String(DEFAULT_SEAT_HEIGHT_CM)
-        : ""
-    );
+    setSeatHeightCm(hasSeatSpecs(series.category) ? String(DEFAULT_SEAT_HEIGHT_CM) : "");
+    setArmHeightCmInput("");
     setError(null);
     setMode("manual");
     setAxes([]);
@@ -452,6 +450,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     const showSeatHeight = series.category === "椅" || series.category === "凳";
     if (showSeatHeight) {
       payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
+      // 扶手高度無預設：留空即不寫入，訂單／產品資料表也不會顯示
+      payload.arm_height_cm = armHeightCmInput.trim() ? Number(armHeightCmInput) : null;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
     const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).insert(payload as any);
@@ -963,6 +963,19 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                       onChange={(e) => setSeatHeightCm(e.target.value)}
                       className={inputCls}
                       placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}cm，座面離地高度`}
+                    />
+                  </div>
+                )}
+                {(series.category === "椅" || series.category === "凳") && (
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="add-variant-arm-h" className="text-xs text-muted-foreground">扶手高度 AH（cm）</label>
+                    <input
+                      id="add-variant-arm-h"
+                      type="number"
+                      value={armHeightCmInput}
+                      onChange={(e) => setArmHeightCmInput(e.target.value)}
+                      className={inputCls}
+                      placeholder="無扶手請留空，留空則各處不顯示"
                     />
                   </div>
                 )}

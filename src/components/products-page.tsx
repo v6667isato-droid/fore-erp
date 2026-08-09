@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { SeriesRow, VariantRow } from "@/types/products";
+import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
 import {
   TABLE_PRODUCT_SERIES,
   TABLE_PRODUCT_VARIANTS,
@@ -89,6 +90,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     dimension_d: r.dimension_d != null ? Number(r.dimension_d) : null,
     dimension_h: r.dimension_h != null ? Number(r.dimension_h) : null,
     seat_height_cm: r.seat_height_cm != null ? Number(r.seat_height_cm) : null,
+    arm_height_cm: armHeightCm(r.arm_height_cm),
     base_price: r.base_price != null ? Number(r.base_price) : null,
     desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
@@ -111,7 +113,8 @@ function formatDim(v: VariantRow): string {
   if (Number.isFinite(sh)) {
     base = base === "—" ? `座高 ${sh} cm` : `${base} · 座高 ${sh} cm`;
   }
-  return base;
+  // 扶手高度未填寫者完全不出現
+  return appendArmHeight(base, v.arm_height_cm) ?? base;
 }
 
 type SeriesSortKey = "name" | "category" | "variantCount" | "bomCount" | "website";
@@ -454,6 +457,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       dimension_d: source.dimension_d ?? null,
       dimension_h: source.dimension_h ?? null,
       seat_height_cm: source.seat_height_cm ?? null,
+      arm_height_cm: source.arm_height_cm ?? null,
       base_price: source.base_price ?? null,
       spec1: source.spec1?.trim() || null,
       image_url: source.image_url?.trim() || null,

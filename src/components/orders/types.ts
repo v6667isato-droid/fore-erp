@@ -71,6 +71,8 @@ export interface VariantOption {
   dimension_d?: number | null;
   dimension_h?: number | null;
   seat_height_cm?: number | null;
+  /** 扶手高度（cm，英文標示 AH）；未填寫則不顯示 */
+  arm_height_cm?: number | null;
 }
 
 /**

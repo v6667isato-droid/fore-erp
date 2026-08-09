@@ -2651,6 +2651,7 @@ export type Database = {
       }
       product_variants: {
         Row: {
+          arm_height_cm: number | null
           base_price: number | null
           config_value_id: string | null
           created_at: string | null
@@ -2676,6 +2677,7 @@ export type Database = {
           wood_value_id: string | null
         }
         Insert: {
+          arm_height_cm?: number | null
           base_price?: number | null
           config_value_id?: string | null
           created_at?: string | null
@@ -2701,6 +2703,7 @@ export type Database = {
           wood_value_id?: string | null
         }
         Update: {
+          arm_height_cm?: number | null
           base_price?: number | null
           config_value_id?: string | null
           created_at?: string | null

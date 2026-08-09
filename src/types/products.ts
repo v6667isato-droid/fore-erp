@@ -60,6 +60,8 @@ export interface VariantRow {
   dimension_h?: number | null;
   /** 座高（cm），椅／凳等產品 */
   seat_height_cm?: number | null;
+  /** 扶手高度（cm，英文標示 AH），有扶手之椅類；未填寫則各處不顯示 */
+  arm_height_cm?: number | null;
   base_price?: number | null;
   desktop_area?: number | null;
   /** 通用規格1（例如椅子的「坐墊規格」） */

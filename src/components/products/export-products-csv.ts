@@ -1,4 +1,5 @@
 import type { SeriesRow, VariantRow } from "@/types/products";
+import { armHeightCm } from "@/lib/product-arm-height";
 
 export function exportProductsCsv(series: SeriesRow[], variants: VariantRow[]) {
   if (!series.length || !variants.length) return;
@@ -15,6 +16,7 @@ export function exportProductsCsv(series: SeriesRow[], variants: VariantRow[]) {
     "木種",
     "尺寸",
     "座高（cm）",
+    "扶手高度 AH（cm）",
     "桌面面積",
     "基礎定價",
     "網站",
@@ -40,6 +42,7 @@ export function exportProductsCsv(series: SeriesRow[], variants: VariantRow[]) {
       v.seat_height_cm != null && Number.isFinite(Number(v.seat_height_cm))
         ? String(v.seat_height_cm)
         : "",
+      armHeightCm(v.arm_height_cm) != null ? String(armHeightCm(v.arm_height_cm)) : "",
       v.desktop_area != null ? String(v.desktop_area) : "",
       v.base_price != null ? String(v.base_price) : "",
       s?.website ?? "",

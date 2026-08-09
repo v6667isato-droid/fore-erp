@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
 import { useRequireAuth } from "@/lib/use-require-auth";
+import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
 
 interface PrintOrder {
   id: string;
@@ -200,6 +201,7 @@ export default function PrintOrderPage() {
             dimension_d: number | null;
             dimension_h: number | null;
             seat_height_cm: number | null;
+            arm_height_cm: number | null;
             spec1: string | null;
           }
         > = {};
@@ -208,7 +210,7 @@ export default function PrintOrderPage() {
         if (variantIds.length > 0) {
           const { data: variants, error: variantErr } = await supabase
             .from("product_variants")
-            .select("id, series_id, product_code, image_url, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, spec1")
+            .select("id, series_id, product_code, image_url, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, spec1")
             .in("id", variantIds);
 
           if (variantErr) {
@@ -229,6 +231,7 @@ export default function PrintOrderPage() {
                 dimension_h: v.dimension_h != null ? Number(v.dimension_h) : null,
                 seat_height_cm:
                   v.seat_height_cm != null ? Number(v.seat_height_cm) : null,
+                arm_height_cm: armHeightCm(v.arm_height_cm),
                 spec1: v.spec1 != null ? String(v.spec1) : null,
               },
             ])
@@ -359,6 +362,9 @@ export default function PrintOrderPage() {
             // 明細未填座高時，尺寸欄仍於後方標註規格庫座高
             dimText = `${dimText} · 座高 ${Number(variant.seat_height_cm)} cm`;
           }
+
+          // 扶手高度取自規格庫；未填寫者不加這一段
+          dimText = appendArmHeight(dimText, variant?.arm_height_cm);
 
           return {
             id: String(r.id ?? `item-${idx}`),

@@ -36,6 +36,7 @@ import {
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
 import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-payment-status";
+import { appendArmHeight } from "@/lib/product-arm-height";
 import { LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
 
 function resolvePortalSeatHeight(v: {
@@ -380,7 +381,7 @@ export default function PortalPage() {
     const { data: variantRows } = await supabase
       .from("product_variants")
       .select(
-        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, spec1, image_url"
+        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, spec1, image_url"
       )
       .in("series_id", seriesIds)
       .order("product_code", { ascending: true });
@@ -423,6 +424,8 @@ export default function PortalPage() {
         if (Number.isFinite(seatH)) {
           dim = dim === "" ? `座高 ${seatH} cm` : `${dim} · 座高 ${seatH} cm`;
         }
+        // 扶手高度未填寫者不進標籤
+        dim = appendArmHeight(dim, v.arm_height_cm) ?? dim;
         const labelParts = [v.product_code ?? "", v.wood_type ?? "", v.spec1 ?? "", dim].filter(
           (s: string) => s && s.trim()
         );

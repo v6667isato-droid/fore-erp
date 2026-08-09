@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type { SeriesRow, VariantRow } from "@/types/products";
 import { cn } from "@/lib/utils";
+import { appendArmHeight } from "@/lib/product-arm-height";
 
 export interface ViewSeriesDialogProps {
   open: boolean;
@@ -36,7 +37,7 @@ function formatDim(v: VariantRow): string {
   if (Number.isFinite(sh)) {
     base = base === "—" ? `座高 ${sh} cm` : `${base} · 座高 ${sh} cm`;
   }
-  return base;
+  return appendArmHeight(base, v.arm_height_cm) ?? base;
 }
 
 function TextBlock({ title, content }: { title: string; content: string | null | undefined }) {
