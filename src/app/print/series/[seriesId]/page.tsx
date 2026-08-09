@@ -605,24 +605,24 @@ export default function SeriesIntroPrintPage({
                   .map((group, gi) => (
                     <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>
                       {group.map((s) => (
-                        <div key={s.id} className="flex flex-col" style={{ width: "20mm" }}>
+                        <div key={s.id} className="flex flex-col" style={{ width: "24mm" }}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={s.image_url}
                             alt={s.name}
-                            style={{ width: "20mm", height: "20mm", objectFit: "cover" }}
+                            style={{ width: "24mm", height: "24mm", objectFit: "cover" }}
                           />
                           {lang === "en" ? (
-                            <p className="sheet-en" style={{ fontSize: "8pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                            <p className="sheet-en" style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
                               {s.name_en?.trim() || s.name.replace(/^\[DEMO\]\s*/, "")}
                             </p>
                           ) : (
                             <>
-                              <p style={{ fontSize: "8pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                              <p style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
                                 {s.name.replace(/^\[DEMO\]\s*/, "")}
                               </p>
                               {s.name_en?.trim() && (
-                                <p className="sheet-en" style={{ fontSize: "8pt", color: "#999", lineHeight: 1.4 }}>
+                                <p className="sheet-en" style={{ fontSize: "6.5pt", color: "#999", lineHeight: 1.4 }}>
                                   {s.name_en}
                                 </p>
                               )}
