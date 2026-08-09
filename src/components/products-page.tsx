@@ -102,6 +102,20 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
   };
 }
 
+/** 交期（product_series.production_time，以週為單位的文字）顯示：未填為「—」 */
+function formatLeadTime(v: string | null | undefined): string {
+  const text = v?.trim() ?? "";
+  if (!text) return "—";
+  // 已自帶單位（週／天／日／月）的自由文字原樣顯示，其餘補「週」
+  return /[週天日月]/.test(text) ? text : `${text} 週`;
+}
+
+/** 交期排序值：取開頭數字，未填或非數字排最後 */
+function leadTimeSortValue(v: string | null | undefined): number {
+  const m = /\d+(?:\.\d+)?/.exec(v?.trim() ?? "");
+  return m ? Number(m[0]) : Number.POSITIVE_INFINITY;
+}
+
 function formatDim(v: VariantRow): string {
   const w = v.dimension_w != null ? v.dimension_w : "";
   const d = v.dimension_d != null ? v.dimension_d : "";
@@ -117,7 +131,7 @@ function formatDim(v: VariantRow): string {
   return appendArmHeight(base, v.arm_height_cm) ?? base;
 }
 
-type SeriesSortKey = "name" | "category" | "variantCount" | "bomCount" | "website";
+type SeriesSortKey = "name" | "category" | "leadTime" | "variantCount" | "bomCount" | "website";
 type VariantSortKey = "product_code" | "wood_type" | "spec1" | "dimension" | "base_price";
 
 function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
@@ -186,6 +200,11 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
           const aVal = a.category || "";
           const bVal = b.category || "";
           return ascFactor * aVal.localeCompare(bVal);
+        }
+        case "leadTime": {
+          const aVal = leadTimeSortValue(a.production_time);
+          const bVal = leadTimeSortValue(b.production_time);
+          return ascFactor * (aVal - bVal);
         }
         case "variantCount": {
           const aCount = (variantsBySeries[a.id] ?? []).length;
@@ -654,6 +673,26 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                   </span>
                 </button>
               </TableHead>
+              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 hover:text-primary"
+                  onClick={() =>
+                    setSeriesSort((prev) => ({
+                      key: "leadTime",
+                      asc: prev.key === "leadTime" ? !prev.asc : true,
+                    }))
+                  }
+                  aria-label={`依交期排序（目前為${
+                    seriesSort.key === "leadTime" && !seriesSort.asc ? "降冪" : "升冪"
+                  }）`}
+                >
+                  <span>交期</span>
+                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                    {seriesSort.key === "leadTime" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                  </span>
+                </button>
+              </TableHead>
               <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
                 <button
                   type="button"
@@ -722,7 +761,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
           <TableBody>
             {filteredSeries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                   <span>{seriesList.length === 0 ? "尚無產品系列，請點「新增系列」建立。" : "無符合篩選條件的系列。"}</span>
                 </TableCell>
               </TableRow>
@@ -770,6 +809,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                         </button>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground p-2">{series.category || "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap">{formatLeadTime(series.production_time)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground p-2">{variants.length}</TableCell>
                       <TableCell className="text-sm p-2">
                         {bomCount > 0 ? (
@@ -826,7 +866,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                       </TableCell>
                     </TableRow>
                     <TableRow className="border-b border-border bg-muted/10 hover:bg-muted/10">
-                      <TableCell colSpan={7} className="p-0 align-top">
+                      <TableCell colSpan={8} className="p-0 align-top">
                         <div
                           className="overflow-hidden transition-[max-height] duration-300 ease-out"
                           style={{ maxHeight: isExpanded ? "80vh" : 0 }}

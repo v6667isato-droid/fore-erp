@@ -304,6 +304,16 @@ export default function SeriesIntroPrintPage({
   const showPrice = series.show_price_on_sheet === true && sheetVariants.length > 0;
   const photos = [series.image_url, series.detail_image_urls?.[0]].filter(Boolean) as string[];
   const gridCols = showPrice ? 3 : 4;
+  // 線圖整頁統一縮放：有圖超過格寬時，全部圖用同一縮放率縮小（字高線粗才會一致）；都塞得下則 1:1
+  const cellMm = showPrice ? 57 : 60.7;
+  const maxDrawingMm = Math.max(
+    0,
+    ...sheetCells.map((v) => {
+      const s = v.dimension_drawing_url?.trim() ? parseDrawingSize(v.dimension_drawing_url) : null;
+      return s ? s.w * DRAWING_MM_PER_PX : 0;
+    })
+  );
+  const drawingScale = maxDrawingMm > cellMm ? cellMm / maxDrawingMm : 1;
   // 英文版：系列名／設計理念／客製與保養取英文欄位，留空 fallback 中文
   const displayName = (lang === "en" && series.name_en?.trim()) || series.name || "—";
   const displayConcept =
@@ -555,8 +565,8 @@ export default function SeriesIntroPrintPage({
                           style={
                             drawingSize
                               ? {
-                                  // 300DPI 定寬、上限＝格寬；高度不限制（列高隨圖長）。想放大就提高匯出 DPI
-                                  width: `${(drawingSize.w * DRAWING_MM_PER_PX).toFixed(2)}mm`,
+                                  // 300DPI 定寬 × 整頁統一縮放率；maxWidth 100% 只是保險
+                                  width: `${(drawingSize.w * DRAWING_MM_PER_PX * drawingScale).toFixed(2)}mm`,
                                   maxWidth: "100%",
                                 }
                               : { maxHeight: "33mm", maxWidth: "100%" }
