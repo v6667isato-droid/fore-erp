@@ -2429,16 +2429,19 @@ export type Database = {
       }
       product_options: {
         Row: {
+          omit_from_code: boolean
           option_value_id: string
           price_delta_override: number | null
           series_id: string
         }
         Insert: {
+          omit_from_code?: boolean
           option_value_id: string
           price_delta_override?: number | null
           series_id: string
         }
         Update: {
+          omit_from_code?: boolean
           option_value_id?: string
           price_delta_override?: number | null
           series_id?: string

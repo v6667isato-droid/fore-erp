@@ -34,6 +34,8 @@ interface AxisValue {
   name_zh: string;
   price_delta: number;
   sort_order: number;
+  /** 代碼不含此段（product_options.omit_from_code，單一尺寸系列用） */
+  omitFromCode?: boolean;
 }
 
 interface AxisGroup {
@@ -46,6 +48,7 @@ interface AxisGroup {
 /** product_options join option_values join option_types 的查詢回傳列 */
 interface ProductOptionJoinRow {
   price_delta_override: number | null;
+  omit_from_code: boolean | null;
   option_values: {
     id: string;
     code: string;
@@ -169,7 +172,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         supabase
           .from("product_options")
           .select(
-            "price_delta_override, option_values(id, code, name_zh, price_delta, sort_order, option_types(code, name_zh, sort_order))"
+            "price_delta_override, omit_from_code, option_values(id, code, name_zh, price_delta, sort_order, option_types(code, name_zh, sort_order))"
           )
           .eq("series_id", series.id),
         supabase
@@ -210,6 +213,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
           // 有效價差＝此系列覆寫（product_options.price_delta_override）優先，否則用全域價差
           price_delta: row.price_delta_override ?? v.price_delta,
           sort_order: v.sort_order,
+          omitFromCode: row.omit_from_code === true,
         });
       }
       const axisList = Array.from(groups.values())

@@ -81,8 +81,8 @@ function isDuplicateError(message: string | undefined): boolean {
 
 /** 各選項軸的補充說明（依 option_types.code） */
 const TYPE_HINTS: Record<string, string> = {
-  size: "只列此系列的尺寸；尺寸統一在此新增與編輯（寬深高），生成規格時從這裡勾選，價差為此系列專屬",
-  config: "系列專屬變化（抽屜、櫃體配置…）；只列此系列自己的配置，代碼會直接接在規格代碼尾段",
+  size: "尺寸統一在此新增與編輯（寬深高）；勾選＝此系列提供，生成規格時再從中勾選，價差為此系列專屬",
+  config: "系列專屬變化（抽屜、櫃體配置…）；勾選＝此系列提供，代碼會直接接在規格代碼尾段",
 };
 
 /** 尺寸欄位輸入轉數值：空＝null；非正數回傳 undefined（表示格式錯誤） */
@@ -104,6 +104,8 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
   const [values, setValues] = useState<OptionValueRow[]>([]);
   /** option_value_id → 覆寫價差（null＝沿用全域） */
   const [attached, setAttached] = useState<Record<string, number | null>>({});
+  /** option_value_id → 代碼不含此段（單一尺寸系列用） */
+  const [omitFlags, setOmitFlags] = useState<Record<string, boolean>>({});
   /** 此系列非刪除規格已使用的 option_value_id（禁止移除） */
   const [usedIds, setUsedIds] = useState<Set<string>>(new Set());
   /** 覆寫欄輸入草稿（字串，空＝沿用全域） */
@@ -132,6 +134,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     setTypes([]);
     setValues([]);
     setAttached({});
+    setOmitFlags({});
     setUsedIds(new Set());
     setOverrideDrafts({});
     setEditingId(null);
@@ -147,7 +150,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
           .order("sort_order"),
         supabase
           .from("product_options")
-          .select("option_value_id, price_delta_override")
+          .select("option_value_id, price_delta_override, omit_from_code")
           .eq("series_id", series.id),
         supabase
           .from(TABLE_PRODUCT_VARIANTS)
@@ -167,13 +170,16 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
       setValues((valuesRes.data ?? []) as OptionValueRow[]);
       const map: Record<string, number | null> = {};
       const drafts: Record<string, string> = {};
+      const omits: Record<string, boolean> = {};
       for (const row of optsRes.data ?? []) {
         map[row.option_value_id] = row.price_delta_override;
         drafts[row.option_value_id] =
           row.price_delta_override != null ? String(row.price_delta_override) : "";
+        if (row.omit_from_code === true) omits[row.option_value_id] = true;
       }
       setAttached(map);
       setOverrideDrafts(drafts);
+      setOmitFlags(omits);
       const used = new Set<string>();
       for (const v of varsRes.data ?? []) {
         if (v.wood_value_id) used.add(v.wood_value_id);
@@ -269,6 +275,23 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
       setAttached((prev) => ({ ...prev, [v.id]: null }));
       setOverrideDrafts((prev) => ({ ...prev, [v.id]: "" }));
     }
+    onChanged?.();
+  }
+
+  /** 切換「代碼不含尺寸段」：單一尺寸系列生成的代碼省略尺寸段（只影響之後生成） */
+  async function toggleOmitFromCode(v: OptionValueRow) {
+    if (!series || busy) return;
+    const next = !(omitFlags[v.id] === true);
+    const { error } = await supabase
+      .from("product_options")
+      .update({ omit_from_code: next })
+      .eq("series_id", series.id)
+      .eq("option_value_id", v.id);
+    if (error) {
+      toast.error(error.message || "儲存設定失敗");
+      return;
+    }
+    setOmitFlags((prev) => ({ ...prev, [v.id]: next }));
     onChanged?.();
   }
 
@@ -590,54 +613,6 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     if (!series || busy) return;
     if (usedIds.has(v.id)) {
       toast.error(`「${v.name_zh}」已被此系列的規格使用，無法刪除`);
-      return;
-    }
-    const typeCode = types.find((t) => t.id === v.option_type_id)?.code;
-    // 尺寸／配置是系列專屬清單：刪除＝從此系列移除；沒有任何其他引用時才順帶刪掉全域值
-    if (typeCode === "size" || typeCode === "config") {
-      if (!window.confirm(`確定將「${v.name_zh} (${v.code})」從此系列移除？`)) return;
-      setBusy(true);
-      const { error: detachErr } = await supabase
-        .from("product_options")
-        .delete()
-        .eq("series_id", series.id)
-        .eq("option_value_id", v.id);
-      if (detachErr) {
-        setBusy(false);
-        toast.error(detachErr.message || "從系列移除失敗");
-        return;
-      }
-      // 清理：無任何系列或規格引用時刪掉全域值（失敗不影響移除結果）
-      const [varsRes, optsRes] = await Promise.all([
-        supabase
-          .from(TABLE_PRODUCT_VARIANTS)
-          .select("id", { count: "exact", head: true })
-          .or(
-            `wood_value_id.eq.${v.id},size_value_id.eq.${v.id},cushion_value_id.eq.${v.id},config_value_id.eq.${v.id}`
-          ),
-        supabase
-          .from("product_options")
-          .select("series_id", { count: "exact", head: true })
-          .eq("option_value_id", v.id),
-      ]);
-      if (
-        !varsRes.error &&
-        !optsRes.error &&
-        (varsRes.count ?? 0) === 0 &&
-        (optsRes.count ?? 0) === 0
-      ) {
-        const { error: delErr } = await supabase.from("option_values").delete().eq("id", v.id);
-        if (!delErr) setValues((prev) => prev.filter((x) => x.id !== v.id));
-      }
-      setBusy(false);
-      setAttached((prev) => {
-        const next = { ...prev };
-        delete next[v.id];
-        return next;
-      });
-      setEditingId(null);
-      toast.success(`已從此系列移除「${v.name_zh}」`);
-      onChanged?.();
       return;
     }
     if (
@@ -970,11 +945,8 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
               types.map((t) => {
                 const isConfig = t.code === "config";
                 const isSize = t.code === "size";
-                // 尺寸與配置是系列專屬：只列掛在此系列的值，不顯示其他系列的
                 const seriesScoped = isConfig || isSize;
-                const typeValues = values.filter(
-                  (v) => v.option_type_id === t.id && (!seriesScoped || v.id in attached)
-                );
+                const typeValues = values.filter((v) => v.option_type_id === t.id);
                 const form = addForms[t.id] ?? EMPTY_ADD_FORM;
                 return (
                   <section key={t.id} className="rounded-lg border border-border">
@@ -990,9 +962,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                       )}
                     </div>
                     {typeValues.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-muted-foreground">
-                        {seriesScoped ? `此系列尚未設定${t.name_zh}，用下方新增。` : "尚無選項值。"}
-                      </p>
+                      <p className="px-3 py-2 text-xs text-muted-foreground">尚無選項值。</p>
                     ) : (
                       <ul className="divide-y divide-border">
                         {typeValues.map((v) => {
@@ -1151,13 +1121,11 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                       title={
                                         usedIds.has(v.id)
                                           ? "已被此系列的規格使用，無法刪除"
-                                          : seriesScoped
-                                            ? "從此系列移除"
-                                            : "刪除此選項值（所有系列）"
+                                          : "刪除此選項值（所有系列）"
                                       }
                                     >
                                       <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                      {seriesScoped ? "移除" : "刪除"}
+                                      刪除
                                     </Button>
                                   </div>
                                 </div>
@@ -1167,28 +1135,33 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                           return (
                             <li key={v.id} className="px-3 py-2">
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                                {seriesScoped ? (
-                                  // 尺寸／配置為系列專屬清單：不提供取消勾選，移除請用編輯內的刪除鍵
-                                  <span className="flex min-w-0 flex-1 basis-36 items-center gap-2">
-                                    <span className="truncate text-sm text-foreground">
-                                      {v.name_zh}
-                                      <span className="ml-1 text-xs text-muted-foreground">({v.code})</span>
-                                    </span>
+                                <label className="flex min-w-0 flex-1 basis-36 cursor-pointer items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isAttached}
+                                    onChange={() => toggleAttach(v)}
+                                    disabled={busy}
+                                    className="h-4 w-4 shrink-0 rounded border-input accent-primary"
+                                    aria-label={`此系列提供 ${v.name_zh}`}
+                                  />
+                                  <span className="truncate text-sm text-foreground">
+                                    {v.name_zh}
+                                    <span className="ml-1 text-xs text-muted-foreground">({v.code})</span>
                                   </span>
-                                ) : (
-                                  <label className="flex min-w-0 flex-1 basis-36 cursor-pointer items-center gap-2">
+                                </label>
+                                {isSize && isAttached && (
+                                  <label
+                                    className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-muted-foreground"
+                                    title="單一尺寸系列用：生成的產品代碼省略尺寸段，寬深高仍寫入規格"
+                                  >
                                     <input
                                       type="checkbox"
-                                      checked={isAttached}
-                                      onChange={() => toggleAttach(v)}
+                                      checked={omitFlags[v.id] === true}
+                                      onChange={() => toggleOmitFromCode(v)}
                                       disabled={busy}
-                                      className="h-4 w-4 shrink-0 rounded border-input accent-primary"
-                                      aria-label={`此系列提供 ${v.name_zh}`}
+                                      className="h-3.5 w-3.5 rounded border-input accent-primary"
                                     />
-                                    <span className="truncate text-sm text-foreground">
-                                      {v.name_zh}
-                                      <span className="ml-1 text-xs text-muted-foreground">({v.code})</span>
-                                    </span>
+                                    代碼不含尺寸段
                                   </label>
                                 )}
                                 <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
@@ -1202,8 +1175,9 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                           setOverrideDrafts((prev) => ({ ...prev, [v.id]: e.target.value }))
                                         }
                                         onBlur={() => saveOverride(v)}
+                                        disabled={!isAttached}
                                         placeholder={String(v.price_delta)}
-                                        className={`${smallInputCls} w-20 text-right`}
+                                        className={`${smallInputCls} w-20 text-right disabled:cursor-not-allowed disabled:opacity-50`}
                                         aria-label={`${v.name_zh} 此系列價差`}
                                       />
                                     </>

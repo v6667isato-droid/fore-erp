@@ -23,6 +23,10 @@ export interface ProductImageDropzoneProps {
   className?: string;
   /** 上傳目標 Storage bucket，預設 product-images */
   bucket?: string;
+  /** 無 value 時顯示的沿用中圖片（唯讀預覽：可點擊上傳取代，但不提供移除，也不會動到該檔案） */
+  fallbackPreview?: string | null;
+  /** 沿用預覽上的說明文字 */
+  fallbackHint?: string;
 }
 
 /** 從 Supabase 公開 URL 解析 storage path（用於刪除） */
@@ -41,6 +45,8 @@ export function ProductImageDropzone({
   disabled = false,
   className,
   bucket = DEFAULT_BUCKET,
+  fallbackPreview = null,
+  fallbackHint,
 }: ProductImageDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -189,7 +195,22 @@ export function ProductImageDropzone({
           </>
         )}
 
-        {!hasImage && !uploading && (
+        {!hasImage && !uploading && fallbackPreview && (
+          <>
+            <img
+              src={fallbackPreview}
+              alt="沿用中的圖片預覽"
+              className="h-full min-h-[200px] w-full object-contain object-center"
+            />
+            <div className="absolute inset-x-0 bottom-0 z-10 bg-black/55 px-3 py-2 text-center">
+              <p className="text-xs font-medium text-white">
+                {fallbackHint || "目前沿用此圖；點擊或拖曳上傳專用圖以取代"}
+              </p>
+            </div>
+          </>
+        )}
+
+        {!hasImage && !uploading && !fallbackPreview && (
           <div className="flex min-h-[200px] flex-col items-center justify-center gap-2 px-4 py-6 text-center">
             <Upload className="h-10 w-10 text-[var(--muted-foreground)]" aria-hidden />
             <p className="text-sm font-medium text-[var(--muted-foreground)]">
