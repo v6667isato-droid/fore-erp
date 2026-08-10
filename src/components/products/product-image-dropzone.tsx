@@ -25,8 +25,6 @@ export interface ProductImageDropzoneProps {
   bucket?: string;
   /** 無 value 時顯示的沿用中圖片（唯讀預覽：可點擊上傳取代，但不提供移除，也不會動到該檔案） */
   fallbackPreview?: string | null;
-  /** 沿用預覽上的說明文字 */
-  fallbackHint?: string;
 }
 
 /** 從 Supabase 公開 URL 解析 storage path（用於刪除） */
@@ -46,7 +44,6 @@ export function ProductImageDropzone({
   className,
   bucket = DEFAULT_BUCKET,
   fallbackPreview = null,
-  fallbackHint,
 }: ProductImageDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -196,18 +193,11 @@ export function ProductImageDropzone({
         )}
 
         {!hasImage && !uploading && fallbackPreview && (
-          <>
-            <img
-              src={fallbackPreview}
-              alt="沿用中的圖片預覽"
-              className="h-full min-h-[200px] w-full object-contain object-center"
-            />
-            <div className="absolute inset-x-0 bottom-0 z-10 bg-black/55 px-3 py-2 text-center">
-              <p className="text-xs font-medium text-white">
-                {fallbackHint || "目前沿用此圖；點擊或拖曳上傳專用圖以取代"}
-              </p>
-            </div>
-          </>
+          <img
+            src={fallbackPreview}
+            alt="沿用中的圖片預覽"
+            className="h-full min-h-[200px] w-full object-contain object-center"
+          />
         )}
 
         {!hasImage && !uploading && !fallbackPreview && (

@@ -531,8 +531,10 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       onChange={setSheetHeroImageUrl}
                       disabled={saving}
                       fallbackPreview={imageUrl}
-                      fallbackHint="目前沿用產品主視覺圖（介紹表印的就是這張）；點擊或拖曳上傳介紹表專用圖以取代"
                     />
+                    {!sheetHeroImageUrl && imageUrl && (
+                      <span className="text-[11px] text-muted-foreground">目前沿用產品主視覺</span>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="sheet-design-concept" className="text-xs font-medium text-foreground">

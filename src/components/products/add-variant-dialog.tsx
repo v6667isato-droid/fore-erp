@@ -68,6 +68,8 @@ interface SizeSel {
   w: number | null;
   d: number | null;
   h: number | null;
+  /** 代碼不含尺寸段（product_options.omit_from_code） */
+  omitFromCode: boolean;
 }
 
 interface Combo {
@@ -275,6 +277,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         code: v.code,
         name: v.name_zh,
         price_delta: v.price_delta,
+        omitFromCode: v.omitFromCode === true,
         ...parseSizeCode(v.code),
       }));
     const sizes: (SizeSel | null)[] = sizeSels.length > 0 ? sizeSels : [null];
@@ -285,7 +288,9 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
           for (const config of configs) {
             // 訂製款是開單佔位，不需要任何選項（含尺寸）也可生成一列 {系列碼}-C
             if (!wood && !size && !cushion && !config && !genCustom) continue;
-            const segCode = [seriesCode, wood?.code, size?.code, cushion?.code, config?.code]
+            // 尺寸段用選項設定的顯示名稱（完整尺寸代碼僅在勾選介面顯示）；勾「代碼不含尺寸段」則省略
+            const sizeSeg = size && !size.omitFromCode ? size.name || size.code : undefined;
+            const segCode = [seriesCode, wood?.code, sizeSeg, cushion?.code, config?.code]
               .filter((s): s is string => Boolean(s))
               .join("-");
             const delta =
@@ -352,7 +357,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         : `${name}（${delta > 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString()}）`;
     const parts: string[] = [];
     if (c.wood) parts.push(fmt(c.wood.name_zh, c.wood.price_delta));
-    if (c.size) parts.push(fmt(c.size.name, c.size.price_delta));
+    if (c.size) parts.push(fmt(c.size.code, c.size.price_delta));
     if (c.cushion) parts.push(fmt(c.cushion.name_zh, c.cushion.price_delta));
     if (c.config) parts.push(fmt(c.config.name_zh, c.config.price_delta));
     return parts.join("・");
@@ -493,9 +498,9 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         />
         <span>
           {axisCode === "size" ? (
-            // 尺寸顯示選項設定的顯示名稱；名稱通常已含尺寸資訊，不重複代碼
+            // 尺寸勾選處顯示完整尺寸代碼（含高）；生成代碼用顯示名稱
             <>
-              {v.name_zh}
+              {v.code}
               {v.price_delta !== 0 && (
                 <>（{v.price_delta > 0 ? `+${v.price_delta}` : v.price_delta}）</>
               )}

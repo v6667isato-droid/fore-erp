@@ -167,20 +167,23 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
     if (!link?.size_value_id || !link.series_id) return null;
     const oldValRes = await supabase
       .from("option_values")
-      .select("id, code, option_type_id")
+      .select("id, code, name_zh, option_type_id")
       .eq("id", link.size_value_id)
       .maybeSingle();
     const oldCode = oldValRes.data?.code ?? null;
+    const oldName = oldValRes.data?.name_zh ?? null;
     if (!oldCode) return null;
     const newCode = buildSizeCode(wNum, dNum, hNum);
     if (oldCode === newCode) return null;
     const found = await supabase
       .from("option_values")
-      .select("id")
+      .select("id, name_zh")
       .eq("option_type_id", oldValRes.data!.option_type_id)
       .eq("code", newCode)
       .maybeSingle();
     let targetId = found.data?.id ?? null;
+    // 代碼尺寸段用顯示名稱（與勾選生成一致）
+    let targetName = found.data?.name_zh ?? newCode;
     if (!targetId) {
       const ins = await supabase
         .from("option_values")
@@ -195,14 +198,16 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
         .single();
       if (ins.error || !ins.data) return null;
       targetId = ins.data.id;
+      targetName = newCode;
     }
     const attach = await supabase
       .from("product_options")
       .insert({ series_id: link.series_id, option_value_id: targetId });
     if (attach.error && !/duplicate|23505|unique/i.test(attach.error.message)) return null;
+    const isOldSeg = (s: string) => s === oldCode || (oldName != null && s === oldName);
     const segs = currentCode.split("-");
-    const swapped = segs.some((s) => s === oldCode)
-      ? segs.map((s) => (s === oldCode ? newCode : s)).join("-")
+    const swapped = segs.some(isOldSeg)
+      ? segs.map((s) => (isOldSeg(s) ? targetName : s)).join("-")
       : null;
     const upd = await supabase
       .from(TABLE_PRODUCT_VARIANTS)

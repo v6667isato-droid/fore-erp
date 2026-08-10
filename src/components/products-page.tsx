@@ -72,6 +72,10 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     name_en: r.name_en != null ? String(r.name_en) : null,
     design_concept_en: r.design_concept_en != null ? String(r.design_concept_en) : null,
     customization_rules_en: r.customization_rules_en != null ? String(r.customization_rules_en) : null,
+    sheet_hero_image_url: r.sheet_hero_image_url != null ? String(r.sheet_hero_image_url) : null,
+    sheet_design_concept: r.sheet_design_concept != null ? String(r.sheet_design_concept) : null,
+    sheet_customization_rules:
+      r.sheet_customization_rules != null ? String(r.sheet_customization_rules) : null,
   };
 }
 

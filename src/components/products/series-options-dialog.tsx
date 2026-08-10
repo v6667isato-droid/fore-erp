@@ -81,8 +81,8 @@ function isDuplicateError(message: string | undefined): boolean {
 
 /** 各選項軸的補充說明（依 option_types.code） */
 const TYPE_HINTS: Record<string, string> = {
-  size: "尺寸統一在此新增與編輯（寬深高）；勾選＝此系列提供，生成規格時再從中勾選，價差為此系列專屬",
-  config: "系列專屬變化（抽屜、櫃體配置…）；勾選＝此系列提供，代碼會直接接在規格代碼尾段",
+  size: "只列此系列的尺寸；尺寸統一在此新增與編輯（寬深高），生成規格時再從中勾選，價差為此系列專屬",
+  config: "系列專屬變化（抽屜、櫃體配置…）；只列此系列的配置，代碼會直接接在規格代碼尾段",
 };
 
 /** 尺寸欄位輸入轉數值：空＝null；非正數回傳 undefined（表示格式錯誤） */
@@ -565,12 +565,13 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
             .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
         );
       }
-      // 連動規格：代碼中的舊尺寸段換新，寬一定寫入，深高有值才覆蓋
+      // 連動規格：代碼中的舊尺寸段（代碼或顯示名稱）換成新顯示名稱，寬一定寫入，深高有值才覆蓋
       let syncFailed = 0;
+      const isOldSeg = (s: string) => s === v.code || s === v.name_zh;
       for (const row of affected) {
         const segs = String(row.product_code ?? "").split("-");
-        const newProductCode = segs.some((s) => s === v.code)
-          ? segs.map((s) => (s === v.code ? code : s)).join("-")
+        const newProductCode = segs.some(isOldSeg)
+          ? segs.map((s) => (isOldSeg(s) ? name : s)).join("-")
           : row.product_code;
         const { error } = await supabase
           .from(TABLE_PRODUCT_VARIANTS)
@@ -613,6 +614,54 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     if (!series || busy) return;
     if (usedIds.has(v.id)) {
       toast.error(`「${v.name_zh}」已被此系列的規格使用，無法刪除`);
+      return;
+    }
+    const typeCode = types.find((t) => t.id === v.option_type_id)?.code;
+    // 尺寸／配置是系列專屬清單：刪除＝從此系列移除；沒有任何其他引用時才順帶刪掉全域值
+    if (typeCode === "size" || typeCode === "config") {
+      if (!window.confirm(`確定將「${v.name_zh} (${v.code})」從此系列移除？`)) return;
+      setBusy(true);
+      const { error: detachErr } = await supabase
+        .from("product_options")
+        .delete()
+        .eq("series_id", series.id)
+        .eq("option_value_id", v.id);
+      if (detachErr) {
+        setBusy(false);
+        toast.error(detachErr.message || "從系列移除失敗");
+        return;
+      }
+      // 清理：無任何系列或規格引用時刪掉全域值（失敗不影響移除結果）
+      const [varsRes, optsRes] = await Promise.all([
+        supabase
+          .from(TABLE_PRODUCT_VARIANTS)
+          .select("id", { count: "exact", head: true })
+          .or(
+            `wood_value_id.eq.${v.id},size_value_id.eq.${v.id},cushion_value_id.eq.${v.id},config_value_id.eq.${v.id}`
+          ),
+        supabase
+          .from("product_options")
+          .select("series_id", { count: "exact", head: true })
+          .eq("option_value_id", v.id),
+      ]);
+      if (
+        !varsRes.error &&
+        !optsRes.error &&
+        (varsRes.count ?? 0) === 0 &&
+        (optsRes.count ?? 0) === 0
+      ) {
+        const { error: delErr } = await supabase.from("option_values").delete().eq("id", v.id);
+        if (!delErr) setValues((prev) => prev.filter((x) => x.id !== v.id));
+      }
+      setBusy(false);
+      setAttached((prev) => {
+        const next = { ...prev };
+        delete next[v.id];
+        return next;
+      });
+      setEditingId(null);
+      toast.success(`已從此系列移除「${v.name_zh}」`);
+      onChanged?.();
       return;
     }
     if (
@@ -945,8 +994,11 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
               types.map((t) => {
                 const isConfig = t.code === "config";
                 const isSize = t.code === "size";
+                // 尺寸與配置是系列專屬：只列掛在此系列的值；木種／座墊為全域清單勾選
                 const seriesScoped = isConfig || isSize;
-                const typeValues = values.filter((v) => v.option_type_id === t.id);
+                const typeValues = values.filter(
+                  (v) => v.option_type_id === t.id && (!seriesScoped || v.id in attached)
+                );
                 const form = addForms[t.id] ?? EMPTY_ADD_FORM;
                 return (
                   <section key={t.id} className="rounded-lg border border-border">
@@ -962,7 +1014,9 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                       )}
                     </div>
                     {typeValues.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-muted-foreground">尚無選項值。</p>
+                      <p className="px-3 py-2 text-xs text-muted-foreground">
+                        {seriesScoped ? `此系列尚未設定${t.name_zh}，用下方新增。` : "尚無選項值。"}
+                      </p>
                     ) : (
                       <ul className="divide-y divide-border">
                         {typeValues.map((v) => {
@@ -1121,7 +1175,9 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                       title={
                                         usedIds.has(v.id)
                                           ? "已被此系列的規格使用，無法刪除"
-                                          : "刪除此選項值（所有系列）"
+                                          : seriesScoped
+                                            ? "從此系列移除"
+                                            : "刪除此選項值（所有系列）"
                                       }
                                     >
                                       <Trash2 className="mr-1 h-3.5 w-3.5" />
@@ -1135,20 +1191,30 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                           return (
                             <li key={v.id} className="px-3 py-2">
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                                <label className="flex min-w-0 flex-1 basis-36 cursor-pointer items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={isAttached}
-                                    onChange={() => toggleAttach(v)}
-                                    disabled={busy}
-                                    className="h-4 w-4 shrink-0 rounded border-input accent-primary"
-                                    aria-label={`此系列提供 ${v.name_zh}`}
-                                  />
-                                  <span className="truncate text-sm text-foreground">
-                                    {v.name_zh}
-                                    <span className="ml-1 text-xs text-muted-foreground">({v.code})</span>
+                                {seriesScoped ? (
+                                  // 系列專屬清單：列出即代表此系列提供；移除走編輯內的刪除鍵
+                                  <span className="flex min-w-0 flex-1 basis-36 items-center gap-2">
+                                    <span className="truncate text-sm text-foreground">
+                                      {v.name_zh}
+                                      <span className="ml-1 text-xs text-muted-foreground">({v.code})</span>
+                                    </span>
                                   </span>
-                                </label>
+                                ) : (
+                                  <label className="flex min-w-0 flex-1 basis-36 cursor-pointer items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isAttached}
+                                      onChange={() => toggleAttach(v)}
+                                      disabled={busy}
+                                      className="h-4 w-4 shrink-0 rounded border-input accent-primary"
+                                      aria-label={`此系列提供 ${v.name_zh}`}
+                                    />
+                                    <span className="truncate text-sm text-foreground">
+                                      {v.name_zh}
+                                      <span className="ml-1 text-xs text-muted-foreground">({v.code})</span>
+                                    </span>
+                                  </label>
+                                )}
                                 {isSize && isAttached && (
                                   <label
                                     className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-muted-foreground"
