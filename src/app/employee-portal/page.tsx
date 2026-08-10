@@ -84,7 +84,7 @@ import {
 } from "@/lib/work-order-stages";
 import { fetchCompanyAnnouncementsFromEvents } from "@/lib/company-events";
 import {
-  fetchNormalizedUserProfileRole,
+  fetchUserProfileAccess,
   isAdminOrManagerRole,
   isAdminRole,
 } from "@/lib/post-login-redirect";
@@ -843,7 +843,7 @@ export default function EmployeePortalPage() {
   >(undefined);
   /** 與管理端假單審核頁同一套邏輯：顯示「已扣除／尚未扣除」臨時假日提示用 */
   const [holidayRows, setHolidayRows] = useState<HolidayLookupRow[]>([]);
-  /** Mock 無法辨識角色時保留捷徑；Supabase 僅 admin / manager 可看返回 ERP 連結 */
+  /** Mock 無法辨識角色時保留捷徑；Supabase 時 admin / manager 或帶 extra_pages 的 staff 可看返回 ERP 連結 */
   const [showErpHomeLink, setShowErpHomeLink] = useState(() => !isSupabaseConfigured);
   /** Supabase 連線時由 user_profiles 填入；Mock 時為空字串 */
   const [portalUserRole, setPortalUserRole] = useState("");
@@ -869,9 +869,10 @@ export default function EmployeePortalPage() {
         }
         return;
       }
-      const role = await fetchNormalizedUserProfileRole(userId);
+      const { role, extraPages } = await fetchUserProfileAccess(userId);
       if (!cancelled) {
-        setShowErpHomeLink(isAdminOrManagerRole(role));
+        // staff 若在 user_profiles.extra_pages 被授權 ERP 頁面，也顯示 ERP 入口
+        setShowErpHomeLink(isAdminOrManagerRole(role) || extraPages.length > 0);
         setPortalUserRole(role);
       }
     })();

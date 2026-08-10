@@ -129,15 +129,17 @@ function SidebarNav({
   activePage,
   onNavigate,
   userRole,
+  extraPages,
 }: {
   activePage: Page;
   onNavigate: (page: Page) => void;
   userRole: AppRole;
+  extraPages: Page[];
 }) {
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
-        if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting" || item.id === "inventory" || item.id === "audit_logs") && userRole !== "admin") {
+        if (!canViewPage(item.id, userRole, extraPages)) {
           return null;
         }
         const Icon = item.icon;
@@ -165,12 +167,14 @@ function DesktopSidebar({
   onNavigate,
   userEmail,
   userRole,
+  extraPages,
   onLogout,
 }: {
   activePage: Page;
   onNavigate: (page: Page) => void;
   userEmail: string | null;
   userRole: AppRole;
+  extraPages: Page[];
   onLogout: () => void;
 }) {
   return (
@@ -179,7 +183,7 @@ function DesktopSidebar({
         <Logo />
       </div>
       <ScrollArea className="flex-1 py-4">
-        <SidebarNav activePage={activePage} onNavigate={onNavigate} userRole={userRole} />
+        <SidebarNav activePage={activePage} onNavigate={onNavigate} userRole={userRole} extraPages={extraPages} />
       </ScrollArea>
       <div className="flex flex-col gap-1 px-3 py-2">
         <a
@@ -189,15 +193,17 @@ function DesktopSidebar({
           <UserCircle2 className="h-4 w-4" />
           員工儀表板
         </a>
-        <a
-          href="/portal"
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-        >
-          <ExternalLink className="h-4 w-4" />
-          通路下單
-        </a>
+        {isErpEditorRole(userRole) && (
+          <a
+            href="/portal"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+          >
+            <ExternalLink className="h-4 w-4" />
+            通路下單
+          </a>
+        )}
       </div>
       <div className="border-t border-sidebar-border p-4">
         <div className="flex items-center justify-between gap-2">
@@ -240,10 +246,12 @@ function MobileHeader({
   activePage,
   onNavigate,
   userRole,
+  extraPages,
 }: {
   activePage: Page;
   onNavigate: (page: Page) => void;
   userRole: AppRole;
+  extraPages: Page[];
 }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -271,7 +279,7 @@ function MobileHeader({
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
-                  if ((item.id === "leave_approvals" || item.id === "cost_statistics" || item.id === "accounting" || item.id === "inventory" || item.id === "audit_logs") && userRole !== "admin") {
+                  if (!canViewPage(item.id, userRole, extraPages)) {
                     return null;
                   }
                   const Icon = item.icon;
@@ -301,16 +309,18 @@ function MobileHeader({
                   <UserCircle2 className="h-[18px] w-[18px] shrink-0" />
                   員工儀表板
                 </a>
-                <a
-                  href="/portal"
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => setOpen(false)}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                >
-                  <ExternalLink className="h-[18px] w-[18px] shrink-0" />
-                  通路下單
-                </a>
+                {isErpEditorRole(userRole) && (
+                  <a
+                    href="/portal"
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setOpen(false)}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  >
+                    <ExternalLink className="h-[18px] w-[18px] shrink-0" />
+                    通路下單
+                  </a>
+                )}
               </nav>
             </div>
           </SheetContent>
@@ -352,6 +362,8 @@ export default function DashboardShell() {
     navItems.find((i) => i.id === activePage)?.label ?? "總覽";
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<AppRole>(null);
+  /** staff 專用：user_profiles.extra_pages 授權的 ERP 頁面（已過濾為合法且非 admin 專屬） */
+  const [extraPages, setExtraPages] = useState<Page[]>([]);
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [externalOrderId, setExternalOrderId] = useState<string | null>(null);
@@ -468,7 +480,7 @@ export default function DashboardShell() {
         setUserEmail(user.email ?? null);
         const { data: profile } = await supabase
           .from("user_profiles")
-          .select("role, theme")
+          .select("role, theme, extra_pages")
           .eq("user_id", user.id)
           .single();
 
@@ -487,15 +499,20 @@ export default function DashboardShell() {
         }
 
         const raw = ((profile?.role as string) ?? "").trim().toLowerCase();
-        if (!isAdminOrManagerRole(raw)) {
+        const rawExtra =
+          (profile as { extra_pages?: string[] | null } | null)?.extra_pages ?? [];
+        const staffExtraPages = rawExtra.filter(
+          (p): p is Page => PAGE_IDS.has(p as Page) && !ADMIN_ONLY_PAGES.has(p as Page)
+        );
+        if (!isAdminOrManagerRole(raw) && staffExtraPages.length === 0) {
           router.replace("/employee/dashboard");
           return;
         }
         let appRole: AppRole;
         if (raw === "admin") appRole = "admin";
         else if (raw === "manager") appRole = "manager";
-        else if (raw === "staff" || raw === "") appRole = "staff";
-        else appRole = "admin";
+        else appRole = "staff";
+        setExtraPages(appRole === "staff" ? staffExtraPages : []);
         setUserRole(appRole);
         setAuthChecked(true);
       } catch (err) {
@@ -517,21 +534,16 @@ export default function DashboardShell() {
     };
   }, [router]);
 
-  // 非 admin 不可開員工管理（含書籤或手動改 ?page=）
+  // 無權限頁面（含書籤或手動改 ?page=）導回可見的頁：staff 導到 extra_pages 第一頁，其餘導總覽
   useEffect(() => {
     if (!authChecked || userRole === null) return;
-    if (
-      userRole !== "admin" &&
-      (activePage === "leave_approvals" ||
-        activePage === "cost_statistics" ||
-        activePage === "accounting" ||
-        activePage === "inventory" ||
-        activePage === "audit_logs")
-    ) {
-      setActivePage("dashboard");
-      router.replace("/?page=dashboard");
+    if (!canViewPage(activePage, userRole, extraPages)) {
+      const fallback: Page =
+        userRole === "staff" ? (extraPages[0] ?? "dashboard") : "dashboard";
+      setActivePage(fallback);
+      router.replace(`/?page=${fallback}`);
     }
-  }, [authChecked, userRole, activePage, router]);
+  }, [authChecked, userRole, activePage, extraPages, router]);
 
   async function handleLogout() {
     try {
@@ -574,12 +586,14 @@ export default function DashboardShell() {
         onNavigate={onNavigate}
         userEmail={userEmail}
         userRole={userRole}
+        extraPages={extraPages}
         onLogout={handleLogout}
       />
       <MobileHeader
         activePage={activePage}
         onNavigate={onNavigate}
         userRole={userRole}
+        extraPages={extraPages}
       />
 
       <main className="lg:pl-60">
@@ -588,44 +602,48 @@ export default function DashboardShell() {
             <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">{pageTitle}</h1>
           </div>
 
-          {activePage === "dashboard" && (
+          {canViewPage(activePage, userRole, extraPages) && (
             <>
-              <DashboardOverview canEditLeadTimeParams={userRole === "admin"} />
-              <section className="mt-10 lg:mt-12 pt-8 border-t border-border scroll-mt-6" aria-labelledby="dashboard-calendar-heading">
-                <h2
-                  id="dashboard-calendar-heading"
-                  className="font-serif text-xl font-semibold tracking-tight text-foreground mb-6"
-                >
-                  行事曆
-                </h2>
-                <CompanyCalendarPage />
-              </section>
+              {activePage === "dashboard" && (
+                <>
+                  <DashboardOverview canEditLeadTimeParams={userRole === "admin"} />
+                  <section className="mt-10 lg:mt-12 pt-8 border-t border-border scroll-mt-6" aria-labelledby="dashboard-calendar-heading">
+                    <h2
+                      id="dashboard-calendar-heading"
+                      className="font-serif text-xl font-semibold tracking-tight text-foreground mb-6"
+                    >
+                      行事曆
+                    </h2>
+                    <CompanyCalendarPage />
+                  </section>
+                </>
+              )}
+              {activePage === "orders" && (
+                <OrdersPage
+                  isAdmin={isErpEditorRole(userRole)}
+                  canIssueInvoice={userRole === "admin"}
+                  initialOpenOrderId={resolvedInitialOpenOrderId ?? undefined}
+                />
+              )}
+              {activePage === "kanban" && <WorkOrdersPage />}
+              {activePage === "inventory" && userRole === "admin" && (
+                <InventoryPage isAdmin />
+              )}
+              {activePage === "procurement" && (
+                <ProcurementPage isAdmin={isErpEditorRole(userRole)} />
+              )}
+              {activePage === "accounting" && userRole === "admin" && <AccountingPage />}
+              {activePage === "cost_statistics" && userRole === "admin" && <CostStatisticsTabs />}
+              {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
+              {activePage === "journal" && <JournalPage />}
+              {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
+              {activePage === "leave_approvals" && userRole === "admin" && (
+                <LeaveApprovalsPage />
+              )}
+              {activePage === "feedback" && <FeedbackPage />}
+              {activePage === "audit_logs" && userRole === "admin" && <AuditLogsPage />}
             </>
           )}
-          {activePage === "orders" && (
-            <OrdersPage
-              isAdmin={isErpEditorRole(userRole)}
-              canIssueInvoice={userRole === "admin"}
-              initialOpenOrderId={resolvedInitialOpenOrderId ?? undefined}
-            />
-          )}
-          {activePage === "kanban" && <WorkOrdersPage />}
-          {activePage === "inventory" && userRole === "admin" && (
-            <InventoryPage isAdmin />
-          )}
-          {activePage === "procurement" && (
-            <ProcurementPage isAdmin={isErpEditorRole(userRole)} />
-          )}
-          {activePage === "accounting" && userRole === "admin" && <AccountingPage />}
-          {activePage === "cost_statistics" && userRole === "admin" && <CostStatisticsTabs />}
-          {activePage === "products" && <ProductsPage isAdmin={isErpEditorRole(userRole)} />}
-          {activePage === "journal" && <JournalPage />}
-          {activePage === "customers" && <CustomersPage isAdmin={isErpEditorRole(userRole)} />}
-          {activePage === "leave_approvals" && userRole === "admin" && (
-            <LeaveApprovalsPage />
-          )}
-          {activePage === "feedback" && <FeedbackPage />}
-          {activePage === "audit_logs" && userRole === "admin" && <AuditLogsPage />}
         </div>
       </main>
     </div>

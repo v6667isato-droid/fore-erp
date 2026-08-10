@@ -23,6 +23,33 @@ export async function fetchNormalizedUserProfileRole(userId: string): Promise<st
   return ((profile?.role as string) ?? "").trim().toLowerCase();
 }
 
+/**
+ * 讀取 role＋extra_pages（staff 的額外 ERP 頁面授權）；查法同 fetchNormalizedUserProfileRole。
+ */
+export async function fetchUserProfileAccess(
+  userId: string
+): Promise<{ role: string; extraPages: string[] }> {
+  let { data: profile } = await supabase
+    .from("user_profiles")
+    .select("role, extra_pages")
+    .eq("user_id", userId)
+    .single();
+
+  if (!profile) {
+    const second = await supabase
+      .from("user_profiles")
+      .select("role, extra_pages")
+      .eq("id", userId)
+      .single();
+    profile = second.data;
+  }
+
+  return {
+    role: ((profile?.role as string) ?? "").trim().toLowerCase(),
+    extraPages: (profile?.extra_pages as string[] | null) ?? [],
+  };
+}
+
 export function isAdminOrManagerRole(normalizedRole: string): boolean {
   const r = normalizedRole.trim().toLowerCase();
   return r === "admin" || r === "manager";
