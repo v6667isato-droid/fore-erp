@@ -532,9 +532,17 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       disabled={saving}
                     />
                     {!sheetHeroImageUrl && imageUrl && (
-                      <span className="text-[11px] text-muted-foreground">
-                        目前沿用產品主視覺圖，上傳後改用介紹表專用圖。
-                      </span>
+                      <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 p-2">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={imageUrl}
+                          alt="沿用中的產品主視覺圖"
+                          className="h-16 w-16 shrink-0 rounded-md object-cover"
+                        />
+                        <span className="text-[11px] text-muted-foreground">
+                          目前沿用左圖（產品主視覺圖）印在介紹表上；上傳專用圖後改用專用圖。
+                        </span>
+                      </div>
                     )}
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -547,7 +555,11 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       onChange={(e) => setSheetDesignConcept(e.target.value)}
                       rows={4}
                       className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
-                      placeholder="介紹表專用；留空＝沿用「設計與行銷」的設計理念"
+                      placeholder={
+                        contentValues.design_concept?.trim()
+                          ? `留空＝沿用「設計與行銷」的設計理念：\n${contentValues.design_concept}`
+                          : "介紹表專用；留空＝沿用「設計與行銷」的設計理念"
+                      }
                     />
                     <label htmlFor="sheet-design-concept-en" className="mt-1 text-xs text-muted-foreground">
                       設計理念（英）— 英文版用，留空則顯示中文
@@ -570,7 +582,11 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       onChange={(e) => setSheetCustomizationRules(e.target.value)}
                       rows={4}
                       className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
-                      placeholder="介紹表專用；留空＝沿用「客服與保養」的客製與保養"
+                      placeholder={
+                        contentValues.customization_rules?.trim()
+                          ? `留空＝沿用「客服與保養」的客製與保養：\n${contentValues.customization_rules}`
+                          : "介紹表專用；留空＝沿用「客服與保養」的客製與保養"
+                      }
                     />
                     <label htmlFor="sheet-customization-rules-en" className="mt-1 text-xs text-muted-foreground">
                       客製與保養（英）— 英文版用，留空則顯示中文

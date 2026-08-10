@@ -74,6 +74,21 @@ function isErpEditorRole(role: AppRole): boolean {
   return role === "admin" || role === "manager";
 }
 
+const ADMIN_ONLY_PAGES: ReadonlySet<Page> = new Set([
+  "leave_approvals",
+  "cost_statistics",
+  "accounting",
+  "inventory",
+  "audit_logs",
+]);
+
+/** admin 全開；manager 除 admin 專屬頁外全開；staff 僅 user_profiles.extra_pages 授權的頁 */
+function canViewPage(page: Page, role: AppRole, extraPages: Page[]): boolean {
+  if (role === "admin") return true;
+  if (role === "manager") return !ADMIN_ONLY_PAGES.has(page);
+  return extraPages.includes(page);
+}
+
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "總覽", icon: LayoutGrid },
   { id: "products", label: "產品資料", icon: Package },

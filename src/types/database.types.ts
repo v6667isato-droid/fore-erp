@@ -3630,6 +3630,7 @@ export type Database = {
           created_at: string | null
           email: string
           employee_id: string | null
+          extra_pages: string[]
           full_name: string | null
           role: string | null
           theme: string | null
@@ -3639,6 +3640,7 @@ export type Database = {
           created_at?: string | null
           email: string
           employee_id?: string | null
+          extra_pages?: string[]
           full_name?: string | null
           role?: string | null
           theme?: string | null
@@ -3648,6 +3650,7 @@ export type Database = {
           created_at?: string | null
           email?: string
           employee_id?: string | null
+          extra_pages?: string[]
           full_name?: string | null
           role?: string | null
           theme?: string | null
