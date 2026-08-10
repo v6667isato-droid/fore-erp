@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { TABLE_PRODUCT_VARIANTS, TABLE_PRODUCT_SERIES } from "@/lib/products-db";
 import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
+import { buildSizeCode } from "@/lib/size-code";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { DimensionDrawingUpload } from "@/components/products/dimension-drawing-upload";
@@ -144,6 +145,73 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
     if (open && firstRef.current) setTimeout(() => firstRef.current?.focus(), 0);
   }, [open]);
 
+  /**
+   * 規格尺寸連動尺寸選項：規格由尺寸選項生成（有 size_value_id）且寬深高與代碼不符時，
+   * 找或建對應尺寸選項並重新連結，產品代碼中的舊尺寸段一併換新。
+   * 回傳換好的新產品代碼（無需連動回傳 null）。
+   */
+  async function trySyncSizeOption(currentCode: string): Promise<string | null> {
+    if (!row) return null;
+    const wNum = w.trim() ? Number(w) : null;
+    if (wNum == null || !Number.isFinite(wNum) || wNum <= 0) return null;
+    const dRaw = d.trim() ? Number(d) : null;
+    const hRaw = h.trim() ? Number(h) : null;
+    const dNum = dRaw != null && Number.isFinite(dRaw) && dRaw > 0 ? dRaw : null;
+    const hNum = hRaw != null && Number.isFinite(hRaw) && hRaw > 0 ? hRaw : null;
+    const linkRes = await supabase
+      .from(TABLE_PRODUCT_VARIANTS)
+      .select("size_value_id, series_id")
+      .eq("id", row.id)
+      .maybeSingle();
+    const link = linkRes.data as { size_value_id: string | null; series_id: string | null } | null;
+    if (!link?.size_value_id || !link.series_id) return null;
+    const oldValRes = await supabase
+      .from("option_values")
+      .select("id, code, option_type_id")
+      .eq("id", link.size_value_id)
+      .maybeSingle();
+    const oldCode = oldValRes.data?.code ?? null;
+    if (!oldCode) return null;
+    const newCode = buildSizeCode(wNum, dNum, hNum);
+    if (oldCode === newCode) return null;
+    const found = await supabase
+      .from("option_values")
+      .select("id")
+      .eq("option_type_id", oldValRes.data!.option_type_id)
+      .eq("code", newCode)
+      .maybeSingle();
+    let targetId = found.data?.id ?? null;
+    if (!targetId) {
+      const ins = await supabase
+        .from("option_values")
+        .insert({
+          option_type_id: oldValRes.data!.option_type_id,
+          code: newCode,
+          name_zh: newCode,
+          price_delta: 0,
+          sort_order: Math.round(wNum),
+        })
+        .select("id")
+        .single();
+      if (ins.error || !ins.data) return null;
+      targetId = ins.data.id;
+    }
+    const attach = await supabase
+      .from("product_options")
+      .insert({ series_id: link.series_id, option_value_id: targetId });
+    if (attach.error && !/duplicate|23505|unique/i.test(attach.error.message)) return null;
+    const segs = currentCode.split("-");
+    const swapped = segs.some((s) => s === oldCode)
+      ? segs.map((s) => (s === oldCode ? newCode : s)).join("-")
+      : null;
+    const upd = await supabase
+      .from(TABLE_PRODUCT_VARIANTS)
+      .update({ size_value_id: targetId, ...(swapped ? { product_code: swapped } : {}) })
+      .eq("id", row.id);
+    if (upd.error) return null;
+    return swapped;
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!row) return;
@@ -179,8 +247,9 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       return;
     }
     // 通路價一律現算（定價 × 系列折扣率），不再寫入 product_variant_channel_prices（凍結為歷史表）
+    const syncedCode = await trySyncSizeOption(code.trim());
     setSaving(false);
-    toast.success("已更新規格");
+    toast.success(syncedCode ? `已更新規格，代碼同步為 ${syncedCode}` : "已更新規格");
     onOpenChange(false);
     onSuccess();
   }
