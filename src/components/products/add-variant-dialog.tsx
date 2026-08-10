@@ -648,6 +648,16 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     );
   };
 
+  // 已勾選／已加入的尺寸中，代碼缺深或缺高的才需要「套用到本批」補寫欄位
+  const selectedSizeParsed = [
+    ...(sizeAxis?.values ?? [])
+      .filter((v) => selected.size.has(v.id))
+      .map((v) => parseSizeCode(v.code)),
+    ...newSizes.map((s) => ({ w: s.w, d: s.d, h: s.h })),
+  ];
+  const fallbackNeedD = selectedSizeParsed.some((p) => p.d == null);
+  const fallbackNeedH = selectedSizeParsed.some((p) => p.h == null);
+
   const sizeBlock = (
     <fieldset key="axis-size" className="flex flex-col gap-1.5">
       <legend className="text-xs text-muted-foreground">{sizeAxis?.typeName ?? "尺寸"}</legend>
@@ -733,40 +743,52 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
           加入尺寸
         </Button>
       </div>
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="gen-batch-d" className="text-[11px] text-muted-foreground">深 D（cm，尺寸碼未含時套用到本批）</label>
-          <input
-            id="gen-batch-d"
-            type="number"
-            value={batchD}
-            onChange={(e) => setBatchD(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.preventDefault();
-            }}
-            className={`${inputCls} w-24`}
-            placeholder="選填"
-          />
+      {(fallbackNeedD || fallbackNeedH) && (
+        <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+          <p className="text-[11px] text-muted-foreground">
+            有勾選的尺寸代碼沒含{fallbackNeedD && "深"}
+            {fallbackNeedD && fallbackNeedH && "／"}
+            {fallbackNeedH && "高"}，這幾列會用下面的值補寫（留空＝不寫入）：
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-end gap-2">
+            {fallbackNeedD && (
+              <div className="flex flex-col gap-1">
+                <label htmlFor="gen-batch-d" className="text-[11px] text-muted-foreground">補深 D（cm）</label>
+                <input
+                  id="gen-batch-d"
+                  type="number"
+                  value={batchD}
+                  onChange={(e) => setBatchD(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.preventDefault();
+                  }}
+                  className={`${inputCls} w-24`}
+                  placeholder="選填"
+                />
+              </div>
+            )}
+            {fallbackNeedH && (
+              <div className="flex flex-col gap-1">
+                <label htmlFor="gen-batch-h" className="text-[11px] text-muted-foreground">補高 H（cm）</label>
+                <input
+                  id="gen-batch-h"
+                  type="number"
+                  value={batchH}
+                  onChange={(e) => setBatchH(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.preventDefault();
+                  }}
+                  className={`${inputCls} w-24`}
+                  placeholder="選填"
+                />
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="gen-batch-h" className="text-[11px] text-muted-foreground">高 H（cm，尺寸碼未含時套用到本批）</label>
-          <input
-            id="gen-batch-h"
-            type="number"
-            value={batchH}
-            onChange={(e) => setBatchH(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.preventDefault();
-            }}
-            className={`${inputCls} w-24`}
-            placeholder="選填"
-          />
-        </div>
-      </div>
+      )}
       <p className="text-[11px] text-muted-foreground">
         輸入寬深高按「加入尺寸」加入本批；生成時自動建檔為尺寸選項並掛入此系列。
         代碼：寬＋深＋高 → W180D48H180，寬＋深 → W60D35，僅寬 → 60。
-        勾選的既有尺寸檔代碼缺深／高時，用上方「套用到本批」欄位補寫。
       </p>
     </fieldset>
   );
