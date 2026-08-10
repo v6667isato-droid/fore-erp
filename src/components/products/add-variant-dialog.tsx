@@ -291,7 +291,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       for (const size of sizes) {
         for (const cushion of cushions) {
           for (const config of configs) {
-            if (!wood && !size && !cushion && !config) continue;
+            // 訂製款是開單佔位，不需要任何選項（含尺寸）也可生成一列 {系列碼}-C
+            if (!wood && !size && !cushion && !config && !genCustom) continue;
             const segCode = [seriesCode, wood?.code, size?.code, cushion?.code, config?.code]
               .filter((s): s is string => Boolean(s))
               .join("-");
@@ -331,11 +332,13 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const removedCount = combos.length - visibleCombos.length;
   const newCombos = visibleCombos.filter((c) => !c.exists);
   const skippedCount = visibleCombos.length - newCombos.length;
-  /** 尚未有有效定價（正整數）的新增列數；未設基礎價時需逐列輸入 */
-  const missingPriceCount = newCombos.filter((c) => {
-    const p = effectivePrice(c);
-    return p == null || p <= 0;
-  }).length;
+  /** 尚未有有效定價（正整數）的新增列數；未設基礎價時需逐列輸入。訂製款牌價開單手動輸入，不強制 */
+  const missingPriceCount = genCustom
+    ? 0
+    : newCombos.filter((c) => {
+        const p = effectivePrice(c);
+        return p == null || p <= 0;
+      }).length;
 
   function comboEditKey(c: Combo): string {
     return comboKey(
