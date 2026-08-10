@@ -17,6 +17,8 @@ export interface PoInvoiceMatch {
   state: PoInvoiceMatchState;
   /** tooltip 用的發票摘要 */
   detail: string;
+  /** matched=已對應的發票；candidate=建議對應的發票（供一鍵對應） */
+  invoice?: InvoiceForPoMatch;
 }
 
 /** 「有相符」的日期容許差（天）：金額相符且發票日期在此範圍內才算找到（與發票清單同值） */
@@ -98,6 +100,7 @@ export function computePoInvoiceMatches(
           detail: `已對應發票 ${linked.invoice_number ?? "（無號碼）"}（${linked.invoice_date ?? "—"}${
             linked.seller_name ? `／${linked.seller_name}` : ""
           }）`,
+          invoice: linked,
         });
         continue;
       }
@@ -115,7 +118,8 @@ export function computePoInvoiceMatches(
         state: "candidate",
         detail: `找到日期與金額相符的發票 ${hit.invoice_number ?? "（無號碼）"}（${hit.invoice_date ?? "—"}${
           hit.seller_name ? `／${hit.seller_name}` : ""
-        }，含稅 $${(hit.amount_inc_tax ?? 0).toLocaleString()}）；到會計管理編輯該發票即可對應`,
+        }，含稅 $${(hit.amount_inc_tax ?? 0).toLocaleString()}）；點一下前往發票頁面確認對應`,
+        invoice: hit,
       });
     } else {
       map.set(group.key, { state: "none", detail: "尚無發票對應此採購單" });

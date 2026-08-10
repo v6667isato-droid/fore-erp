@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Search } from "lucide-react";
 import type { PurchaseRow } from "@/types/procurement";
+import { PO_INVOICE_MATCH_LABELS, type PoInvoiceMatchState } from "@/lib/po-invoice-match";
 
 export interface ProcurementFiltersProps {
   filterYear: string;
@@ -11,12 +12,17 @@ export interface ProcurementFiltersProps {
   filterVendor: string;
   filterItemName: string;
   filterSearch: string;
+  /** 對應發票狀態篩選（空字串＝全部）；不提供則不顯示此篩選 */
+  filterInvoiceMatch?: "" | PoInvoiceMatchState;
+  /** 各狀態的採購單張數（以其他篩選條件套用後計） */
+  invoiceMatchCounts?: Record<PoInvoiceMatchState, number>;
   onYearChange: (v: string) => void;
   onMonthChange: (v: string) => void;
   onCategoryChange: (v: string) => void;
   onVendorChange: (v: string) => void;
   onItemNameChange: (v: string) => void;
   onSearchChange: (v: string) => void;
+  onInvoiceMatchChange?: (v: "" | PoInvoiceMatchState) => void;
   records: PurchaseRow[];
 }
 
@@ -27,12 +33,15 @@ export function ProcurementFilters({
   filterVendor,
   filterItemName,
   filterSearch,
+  filterInvoiceMatch,
+  invoiceMatchCounts,
   onYearChange,
   onMonthChange,
   onCategoryChange,
   onVendorChange,
   onItemNameChange,
   onSearchChange,
+  onInvoiceMatchChange,
   records,
 }: ProcurementFiltersProps) {
   const years = useMemo(() => [...new Set(records.map((r) => r.purchase_date.slice(0, 4)))].sort((a, b) => b.localeCompare(a)), [records]);
@@ -125,6 +134,23 @@ export function ProcurementFilters({
           <option key={n} value={n}>{n}</option>
         ))}
       </select>
+      {filterInvoiceMatch !== undefined && onInvoiceMatchChange && (
+        <select
+          value={filterInvoiceMatch}
+          onChange={(e) => onInvoiceMatchChange(e.target.value as "" | PoInvoiceMatchState)}
+          className="h-8 min-w-[7rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          aria-label="對應發票狀態"
+          title="依採購單的發票對應狀態篩選"
+        >
+          <option value="">對應發票：全部</option>
+          {(Object.keys(PO_INVOICE_MATCH_LABELS) as PoInvoiceMatchState[]).map((s) => (
+            <option key={s} value={s}>
+              {PO_INVOICE_MATCH_LABELS[s]}
+              {invoiceMatchCounts ? `（${invoiceMatchCounts[s]}）` : ""}
+            </option>
+          ))}
+        </select>
+      )}
       <div className="relative flex-1 min-w-[10rem] max-w-xs">
         <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" aria-hidden />
         <input

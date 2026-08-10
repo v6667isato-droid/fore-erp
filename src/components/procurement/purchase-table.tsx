@@ -31,8 +31,17 @@ const PAGE_SIZE = 20;
 
 const COL_SPAN_BASE = 7;
 
-/** 對應發票狀態徽章（與會計管理發票清單的「對應採購單」欄同款三態） */
-function InvoiceMatchBadge({ match }: { match?: PoInvoiceMatch }) {
+/**
+ * 對應發票狀態徽章（與會計管理發票清單的「對應採購單」欄同款三態）。
+ * 「有相符」可點：前往會計管理並帶入該發票號碼搜尋，在發票端完成對應。
+ */
+export function InvoiceMatchBadge({
+  match,
+  onOpenInvoice,
+}: {
+  match?: PoInvoiceMatch;
+  onOpenInvoice?: (invoiceNumber: string) => void;
+}) {
   const state = match?.state ?? "none";
   const tone =
     state === "matched"
@@ -40,6 +49,23 @@ function InvoiceMatchBadge({ match }: { match?: PoInvoiceMatch }) {
       : state === "candidate"
         ? "border-sky-500/50 text-sky-700 dark:text-sky-400"
         : "border-border text-muted-foreground";
+  const candidateNumber = state === "candidate" ? match?.invoice?.invoice_number : null;
+  if (candidateNumber && onOpenInvoice) {
+    return (
+      <button
+        type="button"
+        className={`rounded border px-1.5 py-px text-xs font-medium whitespace-nowrap underline decoration-dotted underline-offset-2 hover:bg-sky-500/10 focus:outline-none focus:ring-2 focus:ring-ring ${tone}`}
+        title={match?.detail || undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenInvoice(candidateNumber);
+        }}
+        aria-label={`前往會計管理確認發票 ${candidateNumber} 的對應`}
+      >
+        {PO_INVOICE_MATCH_LABELS[state]}
+      </button>
+    );
+  }
   return (
     <span className={`rounded border px-1.5 py-px text-xs font-medium whitespace-nowrap ${tone}`} title={match?.detail || undefined}>
       {PO_INVOICE_MATCH_LABELS[state]}
@@ -54,6 +80,8 @@ export interface PurchaseTableProps {
   totalUnfilteredCount: number;
   /** 各採購單的發票對應狀態（key=group.key）；未提供則不顯示「對應發票」欄 */
   invoiceMatches?: Map<string, PoInvoiceMatch>;
+  /** 點「有相符」徽章：前往會計管理並帶入發票號碼搜尋 */
+  onOpenInvoice?: (invoiceNumber: string) => void;
   onEdit?: (row: PurchaseRow) => void;
   onDelete?: (row: PurchaseRow) => void;
   /** 編輯整張採購單（單頭＋所有品項） */
@@ -68,6 +96,7 @@ export function PurchaseTable({
   groups,
   totalUnfilteredCount,
   invoiceMatches,
+  onOpenInvoice,
   onEdit,
   onDelete,
   onEditGroup,
@@ -249,7 +278,7 @@ export function PurchaseTable({
                     </TableCell>
                     {invoiceMatches && (
                       <TableCell className="text-sm p-2">
-                        <InvoiceMatchBadge match={invoiceMatches.get(group.key)} />
+                        <InvoiceMatchBadge match={invoiceMatches.get(group.key)} onOpenInvoice={onOpenInvoice} />
                       </TableCell>
                     )}
                     <TableCell className="text-sm text-right p-2 font-medium tabular-nums">

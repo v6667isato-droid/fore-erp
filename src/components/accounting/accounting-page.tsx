@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Download, FileDown, Pencil, RefreshCw, Search, Trash2 } from "lucide-react";
@@ -150,12 +151,20 @@ export function AccountingPage() {
 
 /** 進項發票（原會計頁內容）：批次上傳→AI 辨識→審核歸檔→401 媒體檔 */
 function InputInvoicesTab() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [invoices, setInvoices] = useState<AccountingInvoiceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [ownerFilter, setOwnerFilter] = useState<InvoiceOwnerCategory>("company");
   const [monthFilter, setMonthFilter] = useState("");
   const [matchFilter, setMatchFilter] = useState<MatchFilter>("all");
-  const [searchText, setSearchText] = useState("");
+  // 採購明細「有相符」深連結：?invoiceSearch=發票號碼 → 進頁即帶入搜尋（切頁會重掛載，初始值即可）
+  const [searchText, setSearchText] = useState(() => searchParams.get("invoiceSearch") ?? "");
+
+  // 帶入後把參數自網址移除，避免殘留在網址被重複帶入
+  useEffect(() => {
+    if (searchParams.get("invoiceSearch")) router.replace("/?page=accounting");
+  }, [searchParams, router]);
   const [editRow, setEditRow] = useState<AccountingInvoiceRow | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AccountingInvoiceRow | null>(null);

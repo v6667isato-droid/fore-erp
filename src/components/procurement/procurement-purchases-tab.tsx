@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { formatDate, relName } from "@/lib/utils";
@@ -17,9 +18,10 @@ import {
 import {
   computePoInvoiceMatches,
   fetchInvoicesForPoMatch,
-  PO_INVOICE_MATCH_LABELS,
   type InvoiceForPoMatch,
+  type PoInvoiceMatchState,
 } from "@/lib/po-invoice-match";
+import { InvoiceMatchBadge } from "@/components/procurement/purchase-table";
 import { ProcurementSummaryCard } from "@/components/procurement/procurement-summary-card";
 import { ProcurementFilters } from "@/components/procurement/procurement-filters";
 import { PurchaseTable } from "@/components/procurement/purchase-table";
@@ -304,6 +306,7 @@ export interface ProcurementPurchasesTabProps {
 }
 
 export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }: ProcurementPurchasesTabProps) {
+  const router = useRouter();
   const [records, setRecords] = useState<PurchaseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterYear, setFilterYear] = useState("");
@@ -312,6 +315,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
   const [filterVendor, setFilterVendor] = useState("");
   const [filterItemName, setFilterItemName] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
+  const [filterInvoiceMatch, setFilterInvoiceMatch] = useState<"" | PoInvoiceMatchState>("");
   const [editRow, setEditRow] = useState<PurchaseRow | null>(null);
   const [editGroup, setEditGroup] = useState<PurchaseOrderGroup | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<PurchaseRow | null>(null);
@@ -445,13 +449,36 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
     return true;
   });
 
-  const filteredGroups = groupPurchaseRows(filteredRecords);
-
   /** 各採購單的發票對應狀態（key=group.key）；以未篩選的全部採購單計算，避免相符發票被篩掉的單搶走 */
   const invoiceMatches = useMemo(
     () => computePoInvoiceMatches(groupPurchaseRows(records), invoicesForMatch),
     [records, invoicesForMatch],
   );
+
+  /** 明細列所屬採購單的對應狀態（分組 key 與 groupPurchaseRows 同規則） */
+  function rowMatchState(r: PurchaseRow): PoInvoiceMatchState {
+    return invoiceMatches.get(r.purchase_order_id ?? `line-${r.id}`)?.state ?? "none";
+  }
+
+  /** 對應發票篩選套用後的明細列（表格、手機卡片、CSV 匯出共用） */
+  const matchFilteredRecords = filterInvoiceMatch
+    ? filteredRecords.filter((r) => rowMatchState(r) === filterInvoiceMatch)
+    : filteredRecords;
+  const filteredGroups = groupPurchaseRows(matchFilteredRecords);
+
+  /** 各狀態張數（以其他篩選條件套用後計，供篩選選單顯示） */
+  const invoiceMatchCounts = (() => {
+    const counts: Record<PoInvoiceMatchState, number> = { matched: 0, candidate: 0, none: 0 };
+    for (const g of groupPurchaseRows(filteredRecords)) {
+      counts[invoiceMatches.get(g.key)?.state ?? "none"] += 1;
+    }
+    return counts;
+  })();
+
+  /** 點「有相符」徽章：切到會計管理並帶入發票號碼搜尋，在發票端完成對應 */
+  function openInvoicePage(invoiceNumber: string) {
+    router.push(`/?page=accounting&invoiceSearch=${encodeURIComponent(invoiceNumber)}`);
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   const thisYear = new Date().getFullYear();
@@ -584,11 +611,11 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
   }
 
   function handleExport() {
-    if (filteredRecords.length === 0) {
+    if (matchFilteredRecords.length === 0) {
       toast.info("目前沒有可匯出的資料");
       return;
     }
-    exportProcurementCsv(filteredRecords);
+    exportProcurementCsv(matchFilteredRecords);
     toast.success("已匯出 CSV");
   }
 
@@ -664,18 +691,22 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
           filterVendor={filterVendor}
           filterItemName={filterItemName}
           filterSearch={filterSearch}
+          filterInvoiceMatch={filterInvoiceMatch}
+          invoiceMatchCounts={invoiceMatchCounts}
           onYearChange={handleYearChange}
           onMonthChange={handleMonthChange}
           onCategoryChange={setFilterCategory}
           onVendorChange={setFilterVendor}
           onItemNameChange={setFilterItemName}
           onSearchChange={setFilterSearch}
+          onInvoiceMatchChange={setFilterInvoiceMatch}
           records={records}
         />
         <PurchaseTable
           groups={filteredGroups}
           totalUnfilteredCount={records.length}
           invoiceMatches={invoiceMatches}
+          onOpenInvoice={openInvoicePage}
           onEdit={setEditRow}
           onDelete={requestDelete}
           onEditGroup={setEditGroup}
@@ -758,24 +789,7 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
               <div className="flex flex-wrap items-center justify-between gap-1">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="font-mono text-xs text-primary">{displayPoNumber(group.po_number)}</span>
-                  {(() => {
-                    const match = invoiceMatches.get(group.key);
-                    const state = match?.state ?? "none";
-                    return (
-                      <span
-                        className={`rounded border px-1.5 py-px text-[10px] font-medium ${
-                          state === "matched"
-                            ? "border-emerald-500/50 text-emerald-700 dark:text-emerald-400"
-                            : state === "candidate"
-                              ? "border-sky-500/50 text-sky-700 dark:text-sky-400"
-                              : "border-border text-muted-foreground"
-                        }`}
-                        title={match?.detail || undefined}
-                      >
-                        發票{PO_INVOICE_MATCH_LABELS[state]}
-                      </span>
-                    );
-                  })()}
+                  <InvoiceMatchBadge match={invoiceMatches.get(group.key)} onOpenInvoice={openInvoicePage} />
                 </span>
                 <span className="text-xs text-muted-foreground">{group.purchase_date}</span>
               </div>
