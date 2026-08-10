@@ -81,7 +81,7 @@ function isDuplicateError(message: string | undefined): boolean {
 
 /** 各選項軸的補充說明（依 option_types.code） */
 const TYPE_HINTS: Record<string, string> = {
-  size: "生成規格時輸入寬深高會自動建檔到這裡；尺寸值以寬深高編輯，代碼自動組出",
+  size: "只列此系列的尺寸；生成規格時輸入寬深高會自動建檔到這裡，價差為此系列專屬",
   config: "系列專屬變化（抽屜、櫃體配置…）；只列此系列自己的配置，代碼會直接接在規格代碼尾段",
 };
 
@@ -222,8 +222,23 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     setBusy(true);
     if (isAttached) {
       if (usedIds.has(v.id)) {
+        // 列出引用中的規格代碼，讓使用者知道要先刪哪些
+        const { data } = await supabase
+          .from(TABLE_PRODUCT_VARIANTS)
+          .select("product_code")
+          .eq("series_id", series.id)
+          .is("deleted_at", null)
+          .or(
+            `wood_value_id.eq.${v.id},size_value_id.eq.${v.id},cushion_value_id.eq.${v.id},config_value_id.eq.${v.id}`
+          )
+          .limit(6);
         setBusy(false);
-        toast.error(`「${v.name_zh}」已被此系列的規格使用，無法移除`);
+        const codes = (data ?? []).map((r) => r.product_code).filter(Boolean);
+        toast.error(
+          codes.length > 0
+            ? `「${v.name_zh}」正被規格 ${codes.slice(0, 5).join("、")}${codes.length > 5 ? "…" : ""} 使用，先刪除這些規格才能移除`
+            : `「${v.name_zh}」已被此系列的規格使用，無法移除`
+        );
         return;
       }
       const { error } = await supabase
@@ -332,9 +347,10 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
         return;
       }
     }
-    const delta = Number(editDraft.delta.trim());
-    if (editDraft.delta.trim() === "" || !Number.isInteger(delta)) {
-      toast.error("全域價差必須是整數");
+    // 尺寸的價差走此系列覆寫（列上編輯），不在此表單改全域值
+    const delta = isSize ? v.price_delta : Number(editDraft.delta.trim());
+    if (!isSize && (editDraft.delta.trim() === "" || !Number.isInteger(delta))) {
+      toast.error("價差必須是整數");
       return;
     }
     const sort = Number(editDraft.sort.trim());
@@ -485,11 +501,13 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     if (form.delta.trim() !== "") {
       const num = Number(form.delta.trim());
       if (!Number.isInteger(num)) {
-        toast.error("全域價差必須是整數");
+        toast.error("價差必須是整數");
         return;
       }
       delta = num;
     }
+    // 尺寸價差存此系列覆寫（不動全域值，避免影響共用同尺寸的其他系列）
+    const sizeOverride = isSize && delta !== 0 ? delta : null;
     const typeValues = values.filter((v) => v.option_type_id === t.id);
     // 尺寸／配置同代碼已存在時直接沿用：未掛入此系列就掛入，不重複建檔
     if (isSize || t.code === "config") {
@@ -503,14 +521,21 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
         setBusy(true);
         const { error } = await supabase
           .from("product_options")
-          .insert({ series_id: series.id, option_value_id: existing.id });
+          .insert({
+            series_id: series.id,
+            option_value_id: existing.id,
+            price_delta_override: sizeOverride,
+          });
         setBusy(false);
         if (error && !isDuplicateError(error.message)) {
           toast.error(error.message || "加入選項失敗");
           return;
         }
-        setAttached((prev) => ({ ...prev, [existing.id]: null }));
-        setOverrideDrafts((prev) => ({ ...prev, [existing.id]: "" }));
+        setAttached((prev) => ({ ...prev, [existing.id]: sizeOverride }));
+        setOverrideDrafts((prev) => ({
+          ...prev,
+          [existing.id]: sizeOverride != null ? String(sizeOverride) : "",
+        }));
         toast.success(`「${existing.name_zh}」已存在，已直接加入此系列`);
         setAddForm(t.id, { ...EMPTY_ADD_FORM });
         onChanged?.();
@@ -536,7 +561,8 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
         option_type_id: t.id,
         code,
         name_zh: name,
-        price_delta: delta,
+        // 尺寸的全域價差固定 0，價差存此系列覆寫
+        price_delta: isSize ? 0 : delta,
         sort_order: sortOrder,
       })
       .select("id, option_type_id, code, name_zh, price_delta, sort_order")
@@ -553,7 +579,11 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     const newValue = data as OptionValueRow;
     const { error: attachErr } = await supabase
       .from("product_options")
-      .insert({ series_id: series.id, option_value_id: newValue.id });
+      .insert({
+        series_id: series.id,
+        option_value_id: newValue.id,
+        price_delta_override: sizeOverride,
+      });
     setBusy(false);
     setValues((prev) =>
       [...prev, newValue].sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
@@ -561,8 +591,11 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     if (attachErr) {
       toast.warning(`選項值已建立，但加入此系列失敗：${attachErr.message}`);
     } else {
-      setAttached((prev) => ({ ...prev, [newValue.id]: null }));
-      setOverrideDrafts((prev) => ({ ...prev, [newValue.id]: "" }));
+      setAttached((prev) => ({ ...prev, [newValue.id]: sizeOverride }));
+      setOverrideDrafts((prev) => ({
+        ...prev,
+        [newValue.id]: sizeOverride != null ? String(sizeOverride) : "",
+      }));
       toast.success(`已新增「${name}」並加入此系列`);
     }
     setAddForm(t.id, { ...EMPTY_ADD_FORM });
@@ -639,13 +672,14 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
             {!loading &&
               !loadError &&
               types.map((t) => {
-                // 配置軸是系列專屬：只列掛在此系列的值，不顯示其他系列的配置
+                const isConfig = t.code === "config";
+                const isSize = t.code === "size";
+                // 尺寸與配置是系列專屬：只列掛在此系列的值，不顯示其他系列的
+                const seriesScoped = isConfig || isSize;
                 const typeValues = values.filter(
-                  (v) =>
-                    v.option_type_id === t.id && (t.code !== "config" || v.id in attached)
+                  (v) => v.option_type_id === t.id && (!seriesScoped || v.id in attached)
                 );
                 const form = addForms[t.id] ?? EMPTY_ADD_FORM;
-                const isConfig = t.code === "config";
                 return (
                   <section key={t.id} className="rounded-lg border border-border">
                     <div className="border-b border-border bg-muted/20 px-3 py-2">
@@ -661,7 +695,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                     </div>
                     {typeValues.length === 0 ? (
                       <p className="px-3 py-2 text-xs text-muted-foreground">
-                        {isConfig ? "此系列尚未設定配置，用下方新增。" : "尚無選項值。"}
+                        {seriesScoped ? `此系列尚未設定${t.name_zh}，用下方新增。` : "尚無選項值。"}
                       </p>
                     ) : (
                       <ul className="divide-y divide-border">
@@ -717,16 +751,6 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                             onChange={(e) => setEditDraft((prev) => ({ ...prev, name: e.target.value }))}
                                             className={inputCls}
                                             placeholder="預設同代碼"
-                                          />
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                          <label htmlFor={`edit-delta-${v.id}`} className="text-[11px] text-muted-foreground">全域價差</label>
-                                          <input
-                                            id={`edit-delta-${v.id}`}
-                                            type="number"
-                                            value={editDraft.delta}
-                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, delta: e.target.value }))}
-                                            className={inputCls}
                                           />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -856,19 +880,44 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                   </span>
                                 </label>
                                 <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                                  <span>{isConfig ? "價差" : "全域"}</span>
-                                  <span className="font-mono text-foreground">{formatDelta(v.price_delta)}</span>
+                                  {isSize ? (
+                                    <>
+                                      <span>價差</span>
+                                      <input
+                                        type="number"
+                                        value={overrideDrafts[v.id] ?? ""}
+                                        onChange={(e) =>
+                                          setOverrideDrafts((prev) => ({ ...prev, [v.id]: e.target.value }))
+                                        }
+                                        onBlur={() => saveOverride(v)}
+                                        placeholder={String(v.price_delta)}
+                                        className={`${smallInputCls} w-20 text-right`}
+                                        aria-label={`${v.name_zh} 此系列價差`}
+                                      />
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span>{isConfig ? "價差" : "全域"}</span>
+                                      <span className="font-mono text-foreground">{formatDelta(v.price_delta)}</span>
+                                    </>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => startEdit(v)}
                                     className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
                                     aria-label={`編輯 ${v.name_zh}`}
-                                    title={isConfig ? "編輯代碼／名稱／價差／排序" : "編輯代碼／名稱／全域價差／排序"}
+                                    title={
+                                      isSize
+                                        ? "編輯寬深高／名稱／排序"
+                                        : isConfig
+                                          ? "編輯代碼／名稱／價差／排序"
+                                          : "編輯代碼／名稱／全域價差／排序"
+                                    }
                                   >
                                     <Pencil className="h-3 w-3 text-muted-foreground" />
                                   </button>
                                 </span>
-                                {!isConfig && (
+                                {!seriesScoped && (
                                   <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                                     <span>覆寫</span>
                                     <input
@@ -942,7 +991,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                   />
                                 </div>
                                 <div className="flex flex-col gap-1">
-                                  <label htmlFor={`add-delta-${t.id}`} className="text-[11px] text-muted-foreground">全域價差</label>
+                                  <label htmlFor={`add-delta-${t.id}`} className="text-[11px] text-muted-foreground">價差（此系列）</label>
                                   <input
                                     id={`add-delta-${t.id}`}
                                     type="number"
