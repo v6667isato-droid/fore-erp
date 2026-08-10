@@ -376,163 +376,17 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
 
     // 尺寸代碼變更：連動此系列使用該尺寸的規格；被其他系列共用時分家（其他系列留在舊值）
     if (isSize && code !== v.code) {
-      setBusy(true);
-      const [othersOptRes, othersVarRes, mineVarsRes] = await Promise.all([
-        supabase
-          .from("product_options")
-          .select("series_id", { count: "exact", head: true })
-          .eq("option_value_id", v.id)
-          .neq("series_id", series.id),
-        supabase
-          .from(TABLE_PRODUCT_VARIANTS)
-          .select("id", { count: "exact", head: true })
-          .eq("size_value_id", v.id)
-          .neq("series_id", series.id),
-        supabase
-          .from(TABLE_PRODUCT_VARIANTS)
-          .select("id, product_code, dimension_d, dimension_h")
-          .eq("series_id", series.id)
-          .eq("size_value_id", v.id)
-          .is("deleted_at", null),
-      ]);
-      if (othersOptRes.error || othersVarRes.error || mineVarsRes.error) {
-        setBusy(false);
-        toast.error(
-          othersOptRes.error?.message ||
-            othersVarRes.error?.message ||
-            mineVarsRes.error?.message ||
-            "檢查尺寸引用狀態失敗"
-        );
-        return;
+      const finalId = await applySizeDimsChange(
+        v,
+        { w: dimW as number, d: dimD, h: dimH },
+        code,
+        name,
+        sort
+      );
+      if (finalId) {
+        setEditingId(null);
+        onChanged?.();
       }
-      const affected = mineVarsRes.data ?? [];
-      if (affected.length > 0) {
-        const ok = window.confirm(
-          `此系列有 ${affected.length} 筆規格使用尺寸「${v.code}」，將同步更新它們的尺寸與代碼為「${code}」。繼續？`
-        );
-        if (!ok) {
-          setBusy(false);
-          return;
-        }
-      }
-      const shared = (othersOptRes.count ?? 0) > 0 || (othersVarRes.count ?? 0) > 0;
-      let targetId = v.id;
-      if (shared) {
-        // 分家：其他系列留在舊值；此系列改掛新代碼的值（已存在就沿用，否則建檔）
-        const found = values.find(
-          (x) => x.option_type_id === v.option_type_id && x.code === code
-        );
-        let targetRow = found ?? null;
-        if (!targetRow) {
-          const ins = await supabase
-            .from("option_values")
-            .insert({
-              option_type_id: v.option_type_id,
-              code,
-              name_zh: name,
-              price_delta: 0,
-              sort_order: Number.isInteger(sort) ? sort : Math.round(dimW ?? 0),
-            })
-            .select("id, option_type_id, code, name_zh, price_delta, sort_order")
-            .single();
-          if (ins.error || !ins.data) {
-            setBusy(false);
-            toast.error(ins.error?.message || "建立新尺寸失敗");
-            return;
-          }
-          targetRow = ins.data as OptionValueRow;
-          setValues((prev) =>
-            [...prev, targetRow as OptionValueRow].sort(
-              (a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code)
-            )
-          );
-        }
-        targetId = targetRow.id;
-        const override = attached[v.id] ?? null;
-        const attach = await supabase
-          .from("product_options")
-          .insert({
-            series_id: series.id,
-            option_value_id: targetId,
-            price_delta_override: override,
-          });
-        if (attach.error && !isDuplicateError(attach.error.message)) {
-          setBusy(false);
-          toast.error(attach.error.message || "掛入新尺寸失敗");
-          return;
-        }
-        setAttached((prev) => {
-          const next = { ...prev, [targetId]: override };
-          delete next[v.id];
-          return next;
-        });
-        setOverrideDrafts((prev) => ({
-          ...prev,
-          [targetId]: override != null ? String(override) : "",
-        }));
-      } else {
-        const { error } = await supabase
-          .from("option_values")
-          .update({ code, name_zh: name, sort_order: sort })
-          .eq("id", v.id);
-        if (error) {
-          setBusy(false);
-          if (isDuplicateError(error.message)) {
-            toast.error(`已有代碼「${code}」的尺寸，請改用寬深高組合不同的值`);
-          } else {
-            toast.error(error.message || "儲存尺寸失敗");
-          }
-          return;
-        }
-        setValues((prev) =>
-          prev
-            .map((x) => (x.id === v.id ? { ...x, code, name_zh: name, sort_order: sort } : x))
-            .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
-        );
-      }
-      // 連動規格：代碼中的舊尺寸段換新，寬一定寫入，深高有值才覆蓋
-      let syncFailed = 0;
-      for (const row of affected) {
-        const segs = String(row.product_code ?? "").split("-");
-        const newProductCode = segs.some((s) => s === v.code)
-          ? segs.map((s) => (s === v.code ? code : s)).join("-")
-          : row.product_code;
-        const { error } = await supabase
-          .from(TABLE_PRODUCT_VARIANTS)
-          .update({
-            size_value_id: targetId,
-            product_code: newProductCode,
-            dimension_w: dimW,
-            dimension_d: dimD ?? row.dimension_d,
-            dimension_h: dimH ?? row.dimension_h,
-          })
-          .eq("id", row.id);
-        if (error) syncFailed++;
-      }
-      if (shared) {
-        // 規格已搬到新值，舊值可從此系列卸下
-        await supabase
-          .from("product_options")
-          .delete()
-          .eq("series_id", series.id)
-          .eq("option_value_id", v.id);
-        setUsedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(v.id);
-          if (affected.length > 0) next.add(targetId);
-          return next;
-        });
-      }
-      setBusy(false);
-      setEditingId(null);
-      if (syncFailed > 0) {
-        toast.warning(`尺寸已更新，但有 ${syncFailed} 筆規格同步失敗，請至規格列表確認`);
-      } else if (affected.length > 0) {
-        toast.success(`已更新尺寸並同步 ${affected.length} 筆規格`);
-      } else {
-        toast.success(`已更新「${name}」`);
-      }
-      onChanged?.();
       return;
     }
 
@@ -562,10 +416,228 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     onChanged?.();
   }
 
+  /**
+   * 套用尺寸值的新寬深高（代碼變更）：確認後同步此系列使用中的規格（寬深高＋代碼尺寸段）；
+   * 被其他系列共用時分家（其他系列留在舊值）。回傳最終尺寸值 id（取消或失敗回傳 null）。
+   */
+  async function applySizeDimsChange(
+    v: OptionValueRow,
+    dims: { w: number; d: number | null; h: number | null },
+    code: string,
+    name: string,
+    sort: number
+  ): Promise<string | null> {
+    if (!series) return null;
+      setBusy(true);
+      const [othersOptRes, othersVarRes, mineVarsRes] = await Promise.all([
+        supabase
+          .from("product_options")
+          .select("series_id", { count: "exact", head: true })
+          .eq("option_value_id", v.id)
+          .neq("series_id", series.id),
+        supabase
+          .from(TABLE_PRODUCT_VARIANTS)
+          .select("id", { count: "exact", head: true })
+          .eq("size_value_id", v.id)
+          .neq("series_id", series.id),
+        supabase
+          .from(TABLE_PRODUCT_VARIANTS)
+          .select("id, product_code, dimension_d, dimension_h")
+          .eq("series_id", series.id)
+          .eq("size_value_id", v.id)
+          .is("deleted_at", null),
+      ]);
+      if (othersOptRes.error || othersVarRes.error || mineVarsRes.error) {
+        setBusy(false);
+        toast.error(
+          othersOptRes.error?.message ||
+            othersVarRes.error?.message ||
+            mineVarsRes.error?.message ||
+            "檢查尺寸引用狀態失敗"
+        );
+        return null;
+      }
+      const affected = mineVarsRes.data ?? [];
+      if (affected.length > 0) {
+        const ok = window.confirm(
+          `此系列有 ${affected.length} 筆規格使用尺寸「${v.code}」，將同步更新它們的尺寸與代碼為「${code}」。繼續？`
+        );
+        if (!ok) {
+          setBusy(false);
+          return null;
+        }
+      }
+      const shared = (othersOptRes.count ?? 0) > 0 || (othersVarRes.count ?? 0) > 0;
+      let targetId = v.id;
+      if (shared) {
+        // 分家：其他系列留在舊值；此系列改掛新代碼的值（已存在就沿用，否則建檔）
+        const found = values.find(
+          (x) => x.option_type_id === v.option_type_id && x.code === code
+        );
+        let targetRow = found ?? null;
+        if (!targetRow) {
+          const ins = await supabase
+            .from("option_values")
+            .insert({
+              option_type_id: v.option_type_id,
+              code,
+              name_zh: name,
+              price_delta: 0,
+              sort_order: Number.isInteger(sort) ? sort : Math.round(dims.w),
+            })
+            .select("id, option_type_id, code, name_zh, price_delta, sort_order")
+            .single();
+          if (ins.error || !ins.data) {
+            setBusy(false);
+            toast.error(ins.error?.message || "建立新尺寸失敗");
+            return null;
+          }
+          targetRow = ins.data as OptionValueRow;
+          setValues((prev) =>
+            [...prev, targetRow as OptionValueRow].sort(
+              (a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code)
+            )
+          );
+        }
+        targetId = targetRow.id;
+        const override = attached[v.id] ?? null;
+        const attach = await supabase
+          .from("product_options")
+          .insert({
+            series_id: series.id,
+            option_value_id: targetId,
+            price_delta_override: override,
+          });
+        if (attach.error && !isDuplicateError(attach.error.message)) {
+          setBusy(false);
+          toast.error(attach.error.message || "掛入新尺寸失敗");
+          return null;
+        }
+        setAttached((prev) => {
+          const next = { ...prev, [targetId]: override };
+          delete next[v.id];
+          return next;
+        });
+        setOverrideDrafts((prev) => ({
+          ...prev,
+          [targetId]: override != null ? String(override) : "",
+        }));
+      } else {
+        const { error } = await supabase
+          .from("option_values")
+          .update({ code, name_zh: name, sort_order: sort })
+          .eq("id", v.id);
+        if (error) {
+          setBusy(false);
+          if (isDuplicateError(error.message)) {
+            toast.error(`已有代碼「${code}」的尺寸，請改用寬深高組合不同的值`);
+          } else {
+            toast.error(error.message || "儲存尺寸失敗");
+          }
+          return null;
+        }
+        setValues((prev) =>
+          prev
+            .map((x) => (x.id === v.id ? { ...x, code, name_zh: name, sort_order: sort } : x))
+            .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
+        );
+      }
+      // 連動規格：代碼中的舊尺寸段換新，寬一定寫入，深高有值才覆蓋
+      let syncFailed = 0;
+      for (const row of affected) {
+        const segs = String(row.product_code ?? "").split("-");
+        const newProductCode = segs.some((s) => s === v.code)
+          ? segs.map((s) => (s === v.code ? code : s)).join("-")
+          : row.product_code;
+        const { error } = await supabase
+          .from(TABLE_PRODUCT_VARIANTS)
+          .update({
+            size_value_id: targetId,
+            product_code: newProductCode,
+            dimension_w: dims.w,
+            dimension_d: dims.d ?? row.dimension_d,
+            dimension_h: dims.h ?? row.dimension_h,
+          })
+          .eq("id", row.id);
+        if (error) syncFailed++;
+      }
+      if (shared) {
+        // 規格已搬到新值，舊值可從此系列卸下
+        await supabase
+          .from("product_options")
+          .delete()
+          .eq("series_id", series.id)
+          .eq("option_value_id", v.id);
+        setUsedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(v.id);
+          if (affected.length > 0) next.add(targetId);
+          return next;
+        });
+      }
+      setBusy(false);
+      if (syncFailed > 0) {
+        toast.warning(`尺寸已更新，但有 ${syncFailed} 筆規格同步失敗，請至規格列表確認`);
+      } else if (affected.length > 0) {
+        toast.success(`已更新尺寸並同步 ${affected.length} 筆規格`);
+      } else {
+        toast.success(`已更新「${name}」`);
+      }
+      return targetId;
+  }
+
   async function deleteValue(v: OptionValueRow) {
     if (!series || busy) return;
     if (usedIds.has(v.id)) {
       toast.error(`「${v.name_zh}」已被此系列的規格使用，無法刪除`);
+      return;
+    }
+    const typeCode = types.find((t) => t.id === v.option_type_id)?.code;
+    // 尺寸／配置是系列專屬清單：刪除＝從此系列移除；沒有任何其他引用時才順帶刪掉全域值
+    if (typeCode === "size" || typeCode === "config") {
+      if (!window.confirm(`確定將「${v.name_zh} (${v.code})」從此系列移除？`)) return;
+      setBusy(true);
+      const { error: detachErr } = await supabase
+        .from("product_options")
+        .delete()
+        .eq("series_id", series.id)
+        .eq("option_value_id", v.id);
+      if (detachErr) {
+        setBusy(false);
+        toast.error(detachErr.message || "從系列移除失敗");
+        return;
+      }
+      // 清理：無任何系列或規格引用時刪掉全域值（失敗不影響移除結果）
+      const [varsRes, optsRes] = await Promise.all([
+        supabase
+          .from(TABLE_PRODUCT_VARIANTS)
+          .select("id", { count: "exact", head: true })
+          .or(
+            `wood_value_id.eq.${v.id},size_value_id.eq.${v.id},cushion_value_id.eq.${v.id},config_value_id.eq.${v.id}`
+          ),
+        supabase
+          .from("product_options")
+          .select("series_id", { count: "exact", head: true })
+          .eq("option_value_id", v.id),
+      ]);
+      if (
+        !varsRes.error &&
+        !optsRes.error &&
+        (varsRes.count ?? 0) === 0 &&
+        (optsRes.count ?? 0) === 0
+      ) {
+        const { error: delErr } = await supabase.from("option_values").delete().eq("id", v.id);
+        if (!delErr) setValues((prev) => prev.filter((x) => x.id !== v.id));
+      }
+      setBusy(false);
+      setAttached((prev) => {
+        const next = { ...prev };
+        delete next[v.id];
+        return next;
+      });
+      setEditingId(null);
+      toast.success(`已從此系列移除「${v.name_zh}」`);
+      onChanged?.();
       return;
     }
     if (
@@ -647,6 +719,8 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     let code: string;
     let name: string;
     let sizeW: number | null = null;
+    let sizeD: number | null = null;
+    let sizeH: number | null = null;
     if (isSize) {
       const w = parseDimField(form.w);
       const d = parseDimField(form.d);
@@ -656,6 +730,8 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
         return;
       }
       sizeW = w;
+      sizeD = d;
+      sizeH = h;
       code = buildSizeCode(w, d, h);
       name = form.name.trim() || code;
     } else {
@@ -678,9 +754,60 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     // 尺寸價差存此系列覆寫（不動全域值，避免影響共用同尺寸的其他系列）
     const sizeOverride = isSize && delta !== 0 ? delta : null;
     const typeValues = values.filter((v) => v.option_type_id === t.id);
-    // 尺寸／配置同代碼已存在時直接沿用：未掛入此系列就掛入，不重複建檔
+    // 已有相同寬深但代碼未含高的尺寸：視為同尺寸，補上高並沿用（同步其規格），不另建新值
+    if (isSize && sizeH != null) {
+      const enrich = typeValues.find((x) => {
+        const p = parseSizeCode(x.code);
+        return p.w === sizeW && p.d === sizeD && p.h == null;
+      });
+      if (enrich) {
+        const finalId = await applySizeDimsChange(
+          enrich,
+          { w: sizeW as number, d: sizeD, h: sizeH },
+          code,
+          form.name.trim() || code,
+          form.sort.trim() !== "" && Number.isInteger(Number(form.sort.trim()))
+            ? Number(form.sort.trim())
+            : enrich.sort_order
+        );
+        if (!finalId) return;
+        // 確保掛入此系列並套用價差覆寫
+        const ins = await supabase.from("product_options").insert({
+          series_id: series.id,
+          option_value_id: finalId,
+          price_delta_override: sizeOverride,
+        });
+        if (ins.error) {
+          if (isDuplicateError(ins.error.message)) {
+            if (sizeOverride != null) {
+              await supabase
+                .from("product_options")
+                .update({ price_delta_override: sizeOverride })
+                .eq("series_id", series.id)
+                .eq("option_value_id", finalId);
+            }
+          } else {
+            toast.error(ins.error.message || "加入選項失敗");
+            return;
+          }
+        }
+        setAttached((prev) => ({ ...prev, [finalId]: sizeOverride ?? prev[finalId] ?? null }));
+        if (sizeOverride != null) {
+          setOverrideDrafts((prev) => ({ ...prev, [finalId]: String(sizeOverride) }));
+        }
+        setAddForm(t.id, { ...EMPTY_ADD_FORM });
+        onChanged?.();
+        return;
+      }
+    }
+    // 尺寸比對用寬深高（涵蓋純數字舊代碼），配置比對用代碼：已存在直接沿用，不重複建檔
     if (isSize || t.code === "config") {
-      const existing = typeValues.find((v) => v.code === code);
+      const existing = isSize
+        ? typeValues.find((x) => {
+            const p = parseSizeCode(x.code);
+            return p.w === sizeW && p.d === sizeD && p.h === sizeH;
+          })
+        : typeValues.find((v) => v.code === code);
       if (existing) {
         if (existing.id in attached) {
           toast.info(`「${existing.name_zh}」已在此系列`);
@@ -1021,10 +1148,16 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                       className="ml-auto h-8 px-3 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
                                       onClick={() => deleteValue(v)}
                                       disabled={busy || usedIds.has(v.id)}
-                                      title={usedIds.has(v.id) ? "已被此系列的規格使用，無法刪除" : "刪除此選項值（所有系列）"}
+                                      title={
+                                        usedIds.has(v.id)
+                                          ? "已被此系列的規格使用，無法刪除"
+                                          : seriesScoped
+                                            ? "從此系列移除"
+                                            : "刪除此選項值（所有系列）"
+                                      }
                                     >
                                       <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                      刪除
+                                      {seriesScoped ? "移除" : "刪除"}
                                     </Button>
                                   </div>
                                 </div>
@@ -1034,20 +1167,30 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                           return (
                             <li key={v.id} className="px-3 py-2">
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                                <label className="flex min-w-0 flex-1 basis-36 cursor-pointer items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={isAttached}
-                                    onChange={() => toggleAttach(v)}
-                                    disabled={busy}
-                                    className="h-4 w-4 shrink-0 rounded border-input accent-primary"
-                                    aria-label={`此系列提供 ${v.name_zh}`}
-                                  />
-                                  <span className="truncate text-sm text-foreground">
-                                    {v.name_zh}
-                                    <span className="ml-1 text-xs text-muted-foreground">({v.code})</span>
+                                {seriesScoped ? (
+                                  // 尺寸／配置為系列專屬清單：不提供取消勾選，移除請用編輯內的刪除鍵
+                                  <span className="flex min-w-0 flex-1 basis-36 items-center gap-2">
+                                    <span className="truncate text-sm text-foreground">
+                                      {v.name_zh}
+                                      <span className="ml-1 text-xs text-muted-foreground">({v.code})</span>
+                                    </span>
                                   </span>
-                                </label>
+                                ) : (
+                                  <label className="flex min-w-0 flex-1 basis-36 cursor-pointer items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isAttached}
+                                      onChange={() => toggleAttach(v)}
+                                      disabled={busy}
+                                      className="h-4 w-4 shrink-0 rounded border-input accent-primary"
+                                      aria-label={`此系列提供 ${v.name_zh}`}
+                                    />
+                                    <span className="truncate text-sm text-foreground">
+                                      {v.name_zh}
+                                      <span className="ml-1 text-xs text-muted-foreground">({v.code})</span>
+                                    </span>
+                                  </label>
+                                )}
                                 <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                                   {isSize ? (
                                     <>
@@ -1193,7 +1336,8 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                     return buildSizeCode(w, d === undefined ? null : d, h === undefined ? null : h);
                                   })()}
                                 </span>
-                                ；同代碼尺寸已存在時直接沿用並加入此系列。
+                                ；同尺寸（寬深高相同）已存在時直接沿用並加入此系列；
+                                已有相同寬深但未含高的尺寸時，會為該尺寸補上高並同步其規格。
                               </p>
                             </>
                           ) : (
