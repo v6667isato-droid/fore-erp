@@ -15,7 +15,7 @@ import type { SeriesRow } from "@/types/products";
 import type { TablesInsert } from "@/types/database.types";
 import { seriesCodeFromName } from "@/types/inventory";
 import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
-import { parseSizeCode, buildSizeCode } from "@/lib/size-code";
+import { parseSizeCode } from "@/lib/size-code";
 
 export interface AddVariantDialogProps {
   open: boolean;
@@ -56,10 +56,11 @@ interface ProductOptionJoinRow {
   } | null;
 }
 
-/** 生成批次中的尺寸選擇：既有選項值（id 非空）或本批新輸入尺寸（id 為 null，生成時建檔） */
+/** 生成批次中的尺寸選擇（尺寸選項值＋反解析的寬深高；尺寸統一在選項設定管理） */
 interface SizeSel {
-  id: string | null;
+  id: string;
   code: string;
+  name: string;
   price_delta: number;
   w: number | null;
   d: number | null;
@@ -127,13 +128,6 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   const [genCustom, setGenCustom] = useState(false);
   /** 預覽逐列手動調價（key＝comboKey，value＝輸入字串；空字串＝用自動計價） */
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
-  /** 本批新輸入的尺寸（生成時 find-or-create option_values 並掛入此系列） */
-  const [newSizes, setNewSizes] = useState<
-    { code: string; w: number; d: number | null; h: number | null }[]
-  >([]);
-  const [sizeW, setSizeW] = useState("");
-  const [sizeD, setSizeD] = useState("");
-  const [sizeH, setSizeH] = useState("");
   /** 本批統一套用的尺寸（無尺寸軸時提供寬深高；有尺寸軸時僅高） */
   const [batchW, setBatchW] = useState("");
   const [batchD, setBatchD] = useState("");
@@ -163,10 +157,6 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     setSelected({ wood: new Set(), size: new Set(), cushion: new Set(), config: new Set() });
     setGenCustom(false);
     setPriceEdits({});
-    setNewSizes([]);
-    setSizeW("");
-    setSizeD("");
-    setSizeH("");
     setBatchW("");
     setBatchD("");
     setBatchH("");
@@ -249,11 +239,11 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     };
   }, [open, series]);
 
-  // 勾選／尺寸清單變動重新產生組合時，重設逐列手動調價與移除記錄
+  // 勾選變動重新產生組合時，重設逐列手動調價與移除記錄
   useEffect(() => {
     setPriceEdits({});
     setRemovedKeys(new Set());
-  }, [selected, genCustom, newSizes]);
+  }, [selected, genCustom]);
 
   useEffect(() => {
     if (open && mode === "manual" && firstRef.current)
@@ -272,19 +262,17 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     const woods = pick("wood");
     const cushions = pick("cushion");
     const configs = pick("config");
-    // 尺寸清單＝已勾選的既有尺寸檔＋本批新輸入尺寸
+    // 尺寸清單＝已勾選的尺寸選項值（尺寸統一在選項設定新增）
     const sizeAxis = axes.find((a) => a.typeCode === "size");
-    const sizeSels: SizeSel[] = [
-      ...(sizeAxis?.values ?? [])
-        .filter((v) => selected.size.has(v.id))
-        .map((v) => ({
-          id: v.id,
-          code: v.code,
-          price_delta: v.price_delta,
-          ...parseSizeCode(v.code),
-        })),
-      ...newSizes.map((s) => ({ id: null, code: s.code, price_delta: 0, w: s.w, d: s.d, h: s.h })),
-    ];
+    const sizeSels: SizeSel[] = (sizeAxis?.values ?? [])
+      .filter((v) => selected.size.has(v.id))
+      .map((v) => ({
+        id: v.id,
+        code: v.code,
+        name: v.name_zh,
+        price_delta: v.price_delta,
+        ...parseSizeCode(v.code),
+      }));
     const sizes: (SizeSel | null)[] = sizeSels.length > 0 ? sizeSels : [null];
     const list: Combo[] = [];
     for (const wood of woods) {
@@ -310,8 +298,6 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
               price: basePrice == null ? null : basePrice + delta,
               exists:
                 !genCustom &&
-                // 新輸入尺寸還沒有 option_value id，必為新組合
-                !(size != null && size.id == null) &&
                 existingCombos.has(
                   comboKey(
                     wood?.id ?? null,
@@ -326,7 +312,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       }
     }
     return list;
-  }, [axes, selected, newSizes, seriesCode, basePrice, existingCombos, genCustom]);
+  }, [axes, selected, seriesCode, basePrice, existingCombos, genCustom]);
 
   const visibleCombos = combos.filter((c) => !removedKeys.has(comboEditKey(c)));
   const removedCount = combos.length - visibleCombos.length;
@@ -341,12 +327,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       }).length;
 
   function comboEditKey(c: Combo): string {
-    return comboKey(
-      c.wood?.id ?? null,
-      c.size ? (c.size.id ?? `new:${c.size.code}`) : null,
-      c.cushion?.id ?? null,
-      c.config?.id ?? null
-    );
+    return comboKey(c.wood?.id ?? null, c.size?.id ?? null, c.cushion?.id ?? null, c.config?.id ?? null);
   }
 
   /** 該列最終寫入的定價：有手動輸入取整數輸入值，否則用自動計價 */
@@ -367,7 +348,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         : `${name}（${delta > 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString()}）`;
     const parts: string[] = [];
     if (c.wood) parts.push(fmt(c.wood.name_zh, c.wood.price_delta));
-    if (c.size) parts.push(fmt(c.size.code, c.size.price_delta));
+    if (c.size) parts.push(fmt(c.size.name, c.size.price_delta));
     if (c.cushion) parts.push(fmt(c.cushion.name_zh, c.cushion.price_delta));
     if (c.config) parts.push(fmt(c.config.name_zh, c.config.price_delta));
     return parts.join("・");
@@ -388,55 +369,6 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       else next.add(valueId);
       return { ...prev, [axisCode]: next };
     });
-  }
-
-  /** 把輸入的寬深高加入本批尺寸清單；代碼撞到既有尺寸檔時改為直接勾選 */
-  function addNewSize() {
-    const wNum = Number(sizeW.trim());
-    if (sizeW.trim() === "" || !Number.isFinite(wNum) || wNum <= 0) {
-      toast.error("請輸入寬（正數，cm）");
-      return;
-    }
-    let dNum: number | null = null;
-    if (sizeD.trim() !== "") {
-      const n = Number(sizeD.trim());
-      if (!Number.isFinite(n) || n <= 0) {
-        toast.error("深必須是正數（cm）");
-        return;
-      }
-      dNum = n;
-    }
-    let hNum: number | null = null;
-    if (sizeH.trim() !== "") {
-      const n = Number(sizeH.trim());
-      if (!Number.isFinite(n) || n <= 0) {
-        toast.error("高必須是正數（cm）");
-        return;
-      }
-      hNum = n;
-    }
-    const codeStr = buildSizeCode(wNum, dNum, hNum);
-    const sizeAxis = axes.find((a) => a.typeCode === "size");
-    const existing = sizeAxis?.values.find((v) => v.code === codeStr);
-    if (existing) {
-      setSelected((prev) =>
-        prev.size.has(existing.id)
-          ? prev
-          : { ...prev, size: new Set(prev.size).add(existing.id) }
-      );
-      toast.info(`尺寸 ${codeStr} 已有選項檔，已為您勾選`);
-    } else if (newSizes.some((s) => s.code === codeStr)) {
-      toast.info(`尺寸 ${codeStr} 已在本批清單`);
-    } else {
-      setNewSizes((prev) => [...prev, { code: codeStr, w: wNum, d: dNum, h: hNum }]);
-    }
-    setSizeW("");
-    setSizeD("");
-    setSizeH("");
-  }
-
-  function removeNewSize(codeStr: string) {
-    setNewSizes((prev) => prev.filter((s) => s.code !== codeStr));
   }
 
   async function submitManual() {
@@ -489,75 +421,6 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       return;
     }
     setAdding(true);
-    // 新輸入尺寸先 find-or-create option_values（type=size，以代碼比對）並掛入此系列
-    const usedNewCodes = new Set<string>();
-    for (const c of newCombos) {
-      if (c.size && c.size.id == null) usedNewCodes.add(c.size.code);
-    }
-    const sizeIdByCode = new Map<string, string>();
-    if (usedNewCodes.size > 0) {
-      const typeRes = await supabase
-        .from("option_types")
-        .select("id")
-        .eq("code", "size")
-        .maybeSingle();
-      if (typeRes.error || !typeRes.data) {
-        setAdding(false);
-        const msg = typeRes.error?.message || "找不到尺寸選項軸（option_types code=size）";
-        toast.error(msg);
-        setError(msg);
-        return;
-      }
-      const sizeTypeId = typeRes.data.id;
-      for (const codeStr of usedNewCodes) {
-        const found = await supabase
-          .from("option_values")
-          .select("id")
-          .eq("option_type_id", sizeTypeId)
-          .eq("code", codeStr)
-          .maybeSingle();
-        if (found.error) {
-          setAdding(false);
-          toast.error(found.error.message || "查詢尺寸選項失敗");
-          setError(found.error.message || "查詢尺寸選項失敗");
-          return;
-        }
-        let valueId = found.data?.id ?? null;
-        if (!valueId) {
-          const sizeEntry = newSizes.find((s) => s.code === codeStr);
-          const ins = await supabase
-            .from("option_values")
-            .insert({
-              option_type_id: sizeTypeId,
-              code: codeStr,
-              name_zh: codeStr,
-              price_delta: 0,
-              sort_order: Math.round(sizeEntry?.w ?? 0),
-            })
-            .select("id")
-            .single();
-          if (ins.error || !ins.data) {
-            setAdding(false);
-            const msg = ins.error?.message || `建立尺寸選項 ${codeStr} 失敗`;
-            toast.error(msg);
-            setError(msg);
-            return;
-          }
-          valueId = ins.data.id;
-        }
-        sizeIdByCode.set(codeStr, valueId);
-        const attach = await supabase
-          .from("product_options")
-          .insert({ series_id: series.id, option_value_id: valueId });
-        // 已掛入此系列（unique 衝突）視為成功，其餘錯誤中止
-        if (attach.error && !/duplicate|23505|unique/i.test(attach.error.message)) {
-          setAdding(false);
-          toast.error(attach.error.message || `尺寸 ${codeStr} 掛入系列失敗`);
-          setError(attach.error.message || `尺寸 ${codeStr} 掛入系列失敗`);
-          return;
-        }
-      }
-    }
     const showSeatHeight = hasSeatSpecs(series.category);
     const rows: TablesInsert<"product_variants">[] = newCombos.map((c) => ({
       series_id: series.id,
@@ -566,7 +429,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       spec1: c.cushion ? `${c.cushion.name_zh}-${c.cushion.code}` : null,
       base_price: effectivePrice(c),
       wood_value_id: c.wood?.id ?? null,
-      size_value_id: c.size ? (c.size.id ?? sizeIdByCode.get(c.size.code) ?? null) : null,
+      size_value_id: c.size?.id ?? null,
       cushion_value_id: c.cushion?.id ?? null,
       config_value_id: c.config?.id ?? null,
       // 尺寸來源：尺寸碼有的維度取尺寸碼，缺的維度退回本批統一輸入
@@ -625,111 +488,47 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
           className="h-3.5 w-3.5 rounded border-input accent-primary"
         />
         <span>
-          {v.name_zh}（{v.code}
-          {v.price_delta !== 0 && (
-            <>，{v.price_delta > 0 ? `+${v.price_delta}` : v.price_delta}</>
+          {axisCode === "size" ? (
+            // 尺寸顯示選項設定的顯示名稱；名稱通常已含尺寸資訊，不重複代碼
+            <>
+              {v.name_zh}
+              {v.price_delta !== 0 && (
+                <>（{v.price_delta > 0 ? `+${v.price_delta}` : v.price_delta}）</>
+              )}
+            </>
+          ) : (
+            <>
+              {v.name_zh}（{v.code}
+              {v.price_delta !== 0 && (
+                <>，{v.price_delta > 0 ? `+${v.price_delta}` : v.price_delta}</>
+              )}
+              ）
+            </>
           )}
-          ）
         </span>
       </label>
     );
   };
 
-  // 已勾選／已加入的尺寸中，代碼缺深或缺高的才需要「套用到本批」補寫欄位
-  const selectedSizeParsed = [
-    ...(sizeAxis?.values ?? [])
-      .filter((v) => selected.size.has(v.id))
-      .map((v) => parseSizeCode(v.code)),
-    ...newSizes.map((s) => ({ w: s.w, d: s.d, h: s.h })),
-  ];
+  // 已勾選的尺寸中，代碼缺深或缺高的才需要「套用到本批」補寫欄位
+  const selectedSizeParsed = (sizeAxis?.values ?? [])
+    .filter((v) => selected.size.has(v.id))
+    .map((v) => parseSizeCode(v.code));
   const fallbackNeedD = selectedSizeParsed.some((p) => p.d == null);
   const fallbackNeedH = selectedSizeParsed.some((p) => p.h == null);
 
   const sizeBlock = (
     <fieldset key="axis-size" className="flex flex-col gap-1.5">
       <legend className="text-xs text-muted-foreground">{sizeAxis?.typeName ?? "尺寸"}</legend>
-      {sizeAxis && sizeAxis.values.length > 0 && (
+      {sizeAxis && sizeAxis.values.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {sizeAxis.values.map((v) => axisCheckbox("size", v))}
         </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          此系列尚無尺寸選項，請先到「選項設定」新增尺寸（輸入寬深高）。
+        </p>
       )}
-      {newSizes.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {newSizes.map((s) => (
-            <span
-              key={s.code}
-              className="inline-flex items-center gap-1 rounded-lg border border-primary bg-primary/10 px-2.5 py-1 text-xs text-foreground"
-            >
-              <span className="font-mono">{s.code}</span>
-              <span className="text-[10px] text-muted-foreground">新</span>
-              <button
-                type="button"
-                onClick={() => removeNewSize(s.code)}
-                className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
-                aria-label={`移除尺寸 ${s.code}`}
-              >
-                <X className="h-3 w-3 text-muted-foreground" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="gen-size-w" className="text-[11px] text-muted-foreground">寬 W（cm）*</label>
-          <input
-            id="gen-size-w"
-            type="number"
-            value={sizeW}
-            onChange={(e) => setSizeW(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                addNewSize();
-              }
-            }}
-            className={`${inputCls} w-24`}
-            placeholder="必填"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="gen-size-d" className="text-[11px] text-muted-foreground">深 D（cm）</label>
-          <input
-            id="gen-size-d"
-            type="number"
-            value={sizeD}
-            onChange={(e) => setSizeD(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                addNewSize();
-              }
-            }}
-            className={`${inputCls} w-24`}
-            placeholder="選填"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="gen-size-h" className="text-[11px] text-muted-foreground">高 H（cm）</label>
-          <input
-            id="gen-size-h"
-            type="number"
-            value={sizeH}
-            onChange={(e) => setSizeH(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                addNewSize();
-              }
-            }}
-            className={`${inputCls} w-24`}
-            placeholder="選填"
-          />
-        </div>
-        <Button type="button" variant="outline" className="h-9 px-3 text-xs" onClick={addNewSize}>
-          加入尺寸
-        </Button>
-      </div>
       {(fallbackNeedD || fallbackNeedH) && (
         <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
           <p className="text-[11px] text-muted-foreground">
@@ -774,8 +573,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         </div>
       )}
       <p className="text-[11px] text-muted-foreground">
-        輸入寬深高按「加入尺寸」加入本批；生成時自動建檔為尺寸選項並掛入此系列。
-        代碼：寬＋深＋高 → W180D48H180，寬＋深 → W60D35，僅寬 → 60。
+        尺寸統一在「選項設定」新增與編輯（輸入寬深高，代碼自動組出），此處僅勾選。
       </p>
     </fieldset>
   );

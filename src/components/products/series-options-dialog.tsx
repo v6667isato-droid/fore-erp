@@ -81,7 +81,7 @@ function isDuplicateError(message: string | undefined): boolean {
 
 /** 各選項軸的補充說明（依 option_types.code） */
 const TYPE_HINTS: Record<string, string> = {
-  size: "只列此系列的尺寸；生成規格時輸入寬深高會自動建檔到這裡，價差為此系列專屬",
+  size: "只列此系列的尺寸；尺寸統一在此新增與編輯（寬深高），生成規格時從這裡勾選，價差為此系列專屬",
   config: "系列專屬變化（抽屜、櫃體配置…）；只列此系列自己的配置，代碼會直接接在規格代碼尾段",
 };
 
