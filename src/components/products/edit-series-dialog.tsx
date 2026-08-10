@@ -62,6 +62,10 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
   const [showPriceOnSheet, setShowPriceOnSheet] = useState(false);
   /** 介紹表：勾選的品項 id（有序＝顯示順序），儲存時寫回 show_on_sheet＋sheet_sort_order */
   const [sheetItemIds, setSheetItemIds] = useState<string[]>([]);
+  /** 介紹表專用欄位（獨立於產品資料；留空＝沿用產品資料對應欄位） */
+  const [sheetHeroImageUrl, setSheetHeroImageUrl] = useState<string | null>(null);
+  const [sheetDesignConcept, setSheetDesignConcept] = useState("");
+  const [sheetCustomizationRules, setSheetCustomizationRules] = useState("");
 
   useEffect(() => {
     if (open && row) {
@@ -94,6 +98,13 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
       setShowPriceOnSheet(row.show_price_on_sheet === true);
       setSheetSwatchIds([]);
       setSheetItemIds([]);
+      setSheetHeroImageUrl(
+        typeof row.sheet_hero_image_url === "string" && row.sheet_hero_image_url
+          ? row.sheet_hero_image_url
+          : null
+      );
+      setSheetDesignConcept(row.sheet_design_concept ?? "");
+      setSheetCustomizationRules(row.sheet_customization_rules ?? "");
       // 介紹表色樣：載入此系列已勾選的色樣（依 sort_order）
       (async () => {
         const { data, error: swErr } = await supabase
@@ -180,6 +191,10 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
     }
     payload.image_meta = prunedMeta;
     payload.show_price_on_sheet = showPriceOnSheet;
+    // 介紹表專用欄位：留空存 null＝沿用產品資料
+    payload.sheet_hero_image_url = sheetHeroImageUrl?.trim() || null;
+    payload.sheet_design_concept = sheetDesignConcept.trim() || null;
+    payload.sheet_customization_rules = sheetCustomizationRules.trim() || null;
 
     const { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).update(payload).eq("id", row.id);
 
@@ -505,13 +520,22 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
 
               {activeTab === "sheet" && (
                 <div className="flex flex-col gap-4">
-                  {/* 介紹表用到的物件集中在此分頁編輯；與「圖片」「設計與行銷」「客服與保養」分頁為同一份資料，雙向同步 */}
+                  {/* 介紹表專用欄位與產品資料獨立：留空＝沿用產品資料對應欄位 */}
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-medium text-foreground">主視覺圖（介紹表第一頁）</span>
                     <span className="text-[11px] text-muted-foreground">
-                      與「圖片」分頁的主視覺圖為同一張，在任一處更換都會同步。
+                      介紹表專用，與「圖片」分頁的產品主視覺圖各自獨立；未上傳時沿用產品主視覺圖。
                     </span>
-                    <ProductImageDropzone value={imageUrl} onChange={setImageUrl} disabled={saving} />
+                    <ProductImageDropzone
+                      value={sheetHeroImageUrl}
+                      onChange={setSheetHeroImageUrl}
+                      disabled={saving}
+                    />
+                    {!sheetHeroImageUrl && imageUrl && (
+                      <span className="text-[11px] text-muted-foreground">
+                        目前沿用產品主視覺圖，上傳後改用介紹表專用圖。
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="sheet-design-concept" className="text-xs font-medium text-foreground">
@@ -519,10 +543,11 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                     </label>
                     <textarea
                       id="sheet-design-concept"
-                      value={contentValues.design_concept ?? ""}
-                      onChange={(e) => setField("design_concept", e.target.value)}
+                      value={sheetDesignConcept}
+                      onChange={(e) => setSheetDesignConcept(e.target.value)}
                       rows={4}
                       className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
+                      placeholder="介紹表專用；留空＝沿用「設計與行銷」的設計理念"
                     />
                     <label htmlFor="sheet-design-concept-en" className="mt-1 text-xs text-muted-foreground">
                       設計理念（英）— 英文版用，留空則顯示中文
@@ -541,10 +566,11 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                     </label>
                     <textarea
                       id="sheet-customization-rules"
-                      value={contentValues.customization_rules ?? ""}
-                      onChange={(e) => setField("customization_rules", e.target.value)}
+                      value={sheetCustomizationRules}
+                      onChange={(e) => setSheetCustomizationRules(e.target.value)}
                       rows={4}
                       className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[80px]"
+                      placeholder="介紹表專用；留空＝沿用「客服與保養」的客製與保養"
                     />
                     <label htmlFor="sheet-customization-rules-en" className="mt-1 text-xs text-muted-foreground">
                       客製與保養（英）— 英文版用，留空則顯示中文

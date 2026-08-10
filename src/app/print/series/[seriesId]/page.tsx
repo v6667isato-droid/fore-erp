@@ -49,6 +49,10 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     name_en: r.name_en != null ? String(r.name_en) : null,
     design_concept_en: r.design_concept_en != null ? String(r.design_concept_en) : null,
     customization_rules_en: r.customization_rules_en != null ? String(r.customization_rules_en) : null,
+    sheet_hero_image_url: r.sheet_hero_image_url != null ? String(r.sheet_hero_image_url) : null,
+    sheet_design_concept: r.sheet_design_concept != null ? String(r.sheet_design_concept) : null,
+    sheet_customization_rules:
+      r.sheet_customization_rules != null ? String(r.sheet_customization_rules) : null,
   };
 }
 
@@ -312,7 +316,9 @@ export default function SeriesIntroPrintPage({
   }
 
   const showPrice = series.show_price_on_sheet === true && sheetVariants.length > 0;
-  const photos = [series.image_url, series.detail_image_urls?.[0]].filter(Boolean) as string[];
+  // 介紹表專用主視覺圖優先；未設定時沿用產品主視覺圖
+  const heroImage = series.sheet_hero_image_url?.trim() || series.image_url;
+  const photos = [heroImage, series.detail_image_urls?.[0]].filter(Boolean) as string[];
   const gridCols = showPrice ? 3 : 4;
   // 線圖整頁統一縮放：有圖超過格寬時，全部圖用同一縮放率縮小（字高線粗才會一致）；都塞得下則 1:1
   // 格寬＝(區寬 − 欄距16mm×(欄數−1)) ÷ 欄數：有價目 3 欄約 51.6mm、無價目 4 欄約 54.8mm
@@ -326,11 +332,14 @@ export default function SeriesIntroPrintPage({
   );
   const drawingScale = maxDrawingMm > cellMm ? cellMm / maxDrawingMm : 1;
   // 英文版：系列名／設計理念／客製與保養取英文欄位，留空 fallback 中文
+  // 中文內容：介紹表專用欄位優先，未填沿用產品資料欄位
   const displayName = (lang === "en" && series.name_en?.trim()) || series.name || "—";
-  const displayConcept =
-    (lang === "en" && series.design_concept_en?.trim()) || series.design_concept || "";
+  const conceptZh = series.sheet_design_concept?.trim() || series.design_concept || "";
+  const customizationZh =
+    series.sheet_customization_rules?.trim() || series.customization_rules || "";
+  const displayConcept = (lang === "en" && series.design_concept_en?.trim()) || conceptZh;
   const displayCustomization =
-    (lang === "en" && series.customization_rules_en?.trim()) || series.customization_rules || "";
+    (lang === "en" && series.customization_rules_en?.trim()) || customizationZh;
   const unitNote = lang === "en" ? "Unit: cm" : "尺寸單位: cm";
   // 交期（原第一頁頁尾，類別不顯示）：與尺寸說明並列
   const specFootnote = [

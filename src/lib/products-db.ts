@@ -29,7 +29,7 @@ export const DIMENSION_DRAWING_BUCKET = "dimension-drawings";
  *  資料表實際欄位為 series_name；PostgREST 別名使用 name:series_name（避免 series_name as name 被誤解析）
  */
 export const SERIES_SELECT =
-  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, website, image_url, size_chart_urls, detail_image_urls, image_meta, show_price_on_sheet, name_en:series_name_en, design_concept_en, customization_rules_en";
+  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, website, image_url, size_chart_urls, detail_image_urls, image_meta, show_price_on_sheet, name_en:series_name_en, design_concept_en, customization_rules_en, sheet_hero_image_url, sheet_design_concept, sheet_customization_rules";
 
 /** 資料庫 product_series 表之網站 URL 欄位名稱（與 Supabase 表一致） */
 export const SERIES_WEBSITE_COLUMN = "website";

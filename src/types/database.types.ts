@@ -2480,6 +2480,9 @@ export type Database = {
           production_time: string | null
           series_name: string
           series_name_en: string | null
+          sheet_customization_rules: string | null
+          sheet_design_concept: string | null
+          sheet_hero_image_url: string | null
           show_price_on_sheet: boolean
           size_chart_urls: Json
           social_media_copy: string | null
@@ -2505,6 +2508,9 @@ export type Database = {
           production_time?: string | null
           series_name: string
           series_name_en?: string | null
+          sheet_customization_rules?: string | null
+          sheet_design_concept?: string | null
+          sheet_hero_image_url?: string | null
           show_price_on_sheet?: boolean
           size_chart_urls?: Json
           social_media_copy?: string | null
@@ -2530,6 +2536,9 @@ export type Database = {
           production_time?: string | null
           series_name?: string
           series_name_en?: string | null
+          sheet_customization_rules?: string | null
+          sheet_design_concept?: string | null
+          sheet_hero_image_url?: string | null
           show_price_on_sheet?: boolean
           size_chart_urls?: Json
           social_media_copy?: string | null

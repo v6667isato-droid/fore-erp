@@ -34,6 +34,12 @@ export interface SeriesRow {
   design_concept_en?: string | null;
   /** 客製與保養英文版（介紹表英文版第二頁） */
   customization_rules_en?: string | null;
+  /** 介紹表第一頁主視覺圖（獨立於產品資料 image_url；null＝沿用 image_url） */
+  sheet_hero_image_url?: string | null;
+  /** 介紹表設計理念（獨立於 design_concept；null＝沿用） */
+  sheet_design_concept?: string | null;
+  /** 介紹表客製與保養（獨立於 customization_rules；null＝沿用） */
+  sheet_customization_rules?: string | null;
 }
 
 /** 單張圖片的官網中繼資料（product_series.image_meta 的 value） */
