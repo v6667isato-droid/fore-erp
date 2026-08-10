@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { X, Pencil, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { TABLE_PRODUCT_VARIANTS } from "@/lib/products-db";
+import { parseSizeCode, buildSizeCode } from "@/lib/size-code";
 import { toast } from "sonner";
 
 export interface SeriesOptionsDialogProps {
@@ -37,15 +38,32 @@ interface AddFormState {
   name: string;
   delta: string;
   sort: string;
+  /** 尺寸軸專用：寬深高（代碼由此組出） */
+  w: string;
+  d: string;
+  h: string;
 }
 
-const EMPTY_ADD_FORM: AddFormState = { open: false, code: "", name: "", delta: "", sort: "" };
+const EMPTY_ADD_FORM: AddFormState = {
+  open: false,
+  code: "",
+  name: "",
+  delta: "",
+  sort: "",
+  w: "",
+  d: "",
+  h: "",
+};
 
 interface EditFormState {
   code: string;
   name: string;
   delta: string;
   sort: string;
+  /** 尺寸軸專用：寬深高（代碼由此組出） */
+  w: string;
+  d: string;
+  h: string;
 }
 
 const inputCls =
@@ -63,9 +81,17 @@ function isDuplicateError(message: string | undefined): boolean {
 
 /** 各選項軸的補充說明（依 option_types.code） */
 const TYPE_HINTS: Record<string, string> = {
-  size: "生成規格時輸入長寬會自動建檔到這裡",
-  config: "系列專屬變化（抽屜、櫃體配置…）；代碼會直接接在規格代碼尾段",
+  size: "生成規格時輸入寬深高會自動建檔到這裡；尺寸值以寬深高編輯，代碼自動組出",
+  config: "系列專屬變化（抽屜、櫃體配置…）；只列此系列自己的配置，代碼會直接接在規格代碼尾段",
 };
+
+/** 尺寸欄位輸入轉數值：空＝null；非正數回傳 undefined（表示格式錯誤） */
+function parseDimField(s: string): number | null | undefined {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
 
 /**
  * 系列選項設定：管理各選項軸（木種／尺寸／座墊／配置）的選項值、此系列提供哪些值，
@@ -84,7 +110,15 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({});
   /** 正在整筆編輯的 option_value_id（代碼／名稱／全域價差／排序） */
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState<EditFormState>({ code: "", name: "", delta: "", sort: "" });
+  const [editDraft, setEditDraft] = useState<EditFormState>({
+    code: "",
+    name: "",
+    delta: "",
+    sort: "",
+    w: "",
+    d: "",
+    h: "",
+  });
   const [addForms, setAddForms] = useState<Record<string, AddFormState>>({});
   const [busy, setBusy] = useState(false);
   /** 系列基礎價草稿（字串；空＝未設定）；生成規格的定價＝基礎價＋Σ有效價差 */
@@ -260,22 +294,43 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
   }
 
   function startEdit(v: OptionValueRow) {
+    const isSize = types.find((t) => t.id === v.option_type_id)?.code === "size";
+    const dims = isSize ? parseSizeCode(v.code) : { w: null, d: null, h: null };
     setEditingId(v.id);
     setEditDraft({
       code: v.code,
-      name: v.name_zh,
+      // 名稱與代碼相同視為未自訂，欄位留空（placeholder 顯示預設同代碼）
+      name: v.name_zh === v.code && isSize ? "" : v.name_zh,
       delta: String(v.price_delta),
       sort: String(v.sort_order),
+      w: dims.w != null ? String(dims.w) : "",
+      d: dims.d != null ? String(dims.d) : "",
+      h: dims.h != null ? String(dims.h) : "",
     });
   }
 
-  async function saveEdit(v: OptionValueRow, typeName: string) {
+  async function saveEdit(v: OptionValueRow, t: OptionTypeRow) {
     if (busy) return;
-    const code = editDraft.code.trim();
-    const name = editDraft.name.trim();
-    if (!code || !name) {
-      toast.error("請輸入代碼與名稱");
-      return;
+    const isSize = t.code === "size";
+    let code: string;
+    let name: string;
+    if (isSize) {
+      const w = parseDimField(editDraft.w);
+      const d = parseDimField(editDraft.d);
+      const h = parseDimField(editDraft.h);
+      if (w === undefined || d === undefined || h === undefined || w == null) {
+        toast.error("寬必填，寬深高皆須為正數（cm）");
+        return;
+      }
+      code = buildSizeCode(w, d, h);
+      name = editDraft.name.trim() || code;
+    } else {
+      code = editDraft.code.trim();
+      name = editDraft.name.trim();
+      if (!code || !name) {
+        toast.error("請輸入代碼與名稱");
+        return;
+      }
     }
     const delta = Number(editDraft.delta.trim());
     if (editDraft.delta.trim() === "" || !Number.isInteger(delta)) {
@@ -304,7 +359,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
     setBusy(false);
     if (error) {
       if (isDuplicateError(error.message)) {
-        toast.error(`「${typeName}」已有代碼「${code}」的選項值，請改用其他代碼`);
+        toast.error(`「${t.name_zh}」已有代碼「${code}」的選項值，請改用其他代碼`);
       } else {
         toast.error(error.message || "儲存選項值失敗");
       }
@@ -403,11 +458,28 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
   async function submitAddValue(t: OptionTypeRow) {
     if (!series || busy) return;
     const form = addForms[t.id] ?? EMPTY_ADD_FORM;
-    const code = form.code.trim();
-    const name = form.name.trim();
-    if (!code || !name) {
-      toast.error("請輸入代碼與名稱");
-      return;
+    const isSize = t.code === "size";
+    let code: string;
+    let name: string;
+    let sizeW: number | null = null;
+    if (isSize) {
+      const w = parseDimField(form.w);
+      const d = parseDimField(form.d);
+      const h = parseDimField(form.h);
+      if (w === undefined || d === undefined || h === undefined || w == null) {
+        toast.error("寬必填，寬深高皆須為正數（cm）");
+        return;
+      }
+      sizeW = w;
+      code = buildSizeCode(w, d, h);
+      name = form.name.trim() || code;
+    } else {
+      code = form.code.trim();
+      name = form.name.trim();
+      if (!code || !name) {
+        toast.error("請輸入代碼與名稱");
+        return;
+      }
     }
     let delta = 0;
     if (form.delta.trim() !== "") {
@@ -419,8 +491,35 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
       delta = num;
     }
     const typeValues = values.filter((v) => v.option_type_id === t.id);
-    const defaultSort =
-      (typeValues.length > 0 ? Math.max(...typeValues.map((v) => v.sort_order)) : 0) + 10;
+    // 尺寸／配置同代碼已存在時直接沿用：未掛入此系列就掛入，不重複建檔
+    if (isSize || t.code === "config") {
+      const existing = typeValues.find((v) => v.code === code);
+      if (existing) {
+        if (existing.id in attached) {
+          toast.info(`「${existing.name_zh}」已在此系列`);
+          setAddForm(t.id, { ...EMPTY_ADD_FORM });
+          return;
+        }
+        setBusy(true);
+        const { error } = await supabase
+          .from("product_options")
+          .insert({ series_id: series.id, option_value_id: existing.id });
+        setBusy(false);
+        if (error && !isDuplicateError(error.message)) {
+          toast.error(error.message || "加入選項失敗");
+          return;
+        }
+        setAttached((prev) => ({ ...prev, [existing.id]: null }));
+        setOverrideDrafts((prev) => ({ ...prev, [existing.id]: "" }));
+        toast.success(`「${existing.name_zh}」已存在，已直接加入此系列`);
+        setAddForm(t.id, { ...EMPTY_ADD_FORM });
+        onChanged?.();
+        return;
+      }
+    }
+    const defaultSort = isSize
+      ? Math.round(sizeW ?? 0)
+      : (typeValues.length > 0 ? Math.max(...typeValues.map((v) => v.sort_order)) : 0) + 10;
     let sortOrder = defaultSort;
     if (form.sort.trim() !== "") {
       const num = Number(form.sort.trim());
@@ -540,8 +639,13 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
             {!loading &&
               !loadError &&
               types.map((t) => {
-                const typeValues = values.filter((v) => v.option_type_id === t.id);
+                // 配置軸是系列專屬：只列掛在此系列的值，不顯示其他系列的配置
+                const typeValues = values.filter(
+                  (v) =>
+                    v.option_type_id === t.id && (t.code !== "config" || v.id in attached)
+                );
                 const form = addForms[t.id] ?? EMPTY_ADD_FORM;
+                const isConfig = t.code === "config";
                 return (
                   <section key={t.id} className="rounded-lg border border-border">
                     <div className="border-b border-border bg-muted/20 px-3 py-2">
@@ -556,7 +660,9 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                       )}
                     </div>
                     {typeValues.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-muted-foreground">尚無選項值。</p>
+                      <p className="px-3 py-2 text-xs text-muted-foreground">
+                        {isConfig ? "此系列尚未設定配置，用下方新增。" : "尚無選項值。"}
+                      </p>
                     ) : (
                       <ul className="divide-y divide-border">
                         {typeValues.map((v) => {
@@ -566,6 +672,90 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                             return (
                               <li key={v.id} className="px-3 py-2">
                                 <div className="space-y-2">
+                                  {t.code === "size" ? (
+                                    <>
+                                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                        <div className="flex flex-col gap-1">
+                                          <label htmlFor={`edit-w-${v.id}`} className="text-[11px] text-muted-foreground">寬 W（cm）*</label>
+                                          <input
+                                            id={`edit-w-${v.id}`}
+                                            type="number"
+                                            value={editDraft.w}
+                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, w: e.target.value }))}
+                                            className={inputCls}
+                                            placeholder="必填"
+                                          />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                          <label htmlFor={`edit-d-${v.id}`} className="text-[11px] text-muted-foreground">深 D（cm）</label>
+                                          <input
+                                            id={`edit-d-${v.id}`}
+                                            type="number"
+                                            value={editDraft.d}
+                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, d: e.target.value }))}
+                                            className={inputCls}
+                                            placeholder="選填"
+                                          />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                          <label htmlFor={`edit-h-${v.id}`} className="text-[11px] text-muted-foreground">高 H（cm）</label>
+                                          <input
+                                            id={`edit-h-${v.id}`}
+                                            type="number"
+                                            value={editDraft.h}
+                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, h: e.target.value }))}
+                                            className={inputCls}
+                                            placeholder="選填"
+                                          />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                          <label htmlFor={`edit-name-${v.id}`} className="text-[11px] text-muted-foreground">顯示名稱</label>
+                                          <input
+                                            id={`edit-name-${v.id}`}
+                                            type="text"
+                                            value={editDraft.name}
+                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, name: e.target.value }))}
+                                            className={inputCls}
+                                            placeholder="預設同代碼"
+                                          />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                          <label htmlFor={`edit-delta-${v.id}`} className="text-[11px] text-muted-foreground">全域價差</label>
+                                          <input
+                                            id={`edit-delta-${v.id}`}
+                                            type="number"
+                                            value={editDraft.delta}
+                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, delta: e.target.value }))}
+                                            className={inputCls}
+                                          />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                          <label htmlFor={`edit-sort-${v.id}`} className="text-[11px] text-muted-foreground">排序</label>
+                                          <input
+                                            id={`edit-sort-${v.id}`}
+                                            type="number"
+                                            value={editDraft.sort}
+                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, sort: e.target.value }))}
+                                            className={inputCls}
+                                          />
+                                        </div>
+                                      </div>
+                                      <p className="text-[11px] text-muted-foreground">
+                                        代碼自動組出：
+                                        <span className="ml-1 font-mono text-foreground">
+                                          {(() => {
+                                            const w = parseDimField(editDraft.w);
+                                            if (w == null || w === undefined) return "—（請輸入寬）";
+                                            const d = parseDimField(editDraft.d);
+                                            const h = parseDimField(editDraft.h);
+                                            return buildSizeCode(w, d === undefined ? null : d, h === undefined ? null : h);
+                                          })()}
+                                        </span>
+                                        ；改尺寸／名稱不會回溯已生成規格的編號與尺寸。
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <>
                                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                                     <div className="flex flex-col gap-1">
                                       <label htmlFor={`edit-code-${v.id}`} className="text-[11px] text-muted-foreground">代碼 *</label>
@@ -588,7 +778,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                       />
                                     </div>
                                     <div className="flex flex-col gap-1">
-                                      <label htmlFor={`edit-delta-${v.id}`} className="text-[11px] text-muted-foreground">全域價差</label>
+                                      <label htmlFor={`edit-delta-${v.id}`} className="text-[11px] text-muted-foreground">{isConfig ? "價差" : "全域價差"}</label>
                                       <input
                                         id={`edit-delta-${v.id}`}
                                         type="number"
@@ -609,13 +799,16 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                     </div>
                                   </div>
                                   <p className="text-[11px] text-muted-foreground">
-                                    改代碼／名稱／價差不會回溯已生成規格的編號與定價。全域價差影響所有未設覆寫的系列。
+                                    改代碼／名稱／價差不會回溯已生成規格的編號與定價。
+                                    {!isConfig && "全域價差影響所有未設覆寫的系列。"}
                                   </p>
+                                    </>
+                                  )}
                                   <div className="flex flex-wrap items-center gap-2">
                                     <Button
                                       type="button"
                                       className="h-8 px-3 text-xs"
-                                      onClick={() => saveEdit(v, t.name_zh)}
+                                      onClick={() => saveEdit(v, t)}
                                       disabled={busy}
                                     >
                                       儲存
@@ -663,33 +856,35 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                   </span>
                                 </label>
                                 <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                                  <span>全域</span>
+                                  <span>{isConfig ? "價差" : "全域"}</span>
                                   <span className="font-mono text-foreground">{formatDelta(v.price_delta)}</span>
                                   <button
                                     type="button"
                                     onClick={() => startEdit(v)}
                                     className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring"
                                     aria-label={`編輯 ${v.name_zh}`}
-                                    title="編輯代碼／名稱／全域價差／排序"
+                                    title={isConfig ? "編輯代碼／名稱／價差／排序" : "編輯代碼／名稱／全域價差／排序"}
                                   >
                                     <Pencil className="h-3 w-3 text-muted-foreground" />
                                   </button>
                                 </span>
-                                <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                                  <span>覆寫</span>
-                                  <input
-                                    type="number"
-                                    value={overrideDrafts[v.id] ?? ""}
-                                    onChange={(e) =>
-                                      setOverrideDrafts((prev) => ({ ...prev, [v.id]: e.target.value }))
-                                    }
-                                    onBlur={() => saveOverride(v)}
-                                    disabled={!isAttached}
-                                    placeholder="沿用全域"
-                                    className={`${smallInputCls} w-24 text-right disabled:cursor-not-allowed disabled:opacity-50`}
-                                    aria-label={`${v.name_zh} 此系列覆寫價差`}
-                                  />
-                                </span>
+                                {!isConfig && (
+                                  <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                                    <span>覆寫</span>
+                                    <input
+                                      type="number"
+                                      value={overrideDrafts[v.id] ?? ""}
+                                      onChange={(e) =>
+                                        setOverrideDrafts((prev) => ({ ...prev, [v.id]: e.target.value }))
+                                      }
+                                      onBlur={() => saveOverride(v)}
+                                      disabled={!isAttached}
+                                      placeholder="沿用全域"
+                                      className={`${smallInputCls} w-24 text-right disabled:cursor-not-allowed disabled:opacity-50`}
+                                      aria-label={`${v.name_zh} 此系列覆寫價差`}
+                                    />
+                                  </span>
+                                )}
                               </div>
                             </li>
                           );
@@ -699,6 +894,91 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                     <div className="border-t border-border px-3 py-2">
                       {form.open ? (
                         <div className="space-y-2">
+                          {t.code === "size" ? (
+                            <>
+                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                <div className="flex flex-col gap-1">
+                                  <label htmlFor={`add-w-${t.id}`} className="text-[11px] text-muted-foreground">寬 W（cm）*</label>
+                                  <input
+                                    id={`add-w-${t.id}`}
+                                    type="number"
+                                    value={form.w}
+                                    onChange={(e) => setAddForm(t.id, { w: e.target.value })}
+                                    className={inputCls}
+                                    placeholder="必填"
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label htmlFor={`add-d-${t.id}`} className="text-[11px] text-muted-foreground">深 D（cm）</label>
+                                  <input
+                                    id={`add-d-${t.id}`}
+                                    type="number"
+                                    value={form.d}
+                                    onChange={(e) => setAddForm(t.id, { d: e.target.value })}
+                                    className={inputCls}
+                                    placeholder="選填"
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label htmlFor={`add-h-${t.id}`} className="text-[11px] text-muted-foreground">高 H（cm）</label>
+                                  <input
+                                    id={`add-h-${t.id}`}
+                                    type="number"
+                                    value={form.h}
+                                    onChange={(e) => setAddForm(t.id, { h: e.target.value })}
+                                    className={inputCls}
+                                    placeholder="選填"
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label htmlFor={`add-name-${t.id}`} className="text-[11px] text-muted-foreground">顯示名稱</label>
+                                  <input
+                                    id={`add-name-${t.id}`}
+                                    type="text"
+                                    value={form.name}
+                                    onChange={(e) => setAddForm(t.id, { name: e.target.value })}
+                                    className={inputCls}
+                                    placeholder="預設同代碼"
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label htmlFor={`add-delta-${t.id}`} className="text-[11px] text-muted-foreground">全域價差</label>
+                                  <input
+                                    id={`add-delta-${t.id}`}
+                                    type="number"
+                                    value={form.delta}
+                                    onChange={(e) => setAddForm(t.id, { delta: e.target.value })}
+                                    className={inputCls}
+                                    placeholder="0"
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label htmlFor={`add-sort-${t.id}`} className="text-[11px] text-muted-foreground">排序</label>
+                                  <input
+                                    id={`add-sort-${t.id}`}
+                                    type="number"
+                                    value={form.sort}
+                                    onChange={(e) => setAddForm(t.id, { sort: e.target.value })}
+                                    className={inputCls}
+                                    placeholder="自動＝寬"
+                                  />
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground">
+                                代碼自動組出：
+                                <span className="ml-1 font-mono text-foreground">
+                                  {(() => {
+                                    const w = parseDimField(form.w);
+                                    if (w == null || w === undefined) return "—（請輸入寬）";
+                                    const d = parseDimField(form.d);
+                                    const h = parseDimField(form.h);
+                                    return buildSizeCode(w, d === undefined ? null : d, h === undefined ? null : h);
+                                  })()}
+                                </span>
+                                ；同代碼尺寸已存在時直接沿用並加入此系列。
+                              </p>
+                            </>
+                          ) : (
                           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                             <div className="flex flex-col gap-1">
                               <label htmlFor={`add-code-${t.id}`} className="text-[11px] text-muted-foreground">代碼 *</label>
@@ -723,7 +1003,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                               />
                             </div>
                             <div className="flex flex-col gap-1">
-                              <label htmlFor={`add-delta-${t.id}`} className="text-[11px] text-muted-foreground">全域價差</label>
+                              <label htmlFor={`add-delta-${t.id}`} className="text-[11px] text-muted-foreground">{isConfig ? "價差" : "全域價差"}</label>
                               <input
                                 id={`add-delta-${t.id}`}
                                 type="number"
@@ -745,6 +1025,7 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                               />
                             </div>
                           </div>
+                          )}
                           <div className="flex flex-wrap items-center gap-2">
                             <Button
                               type="button"

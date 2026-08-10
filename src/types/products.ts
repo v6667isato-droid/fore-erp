@@ -70,6 +70,8 @@ export interface VariantRow {
   image_url?: string | null;
   /** 訂製款（開單佔位用規格）：不列入產品介紹表／價目表等對外列表，訂單牌價手動輸入 */
   is_custom_order?: boolean;
+  /** 介紹表顯示順序（系列編輯「介紹表」分頁設定）；null=未排序，排在已排序項之後 */
+  sheet_sort_order?: number | null;
   /** 是否顯示於產品介紹表（勾選制，預設 false；與價目表勾選各自獨立） */
   show_on_sheet?: boolean;
   /** 是否顯示於價目表（勾選制，預設 false；與介紹表勾選各自獨立） */

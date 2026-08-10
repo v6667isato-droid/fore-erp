@@ -70,6 +70,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     is_custom_order: r.is_custom_order === true,
     show_on_sheet: r.show_on_sheet === true,
     show_on_price_list: r.show_on_price_list === true,
+    sheet_sort_order: r.sheet_sort_order != null ? Number(r.sheet_sort_order) : null,
     dimension_drawing_url: r.dimension_drawing_url != null ? String(r.dimension_drawing_url) : null,
   };
 }
@@ -247,12 +248,17 @@ export default function SeriesIntroPrintPage({
     return () => clearTimeout(timer);
   }, [autoPrint, loading, loadError, series]);
 
-  /** 介紹表規格：勾選 show_on_sheet 且非訂製款，依產品代碼排序 */
+  /** 介紹表規格：勾選 show_on_sheet 且非訂製款；依 sheet_sort_order（未排序者殿後）再按產品代碼 */
   const sheetVariants = useMemo(
     () =>
       variants
         .filter((v) => v.show_on_sheet === true && !v.is_custom_order)
-        .sort((a, b) => (a.product_code || "").localeCompare(b.product_code || "")),
+        .sort((a, b) => {
+          const sa = a.sheet_sort_order ?? Number.MAX_SAFE_INTEGER;
+          const sb = b.sheet_sort_order ?? Number.MAX_SAFE_INTEGER;
+          if (sa !== sb) return sa - sb;
+          return (a.product_code || "").localeCompare(b.product_code || "");
+        }),
     [variants]
   );
 
@@ -263,7 +269,11 @@ export default function SeriesIntroPrintPage({
   const sheetCells = useMemo(() => {
     const map = new Map<string, VariantRow & { displayCode: string }>();
     for (const v of sheetVariants) {
-      const displayCode = stripWoodCode(v.product_code || "", woodCodes);
+      // 椅類只顯示系列碼（CH04-O-W → CH04）；其他類別跳過木種代號
+      const displayCode =
+        series?.category === "椅"
+          ? (v.product_code || "").split("-")[0]
+          : stripWoodCode(v.product_code || "", woodCodes);
       const key = `${displayCode}|${v.dimension_w}|${v.dimension_d}|${v.dimension_h}|${v.seat_height_cm}|${v.arm_height_cm}`;
       const existing = map.get(key);
       if (!existing) {
@@ -273,7 +283,7 @@ export default function SeriesIntroPrintPage({
       }
     }
     return [...map.values()];
-  }, [sheetVariants, woodCodes]);
+  }, [sheetVariants, woodCodes, series?.category]);
 
   /** 分群順序：材種 → 門片 → 座墊 → 布樣（各群內依勾選順序） */
   const woodSwatches = useMemo(() => swatches.filter((s) => s.category === "wood"), [swatches]);

@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_SERIES, TABLE_SERIES_SWATCHES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
+import { TABLE_PRODUCT_SERIES, TABLE_PRODUCT_VARIANTS, TABLE_SERIES_SWATCHES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { ProductImagesDropzone } from "@/components/products/product-images-dropzone";
 import { SeriesImageMetaEditor } from "@/components/products/series-image-meta-editor";
 import { SeriesSwatchesSelector } from "@/components/products/series-swatches-selector";
+import { SeriesSheetItemsSelector } from "@/components/products/series-sheet-items-selector";
 import { X, FileText, MessageCircle, Globe, Images, Palette } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
@@ -59,6 +60,8 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
   /** 介紹表：勾選的色樣 id（有序）與是否顯示報價欄 */
   const [sheetSwatchIds, setSheetSwatchIds] = useState<string[]>([]);
   const [showPriceOnSheet, setShowPriceOnSheet] = useState(false);
+  /** 介紹表：勾選的品項 id（有序＝顯示順序），儲存時寫回 show_on_sheet＋sheet_sort_order */
+  const [sheetItemIds, setSheetItemIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (open && row) {
@@ -90,6 +93,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
       setError(null);
       setShowPriceOnSheet(row.show_price_on_sheet === true);
       setSheetSwatchIds([]);
+      setSheetItemIds([]);
       // 介紹表色樣：載入此系列已勾選的色樣（依 sort_order）
       (async () => {
         const { data, error: swErr } = await supabase
@@ -99,6 +103,20 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
           .order("sort_order", { ascending: true });
         if (!swErr && data) {
           setSheetSwatchIds((data as { swatch_id: string }[]).map((r) => String(r.swatch_id)));
+        }
+      })();
+      // 介紹表品項：載入已勾選 show_on_sheet 的規格（依 sheet_sort_order，未排序者按代碼殿後）
+      (async () => {
+        const { data, error: viErr } = await supabase
+          .from(TABLE_PRODUCT_VARIANTS)
+          .select("id, sheet_sort_order")
+          .eq("series_id", row.id)
+          .eq("show_on_sheet", true)
+          .is("deleted_at", null)
+          .order("sheet_sort_order", { ascending: true, nullsFirst: false })
+          .order("product_code", { ascending: true });
+        if (!viErr && data) {
+          setSheetItemIds((data as { id: string }[]).map((r) => String(r.id)));
         }
       })();
     }
@@ -170,6 +188,31 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
       toast.error(err.message || "更新系列失敗");
       setError(err.message || "更新系列失敗");
       return;
+    }
+
+    // 介紹表品項：先全部重設再依勾選順序寫回（show_on_sheet＋sheet_sort_order）
+    const { error: resetErr } = await supabase
+      .from(TABLE_PRODUCT_VARIANTS)
+      .update({ show_on_sheet: false, sheet_sort_order: null })
+      .eq("series_id", row.id)
+      .is("deleted_at", null);
+    if (resetErr) {
+      setSaving(false);
+      toast.error(resetErr.message || "介紹表品項儲存失敗");
+      setError(resetErr.message || "介紹表品項儲存失敗");
+      return;
+    }
+    for (let i = 0; i < sheetItemIds.length; i++) {
+      const { error: itemErr } = await supabase
+        .from(TABLE_PRODUCT_VARIANTS)
+        .update({ show_on_sheet: true, sheet_sort_order: i })
+        .eq("id", sheetItemIds[i]);
+      if (itemErr) {
+        setSaving(false);
+        toast.error(itemErr.message || "介紹表品項儲存失敗");
+        setError(itemErr.message || "介紹表品項儲存失敗");
+        return;
+      }
     }
 
     // 介紹表色樣：整組重寫（先刪後插，sort_order 依勾選順序）
@@ -512,6 +555,18 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       onChange={(e) => setCustomizationRulesEn(e.target.value)}
                       rows={3}
                       className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-[60px]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-foreground">介紹表品項與順序</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      勾選＝顯示於介紹表（與規格編輯的勾選同步）；用箭頭調整線圖格的顯示順序。
+                    </span>
+                    <SeriesSheetItemsSelector
+                      seriesId={row.id}
+                      value={sheetItemIds}
+                      onChange={setSheetItemIds}
+                      disabled={saving}
                     />
                   </div>
                   <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">

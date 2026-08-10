@@ -15,6 +15,7 @@ import type { SeriesRow } from "@/types/products";
 import type { TablesInsert } from "@/types/database.types";
 import { seriesCodeFromName } from "@/types/inventory";
 import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
+import { parseSizeCode, buildSizeCode } from "@/lib/size-code";
 
 export interface AddVariantDialogProps {
   open: boolean;
@@ -88,20 +89,6 @@ function isDupComboError(message: string | undefined): boolean {
   return /duplicate|23505|unique/i.test(String(message ?? ""));
 }
 
-/** 從尺寸代碼反推寬深高（W{w}D{d}H{h}、W{w}D{d}、W{w}H{h} 或純數字＝僅寬），無法解析回傳 null */
-function parseSizeCode(code: string): { w: number | null; d: number | null; h: number | null } {
-  const m = /^W(\d+(?:\.\d+)?)(?:D(\d+(?:\.\d+)?))?(?:H(\d+(?:\.\d+)?))?$/i.exec(code);
-  if (m) {
-    return {
-      w: Number(m[1]),
-      d: m[2] != null ? Number(m[2]) : null,
-      h: m[3] != null ? Number(m[3]) : null,
-    };
-  }
-  const wOnly = /^\d+(?:\.\d+)?$/.exec(code);
-  if (wOnly) return { w: Number(code), d: null, h: null };
-  return { w: null, d: null, h: null };
-}
 
 const inputCls =
   "h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
@@ -425,10 +412,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       }
       hNum = n;
     }
-    const codeStr =
-      dNum != null || hNum != null
-        ? `W${wNum}${dNum != null ? `D${dNum}` : ""}${hNum != null ? `H${hNum}` : ""}`
-        : String(wNum);
+    const codeStr = buildSizeCode(wNum, dNum, hNum);
     const sizeAxis = axes.find((a) => a.typeCode === "size");
     const existing = sizeAxis?.values.find((v) => v.code === codeStr);
     if (existing) {

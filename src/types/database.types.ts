@@ -2669,6 +2669,7 @@ export type Database = {
           product_code: string
           seat_height_cm: number | null
           series_id: string | null
+          sheet_sort_order: number | null
           show_on_price_list: boolean
           show_on_sheet: boolean
           size_value_id: string | null
@@ -2695,6 +2696,7 @@ export type Database = {
           product_code: string
           seat_height_cm?: number | null
           series_id?: string | null
+          sheet_sort_order?: number | null
           show_on_price_list?: boolean
           show_on_sheet?: boolean
           size_value_id?: string | null
@@ -2721,6 +2723,7 @@ export type Database = {
           product_code?: string
           seat_height_cm?: number | null
           series_id?: string | null
+          sheet_sort_order?: number | null
           show_on_price_list?: boolean
           show_on_sheet?: boolean
           size_value_id?: string | null
