@@ -62,6 +62,7 @@ interface SizeSel {
   price_delta: number;
   w: number | null;
   d: number | null;
+  h: number | null;
 }
 
 interface Combo {
@@ -87,13 +88,19 @@ function isDupComboError(message: string | undefined): boolean {
   return /duplicate|23505|unique/i.test(String(message ?? ""));
 }
 
-/** 從尺寸代碼反推寬深（W{w}D{d} 或純數字＝僅寬），無法解析回傳 null */
-function parseSizeCode(code: string): { w: number | null; d: number | null } {
-  const wd = /^W(\d+(?:\.\d+)?)D(\d+(?:\.\d+)?)$/i.exec(code);
-  if (wd) return { w: Number(wd[1]), d: Number(wd[2]) };
+/** 從尺寸代碼反推寬深高（W{w}D{d}H{h}、W{w}D{d}、W{w}H{h} 或純數字＝僅寬），無法解析回傳 null */
+function parseSizeCode(code: string): { w: number | null; d: number | null; h: number | null } {
+  const m = /^W(\d+(?:\.\d+)?)(?:D(\d+(?:\.\d+)?))?(?:H(\d+(?:\.\d+)?))?$/i.exec(code);
+  if (m) {
+    return {
+      w: Number(m[1]),
+      d: m[2] != null ? Number(m[2]) : null,
+      h: m[3] != null ? Number(m[3]) : null,
+    };
+  }
   const wOnly = /^\d+(?:\.\d+)?$/.exec(code);
-  if (wOnly) return { w: Number(code), d: null };
-  return { w: null, d: null };
+  if (wOnly) return { w: Number(code), d: null, h: null };
+  return { w: null, d: null, h: null };
 }
 
 const inputCls =
@@ -134,9 +141,12 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   /** 預覽逐列手動調價（key＝comboKey，value＝輸入字串；空字串＝用自動計價） */
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
   /** 本批新輸入的尺寸（生成時 find-or-create option_values 並掛入此系列） */
-  const [newSizes, setNewSizes] = useState<{ code: string; w: number; d: number | null }[]>([]);
+  const [newSizes, setNewSizes] = useState<
+    { code: string; w: number; d: number | null; h: number | null }[]
+  >([]);
   const [sizeW, setSizeW] = useState("");
   const [sizeD, setSizeD] = useState("");
+  const [sizeH, setSizeH] = useState("");
   /** 本批統一套用的尺寸（無尺寸軸時提供寬深高；有尺寸軸時僅高） */
   const [batchW, setBatchW] = useState("");
   const [batchD, setBatchD] = useState("");
@@ -169,6 +179,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     setNewSizes([]);
     setSizeW("");
     setSizeD("");
+    setSizeH("");
     setBatchW("");
     setBatchD("");
     setBatchH("");
@@ -285,7 +296,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
           price_delta: v.price_delta,
           ...parseSizeCode(v.code),
         })),
-      ...newSizes.map((s) => ({ id: null, code: s.code, price_delta: 0, w: s.w, d: s.d })),
+      ...newSizes.map((s) => ({ id: null, code: s.code, price_delta: 0, w: s.w, d: s.d, h: s.h })),
     ];
     const sizes: (SizeSel | null)[] = sizeSels.length > 0 ? sizeSels : [null];
     const list: Combo[] = [];
@@ -389,7 +400,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     });
   }
 
-  /** 把輸入的寬深加入本批尺寸清單；代碼撞到既有尺寸檔時改為直接勾選 */
+  /** 把輸入的寬深高加入本批尺寸清單；代碼撞到既有尺寸檔時改為直接勾選 */
   function addNewSize() {
     const wNum = Number(sizeW.trim());
     if (sizeW.trim() === "" || !Number.isFinite(wNum) || wNum <= 0) {
@@ -405,7 +416,19 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       }
       dNum = n;
     }
-    const codeStr = dNum != null ? `W${wNum}D${dNum}` : String(wNum);
+    let hNum: number | null = null;
+    if (sizeH.trim() !== "") {
+      const n = Number(sizeH.trim());
+      if (!Number.isFinite(n) || n <= 0) {
+        toast.error("高必須是正數（cm）");
+        return;
+      }
+      hNum = n;
+    }
+    const codeStr =
+      dNum != null || hNum != null
+        ? `W${wNum}${dNum != null ? `D${dNum}` : ""}${hNum != null ? `H${hNum}` : ""}`
+        : String(wNum);
     const sizeAxis = axes.find((a) => a.typeCode === "size");
     const existing = sizeAxis?.values.find((v) => v.code === codeStr);
     if (existing) {
@@ -418,10 +441,11 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     } else if (newSizes.some((s) => s.code === codeStr)) {
       toast.info(`尺寸 ${codeStr} 已在本批清單`);
     } else {
-      setNewSizes((prev) => [...prev, { code: codeStr, w: wNum, d: dNum }]);
+      setNewSizes((prev) => [...prev, { code: codeStr, w: wNum, d: dNum, h: hNum }]);
     }
     setSizeW("");
     setSizeD("");
+    setSizeH("");
   }
 
   function removeNewSize(codeStr: string) {
@@ -558,10 +582,10 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       size_value_id: c.size ? (c.size.id ?? sizeIdByCode.get(c.size.code) ?? null) : null,
       cushion_value_id: c.cushion?.id ?? null,
       config_value_id: c.config?.id ?? null,
-      // 尺寸來源：有尺寸碼取尺寸碼寬深，否則用本批統一輸入；高一律用本批統一輸入
+      // 尺寸來源：尺寸碼有的維度取尺寸碼，缺的維度退回本批統一輸入
       dimension_w: c.size?.w ?? batchDim(batchW),
       dimension_d: c.size?.d ?? batchDim(batchD),
-      dimension_h: batchDim(batchH),
+      dimension_h: c.size?.h ?? batchDim(batchH),
       is_custom_order: genCustom,
       ...(showSeatHeight ? { seat_height_cm: DEFAULT_SEAT_HEIGHT_CM } : {}),
     }));
@@ -688,11 +712,44 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
             placeholder="選填"
           />
         </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="gen-size-h" className="text-[11px] text-muted-foreground">高 H（cm）</label>
+          <input
+            id="gen-size-h"
+            type="number"
+            value={sizeH}
+            onChange={(e) => setSizeH(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addNewSize();
+              }
+            }}
+            className={`${inputCls} w-24`}
+            placeholder="選填"
+          />
+        </div>
         <Button type="button" variant="outline" className="h-9 px-3 text-xs" onClick={addNewSize}>
           加入尺寸
         </Button>
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
         <div className="flex flex-col gap-1">
-          <label htmlFor="gen-batch-h" className="text-[11px] text-muted-foreground">高 H（cm，選填，套用到本批）</label>
+          <label htmlFor="gen-batch-d" className="text-[11px] text-muted-foreground">深 D（cm，尺寸碼未含時套用到本批）</label>
+          <input
+            id="gen-batch-d"
+            type="number"
+            value={batchD}
+            onChange={(e) => setBatchD(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
+            className={`${inputCls} w-24`}
+            placeholder="選填"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="gen-batch-h" className="text-[11px] text-muted-foreground">高 H（cm，尺寸碼未含時套用到本批）</label>
           <input
             id="gen-batch-h"
             type="number"
@@ -707,7 +764,9 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         </div>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        輸入寬深按「加入尺寸」加入本批；生成時自動建檔為尺寸選項並掛入此系列。代碼：寬＋深 → W60D35，僅寬 → 60。高不列入代碼，僅寫入本批每列的尺寸。
+        輸入寬深高按「加入尺寸」加入本批；生成時自動建檔為尺寸選項並掛入此系列。
+        代碼：寬＋深＋高 → W180D48H180，寬＋深 → W60D35，僅寬 → 60。
+        勾選的既有尺寸檔代碼缺深／高時，用上方「套用到本批」欄位補寫。
       </p>
     </fieldset>
   );
