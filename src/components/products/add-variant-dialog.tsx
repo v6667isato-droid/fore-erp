@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   TABLE_PRODUCT_SERIES,
   TABLE_PRODUCT_VARIANTS,
 } from "@/lib/products-db";
-import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -100,26 +99,10 @@ const inputCls =
   "h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
 
 export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddVariantDialogProps) {
-  const firstRef = useRef<HTMLInputElement>(null);
-  const woodTypeOptions = useWoodTypeOptions(open);
-  // 手動輸入模式欄位（維持原行為）
-  const [code, setCode] = useState("");
-  const [woodType, setWoodType] = useState("");
-  const [w, setW] = useState("");
-  const [d, setD] = useState("");
-  const [h, setH] = useState("");
-  const [price, setPrice] = useState("");
-  const [spec1, setSpec1] = useState("");
-  const [seatHeightCm, setSeatHeightCm] = useState("");
-  const [armHeightCmInput, setArmHeightCmInput] = useState("");
-  const [isCustomOrder, setIsCustomOrder] = useState(false);
-  const [showOnSheet, setShowOnSheet] = useState(false);
-  const [showOnPriceList, setShowOnPriceList] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 勾選生成模式
-  const [mode, setMode] = useState<"generate" | "manual">("manual");
+  // 勾選生成（唯一模式；手動輸入已移除，規格一律由選項生成）
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [axes, setAxes] = useState<AxisGroup[]>([]);
   const [basePrice, setBasePrice] = useState<number | null>(null);
@@ -142,20 +125,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
 
   useEffect(() => {
     if (!(open && series)) return;
-    setCode("");
-    setWoodType("");
-    setW("");
-    setD("");
-    setH("");
-    setPrice("");
-    setSpec1("");
-    setIsCustomOrder(false);
-    setShowOnSheet(false);
-    setShowOnPriceList(false);
-    setSeatHeightCm(hasSeatSpecs(series.category) ? String(DEFAULT_SEAT_HEIGHT_CM) : "");
-    setArmHeightCmInput("");
     setError(null);
-    setMode("manual");
     setAxes([]);
     setBasePrice(null);
     setExistingCombos(new Set());
@@ -191,8 +161,9 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       if (cancelled) return;
       setLoadingOptions(false);
       if (optRes.error || seriesRes.error || varRes.error) {
-        // 選項載入失敗時退回手動輸入，不阻擋原流程
-        setMode("manual");
+        setError(
+          optRes.error?.message || seriesRes.error?.message || varRes.error?.message || "選項載入失敗，請關閉後重試"
+        );
         return;
       }
       const rows = (optRes.data ?? []) as unknown as ProductOptionJoinRow[];
@@ -238,7 +209,6 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
         );
       }
       setExistingCombos(existing);
-      if (axisList.length > 0) setMode("generate");
     })();
     return () => {
       cancelled = true;
@@ -250,11 +220,6 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     setPriceEdits({});
     setRemovedKeys(new Set());
   }, [selected, genCustom]);
-
-  useEffect(() => {
-    if (open && mode === "manual" && firstRef.current)
-      setTimeout(() => firstRef.current?.focus(), 0);
-  }, [open, mode]);
 
   const seriesCode = series ? seriesCodeFromName(series.name) : "";
 
@@ -380,45 +345,6 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
     });
   }
 
-  async function submitManual() {
-    if (!series) return;
-    if (!code.trim()) {
-      setError("請輸入產品代碼");
-      return;
-    }
-    setAdding(true);
-    const payload: Record<string, unknown> = {
-      series_id: series.id,
-      product_code: code.trim(),
-      wood_type: woodType.trim() || null,
-      dimension_w: w.trim() ? Number(w) : null,
-      dimension_d: d.trim() ? Number(d) : null,
-      dimension_h: h.trim() ? Number(h) : null,
-      base_price: price.trim() ? Number(price) : null,
-      is_custom_order: isCustomOrder,
-      show_on_sheet: showOnSheet,
-      show_on_price_list: showOnPriceList,
-    };
-    payload.spec1 = spec1.trim() || null;
-    const showSeatHeight = hasSeatSpecs(series.category);
-    if (showSeatHeight) {
-      payload.seat_height_cm = seatHeightCm.trim() ? Number(seatHeightCm) : null;
-      // 扶手高度無預設：留空即不寫入，訂單／產品資料表也不會顯示
-      payload.arm_height_cm = armHeightCmInput.trim() ? Number(armHeightCmInput) : null;
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
-    const { error: err } = await supabase.from(TABLE_PRODUCT_VARIANTS).insert(payload as any);
-    setAdding(false);
-    if (err) {
-      toast.error(err.message || "新增規格失敗");
-      setError(err.message || "新增規格失敗");
-      return;
-    }
-    toast.success("已新增規格");
-    onOpenChange(false);
-    onSuccess();
-  }
-
   async function submitGenerate() {
     if (!series) return;
     if (newCombos.length === 0) {
@@ -470,8 +396,7 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (mode === "generate") await submitGenerate();
-    else await submitManual();
+    await submitGenerate();
   }
 
   if (!series) return null;
@@ -610,30 +535,8 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
           {loadingOptions && (
             <p className="mt-4 text-sm text-muted-foreground">載入選項中…</p>
           )}
-          {!loadingOptions && hasOptions && (
-            <div className="mt-4 inline-flex flex-wrap gap-1 rounded-lg border border-border bg-muted/20 p-1" role="tablist" aria-label="新增模式">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "generate"}
-                onClick={() => { setMode("generate"); setError(null); }}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-ring ${mode === "generate" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                勾選生成
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "manual"}
-                onClick={() => { setMode("manual"); setError(null); }}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-ring ${mode === "manual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                手動輸入
-              </button>
-            </div>
-          )}
           <form onSubmit={onSubmit} className="mt-4 space-y-3">
-            {mode === "generate" && hasOptions ? (
+            {hasOptions ? (
               <>
                 {(() => {
                   // 尺寸軸以擴充區塊（勾選＋自由輸入）呈現，其餘軸維持一般勾選；未掛尺寸軸時按排序插入尺寸區塊
@@ -788,151 +691,18 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                 </label>
               </>
             ) : (
-              <>
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="add-variant-code" className="text-xs text-muted-foreground">產品代碼 *</label>
-                  <input ref={firstRef} id="add-variant-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} className={inputCls} required />
-                  {series.code_rule?.trim() && (
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      編碼原則：{series.code_rule.trim()}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="add-variant-wood" className="text-xs text-muted-foreground">木種</label>
-                  <input
-                    id="add-variant-wood"
-                    type="text"
-                    list="add-variant-wood-list"
-                    value={woodType}
-                    onChange={(e) => setWoodType(e.target.value)}
-                    className={inputCls}
-                    placeholder="例：白橡木"
-                  />
-                  <datalist id="add-variant-wood-list">
-                    {woodTypeOptions.map((o) => (
-                      <option key={o} value={o} />
-                    ))}
-                  </datalist>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="add-variant-w" className="text-xs text-muted-foreground">寬 W（cm）</label>
-                    <input id="add-variant-w" type="number" value={w} onChange={(e) => setW(e.target.value)} className={inputCls} placeholder="cm" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="add-variant-d" className="text-xs text-muted-foreground">深 D（cm）</label>
-                    <input id="add-variant-d" type="number" value={d} onChange={(e) => setD(e.target.value)} className={inputCls} placeholder="cm" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="add-variant-h" className="text-xs text-muted-foreground">高 H（cm）</label>
-                    <input id="add-variant-h" type="number" value={h} onChange={(e) => setH(e.target.value)} className={inputCls} placeholder="cm" />
-                  </div>
-                </div>
-                {hasSeatSpecs(series.category) && (
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="add-variant-seat-h" className="text-xs text-muted-foreground">座高（cm）</label>
-                    <input
-                      id="add-variant-seat-h"
-                      type="number"
-                      value={seatHeightCm}
-                      onChange={(e) => setSeatHeightCm(e.target.value)}
-                      className={inputCls}
-                      placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}cm，座面離地高度`}
-                    />
-                  </div>
-                )}
-                {hasSeatSpecs(series.category) && (
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="add-variant-arm-h" className="text-xs text-muted-foreground">扶手高度 AH（cm）</label>
-                    <input
-                      id="add-variant-arm-h"
-                      type="number"
-                      value={armHeightCmInput}
-                      onChange={(e) => setArmHeightCmInput(e.target.value)}
-                      className={inputCls}
-                      placeholder="無扶手請留空，留空則各處不顯示"
-                    />
-                  </div>
-                )}
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="add-variant-price" className="text-xs text-muted-foreground">基礎定價</label>
-                  <input id="add-variant-price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} placeholder="元" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="add-variant-spec1" className="text-xs text-muted-foreground">規格 1</label>
-                  {series.category === "椅" ? (
-                    <select
-                      id="add-variant-spec1"
-                      value={spec1}
-                      onChange={(e) => setSpec1(e.target.value)}
-                      className={inputCls}
-                    >
-                      <option value="">—</option>
-                      <option value="紙繩-P">紙繩-P</option>
-                      <option value="藤編-R">藤編-R</option>
-                      <option value="實木-W">實木-W</option>
-                      <option value="布墊-F">布墊-F</option>
-                    </select>
-                  ) : (
-                    <input
-                      id="add-variant-spec1"
-                      type="text"
-                      value={spec1}
-                      onChange={(e) => setSpec1(e.target.value)}
-                      className={inputCls}
-                      placeholder="可自訂此類別的第一個規格"
-                    />
-                  )}
-                </div>
-                <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showOnSheet}
-                    onChange={(e) => setShowOnSheet(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-xs font-medium text-foreground">顯示於產品介紹表</span>
-                    <span className="text-[11px] text-muted-foreground">勾選後此規格會出現在介紹表第二頁；尺寸線圖可於「修改規格」上傳</span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showOnPriceList}
-                    onChange={(e) => setShowOnPriceList(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-xs font-medium text-foreground">顯示於價目表</span>
-                    <span className="text-[11px] text-muted-foreground">勾選後此規格會出現在對外價目表（與介紹表勾選各自獨立）</span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isCustomOrder}
-                    onChange={(e) => setIsCustomOrder(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-xs font-medium text-foreground">訂製款（開單佔位用）</span>
-                    <span className="text-[11px] text-muted-foreground">代碼慣例加 -C 結尾；不列入產品介紹表／價目表；新增訂單選到時牌價改為手動輸入</span>
-                  </span>
-                </label>
-              </>
+              !loadingOptions && (
+                <p className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  此系列尚未設定任何選項軸，請先到「選項設定」勾選或新增選項後再生成規格。
+                </p>
+              )
             )}
             {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
             <div className="flex justify-end gap-2 pt-1">
               <Dialog.Close asChild><Button type="button" variant="ghost" disabled={adding}>取消</Button></Dialog.Close>
-              {mode === "generate" && hasOptions ? (
-                <Button type="submit" disabled={generateDisabled}>
-                  {adding ? "生成中…" : `生成 ${newCombos.length} 列規格`}
-                </Button>
-              ) : (
-                <Button type="submit" disabled={adding}>{adding ? "新增中…" : "新增規格"}</Button>
-              )}
+              <Button type="submit" disabled={generateDisabled || !hasOptions}>
+                {adding ? "生成中…" : `生成 ${newCombos.length} 列規格`}
+              </Button>
             </div>
           </form>
         </Dialog.Content>

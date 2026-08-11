@@ -397,6 +397,16 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
       return;
     }
 
+    // 配置代碼變更：連動此系列使用該配置的規格代碼段；被其他系列共用時分家
+    if (t.code === "config" && code !== v.code) {
+      const finalId = await applyConfigCodeChange(v, code, name, delta, sort);
+      if (finalId) {
+        setEditingId(null);
+        onChanged?.();
+      }
+      return;
+    }
+
     // 尺寸代碼變更：連動此系列使用該尺寸的規格；被其他系列共用時分家（其他系列留在舊值）
     if (isSize && code !== v.code) {
       const finalId = await applySizeDimsChange(
@@ -608,6 +618,168 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
         toast.success(`已更新「${name}」`);
       }
       return targetId;
+  }
+
+  /**
+   * 套用配置值的新代碼：確認後同步此系列使用中的規格（代碼中的配置段）；
+   * 被其他系列共用時分家（其他系列留在舊值）。回傳最終配置值 id（取消或失敗回傳 null）。
+   */
+  async function applyConfigCodeChange(
+    v: OptionValueRow,
+    code: string,
+    name: string,
+    delta: number,
+    sort: number
+  ): Promise<string | null> {
+    if (!series) return null;
+    setBusy(true);
+    const [othersOptRes, othersVarRes, mineVarsRes] = await Promise.all([
+      supabase
+        .from("product_options")
+        .select("series_id", { count: "exact", head: true })
+        .eq("option_value_id", v.id)
+        .neq("series_id", series.id),
+      supabase
+        .from(TABLE_PRODUCT_VARIANTS)
+        .select("id", { count: "exact", head: true })
+        .eq("config_value_id", v.id)
+        .neq("series_id", series.id),
+      supabase
+        .from(TABLE_PRODUCT_VARIANTS)
+        .select("id, product_code")
+        .eq("series_id", series.id)
+        .eq("config_value_id", v.id)
+        .is("deleted_at", null),
+    ]);
+    if (othersOptRes.error || othersVarRes.error || mineVarsRes.error) {
+      setBusy(false);
+      toast.error(
+        othersOptRes.error?.message ||
+          othersVarRes.error?.message ||
+          mineVarsRes.error?.message ||
+          "檢查配置引用狀態失敗"
+      );
+      return null;
+    }
+    const affected = mineVarsRes.data ?? [];
+    if (affected.length > 0) {
+      const ok = window.confirm(
+        `此系列有 ${affected.length} 筆規格使用配置「${v.code}」，將同步更新它們代碼中的配置段為「${code}」。繼續？`
+      );
+      if (!ok) {
+        setBusy(false);
+        return null;
+      }
+    }
+    const shared = (othersOptRes.count ?? 0) > 0 || (othersVarRes.count ?? 0) > 0;
+    let targetId = v.id;
+    if (shared) {
+      // 分家：其他系列留在舊值；此系列改掛新代碼的值（已存在就沿用，否則建檔）
+      const found = values.find((x) => x.option_type_id === v.option_type_id && x.code === code);
+      let targetRow = found ?? null;
+      if (!targetRow) {
+        const ins = await supabase
+          .from("option_values")
+          .insert({
+            option_type_id: v.option_type_id,
+            code,
+            name_zh: name,
+            price_delta: delta,
+            sort_order: sort,
+          })
+          .select("id, option_type_id, code, name_zh, price_delta, sort_order")
+          .single();
+        if (ins.error || !ins.data) {
+          setBusy(false);
+          toast.error(ins.error?.message || "建立新配置失敗");
+          return null;
+        }
+        targetRow = ins.data as OptionValueRow;
+        setValues((prev) =>
+          [...prev, targetRow as OptionValueRow].sort(
+            (a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code)
+          )
+        );
+      }
+      targetId = targetRow.id;
+      const override = attached[v.id] ?? null;
+      const attach = await supabase.from("product_options").insert({
+        series_id: series.id,
+        option_value_id: targetId,
+        price_delta_override: override,
+      });
+      if (attach.error && !isDuplicateError(attach.error.message)) {
+        setBusy(false);
+        toast.error(attach.error.message || "掛入新配置失敗");
+        return null;
+      }
+      setAttached((prev) => {
+        const next = { ...prev, [targetId]: override };
+        delete next[v.id];
+        return next;
+      });
+      setOverrideDrafts((prev) => ({
+        ...prev,
+        [targetId]: override != null ? String(override) : "",
+      }));
+    } else {
+      const { error } = await supabase
+        .from("option_values")
+        .update({ code, name_zh: name, price_delta: delta, sort_order: sort })
+        .eq("id", v.id);
+      if (error) {
+        setBusy(false);
+        if (isDuplicateError(error.message)) {
+          toast.error(`已有代碼「${code}」的配置，請改用其他代碼`);
+        } else {
+          toast.error(error.message || "儲存配置失敗");
+        }
+        return null;
+      }
+      setValues((prev) =>
+        prev
+          .map((x) =>
+            x.id === v.id ? { ...x, code, name_zh: name, price_delta: delta, sort_order: sort } : x
+          )
+          .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
+      );
+    }
+    // 連動規格：代碼中的舊配置段（代碼或名稱）換成新代碼
+    let syncFailed = 0;
+    const isOldSeg = (s: string) => s === v.code || s === v.name_zh;
+    for (const row of affected) {
+      const segs = String(row.product_code ?? "").split("-");
+      const newProductCode = segs.some(isOldSeg)
+        ? segs.map((s) => (isOldSeg(s) ? code : s)).join("-")
+        : row.product_code;
+      const { error } = await supabase
+        .from(TABLE_PRODUCT_VARIANTS)
+        .update({ config_value_id: targetId, product_code: newProductCode })
+        .eq("id", row.id);
+      if (error) syncFailed++;
+    }
+    if (shared) {
+      await supabase
+        .from("product_options")
+        .delete()
+        .eq("series_id", series.id)
+        .eq("option_value_id", v.id);
+      setUsedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(v.id);
+        if (affected.length > 0) next.add(targetId);
+        return next;
+      });
+    }
+    setBusy(false);
+    if (syncFailed > 0) {
+      toast.warning(`配置已更新，但有 ${syncFailed} 筆規格同步失敗，請至規格列表確認`);
+    } else if (affected.length > 0) {
+      toast.success(`已更新配置並同步 ${affected.length} 筆規格代碼`);
+    } else {
+      toast.success(`已更新「${name}」`);
+    }
+    return targetId;
   }
 
   async function deleteValue(v: OptionValueRow) {
