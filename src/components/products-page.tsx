@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { SeriesRow, VariantRow } from "@/types/products";
+import { isLegacyVariant } from "@/types/products";
 import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
 import {
   TABLE_PRODUCT_SERIES,
@@ -103,6 +104,10 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     show_on_sheet: r.show_on_sheet === true,
     show_on_price_list: r.show_on_price_list === true,
     dimension_drawing_url: r.dimension_drawing_url != null ? String(r.dimension_drawing_url) : null,
+    wood_value_id: r.wood_value_id != null ? String(r.wood_value_id) : null,
+    size_value_id: r.size_value_id != null ? String(r.size_value_id) : null,
+    cushion_value_id: r.cushion_value_id != null ? String(r.cushion_value_id) : null,
+    config_value_id: r.config_value_id != null ? String(r.config_value_id) : null,
   };
 }
 
@@ -1078,7 +1083,17 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                             </span>
                                           )}
                                         </TableCell>
-                                        <TableCell className="text-sm p-2">{v.product_code || "—"}</TableCell>
+                                        <TableCell className="text-sm p-2">
+                                          {v.product_code || "—"}
+                                          {isLegacyVariant(v) && (
+                                            <span
+                                              className="ml-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400 align-middle"
+                                              title="非勾選生成的舊規格（未連結選項軸）"
+                                            >
+                                              舊
+                                            </span>
+                                          )}
+                                        </TableCell>
                                         <TableCell className="text-sm p-2">{v.wood_type || "—"}</TableCell>
                                         <TableCell className="text-sm p-2">{v.spec1 || "—"}</TableCell>
                                         <TableCell className="text-sm p-2">{formatDim(v)}</TableCell>

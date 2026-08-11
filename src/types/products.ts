@@ -84,6 +84,22 @@ export interface VariantRow {
   show_on_price_list?: boolean;
   /** 尺寸線圖 Public URL（bucket: dimension-drawings，SVG 或 PNG；Fusion 360 匯出人工上傳） */
   dimension_drawing_url?: string | null;
+  /** 選項軸值（勾選生成的規格才有；全空＝手動／舊資料建立） */
+  wood_value_id?: string | null;
+  size_value_id?: string | null;
+  cushion_value_id?: string | null;
+  config_value_id?: string | null;
+}
+
+/** 是否為非勾選生成的舊規格（訂製款除外）：四個軸值全空 */
+export function isLegacyVariant(v: VariantRow): boolean {
+  return (
+    !v.is_custom_order &&
+    v.wood_value_id == null &&
+    v.size_value_id == null &&
+    v.cushion_value_id == null &&
+    v.config_value_id == null
+  );
 }
 
 /**
