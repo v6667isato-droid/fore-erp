@@ -597,7 +597,7 @@ export default function DashboardShell() {
       />
 
       <main className="lg:pl-60">
-        <div className="mx-auto max-w-[120rem] px-4 py-6 lg:px-8 lg:py-8">
+        <div className="mx-auto max-w-[80rem] px-4 py-6 lg:px-8 lg:py-8">
           <div className="mb-6 hidden lg:block">
             <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">{pageTitle}</h1>
           </div>
