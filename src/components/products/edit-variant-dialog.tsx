@@ -38,6 +38,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
   const [seatHeightCm, setSeatHeightCm] = useState("");
   const [armHeightCmInput, setArmHeightCmInput] = useState("");
   const [isCustomOrder, setIsCustomOrder] = useState(false);
+  const [hasPhoto, setHasPhoto] = useState(false);
   const [showOnSheet, setShowOnSheet] = useState(false);
   const [showOnPriceList, setShowOnPriceList] = useState(false);
   const [drawingUrl, setDrawingUrl] = useState<string | null>(null);
@@ -63,6 +64,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       // 扶手高度不補預設：留空即代表沒有這個規格
       setArmHeightCmInput(row.arm_height_cm != null ? String(row.arm_height_cm) : "");
       setIsCustomOrder(row.is_custom_order === true);
+      setHasPhoto(row.has_photo === true);
       setShowOnSheet(row.show_on_sheet === true);
       setShowOnPriceList(row.show_on_price_list === true);
       setDrawingUrl(
@@ -235,6 +237,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
       base_price: price.trim() ? Number(price) : null,
       spec1: spec1.trim() || null,
       image_url: imageUrl?.trim() || null,
+      has_photo: hasPhoto,
       is_custom_order: isCustomOrder,
       show_on_sheet: showOnSheet,
       show_on_price_list: showOnPriceList,
@@ -286,6 +289,18 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
               <span className="text-xs text-muted-foreground">規格圖片</span>
               <ProductImageDropzone value={imageUrl} onChange={setImageUrl} disabled={saving} />
             </div>
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hasPhoto}
+                onChange={(e) => setHasPhoto(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium text-foreground">已有實拍照片</span>
+                <span className="text-[11px] text-muted-foreground">人工標記此規格已完成實際拍攝，用來盤點缺實拍照的規格（與上方規格圖片是否有圖各自獨立）</span>
+              </span>
+            </label>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-variant-code" className="text-xs text-muted-foreground">產品代碼 *</label>
               <input ref={firstRef} id="edit-variant-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />

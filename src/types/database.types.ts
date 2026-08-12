@@ -2674,6 +2674,7 @@ export type Database = {
           dimension_drawing_url: string | null
           dimension_h: number | null
           dimension_w: number | null
+          has_photo: boolean
           id: string
           image_url: string | null
           is_custom_order: boolean
@@ -2701,6 +2702,7 @@ export type Database = {
           dimension_drawing_url?: string | null
           dimension_h?: number | null
           dimension_w?: number | null
+          has_photo?: boolean
           id?: string
           image_url?: string | null
           is_custom_order?: boolean
@@ -2728,6 +2730,7 @@ export type Database = {
           dimension_drawing_url?: string | null
           dimension_h?: number | null
           dimension_w?: number | null
+          has_photo?: boolean
           id?: string
           image_url?: string | null
           is_custom_order?: boolean

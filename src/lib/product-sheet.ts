@@ -31,6 +31,7 @@ const CATEGORY_EN: Record<string, string> = {
   凳: "Stool",
   櫃: "Cabinet",
   層架: "Shelf",
+  小木器: "Objects",
   其他: "Others",
 };
 

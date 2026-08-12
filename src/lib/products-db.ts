@@ -40,7 +40,7 @@ export const SERIES_SELECT_NO_WEBSITE =
 
 /** product_variants 查詢欄位（含 series_id 關聯） */
 export const VARIANT_SELECT =
-  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, desktop_area, spec1, image_url, is_custom_order, show_on_sheet, show_on_price_list, sheet_sort_order, dimension_drawing_url, wood_value_id, size_value_id, cushion_value_id, config_value_id";
+  "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, desktop_area, spec1, image_url, has_photo, is_custom_order, show_on_sheet, show_on_price_list, sheet_sort_order, dimension_drawing_url, wood_value_id, size_value_id, cushion_value_id, config_value_id";
 
 /** 精簡系列欄位（當完整欄位不存在時 fallback 用） */
 export const SERIES_SELECT_MINIMAL = "id, name:series_name, category, notes";
@@ -53,7 +53,10 @@ export const VARIANT_SELECT_MINIMAL =
   "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, base_price, desktop_area, spec1, image_url, is_custom_order, show_on_sheet, show_on_price_list, dimension_drawing_url";
 
 /** 產品類別基本選項（產品系列與訂製案例共用；加工區類別另見 custom-cases-db） */
-export const PRODUCT_CATEGORY_OPTIONS = ["桌", "椅", "櫃", "層架", "其他"];
+export const PRODUCT_CATEGORY_OPTIONS = ["桌", "椅", "櫃", "層架", "小木器", "其他"];
+
+/** 小木器類別：產品頁獨立分頁顯示，主「產品系列」分頁排除此類別 */
+export const SMALLWOOD_CATEGORY = "小木器";
 
 /** 木種基本選項（variant 與訂製案例共用；datalist 會再合併資料庫既有值） */
 export const WOOD_TYPE_OPTIONS = ["白橡木", "胡桃木", "柚木", "雞翅木"] as const;

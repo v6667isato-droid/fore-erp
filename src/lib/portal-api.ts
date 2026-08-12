@@ -61,6 +61,8 @@ export type PortalPricedItem = {
   list_unit_price: number;
   /** 結算單價：系列通路折扣 % > 0 時之通路價，否則牌價 */
   settlement_unit_price: number;
+  /** 系列品類（product_series.category），寫入 order_items.custom_category（與 ERP 開單一致） */
+  series_category: string | null;
 };
 
 /**
@@ -105,15 +107,22 @@ export async function pricePortalItems(
   const variantIds = Array.from(new Set(parsed.map((p) => p.variant_id)));
   const { data: variantRows, error: variantErr } = await client
     .from("product_variants")
-    .select("id, base_price, series_id")
+    .select("id, base_price, series_id, product_series(category)")
     .in("id", variantIds);
   if (variantErr) {
     return { ok: false, error: variantErr.message };
   }
+  type VariantRow = {
+    id: string;
+    base_price: number | null;
+    series_id: string | null;
+    product_series:
+      | { category: string | null }
+      | Array<{ category: string | null }>
+      | null;
+  };
   const variantById = new Map(
-    ((variantRows ?? []) as Array<{ id: string; base_price: number | null; series_id: string | null }>).map(
-      (v) => [String(v.id), v],
-    ),
+    ((variantRows ?? []) as VariantRow[]).map((v) => [String(v.id), v]),
   );
   if (variantIds.some((id) => !variantById.has(id))) {
     return { ok: false, error: "bad_variant" };
@@ -138,7 +147,16 @@ export async function pricePortalItems(
     const list = base ?? 0;
     const pct = v.series_id != null ? (pctBySeries.get(String(v.series_id)) ?? 0) : 0;
     const settlement = base != null && pct > 0 ? Math.round(base * (1 - pct / 100)) : list;
-    return { ...p, list_unit_price: list, settlement_unit_price: settlement };
+    const seriesRel = Array.isArray(v.product_series)
+      ? v.product_series[0]
+      : v.product_series;
+    const seriesCategory = seriesRel?.category?.trim() || null;
+    return {
+      ...p,
+      list_unit_price: list,
+      settlement_unit_price: settlement,
+      series_category: seriesCategory,
+    };
   });
 
   const totalAmount = items.reduce((sum, it) => sum + it.quantity * it.settlement_unit_price, 0);
@@ -157,7 +175,8 @@ export function portalItemInsertPayload(orderId: string, items: PortalPricedItem
     channel_unit_price:
       it.settlement_unit_price !== it.list_unit_price ? it.settlement_unit_price : null,
     custom_notes: it.notes,
-    custom_category: null,
+    // 與 ERP 開單一致：規格品自動帶入系列品類，供生產管理類別篩選
+    custom_category: it.series_category,
     custom_name: null,
     custom_description: null,
     custom_dimension_w: null,

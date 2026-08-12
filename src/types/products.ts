@@ -74,6 +74,8 @@ export interface VariantRow {
   spec1?: string | null;
   /** 產品規格圖片 Public URL（來自 product-images bucket） */
   image_url?: string | null;
+  /** 已有實拍照片（人工標記，用來盤點哪些規格還缺實際拍攝照片；與 image_url 是否有圖各自獨立） */
+  has_photo?: boolean;
   /** 訂製款（開單佔位用規格）：不列入產品介紹表／價目表等對外列表，訂單牌價手動輸入 */
   is_custom_order?: boolean;
   /** 介紹表顯示順序（系列編輯「介紹表」分頁設定）；null=未排序，排在已排序項之後 */

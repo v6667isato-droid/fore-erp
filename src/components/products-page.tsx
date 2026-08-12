@@ -26,6 +26,7 @@ import {
   SERIES_SELECT_MINIMAL,
   VARIANT_SELECT_MINIMAL,
   SERIES_CONTENT_COLUMNS,
+  SMALLWOOD_CATEGORY,
 } from "@/lib/products-db";
 import { Package, ChevronDown, ChevronRight, Plus, Eye, Pencil, Trash2, Download, Copy, FileText, Settings2, ClipboardList, X } from "lucide-react";
 import * as RadixDialog from "@radix-ui/react-dialog";
@@ -100,6 +101,7 @@ function mapVariant(r: Record<string, unknown>): VariantRow {
     desktop_area: r.desktop_area != null ? Number(r.desktop_area) : null,
     spec1: r.spec1 != null ? String(r.spec1) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
+    has_photo: r.has_photo === true,
     is_custom_order: r.is_custom_order === true,
     show_on_sheet: r.show_on_sheet === true,
     show_on_price_list: r.show_on_price_list === true,
@@ -143,7 +145,10 @@ function formatDim(v: VariantRow): string {
 type SeriesSortKey = "name" | "category" | "leadTime" | "variantCount" | "bomCount" | "website";
 type VariantSortKey = "product_code" | "wood_type" | "spec1" | "dimension" | "base_price";
 
-function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
+function ProductSeriesPanel({
+  isAdmin = false,
+  smallWood = false,
+}: { isAdmin?: boolean; smallWood?: boolean } = {}) {
   const [seriesList, setSeriesList] = useState<SeriesRow[]>([]);
   const [variantsList, setVariantsList] = useState<VariantRow[]>([]);
   const [channels, setChannels] = useState<ChannelOption[]>([]);
@@ -321,8 +326,13 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
       variantsData = (variantsRes.data ?? []) as Record<string, unknown>[];
     }
 
-    setSeriesList((seriesData ?? []).map(mapSeries));
-    setVariantsList(variantsData.map(mapVariant));
+    // 小木器類別獨立分頁：主「產品系列」分頁排除、小木器分頁僅顯示該類別
+    const allSeries = (seriesData ?? []).map(mapSeries);
+    const isSmallWood = (s: SeriesRow) => s.category.trim() === SMALLWOOD_CATEGORY;
+    const scopedSeries = smallWood ? allSeries.filter(isSmallWood) : allSeries.filter((s) => !isSmallWood(s));
+    const scopedIds = new Set(scopedSeries.map((s) => s.id));
+    setSeriesList(scopedSeries);
+    setVariantsList(variantsData.map(mapVariant).filter((v) => scopedIds.has(v.series_id)));
     setLoading(false);
   }
 
@@ -439,8 +449,11 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     setDeleteConfirmVariant(v);
   }
 
-  /** 介紹表／價目表勾選快速切換（不開編輯視窗），本地同步不重抓全表 */
-  async function toggleVariantFlag(v: VariantRow, field: "show_on_sheet" | "show_on_price_list") {
+  /** 介紹表／價目表／實拍照勾選快速切換（不開編輯視窗），本地同步不重抓全表 */
+  async function toggleVariantFlag(
+    v: VariantRow,
+    field: "show_on_sheet" | "show_on_price_list" | "has_photo"
+  ) {
     const next = !(v[field] === true);
     const { error } = await supabase
       .from(TABLE_PRODUCT_VARIANTS)
@@ -601,7 +614,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <AddSeriesDialog onSuccess={fetchData} />
+          <AddSeriesDialog onSuccess={fetchData} defaultCategory={smallWood ? SMALLWOOD_CATEGORY : undefined} />
           {isAdmin && (
             <>
               <PriceListExportDialog
@@ -626,18 +639,22 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
         <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/20 px-4 py-3">
-          <span className="text-xs font-medium text-muted-foreground shrink-0">篩選類別</span>
-          <select
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className="h-8 min-w-[7rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-label="依類別篩選"
-          >
-            <option value="">全部</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+          {!smallWood && (
+            <>
+              <span className="text-xs font-medium text-muted-foreground shrink-0">篩選類別</span>
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="h-8 min-w-[7rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-label="依類別篩選"
+              >
+                <option value="">全部</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </>
+          )}
           <span className="text-xs text-muted-foreground ml-auto">共 {filteredSeries.length} 個系列</span>
         </div>
         <Table>
@@ -1018,6 +1035,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                     </TableHead>
                                     <TableHead className="text-xs font-semibold p-2 whitespace-nowrap">介紹表</TableHead>
                                     <TableHead className="text-xs font-semibold p-2 whitespace-nowrap">價目表</TableHead>
+                                    <TableHead className="text-xs font-semibold p-2 whitespace-nowrap" title="已有實拍照片（人工標記，盤點缺實拍照的規格）">實拍照</TableHead>
                                     <TableHead className="text-xs font-semibold p-2 min-w-[180px]">通路價格</TableHead>
                                     <TableHead className="text-xs font-semibold p-2 min-w-[120px]">操作</TableHead>
                                   </TableRow>
@@ -1025,7 +1043,7 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                 <TableBody>
                                   {variants.length === 0 ? (
                                     <TableRow>
-                                      <TableCell colSpan={10} className="h-16 text-center text-sm text-muted-foreground">
+                                      <TableCell colSpan={11} className="h-16 text-center text-sm text-muted-foreground">
                                         尚無規格，請點「新增規格」建立。
                                       </TableCell>
                                     </TableRow>
@@ -1124,6 +1142,23 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
                                             aria-label={`${v.product_code} 顯示於價目表`}
                                             title="顯示於價目表"
                                           />
+                                        </TableCell>
+                                        <TableCell className="p-2">
+                                          <div className="flex flex-col items-start gap-1">
+                                            <input
+                                              type="checkbox"
+                                              checked={v.has_photo === true}
+                                              onChange={() => toggleVariantFlag(v, "has_photo")}
+                                              className="h-4 w-4 rounded border-input accent-primary"
+                                              aria-label={`${v.product_code} 已有實拍照片`}
+                                              title="已有實拍照片"
+                                            />
+                                            {v.has_photo !== true && !v.is_custom_order && (
+                                              <span className="rounded-full border border-accent-warn/60 px-1.5 py-0.5 text-[10px] leading-none text-accent-warn whitespace-nowrap">
+                                                缺實拍
+                                              </span>
+                                            )}
+                                          </div>
                                         </TableCell>
                                         <TableCell className="text-xs p-2 text-muted-foreground">
                                           {v.base_price == null ? (
@@ -1324,21 +1359,24 @@ function ProductSeriesPanel({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   );
 }
 
-export type ProductsTabKey = "series" | "custom" | "processing" | "swatches";
+export type ProductsTabKey = "series" | "smallwood" | "custom" | "processing" | "swatches";
 
 const PRODUCTS_TABS: { key: ProductsTabKey; label: string }[] = [
   { key: "series", label: "產品系列" },
+  { key: "smallwood", label: "小木器" },
   { key: "custom", label: "訂製案例" },
   { key: "processing", label: "加工區" },
   { key: "swatches", label: "材料色樣" },
 ];
 
 function parseProductsTab(value: string | null): ProductsTabKey {
-  return value === "custom" || value === "processing" || value === "swatches" ? value : "series";
+  return value === "smallwood" || value === "custom" || value === "processing" || value === "swatches"
+    ? value
+    : "series";
 }
 
 /**
- * 產品資料頁：產品系列（原有）、訂製案例（可發佈官網）、加工區（維修保養，僅內部）。
+ * 產品資料頁：產品系列（原有）、小木器（小木器類別系列獨立分頁）、訂製案例（可發佈官網）、加工區（維修保養，僅內部）。
  * 分頁狀態同步至 ?productsTab=，與 customersTab、procurementTab 慣例一致。
  */
 export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
@@ -1383,6 +1421,7 @@ export function ProductsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
         ))}
       </div>
       {tab === "series" && <ProductSeriesPanel isAdmin={isAdmin} />}
+      {tab === "smallwood" && <ProductSeriesPanel isAdmin={isAdmin} smallWood />}
       {tab === "custom" && <CustomCasesPanel kind="custom" />}
       {tab === "processing" && <CustomCasesPanel kind="processing" />}
       {tab === "swatches" && <MaterialSwatchesPanel isAdmin={isAdmin} />}

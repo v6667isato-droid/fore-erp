@@ -292,7 +292,8 @@ export function WorkOrdersPage() {
             product_code,
             wood_type,
             spec1,
-            seat_height_cm
+            seat_height_cm,
+            product_series(category)
           )
         )
       `
@@ -333,8 +334,13 @@ export function WorkOrdersPage() {
         itemName = String(variant.product_code);
       }
 
+      // 類別：明細 custom_category 優先，未填時退回系列品類（portal 舊單無 custom_category）
+      const seriesRel = variant?.product_series;
+      const seriesOne = Array.isArray(seriesRel) ? seriesRel[0] : seriesRel;
       const cat =
-        (oi?.custom_category as string | null | undefined)?.trim() || "";
+        (oi?.custom_category as string | null | undefined)?.trim() ||
+        (seriesOne?.category as string | null | undefined)?.trim() ||
+        "";
 
       // 中文規格：木種（明細優先於變體）＋編法等，如「白橡木 紙編」；不顯示尺寸
       const woodType =

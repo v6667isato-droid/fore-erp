@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 
 export interface AddSeriesDialogProps {
   onSuccess: () => void;
+  /** 開啟時預填的類別（小木器分頁新增系列時帶入，讓新系列留在該分頁） */
+  defaultCategory?: string;
 }
 
 const CATEGORY_OPTIONS = PRODUCT_CATEGORY_OPTIONS;
@@ -30,7 +32,7 @@ const TAB_2_KEYS = ["faq_scripts", "customization_rules"];
 
 type AddSeriesTab = "basic" | "marketing" | "support" | "website";
 
-export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
+export function AddSeriesDialog({ onSuccess, defaultCategory }: AddSeriesDialogProps) {
   const [open, setOpen] = useState(false);
   const firstRef = useRef<HTMLInputElement>(null);
   const firstContentRef = useRef<HTMLTextAreaElement>(null);
@@ -49,7 +51,7 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
   useEffect(() => {
     if (open) {
       setName("");
-      setCategory("");
+      setCategory(defaultCategory ?? "");
       setNotes("");
       setProductionTime("");
       setCodeRule("");
@@ -59,7 +61,7 @@ export function AddSeriesDialog({ onSuccess }: AddSeriesDialogProps) {
       setActiveTab("basic");
       setError(null);
     }
-  }, [open]);
+  }, [open, defaultCategory]);
 
   useEffect(() => {
     if (!open) return;

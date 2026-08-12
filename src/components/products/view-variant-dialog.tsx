@@ -177,6 +177,16 @@ export function ViewVariantDialog({ open, onOpenChange, row }: ViewVariantDialog
             <div><dt className="text-muted-foreground">面積</dt><dd>{row.desktop_area != null ? row.desktop_area : "—"}</dd></div>
             <div><dt className="text-muted-foreground">基礎定價</dt><dd>{row.base_price != null ? row.base_price.toLocaleString() : "—"}</dd></div>
             <div>
+              <dt className="text-muted-foreground">實拍照片</dt>
+              <dd>
+                {row.has_photo === true ? (
+                  "已有實拍照片"
+                ) : (
+                  <span className="text-accent-warn">缺實拍照片</span>
+                )}
+              </dd>
+            </div>
+            <div>
               <dt className="text-muted-foreground">通路價格</dt>
               <dd>
                 {row.base_price == null
