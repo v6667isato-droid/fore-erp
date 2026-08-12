@@ -2476,6 +2476,7 @@ export type Database = {
           design_concept_en: string | null
           detail_image_urls: Json
           faq_scripts: string | null
+          hover_image_url: string | null
           id: string
           image_meta: Json
           image_url: string | null
@@ -2504,6 +2505,7 @@ export type Database = {
           design_concept_en?: string | null
           detail_image_urls?: Json
           faq_scripts?: string | null
+          hover_image_url?: string | null
           id?: string
           image_meta?: Json
           image_url?: string | null
@@ -2532,6 +2534,7 @@ export type Database = {
           design_concept_en?: string | null
           detail_image_urls?: Json
           faq_scripts?: string | null
+          hover_image_url?: string | null
           id?: string
           image_meta?: Json
           image_url?: string | null

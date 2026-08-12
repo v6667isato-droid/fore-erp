@@ -26,7 +26,7 @@ export async function OPTIONS() {
 export async function GET() {
   const { data: seriesList, error: seriesError } = await supabase
     .from("product_series")
-    .select("id, series_name, category, image_url, detail_image_urls, image_meta")
+    .select("id, series_name, category, image_url, hover_image_url, detail_image_urls, image_meta")
     .is("deleted_at", null)
     .order("series_name", { ascending: true });
 
@@ -63,12 +63,16 @@ export async function GET() {
         ? (s.image_meta as Record<string, { object_position?: string | null }>)
         : {};
     const mainMeta = s.image_url ? meta[s.image_url] : undefined;
+    const hoverMeta = s.hover_image_url ? meta[s.hover_image_url] : undefined;
     return {
       id: s.id,
       series_name: s.series_name,
       category: s.category,
       image_url: s.image_url,
       image_object_position: mainMeta?.object_position ?? null,
+      // 第二張主視覺圖：官網作品牆 hover 換圖用；null＝官網 hover 維持微放大
+      hover_image_url: s.hover_image_url ?? null,
+      hover_image_object_position: hoverMeta?.object_position ?? null,
       detail_image_urls: Array.isArray(s.detail_image_urls)
         ? (s.detail_image_urls as unknown[]).map((u) => String(u)).filter(Boolean)
         : [],

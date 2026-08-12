@@ -51,6 +51,8 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
   const [contentValues, setContentValues] = useState<Record<string, string>>({});
   const [website, setWebsite] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  /** 第二張主視覺圖：官網作品牆 hover 顯示；未上傳＝官網維持微放大 */
+  const [hoverImageUrl, setHoverImageUrl] = useState<string | null>(null);
   const [sizeChartUrls, setSizeChartUrls] = useState<string[]>([]);
   const [detailImageUrls, setDetailImageUrls] = useState<string[]>([]);
   const [imageMeta, setImageMeta] = useState<Record<string, SeriesImageMeta>>({});
@@ -88,6 +90,9 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
 
       setWebsite(typeof row.website === "string" ? row.website : "");
       setImageUrl(typeof row.image_url === "string" && row.image_url ? row.image_url : null);
+      setHoverImageUrl(
+        typeof row.hover_image_url === "string" && row.hover_image_url ? row.hover_image_url : null
+      );
       setSizeChartUrls(Array.isArray(row.size_chart_urls) ? row.size_chart_urls.filter(Boolean) : []);
       setDetailImageUrls(Array.isArray(row.detail_image_urls) ? row.detail_image_urls.filter(Boolean) : []);
       setImageMeta(
@@ -175,11 +180,14 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
     const websiteUrl = website.trim();
     payload[SERIES_WEBSITE_COLUMN] = websiteUrl || null;
     payload.image_url = imageUrl?.trim() || null;
+    payload.hover_image_url = hoverImageUrl?.trim() || null;
     payload.size_chart_urls = sizeChartUrls;
     payload.detail_image_urls = detailImageUrls;
 
     // 圖片中繼資料只保留目前仍存在的圖片，且捨棄完全沒填的空項目
-    const currentUrls = new Set([imageUrl?.trim(), ...detailImageUrls].filter(Boolean) as string[]);
+    const currentUrls = new Set(
+      [imageUrl?.trim(), hoverImageUrl?.trim(), ...detailImageUrls].filter(Boolean) as string[]
+    );
     const prunedMeta: Record<string, SeriesImageMeta> = {};
     for (const [url, m] of Object.entries(imageMeta)) {
       if (!currentUrls.has(url)) continue;
@@ -480,6 +488,16 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">
+                      第二張主視覺圖（官網作品牆滑鼠移過時顯示；未上傳則維持原本微放大效果）
+                    </span>
+                    <ProductImageDropzone
+                      value={hoverImageUrl}
+                      onChange={setHoverImageUrl}
+                      disabled={saving}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-muted-foreground">
                       細節圖（官網產品頁的其他圖片，主視覺圖為首張、細節圖依序接續）
                     </span>
                     <ProductImagesDropzone
@@ -508,6 +526,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                     <SeriesImageMetaEditor
                       images={[
                         ...(imageUrl ? [{ url: imageUrl, label: "主視覺圖" }] : []),
+                        ...(hoverImageUrl ? [{ url: hoverImageUrl, label: "第二張主視覺圖" }] : []),
                         ...detailImageUrls.map((url, i) => ({ url, label: `細節圖 ${i + 1}` })),
                       ]}
                       meta={imageMeta}
