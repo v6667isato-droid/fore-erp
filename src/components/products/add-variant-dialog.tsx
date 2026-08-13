@@ -361,7 +361,11 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
       series_id: series.id,
       product_code: c.code,
       wood_type: c.wood?.name_zh ?? null,
-      spec1: c.cushion ? `${c.cushion.name_zh}-${c.cushion.code}` : null,
+      // 規格1＝配置名稱＋座墊「名稱-代碼」；座墊段必須在最後（spec1 最後一個「-」後的字＝BOM 座墊互斥代碼，配置只寫中文名、不含代碼）
+      spec1:
+        [c.config?.name_zh, c.cushion ? `${c.cushion.name_zh}-${c.cushion.code}` : null]
+          .filter((s): s is string => Boolean(s))
+          .join(" ") || null,
       base_price: effectivePrice(c),
       wood_value_id: c.wood?.id ?? null,
       size_value_id: c.size?.id ?? null,

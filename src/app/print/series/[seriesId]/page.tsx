@@ -18,6 +18,7 @@ import {
   DEFAULT_WOOD_CODES,
   footerContact,
   stripWoodCode,
+  woodTypeLabel,
   type SheetLang,
 } from "@/lib/product-sheet";
 import { Loader2 } from "lucide-react";
@@ -711,6 +712,15 @@ export default function SeriesIntroPrintPage({
                       <span className="sheet-en" style={{ fontSize: "7.5pt", color: "#1c1c1c" }}>
                         {v.product_code}
                       </span>
+                      {/* 木種：名稱與價格之間，灰色小字 */}
+                      {v.wood_type?.trim() && (
+                        <span
+                          className="sheet-en"
+                          style={{ fontSize: "6.5pt", color: "#999", margin: "0 2mm", flex: 1, textAlign: "right" }}
+                        >
+                          {woodTypeLabel(v.wood_type, lang)}
+                        </span>
+                      )}
                       <span className="sheet-en" style={{ fontSize: "7.5pt", color: "#1c1c1c" }}>
                         {v.base_price != null ? `NT$ ${v.base_price.toLocaleString()}` : "—"}
                       </span>
