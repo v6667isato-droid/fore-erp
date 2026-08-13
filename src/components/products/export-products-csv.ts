@@ -19,7 +19,6 @@ export function exportProductsCsv(series: SeriesRow[], variants: VariantRow[]) {
     "扶手高度 AH（cm）",
     "桌面面積",
     "基礎定價",
-    "網站",
   ];
 
   const rows = variants.map((v) => {
@@ -45,7 +44,6 @@ export function exportProductsCsv(series: SeriesRow[], variants: VariantRow[]) {
       armHeightCm(v.arm_height_cm) != null ? String(armHeightCm(v.arm_height_cm)) : "",
       v.desktop_area != null ? String(v.desktop_area) : "",
       v.base_price != null ? String(v.base_price) : "",
-      s?.website ?? "",
     ];
   });
 

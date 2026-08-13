@@ -62,7 +62,6 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     social_media_copy: r.social_media_copy != null ? String(r.social_media_copy) : null,
     website_article: r.website_article != null ? String(r.website_article) : null,
     customization_rules: r.customization_rules != null ? String(r.customization_rules) : null,
-    website: r.website != null ? String(r.website) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
     size_chart_urls: Array.isArray(r.size_chart_urls)
       ? (r.size_chart_urls as unknown[]).map((u) => String(u)).filter(Boolean)
@@ -142,7 +141,7 @@ function formatDim(v: VariantRow): string {
   return appendArmHeight(base, v.arm_height_cm) ?? base;
 }
 
-type SeriesSortKey = "name" | "category" | "leadTime" | "variantCount" | "bomCount" | "website";
+type SeriesSortKey = "name" | "category" | "leadTime" | "variantCount" | "bomCount";
 type VariantSortKey = "product_code" | "wood_type" | "spec1" | "dimension" | "base_price";
 
 function ProductSeriesPanel({
@@ -228,11 +227,6 @@ function ProductSeriesPanel({
         case "bomCount": {
           return ascFactor * ((bomCountBySeries[a.id] ?? 0) - (bomCountBySeries[b.id] ?? 0));
         }
-        case "website": {
-          const aVal = a.website?.trim() || "";
-          const bVal = b.website?.trim() || "";
-          return ascFactor * aVal.localeCompare(bVal);
-        }
         case "name":
         default: {
           const aVal = a.name || "";
@@ -255,7 +249,7 @@ function ProductSeriesPanel({
       // 若完整欄位失敗，先嘗試只取基本欄位（仍包含 code_rule），避免因為文案欄位不存在而看不到編碼原則
       const basicRes = await supabase
         .from(TABLE_PRODUCT_SERIES)
-        .select("id, name:series_name, category, notes, production_time, code_rule, website, image_url")
+        .select("id, name:series_name, category, notes, production_time, code_rule, image_url")
         .is("deleted_at", null).order("id", { ascending: true });
       if (!basicRes.error) {
         seriesData = (basicRes.data ?? []) as unknown as Record<string, unknown>[];
@@ -286,7 +280,7 @@ function ProductSeriesPanel({
             const contentCols = SERIES_CONTENT_COLUMNS.join(", ");
             const bySeriesNameFull = await supabase
               .from(TABLE_PRODUCT_SERIES)
-              .select(`id, series_name, category, notes, production_time, code_rule, ${contentCols}, website, image_url`)
+              .select(`id, series_name, category, notes, production_time, code_rule, ${contentCols}, image_url`)
               .is("deleted_at", null).order("id", { ascending: true });
             if (!bySeriesNameFull.error) {
               seriesData = (bySeriesNameFull.data ?? []) as unknown as Record<string, unknown>[];
@@ -759,26 +753,6 @@ function ProductSeriesPanel({
                   </span>
                 </button>
               </TableHead>
-              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 hover:text-primary"
-                  onClick={() =>
-                    setSeriesSort((prev) => ({
-                      key: "website",
-                      asc: prev.key === "website" ? !prev.asc : true,
-                    }))
-                  }
-                  aria-label={`依網站排序（目前為${
-                    seriesSort.key === "website" && !seriesSort.asc ? "降冪" : "升冪"
-                  }）`}
-                >
-                  <span>網站</span>
-                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                    {seriesSort.key === "website" ? (seriesSort.asc ? "↑" : "↓") : "–"}
-                  </span>
-                </button>
-              </TableHead>
               <TableHead className="text-xs font-semibold p-2 min-w-[200px] text-right" aria-label="操作">
                 操作
               </TableHead>
@@ -787,7 +761,7 @@ function ProductSeriesPanel({
           <TableBody>
             {filteredSeries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   <span>{seriesList.length === 0 ? "尚無產品系列，請點「新增系列」建立。" : "無符合篩選條件的系列。"}</span>
                 </TableCell>
               </TableRow>
@@ -844,21 +818,6 @@ function ProductSeriesPanel({
                           <span className="text-accent-warn">未建</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm p-2 max-w-[180px]">
-                        {series.website?.trim() ? (
-                          <a
-                            href={series.website.trim().startsWith("http") ? series.website.trim() : `https://${series.website.trim()}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline truncate block"
-                            title={series.website.trim()}
-                          >
-                            {series.website.trim()}
-                          </a>
-                        ) : (
-                          "—"
-                        )}
-                      </TableCell>
                       <TableCell className="p-2 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewSeries(series)} aria-label={`總覽 ${series.name}`}>
@@ -892,7 +851,7 @@ function ProductSeriesPanel({
                       </TableCell>
                     </TableRow>
                     <TableRow className="border-b border-border bg-muted/10 hover:bg-muted/10">
-                      <TableCell colSpan={8} className="p-0 align-top">
+                      <TableCell colSpan={7} className="p-0 align-top">
                         <div
                           className="overflow-hidden transition-[max-height] duration-300 ease-out"
                           style={{ maxHeight: isExpanded ? "80vh" : 0 }}

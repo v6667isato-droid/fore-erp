@@ -16,8 +16,6 @@ export interface SeriesRow {
   social_media_copy?: string | null;
   website_article?: string | null;
   customization_rules?: string | null;
-  /** 產品系列官網／連結 URL */
-  website?: string | null;
   /** 產品系列主視覺圖 Public URL（來自 product-images bucket） */
   image_url?: string | null;
   /** 第二張主視覺圖 Public URL（官網作品牆 hover 顯示；null＝官網 hover 維持微放大） */

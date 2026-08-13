@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Copy, Globe, FileText, Package, FileDown } from "lucide-react";
+import { X, Copy, FileText, Package, FileDown } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   Table,
@@ -177,26 +177,6 @@ export function ViewSeriesDialog({ open, onOpenChange, row, variants }: ViewSeri
                   )}
                 </section>
 
-                {row.website?.trim() && (
-                  <section className="space-y-2">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      網站
-                    </h3>
-                    <a
-                      href={
-                        row.website.trim().startsWith("http")
-                          ? row.website.trim()
-                          : `https://${row.website.trim()}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
-                    >
-                      <Globe className="h-4 w-4 shrink-0" />
-                      {row.website.trim()}
-                    </a>
-                  </section>
-                )}
               </div>
             )}
 

@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN } from "@/lib/products-db";
+import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
-import { X, FileText, MessageCircle, Globe } from "lucide-react";
+import { X, FileText, MessageCircle } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -26,11 +26,11 @@ const FIELDS: { key: (typeof SERIES_CONTENT_COLUMNS)[number]; label: string }[] 
   { key: "customization_rules", label: "客製與保養" },
 ];
 
-/** 依 Tabs 分組：頁籤一 = 設計與行銷，頁籤二 = 客服與保養，頁籤三 = 網站 */
+/** 依 Tabs 分組：頁籤一 = 設計與行銷，頁籤二 = 客服與保養 */
 const TAB_1_KEYS = ["design_concept", "social_media_copy", "website_article"];
 const TAB_2_KEYS = ["faq_scripts", "customization_rules"];
 
-type ContentTab = "marketing" | "support" | "website";
+type ContentTab = "marketing" | "support";
 
 export function EditSeriesContentDialog({ open, onOpenChange, row, onSuccess }: EditSeriesContentDialogProps) {
   const firstRef = useRef<HTMLTextAreaElement>(null);
@@ -46,7 +46,6 @@ export function EditSeriesContentDialog({ open, onOpenChange, row, onSuccess }: 
         const v = row[key];
         next[key] = typeof v === "string" ? v : "";
       }
-      next[SERIES_WEBSITE_COLUMN] = typeof row.website === "string" ? row.website : "";
       setValues(next);
       setError(null);
       setActiveTab("marketing");
@@ -71,8 +70,6 @@ export function EditSeriesContentDialog({ open, onOpenChange, row, onSuccess }: 
       const v = values[col]?.trim();
       payload[col] = v || null;
     }
-    const websiteUrl = values[SERIES_WEBSITE_COLUMN]?.trim();
-    payload[SERIES_WEBSITE_COLUMN] = websiteUrl || null;
     const { error: err } = await supabase.from(TABLE_PRODUCT_SERIES).update(payload).eq("id", row.id);
     setSaving(false);
     if (err) {
@@ -134,17 +131,6 @@ export function EditSeriesContentDialog({ open, onOpenChange, row, onSuccess }: 
               <MessageCircle className="h-4 w-4" />
               客服與保養
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("website")}
-              className={cn(
-                "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
-                activeTab === "website" ? "border-b-2 border-primary bg-card text-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Globe className="h-4 w-4" />
-              網站
-            </button>
           </div>
 
           <form onSubmit={onSubmit} className="flex flex-1 flex-col overflow-hidden">
@@ -177,32 +163,6 @@ export function EditSeriesContentDialog({ open, onOpenChange, row, onSuccess }: 
                     />
                   </div>
                 ))}
-              {activeTab === "website" && (
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="edit-content-website" className="text-xs text-muted-foreground">網站連結</label>
-                    <input
-                      id="edit-content-website"
-                      type="url"
-                      value={values[SERIES_WEBSITE_COLUMN] ?? ""}
-                      onChange={(e) => setField(SERIES_WEBSITE_COLUMN, e.target.value)}
-                      placeholder="https://..."
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring w-full"
-                    />
-                  </div>
-                  {(values[SERIES_WEBSITE_COLUMN] ?? "").trim() && (
-                    <a
-                      href={(values[SERIES_WEBSITE_COLUMN] ?? "").trim().startsWith("http") ? (values[SERIES_WEBSITE_COLUMN] ?? "").trim() : `https://${(values[SERIES_WEBSITE_COLUMN] ?? "").trim()}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
-                    >
-                      <Globe className="h-4 w-4" />
-                      開啟連結
-                    </a>
-                  )}
-                </div>
-              )}
               {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
             </div>
             <div className="flex justify-end gap-2 border-t border-border p-5 pt-4">

@@ -39,7 +39,6 @@ function mapSeries(r: Record<string, unknown>): SeriesRow {
     code_rule: r.code_rule != null ? String(r.code_rule) : null,
     design_concept: r.design_concept != null ? String(r.design_concept) : null,
     customization_rules: r.customization_rules != null ? String(r.customization_rules) : null,
-    website: r.website != null ? String(r.website) : null,
     image_url: r.image_url != null ? String(r.image_url) : null,
     size_chart_urls: [],
     detail_image_urls: Array.isArray(r.detail_image_urls)

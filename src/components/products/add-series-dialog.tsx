@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
+import { TABLE_PRODUCT_SERIES, SERIES_CONTENT_COLUMNS, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
-import { Plus, X, FileText, MessageCircle, Globe } from "lucide-react";
+import { Plus, X, FileText, MessageCircle } from "lucide-react";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
@@ -30,7 +30,7 @@ const CONTENT_FIELDS: { key: (typeof SERIES_CONTENT_COLUMNS)[number]; label: str
 const TAB_1_KEYS = ["design_concept", "social_media_copy", "website_article"];
 const TAB_2_KEYS = ["faq_scripts", "customization_rules"];
 
-type AddSeriesTab = "basic" | "marketing" | "support" | "website";
+type AddSeriesTab = "basic" | "marketing" | "support";
 
 export function AddSeriesDialog({ onSuccess, defaultCategory }: AddSeriesDialogProps) {
   const [open, setOpen] = useState(false);
@@ -42,7 +42,6 @@ export function AddSeriesDialog({ onSuccess, defaultCategory }: AddSeriesDialogP
   const [productionTime, setProductionTime] = useState("");
   const [codeRule, setCodeRule] = useState("");
   const [contentValues, setContentValues] = useState<Record<string, string>>({});
-  const [website, setWebsite] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AddSeriesTab>("basic");
   const [adding, setAdding] = useState(false);
@@ -56,7 +55,6 @@ export function AddSeriesDialog({ onSuccess, defaultCategory }: AddSeriesDialogP
       setProductionTime("");
       setCodeRule("");
       setContentValues({});
-      setWebsite("");
       setImageUrl(null);
       setActiveTab("basic");
       setError(null);
@@ -98,8 +96,6 @@ export function AddSeriesDialog({ onSuccess, defaultCategory }: AddSeriesDialogP
       const v = contentValues[col]?.trim();
       payload[col] = v || null;
     }
-    const websiteUrl = website.trim();
-    payload[SERIES_WEBSITE_COLUMN] = websiteUrl || null;
     payload.image_url = imageUrl?.trim() || null;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
@@ -193,19 +189,6 @@ export function AddSeriesDialog({ onSuccess, defaultCategory }: AddSeriesDialogP
             >
               <MessageCircle className="h-4 w-4" />
               客服與保養
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("website")}
-              className={cn(
-                "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
-                activeTab === "website"
-                  ? "border-b-2 border-primary bg-card text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Globe className="h-4 w-4" />
-              網站
             </button>
           </div>
 
@@ -334,24 +317,6 @@ export function AddSeriesDialog({ onSuccess, defaultCategory }: AddSeriesDialogP
                     />
                   </div>
                 ))}
-
-              {activeTab === "website" && (
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="add-series-website" className="text-xs text-muted-foreground">
-                      網站連結
-                    </label>
-                    <input
-                      id="add-series-website"
-                      type="url"
-                      value={website}
-                      onChange={(e) => setWebsite(e.target.value)}
-                      placeholder="https://..."
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring w-full"
-                    />
-                  </div>
-                </div>
-              )}
 
               {error && (
                 <p className="text-xs text-destructive" role="alert">

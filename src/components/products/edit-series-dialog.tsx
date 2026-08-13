@@ -2,14 +2,14 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { TABLE_PRODUCT_SERIES, TABLE_PRODUCT_VARIANTS, TABLE_SERIES_SWATCHES, SERIES_CONTENT_COLUMNS, SERIES_WEBSITE_COLUMN, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
+import { TABLE_PRODUCT_SERIES, TABLE_PRODUCT_VARIANTS, TABLE_SERIES_SWATCHES, SERIES_CONTENT_COLUMNS, PRODUCT_CATEGORY_OPTIONS } from "@/lib/products-db";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
 import { ProductImagesDropzone } from "@/components/products/product-images-dropzone";
 import { SeriesImageMetaEditor } from "@/components/products/series-image-meta-editor";
 import { SeriesSwatchesSelector } from "@/components/products/series-swatches-selector";
 import { SeriesSheetItemsSelector } from "@/components/products/series-sheet-items-selector";
-import { X, FileText, MessageCircle, Globe, Images, Palette } from "lucide-react";
+import { X, FileText, MessageCircle, Images, Palette } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { SeriesRow, SeriesImageMeta } from "@/types/products";
@@ -35,7 +35,7 @@ const CONTENT_FIELDS: { key: (typeof SERIES_CONTENT_COLUMNS)[number]; label: str
 const TAB_1_KEYS = ["design_concept", "social_media_copy", "website_article"];
 const TAB_2_KEYS = ["faq_scripts", "customization_rules"];
 
-type EditSeriesTab = "basic" | "images" | "sheet" | "marketing" | "support" | "website";
+type EditSeriesTab = "basic" | "images" | "sheet" | "marketing" | "support";
 
 export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSeriesDialogProps) {
   const firstRef = useRef<HTMLInputElement>(null);
@@ -49,7 +49,6 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
   const [productionTime, setProductionTime] = useState("");
   const [codeRule, setCodeRule] = useState("");
   const [contentValues, setContentValues] = useState<Record<string, string>>({});
-  const [website, setWebsite] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   /** 第二張主視覺圖：官網作品牆 hover 顯示；未上傳＝官網維持微放大 */
   const [hoverImageUrl, setHoverImageUrl] = useState<string | null>(null);
@@ -85,10 +84,8 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
         const v = row[key];
         next[key] = typeof v === "string" ? v : "";
       }
-      next[SERIES_WEBSITE_COLUMN] = typeof row.website === "string" ? row.website : "";
       setContentValues(next);
 
-      setWebsite(typeof row.website === "string" ? row.website : "");
       setImageUrl(typeof row.image_url === "string" && row.image_url ? row.image_url : null);
       setHoverImageUrl(
         typeof row.hover_image_url === "string" && row.hover_image_url ? row.hover_image_url : null
@@ -177,8 +174,6 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
       const v = contentValues[col]?.trim();
       payload[col] = v || null;
     }
-    const websiteUrl = website.trim();
-    payload[SERIES_WEBSITE_COLUMN] = websiteUrl || null;
     payload.image_url = imageUrl?.trim() || null;
     payload.hover_image_url = hoverImageUrl?.trim() || null;
     payload.size_chart_urls = sizeChartUrls;
@@ -366,19 +361,6 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
             >
               <MessageCircle className="h-4 w-4" />
               客服與保養
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("website")}
-              className={cn(
-                "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
-                activeTab === "website"
-                  ? "border-b-2 border-primary bg-card text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Globe className="h-4 w-4" />
-              網站
             </button>
           </div>
 
@@ -712,24 +694,6 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                     />
                   </div>
                 </>
-              )}
-
-              {activeTab === "website" && (
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="edit-series-website" className="text-xs text-muted-foreground">
-                      網站連結
-                    </label>
-                    <input
-                      id="edit-series-website"
-                      type="url"
-                      value={website}
-                      onChange={(e) => setWebsite(e.target.value)}
-                      placeholder="https://..."
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring w-full"
-                    />
-                  </div>
-                </div>
               )}
 
               {error && (

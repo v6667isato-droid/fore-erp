@@ -25,14 +25,11 @@ export const SWATCH_BUCKET = "material-swatches";
 /** 尺寸線圖 Storage bucket（public read，SVG／PNG） */
 export const DIMENSION_DRAWING_BUCKET = "dimension-drawings";
 
-/** product_series 查詢欄位（含 website、image_url；若表無 website 會 fallback 用 SERIES_SELECT_NO_WEBSITE）
+/** product_series 查詢欄位（含 image_url；欄位不足時 fallback 用 SERIES_SELECT_NO_WEBSITE）
  *  資料表實際欄位為 series_name；PostgREST 別名使用 name:series_name（避免 series_name as name 被誤解析）
  */
 export const SERIES_SELECT =
-  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, website, image_url, hover_image_url, size_chart_urls, detail_image_urls, image_meta, show_price_on_sheet, name_en:series_name_en, design_concept_en, customization_rules_en, sheet_hero_image_url, sheet_design_concept, sheet_customization_rules";
-
-/** 資料庫 product_series 表之網站 URL 欄位名稱（與 Supabase 表一致） */
-export const SERIES_WEBSITE_COLUMN = "website";
+  "id, name:series_name, category, notes, production_time, code_rule, design_concept, faq_scripts, social_media_copy, website_article, customization_rules, image_url, hover_image_url, size_chart_urls, detail_image_urls, image_meta, show_price_on_sheet, name_en:series_name_en, design_concept_en, customization_rules_en, sheet_hero_image_url, sheet_design_concept, sheet_customization_rules";
 
 /** 無 website 欄位時的查詢（表尚未新增 website 時使用） */
 export const SERIES_SELECT_NO_WEBSITE =
