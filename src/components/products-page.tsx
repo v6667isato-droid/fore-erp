@@ -853,7 +853,7 @@ function ProductSeriesPanel({
                     <TableRow className="border-b border-border bg-muted/10 hover:bg-muted/10">
                       <TableCell colSpan={7} className="p-0 align-top">
                         <div
-                          className="overflow-hidden transition-[max-height] duration-300 ease-out"
+                          className="w-0 min-w-full overflow-hidden transition-[max-height] duration-300 ease-out"
                           style={{ maxHeight: isExpanded ? "80vh" : 0 }}
                         >
                           <div className="bg-muted/20 px-4 pb-4 pt-2 max-h-[70vh] overflow-y-auto">
@@ -885,7 +885,7 @@ function ProductSeriesPanel({
                                 新增規格
                               </Button>
                             </div>
-                            <div className="rounded-lg border border-border bg-card overflow-hidden">
+                            <div className="rounded-lg border border-border bg-card overflow-x-auto">
                               <Table>
                                 <TableHeader>
                                   <TableRow className="hover:bg-transparent border-b border-border">
