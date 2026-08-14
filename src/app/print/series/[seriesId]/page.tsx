@@ -286,7 +286,8 @@ export default function SeriesIntroPrintPage({
         map.set(key, { ...v, displayCode });
       }
     }
-    return [...map.values()];
+    // 沒上傳尺寸線圖的品項不佔線圖格（報價欄仍照勾選列出）
+    return [...map.values()].filter((c) => c.dimension_drawing_url?.trim());
   }, [sheetVariants, woodCodes, series?.category]);
 
   /** 分群順序：材種 → 門片 → 座墊 → 布樣（各群內依勾選順序） */
