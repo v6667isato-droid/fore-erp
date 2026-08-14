@@ -905,6 +905,54 @@ export type Database = {
           },
         ]
       }
+      employee_duties: {
+        Row: {
+          created_at: string
+          employee_id: string
+          id: string
+          kind: string
+          label: string | null
+          series_id: string | null
+          sort_order: number
+          stage: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          id?: string
+          kind: string
+          label?: string | null
+          series_id?: string | null
+          sort_order?: number
+          stage?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          id?: string
+          kind?: string
+          label?: string | null
+          series_id?: string | null
+          sort_order?: number
+          stage?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_duties_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_duties_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "product_series"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employee_tasks: {
         Row: {
           created_at: string | null
@@ -950,6 +998,7 @@ export type Database = {
           email: string | null
           emergency_contact: string | null
           employment_status: boolean | null
+          english_name: string | null
           health_employee_burden: number | null
           health_employee_burden_number: number | null
           health_employer_burden: number | null
@@ -986,6 +1035,7 @@ export type Database = {
           email?: string | null
           emergency_contact?: string | null
           employment_status?: boolean | null
+          english_name?: string | null
           health_employee_burden?: number | null
           health_employee_burden_number?: number | null
           health_employer_burden?: number | null
@@ -1022,6 +1072,7 @@ export type Database = {
           email?: string | null
           emergency_contact?: string | null
           employment_status?: boolean | null
+          english_name?: string | null
           health_employee_burden?: number | null
           health_employee_burden_number?: number | null
           health_employer_burden?: number | null

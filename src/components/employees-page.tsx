@@ -25,12 +25,15 @@ import {
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
 import { seniorityFromHire } from "@/lib/employee-seniority";
+import { WORK_ORDER_STAGES } from "@/lib/work-order-stages";
 
 type Role = "admin" | "staff" | null;
 
 interface EmployeeRow {
   id: string;
   name: string;
+  /** 英文名（english_name） */
+  english_name: string | null;
   email: string | null;
   primary_role: string | null;
   secondary_role: string | null;
@@ -104,7 +107,7 @@ function normalizeUnpaidLeaveMonths(raw: unknown): string[] | null {
 
 // 對應資料庫 employees 表實際欄位
 const EMP_SELECT_ADMIN =
-  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, personal_leave_days, sick_leave_days, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate, remittance_bank, remittance_account, payroll_notification_email, share_count, unpaid_leave_months";
+  "id, name, english_name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status, monthly_wage, annual_leave_remaining, comp_leave_remaining, personal_leave_days, sick_leave_days, labor_insurance_bracket, labor_employee_burden, labor_employer_burden, labor_pension_employer, health_employee_burden, health_employer_burden, health_employee_burden_number, overtime_rate, remittance_bank, remittance_account, payroll_notification_email, share_count, unpaid_leave_months";
 
 /** 尚未套用 unpaid_leave_months migration 時退回 */
 const EMP_SELECT_ADMIN_NO_UNPAID_LEAVE =
@@ -123,7 +126,7 @@ function isEmployeesMissingColumnError(message: string): boolean {
 }
 
 const EMP_SELECT_STAFF =
-  "id, name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status";
+  "id, name, english_name, email, primary_role, secondary_role, phone, emergency_contact, hire_date, employment_status";
 
 function mapEmployee(r: Record<string, unknown>): EmployeeRow {
   const rawStatus = (r as Record<string, unknown>).employment_status;
@@ -137,6 +140,7 @@ function mapEmployee(r: Record<string, unknown>): EmployeeRow {
   return {
     id: String(r.id),
     name: String(r.name ?? ""),
+    english_name: r.english_name != null ? String(r.english_name) : null,
     email: r.email != null ? String(r.email) : null,
     primary_role: r.primary_role != null ? String(r.primary_role) : null,
     secondary_role: r.secondary_role != null ? String(r.secondary_role) : null,
@@ -220,6 +224,78 @@ function mapEmployee(r: Record<string, unknown>): EmployeeRow {
   };
 }
 
+/** 工坊負責項目（employee_duties）：工序站別／產品系列／自訂項目 */
+type DutyKind = "stage" | "series" | "custom";
+
+interface EmployeeDuty {
+  kind: DutyKind;
+  stage: string | null;
+  series_id: string | null;
+  label: string | null;
+}
+
+interface SeriesOption {
+  id: string;
+  name: string;
+}
+
+const EMPTY_DUTIES: EmployeeDuty[] = [];
+
+/** 可指派的工序站別（排除排程／出貨類狀態） */
+const DUTY_STAGE_OPTIONS = WORK_ORDER_STAGES.filter(
+  (s) => !["待排程", "待出貨", "已出貨", "暫停"].includes(s),
+);
+
+function dutyKey(d: EmployeeDuty): string {
+  return `${d.kind}|${d.stage ?? ""}|${d.series_id ?? ""}|${d.label ?? ""}`;
+}
+
+function dutyText(
+  d: EmployeeDuty,
+  seriesNameById: Map<string, string>,
+): string {
+  if (d.kind === "stage") return d.stage ?? "";
+  if (d.kind === "series")
+    return d.series_id
+      ? (seriesNameById.get(d.series_id) ?? "（產品系列）")
+      : "";
+  return d.label ?? "";
+}
+
+function dutyBadgeClassName(kind: DutyKind): string {
+  switch (kind) {
+    case "stage":
+      return "bg-sky-100 text-sky-900 border-sky-200";
+    case "series":
+      return "bg-amber-100 text-amber-900 border-amber-200";
+    default:
+      return "bg-muted text-foreground border-border";
+  }
+}
+
+/** 以「先清後寫」方式儲存某員工的負責項目；回傳錯誤訊息（成功為 null） */
+async function saveEmployeeDuties(
+  employeeId: string,
+  duties: EmployeeDuty[],
+): Promise<string | null> {
+  const del = await supabase
+    .from("employee_duties")
+    .delete()
+    .eq("employee_id", employeeId);
+  if (del.error) return del.error.message;
+  if (duties.length === 0) return null;
+  const rows = duties.map((d, i) => ({
+    employee_id: employeeId,
+    kind: d.kind,
+    stage: d.kind === "stage" ? d.stage : null,
+    series_id: d.kind === "series" ? d.series_id : null,
+    label: d.kind === "custom" ? d.label : null,
+    sort_order: i,
+  }));
+  const ins = await supabase.from("employee_duties").insert(rows);
+  return ins.error ? ins.error.message : null;
+}
+
 function useCurrentUserRole() {
   const [role, setRole] = useState<Role>(null);
   const [name, setName] = useState<string | null>(null);
@@ -300,15 +376,23 @@ type TabKey = "basic" | "salary" | "remittance";
 
 interface EmployeeFormProps {
   initial: Partial<EmployeeRow>;
+  /** 工坊負責項目初始值 */
+  initialDuties: EmployeeDuty[];
+  seriesOptions: SeriesOption[];
   isAdmin: boolean;
   mode: "create" | "edit";
   // payload 直接對應資料庫欄位（如 hire_date、labor_insurance_bracket...）
-  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+  onSubmit: (
+    payload: Record<string, unknown>,
+    duties: EmployeeDuty[],
+  ) => Promise<void>;
   onCancel: () => void;
 }
 
 function EmployeeForm({
   initial,
+  initialDuties,
+  seriesOptions,
   isAdmin,
   mode,
   onSubmit,
@@ -316,6 +400,8 @@ function EmployeeForm({
 }: EmployeeFormProps) {
   const [tab, setTab] = useState<TabKey>("basic");
   const [values, setValues] = useState<Partial<EmployeeRow>>(initial);
+  const [duties, setDuties] = useState<EmployeeDuty[]>(initialDuties);
+  const [dutyCustomInput, setDutyCustomInput] = useState("");
   const [annualLeaveDaysInput, setAnnualLeaveDaysInput] = useState("");
   const [annualLeaveHoursInput, setAnnualLeaveHoursInput] = useState("");
   const [compLeaveDaysInput, setCompLeaveDaysInput] = useState("");
@@ -324,6 +410,11 @@ function EmployeeForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setDuties(initialDuties);
+    setDutyCustomInput("");
+  }, [initialDuties]);
 
   useEffect(() => {
     setValues(initial);
@@ -358,6 +449,22 @@ function EmployeeForm({
 
   function setField<K extends keyof EmployeeRow>(key: K, val: EmployeeRow[K]) {
     setValues((prev) => ({ ...prev, [key]: val }));
+  }
+
+  const seriesNameById = useMemo(
+    () => new Map(seriesOptions.map((s) => [s.id, s.name])),
+    [seriesOptions],
+  );
+
+  function addDuty(duty: EmployeeDuty) {
+    setDuties((prev) => {
+      if (prev.some((d) => dutyKey(d) === dutyKey(duty))) return prev;
+      return [...prev, duty];
+    });
+  }
+
+  function removeDuty(key: string) {
+    setDuties((prev) => prev.filter((d) => dutyKey(d) !== key));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -407,6 +514,7 @@ function EmployeeForm({
 
       const payload: Record<string, unknown> = {
         name: values.name.trim(),
+        english_name: values.english_name?.trim() || null,
         email: values.email?.trim() || null,
         primary_role: values.primary_role?.trim() || null,
         secondary_role: values.secondary_role?.trim() || null,
@@ -467,7 +575,7 @@ function EmployeeForm({
           values.unpaid_leave_months ?? [],
         );
       }
-      await onSubmit(payload);
+      await onSubmit(payload, duties);
     } finally {
       setSaving(false);
     }
@@ -524,18 +632,35 @@ function EmployeeForm({
       <div className="flex-1 overflow-y-auto p-5 space-y-4">
         {tab === "basic" && (
           <>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="emp-name" className="text-xs text-muted-foreground">
-                姓名 *
-              </label>
-              <input
-                ref={firstRef}
-                id="emp-name"
-                type="text"
-                value={values.name ?? ""}
-                onChange={(e) => setField("name", e.target.value)}
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="emp-name" className="text-xs text-muted-foreground">
+                  姓名 *
+                </label>
+                <input
+                  ref={firstRef}
+                  id="emp-name"
+                  type="text"
+                  value={values.name ?? ""}
+                  onChange={(e) => setField("name", e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="emp-english-name"
+                  className="text-xs text-muted-foreground"
+                >
+                  英文名
+                </label>
+                <input
+                  id="emp-english-name"
+                  type="text"
+                  value={values.english_name ?? ""}
+                  onChange={(e) => setField("english_name", e.target.value)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
               <label
@@ -669,6 +794,119 @@ function EmployeeForm({
                   values.unpaid_leave_months,
                 ).label}
               </output>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">
+                工坊負責項目
+              </span>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                可加入工序站別、產品系列或自訂項目（例：噴漆檢查），儲存時一併更新。
+              </p>
+              {duties.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {duties.map((d) => (
+                    <span
+                      key={dutyKey(d)}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs",
+                        dutyBadgeClassName(d.kind),
+                      )}
+                    >
+                      {dutyText(d, seriesNameById)}
+                      <button
+                        type="button"
+                        className="inline-flex h-4 w-4 items-center justify-center rounded hover:bg-black/10"
+                        aria-label={`移除 ${dutyText(d, seriesNameById)}`}
+                        onClick={() => removeDuty(dutyKey(d))}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <select
+                  aria-label="加入工序站別"
+                  value=""
+                  onChange={(e) => {
+                    const stage = e.target.value;
+                    if (!stage) return;
+                    addDuty({ kind: "stage", stage, series_id: null, label: null });
+                  }}
+                  className="h-9 rounded-lg border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">＋ 工序站別…</option>
+                  {DUTY_STAGE_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="加入產品系列"
+                  value=""
+                  onChange={(e) => {
+                    const seriesId = e.target.value;
+                    if (!seriesId) return;
+                    addDuty({
+                      kind: "series",
+                      stage: null,
+                      series_id: seriesId,
+                      label: null,
+                    });
+                  }}
+                  className="h-9 rounded-lg border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">＋ 產品系列…</option>
+                  {seriesOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    aria-label="自訂項目"
+                    placeholder="自訂項目"
+                    value={dutyCustomInput}
+                    onChange={(e) => setDutyCustomInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      const label = dutyCustomInput.trim();
+                      if (!label) return;
+                      addDuty({
+                        kind: "custom",
+                        stage: null,
+                        series_id: null,
+                        label,
+                      });
+                      setDutyCustomInput("");
+                    }}
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!dutyCustomInput.trim()}
+                    onClick={() => {
+                      const label = dutyCustomInput.trim();
+                      if (!label) return;
+                      addDuty({
+                        kind: "custom",
+                        stage: null,
+                        series_id: null,
+                        label,
+                      });
+                      setDutyCustomInput("");
+                    }}
+                  >
+                    加入
+                  </Button>
+                </div>
+              </div>
             </div>
             {isAdmin && (
               <div className="flex flex-col gap-1.5">
@@ -1181,17 +1419,39 @@ function EmployeeForm({
 interface AddEmployeeDialogProps {
   onSuccess: () => void;
   isAdmin: boolean;
+  seriesOptions: SeriesOption[];
 }
 
-function AddEmployeeDialog({ onSuccess, isAdmin }: AddEmployeeDialogProps) {
+function AddEmployeeDialog({
+  onSuccess,
+  isAdmin,
+  seriesOptions,
+}: AddEmployeeDialogProps) {
   const [open, setOpen] = useState(false);
 
-  async function handleSubmit(payload: Record<string, unknown>) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
-    const { error } = await supabase.from("employees").insert(payload as any);
+  async function handleSubmit(
+    payload: Record<string, unknown>,
+    duties: EmployeeDuty[],
+  ) {
+    const { data: created, error } = await supabase
+      .from("employees")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 動態組裝欄位，欄位集合因環境而異
+      .insert(payload as any)
+      .select("id")
+      .single();
     if (error) {
       toast.error(error.message || "新增員工失敗");
       return;
+    }
+    const newId = (created as { id?: string } | null)?.id;
+    if (newId && duties.length > 0) {
+      const dutyErr = await saveEmployeeDuties(newId, duties);
+      if (dutyErr) {
+        toast.error(`員工已新增，但負責項目儲存失敗：${dutyErr}`);
+        setOpen(false);
+        onSuccess();
+        return;
+      }
     }
     toast.success("已新增員工");
     setOpen(false);
@@ -1236,6 +1496,8 @@ function AddEmployeeDialog({ onSuccess, isAdmin }: AddEmployeeDialogProps) {
           </div>
           <EmployeeForm
             initial={{ employment_status: "在職" }}
+            initialDuties={EMPTY_DUTIES}
+            seriesOptions={seriesOptions}
             isAdmin={isAdmin}
             mode="create"
             onSubmit={handleSubmit}
@@ -1249,6 +1511,8 @@ function AddEmployeeDialog({ onSuccess, isAdmin }: AddEmployeeDialogProps) {
 
 interface EditEmployeeDialogProps {
   row: EmployeeRow | null;
+  duties: EmployeeDuty[];
+  seriesOptions: SeriesOption[];
   isAdmin: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -1256,13 +1520,18 @@ interface EditEmployeeDialogProps {
 
 function EditEmployeeDialog({
   row,
+  duties,
+  seriesOptions,
   isAdmin,
   onClose,
   onSuccess,
 }: EditEmployeeDialogProps) {
   const open = row != null;
 
-  async function handleSubmit(payload: Record<string, unknown>) {
+  async function handleSubmit(
+    payload: Record<string, unknown>,
+    nextDuties: EmployeeDuty[],
+  ) {
     if (!row) return;
     const { error } = await supabase
       .from("employees")
@@ -1270,6 +1539,13 @@ function EditEmployeeDialog({
       .eq("id", row.id);
     if (error) {
       toast.error(error.message || "更新員工失敗");
+      return;
+    }
+    const dutyErr = await saveEmployeeDuties(row.id, nextDuties);
+    if (dutyErr) {
+      toast.error(`員工已更新，但負責項目儲存失敗：${dutyErr}`);
+      onSuccess();
+      onClose();
       return;
     }
     toast.success("已更新員工");
@@ -1307,6 +1583,8 @@ function EditEmployeeDialog({
           {row && (
             <EmployeeForm
               initial={row}
+              initialDuties={duties}
+              seriesOptions={seriesOptions}
               isAdmin={isAdmin}
               mode="edit"
               onSubmit={handleSubmit}
@@ -1321,11 +1599,19 @@ function EditEmployeeDialog({
 
 interface ViewEmployeeDialogProps {
   row: EmployeeRow | null;
+  duties: EmployeeDuty[];
+  seriesNameById: Map<string, string>;
   isAdmin: boolean;
   onClose: () => void;
 }
 
-function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) {
+function ViewEmployeeDialog({
+  row,
+  duties,
+  seriesNameById,
+  isAdmin,
+  onClose,
+}: ViewEmployeeDialogProps) {
   const open = row != null;
 
   return (
@@ -1368,6 +1654,12 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                       <span className="text-muted-foreground">姓名</span>
                       <span className="font-medium text-foreground">
                         {row.name || "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">英文名</span>
+                      <span className="text-foreground">
+                        {row.english_name ?? "—"}
                       </span>
                     </div>
                     <div className="flex justify-between gap-4">
@@ -1419,6 +1711,31 @@ function ViewEmployeeDialog({ row, isAdmin, onClose }: ViewEmployeeDialogProps) 
                       </div>
                     )}
                   </div>
+                </section>
+
+                <section className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    工坊負責項目
+                  </h3>
+                  {duties.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {duties.map((d) => (
+                        <span
+                          key={dutyKey(d)}
+                          className={cn(
+                            "inline-flex items-center rounded-md border px-2 py-1 text-xs",
+                            dutyBadgeClassName(d.kind),
+                          )}
+                        >
+                          {dutyText(d, seriesNameById)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      尚未設定，可於「編輯員工」加入。
+                    </p>
+                  )}
                 </section>
 
                 <section className="space-y-2">
@@ -1603,6 +1920,10 @@ export function EmployeesPage() {
   const isAdmin = role === "admin";
 
   const [rows, setRows] = useState<EmployeeRow[]>([]);
+  const [dutiesByEmployee, setDutiesByEmployee] = useState<
+    Record<string, EmployeeDuty[]>
+  >({});
+  const [seriesOptions, setSeriesOptions] = useState<SeriesOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("");
   const [editRow, setEditRow] = useState<EmployeeRow | null>(null);
@@ -1676,11 +1997,60 @@ export function EmployeesPage() {
     setLoading(false);
   }
 
+  async function fetchDuties() {
+    const { data, error } = await supabase
+      .from("employee_duties")
+      .select("employee_id, kind, stage, series_id, label")
+      .order("sort_order", { ascending: true });
+    if (error) {
+      console.error("employee_duties fetch error:", error.message);
+      return;
+    }
+    const map: Record<string, EmployeeDuty[]> = {};
+    for (const r of data ?? []) {
+      const list = (map[r.employee_id] ??= []);
+      list.push({
+        kind: r.kind as DutyKind,
+        stage: r.stage,
+        series_id: r.series_id,
+        label: r.label,
+      });
+    }
+    setDutiesByEmployee(map);
+  }
+
+  async function fetchSeriesOptions() {
+    const { data, error } = await supabase
+      .from("product_series")
+      .select("id, series_name")
+      .is("deleted_at", null)
+      .order("series_name");
+    if (error) {
+      console.error("product_series fetch error:", error.message);
+      return;
+    }
+    setSeriesOptions(
+      (data ?? []).map((r) => ({ id: r.id, name: r.series_name })),
+    );
+  }
+
   useEffect(() => {
     if (!authLoading && role) {
       fetchEmployees(role);
+      fetchDuties();
+      fetchSeriesOptions();
     }
   }, [authLoading, role]);
+
+  const seriesNameById = useMemo(
+    () => new Map(seriesOptions.map((s) => [s.id, s.name])),
+    [seriesOptions],
+  );
+
+  function refreshAfterSave() {
+    fetchEmployees(role);
+    fetchDuties();
+  }
 
   const filtered = useMemo(() => {
     let list = rows;
@@ -1760,7 +2130,11 @@ export function EmployeesPage() {
             </p>
           </div>
         </div>
-        <AddEmployeeDialog onSuccess={() => fetchEmployees(role)} isAdmin={isAdmin} />
+        <AddEmployeeDialog
+          onSuccess={refreshAfterSave}
+          isAdmin={isAdmin}
+          seriesOptions={seriesOptions}
+        />
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
@@ -1803,6 +2177,9 @@ export function EmployeesPage() {
               </TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">
                 次要角色
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle min-w-[10rem]">
+                工坊負責項目
               </TableHead>
               <TableHead className="text-xs font-semibold p-2 align-middle">
                 信箱
@@ -1847,7 +2224,7 @@ export function EmployeesPage() {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 14 : 9}
+                  colSpan={isAdmin ? 15 : 10}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {rows.length === 0
@@ -1868,6 +2245,11 @@ export function EmployeesPage() {
                       className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
                     >
                       {row.name || "—"}
+                      {row.english_name && (
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          {row.english_name}
+                        </span>
+                      )}
                     </button>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
@@ -1875,6 +2257,25 @@ export function EmployeesPage() {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
                     {row.secondary_role ?? "—"}
+                  </TableCell>
+                  <TableCell className="p-2">
+                    {(dutiesByEmployee[row.id]?.length ?? 0) > 0 ? (
+                      <div className="flex max-w-[18rem] flex-wrap gap-1">
+                        {dutiesByEmployee[row.id].map((d) => (
+                          <span
+                            key={dutyKey(d)}
+                            className={cn(
+                              "inline-flex whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px]",
+                              dutyBadgeClassName(d.kind),
+                            )}
+                          >
+                            {dutyText(d, seriesNameById)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground p-2">
                     {row.email ?? "—"}
@@ -1969,12 +2370,20 @@ export function EmployeesPage() {
 
       <EditEmployeeDialog
         row={editRow}
+        duties={
+          editRow ? (dutiesByEmployee[editRow.id] ?? EMPTY_DUTIES) : EMPTY_DUTIES
+        }
+        seriesOptions={seriesOptions}
         isAdmin={isAdmin}
         onClose={() => setEditRow(null)}
-        onSuccess={() => fetchEmployees(role)}
+        onSuccess={refreshAfterSave}
       />
       <ViewEmployeeDialog
         row={viewRow}
+        duties={
+          viewRow ? (dutiesByEmployee[viewRow.id] ?? EMPTY_DUTIES) : EMPTY_DUTIES
+        }
+        seriesNameById={seriesNameById}
         isAdmin={isAdmin}
         onClose={() => setViewRow(null)}
       />
