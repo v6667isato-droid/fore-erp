@@ -98,7 +98,8 @@ function formatCm(v: number): string {
  * 無尺寸（舊檔）→ fallback 塞 33mm 高的盒子。
  */
 function parseDrawingSize(url: string): { w: number; h: number } | null {
-  const m = url.match(/_(\d+)x(\d+)\.png(?:\?|$)/);
+  // 檔名格式：uuid_WxH.png 或 uuid_WxH_dDPI.png（dDPI＝上傳時記錄的匯出 DPI）
+  const m = url.match(/_(\d+)x(\d+)(?:_d\d+)?\.png(?:\?|$)/);
   if (!m) return null;
   const w = Number(m[1]);
   const h = Number(m[2]);

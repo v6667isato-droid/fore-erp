@@ -87,11 +87,44 @@ async function trimPngWhitespace(file: File): Promise<{ blob: Blob; w: number; h
  */
 export function drawingScalePercent(url: string | null | undefined, capMm = 54.8): number | null {
   if (!url) return null;
-  const m = url.match(/_(\d+)x(\d+)\.png(?:\?|$)/);
+  const m = url.match(/_(\d+)x(\d+)(?:_d\d+)?\.png(?:\?|$)/);
   if (!m) return null;
   const wMm = Number(m[1]) * (25.4 / 300);
   if (!(wMm > 0)) return null;
   return wMm <= capMm ? 100 : Math.round((capMm / wMm) * 100);
+}
+
+/** 從檔名 _dNNN 讀出上傳時記錄的匯出 DPI；舊檔無記錄回傳 null */
+export function parseDrawingDpi(url: string | null | undefined): number | null {
+  if (!url) return null;
+  const m = url.match(/_d(\d+)\.png(?:\?|$)/);
+  const dpi = m ? Number(m[1]) : NaN;
+  return Number.isFinite(dpi) && dpi > 0 ? dpi : null;
+}
+
+/** 讀 PNG pHYs 中繼資料的 DPI（LayOut 匯出會寫入）；讀不到回傳 null */
+async function readPngDpi(file: File): Promise<number | null> {
+  try {
+    const buf = new Uint8Array(await file.slice(0, 65536).arrayBuffer());
+    let o = 8; // 跳過 PNG signature
+    while (o + 12 <= buf.length) {
+      const len = ((buf[o] << 24) | (buf[o + 1] << 16) | (buf[o + 2] << 8) | buf[o + 3]) >>> 0;
+      const type = String.fromCharCode(buf[o + 4], buf[o + 5], buf[o + 6], buf[o + 7]);
+      if (type === "pHYs" && o + 8 + 9 <= buf.length) {
+        const ppmX =
+          (buf[o + 8] * 0x1000000 + (buf[o + 9] << 16) + (buf[o + 10] << 8) + buf[o + 11]) >>> 0;
+        const unit = buf[o + 16];
+        // unit 1＝pixels per metre → DPI＝ppm × 0.0254
+        if (unit === 1 && ppmX > 0) return Math.round(ppmX * 0.0254);
+        return null;
+      }
+      if (type === "IDAT") break;
+      o += 12 + len;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export interface DimensionDrawingUploadProps {
@@ -130,11 +163,13 @@ export function DimensionDrawingUpload({
           filename = `${crypto.randomUUID()}.svg`;
           payload = file;
         } else {
+          // 匯出 DPI 讀自原始檔 pHYs（canvas 裁切會遺失中繼資料，故先讀再裁、編進檔名）
+          const dpi = await readPngDpi(file);
           const trimmed = await trimPngWhitespace(file);
           payload = trimmed.blob;
           filename =
             trimmed.w > 0 && trimmed.h > 0
-              ? `${crypto.randomUUID()}_${trimmed.w}x${trimmed.h}.png`
+              ? `${crypto.randomUUID()}_${trimmed.w}x${trimmed.h}${dpi ? `_d${dpi}` : ""}.png`
               : `${crypto.randomUUID()}.png`;
         }
         const { data, error } = await supabase.storage
