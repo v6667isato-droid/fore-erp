@@ -317,9 +317,9 @@ export default function SeriesIntroPrintPage({
   }
 
   const showPrice = series.show_price_on_sheet === true && sheetVariants.length > 0;
-  // 介紹表專用主視覺圖優先；未設定時沿用產品主視覺圖
+  // 介紹表專用主視覺圖優先；未設定時沿用產品主視覺圖。只印一張（不再自動帶入細節圖）
   const heroImage = series.sheet_hero_image_url?.trim() || series.image_url;
-  const photos = [heroImage, series.detail_image_urls?.[0]].filter(Boolean) as string[];
+  const photos = [heroImage].filter(Boolean) as string[];
   const gridCols = showPrice ? 3 : 4;
   // 線圖整頁統一縮放：有圖超過格寬時，全部圖用同一縮放率縮小（字高線粗才會一致）；都塞得下則 1:1
   // 格寬＝(區寬 − 欄距16mm×(欄數−1)) ÷ 欄數：有價目 3 欄約 51.6mm、無價目 4 欄約 54.8mm
