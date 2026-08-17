@@ -332,6 +332,10 @@ export default function SeriesIntroPrintPage({
     })
   );
   const drawingScale = maxDrawingMm > cellMm ? cellMm / maxDrawingMm : 1;
+  /** 色樣分群（去空群）：色樣列為整頁全寬（不縮放 32mm），跨出左欄以容納較多色樣不折行 */
+  const swatchGroups = [woodSwatches, doorSwatches, fabricSwatches, clothSwatches].filter(
+    (g) => g.length > 0
+  );
   // 英文版：系列名／設計理念／客製與保養取英文欄位，留空 fallback 中文
   // 中文內容：介紹表專用欄位優先，未填沿用產品資料欄位
   const displayName = (lang === "en" && series.name_en?.trim()) || series.name || "—";
@@ -389,6 +393,20 @@ export default function SeriesIntroPrintPage({
           margin-top: 1.25rem;
           display: flex;
           flex-direction: column;
+        }
+        /* 螢幕限定 A4 分頁線：列印時內容超過此線會分頁；貼齊頁底時幾乎不可見 */
+        .sheet-pagebreak-marker {
+          position: absolute;
+          left: 0;
+          right: 0;
+          top: 209.6mm;
+          border-top: 0.4mm dashed rgba(200, 80, 80, 0.45);
+          pointer-events: none;
+        }
+        @media print {
+          .sheet-pagebreak-marker {
+            display: none;
+          }
         }
         .sheet-brand {
           font-size: 10pt;
@@ -543,8 +561,7 @@ export default function SeriesIntroPrintPage({
           <img src="/logo.png" alt="Føre Furniture" style={{ height: "18mm" }} className="w-auto object-contain" />
         </div>
 
-        {/* flex:1 撐滿到頁面下緣（padding 15mm），讓色樣區能貼齊下邊距 */}
-        <div className="flex" style={{ marginTop: "6mm", flex: 1 }}>
+        <div className="flex" style={{ marginTop: "6mm" }}>
           {/* 左區：線圖 grid＋客製與保養＋色樣 */}
           <div className="flex flex-col" style={{ width: showPrice ? "70%" : "100%" }}>
             {sheetVariants.length === 0 ? (
@@ -621,76 +638,6 @@ export default function SeriesIntroPrintPage({
               </div>
             )}
 
-            {/* 客製與保養：固定在色樣區上方 */}
-            {displayCustomization.trim() && (swatches.length > 0 || sheetVariants.length > 0) && (
-              <p
-                style={{
-                  fontSize: "6.5pt",
-                  lineHeight: 1.8,
-                  color: "#8a8a8a",
-                  whiteSpace: "pre-wrap",
-                  marginTop: "auto",
-                  paddingTop: "10mm",
-                }}
-              >
-                {displayCustomization}
-              </p>
-            )}
-
-            {/* 底部列：色樣（材種 → 門片 → 座墊 → 布樣）貼齊頁面下緣，右側並列類別／交期／尺寸單位 */}
-            {(swatches.length > 0 || (!showPrice && sheetVariants.length > 0)) && (
-              <div
-                className="flex items-end"
-                style={{
-                  gap: "8mm",
-                  marginTop: displayCustomization.trim() ? "5mm" : "auto",
-                  paddingTop: displayCustomization.trim() ? undefined : "10mm",
-                }}
-              >
-                <div className="flex flex-wrap items-start" style={{ gap: "8mm", flex: 1 }}>
-                  {[woodSwatches, doorSwatches, fabricSwatches, clothSwatches]
-                    .filter((group) => group.length > 0)
-                    .map((group, gi) => (
-                      <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>
-                        {group.map((s) => (
-                          <div key={s.id} className="flex flex-col" style={{ width: "32mm" }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={s.image_url}
-                              alt={s.name}
-                              style={{ width: "32mm", height: "32mm", objectFit: "cover" }}
-                            />
-                            {lang === "en" ? (
-                              <p className="sheet-en" style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
-                                {s.name_en?.trim() || s.name.replace(/^\[DEMO\]\s*/, "")}
-                              </p>
-                            ) : (
-                              <>
-                                <p style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
-                                  {s.name.replace(/^\[DEMO\]\s*/, "")}
-                                </p>
-                                {s.name_en?.trim() && (
-                                  <p className="sheet-en" style={{ fontSize: "6.5pt", color: "#999", lineHeight: 1.4 }}>
-                                    {s.name_en}
-                                  </p>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                </div>
-                {!showPrice && sheetVariants.length > 0 && (
-                  <p
-                    className="sheet-en"
-                    style={{ fontSize: "6.5pt", color: "#999", whiteSpace: "nowrap" }}
-                  >
-                    {specFootnote}
-                  </p>
-                )}
-              </div>
-            )}
           </div>
 
           {showPrice && (
@@ -735,6 +682,74 @@ export default function SeriesIntroPrintPage({
             </>
           )}
         </div>
+
+        {/* 底部全寬區塊：客製與保養＋色樣列（32mm 不縮放，跨整頁寬 267mm），貼齊頁面下緣 */}
+        {(swatches.length > 0 ||
+          displayCustomization.trim() ||
+          (!showPrice && sheetVariants.length > 0)) && (
+          <div style={{ marginTop: "auto", paddingTop: "10mm" }}>
+            {displayCustomization.trim() && (
+              <p
+                style={{
+                  fontSize: "6.5pt",
+                  lineHeight: 1.8,
+                  color: "#8a8a8a",
+                  whiteSpace: "pre-wrap",
+                  marginBottom: swatches.length > 0 ? "5mm" : 0,
+                }}
+              >
+                {displayCustomization}
+              </p>
+            )}
+            {(swatches.length > 0 || (!showPrice && sheetVariants.length > 0)) && (
+              <div className="flex items-end" style={{ gap: "8mm" }}>
+                <div className="flex flex-wrap items-start" style={{ gap: "8mm", flex: 1 }}>
+                  {swatchGroups.map((group, gi) => (
+                    <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>
+                      {group.map((s) => (
+                        <div key={s.id} className="flex flex-col" style={{ width: "32mm" }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={s.image_url}
+                            alt={s.name}
+                            style={{ width: "32mm", height: "32mm", objectFit: "cover" }}
+                          />
+                          {lang === "en" ? (
+                            <p className="sheet-en" style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                              {s.name_en?.trim() || s.name.replace(/^\[DEMO\]\s*/, "")}
+                            </p>
+                          ) : (
+                            <>
+                              <p style={{ fontSize: "7pt", color: "#444", marginTop: "1.5mm", lineHeight: 1.4 }}>
+                                {s.name.replace(/^\[DEMO\]\s*/, "")}
+                              </p>
+                              {s.name_en?.trim() && (
+                                <p className="sheet-en" style={{ fontSize: "6.5pt", color: "#999", lineHeight: 1.4 }}>
+                                  {s.name_en}
+                                </p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                {!showPrice && sheetVariants.length > 0 && (
+                  <p
+                    className="sheet-en"
+                    style={{ fontSize: "6.5pt", color: "#999", whiteSpace: "nowrap" }}
+                  >
+                    {specFootnote}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 螢幕限定：A4 分頁線（內容超過此線列印會被切到下一頁；內容未超過時貼齊頁底不可見） */}
+        <div className="sheet-pagebreak-marker" aria-hidden />
       </section>
     </div>
   );
