@@ -11,7 +11,7 @@ export interface FocalPointPickerProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
-  /** 官網裁切比例（CSS aspect-ratio 寫法），作品／訂製案例為 "4 / 5"、日誌列表為 "3 / 2" */
+  /** 官網裁切比例（CSS aspect-ratio 寫法），作品牆為 "2 / 3"、訂製案例為 "4 / 5"、日誌列表為 "3 / 2" */
   previewAspect?: string;
   className?: string;
 }

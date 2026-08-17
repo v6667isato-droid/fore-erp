@@ -79,6 +79,21 @@ async function trimPngWhitespace(file: File): Promise<{ blob: Blob; w: number; h
   }
 }
 
+/**
+ * 從檔名 _WxH 估算介紹表縮放比例（%）：印出寬（px × 25.4/300）超過格寬時會被縮小。
+ * 以無價目 4 欄格寬 54.8mm 為基準（有價目 3 欄 51.6mm 會再小一點）；
+ * 回傳 100＝不縮放；null＝無法判斷（SVG 或舊檔名無尺寸）。
+ * 注意：介紹表實際是整頁統一縮放，若同系列有更大的圖，實際比例會更低。
+ */
+export function drawingScalePercent(url: string | null | undefined, capMm = 54.8): number | null {
+  if (!url) return null;
+  const m = url.match(/_(\d+)x(\d+)\.png(?:\?|$)/);
+  if (!m) return null;
+  const wMm = Number(m[1]) * (25.4 / 300);
+  if (!(wMm > 0)) return null;
+  return wMm <= capMm ? 100 : Math.round((capMm / wMm) * 100);
+}
+
 export interface DimensionDrawingUploadProps {
   value: string | null;
   onChange: (url: string | null) => void;

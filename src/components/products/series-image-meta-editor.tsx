@@ -49,7 +49,7 @@ export function SeriesImageMetaEditor({
               value={m.object_position ?? ""}
               onChange={(v) => setField(url, "object_position", v)}
               disabled={disabled}
-              previewAspect="4 / 5"
+              previewAspect="2 / 3"
             />
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div className="flex flex-col gap-1">

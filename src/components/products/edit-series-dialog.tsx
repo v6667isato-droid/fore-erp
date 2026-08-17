@@ -503,7 +503,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       官網圖片標題與裁切焦點
                     </span>
                     <span className="text-[11px] text-muted-foreground">
-                      官網作品頁以 4:5 比例裁切顯示；點圖片設定焦點可避免重點被裁掉，標題會顯示為圖說（尺寸圖不裁切，不需設定）。
+                      官網作品牆以 2:3 直向比例裁切主視覺圖（下方預覽即為此比例）；點圖片設定焦點可避免重點被裁掉，標題會顯示為圖說。細節圖在官網產品頁以原圖比例完整顯示（焦點只影響詳頁下方的方形縮圖列），尺寸圖不裁切、不需設定。
                     </span>
                     <SeriesImageMetaEditor
                       images={[
