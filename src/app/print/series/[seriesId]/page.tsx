@@ -703,7 +703,8 @@ export default function SeriesIntroPrintPage({
             )}
             {(swatches.length > 0 || (!showPrice && sheetVariants.length > 0)) && (
               <div className="flex items-end" style={{ gap: "8mm" }}>
-                <div className="flex flex-wrap items-start" style={{ gap: "8mm", flex: 1 }}>
+                {/* 各分類（材種／門片／座墊／布樣）各自一列 */}
+                <div className="flex flex-col" style={{ gap: "5mm", flex: 1 }}>
                   {swatchGroups.map((group, gi) => (
                     <div key={gi} className="flex flex-wrap" style={{ gap: "4mm" }}>
                       {group.map((s) => (
