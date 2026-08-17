@@ -1099,60 +1099,60 @@ export function OrdersPage({
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
-        <Table className="min-w-[52rem]">
+        <Table className="min-w-[54rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead
-                className="w-24 px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
-                onClick={() => toggleOrderSort("order_date")}
-                title="點擊排序"
-              >
-                <OrderSortHeader label="下單日" sortKey="order_date" />
-              </TableHead>
-              <TableHead
-                className="px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="min-w-[8rem] px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("customer_name")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="客戶" sortKey="customer_name" />
               </TableHead>
               <TableHead
-                className="w-32 px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-[5.5rem] px-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                onClick={() => toggleOrderSort("order_date")}
+                title="點擊排序"
+              >
+                <OrderSortHeader label="下單日" sortKey="order_date" />
+              </TableHead>
+              <TableHead
+                className="w-[7.5rem] px-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("expected_delivery_date")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="交期" sortKey="expected_delivery_date" />
               </TableHead>
               <TableHead
-                className="w-24 px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-28 px-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("status")}
                 title="點擊排序"
               >
-                <OrderSortHeader label="狀態" sortKey="status" />
+                <OrderSortHeader label="訂單狀態" sortKey="status" />
               </TableHead>
               <TableHead
-                className="w-24 px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-24 px-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("payment_status")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="付款" sortKey="payment_status" />
               </TableHead>
               <TableHead
-                className="w-20 px-1.5 text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-20 px-1.5 text-xs font-semibold text-right whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("deposit_amount")}
                 title="點擊排序"
               >
                 <OrderSortHeader label="訂金" sortKey="deposit_amount" />
               </TableHead>
               <TableHead
-                className="w-24 px-1.5 text-xs font-semibold text-right cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                className="w-24 px-1.5 text-xs font-semibold text-right whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("total_amount")}
                 title="點擊排序"
               >
-                <OrderSortHeader label="金額" sortKey="total_amount" />
+                <OrderSortHeader label="總金額" sortKey="total_amount" />
               </TableHead>
               <TableHead
-                className="w-[9.5rem] px-1 text-xs font-semibold text-right whitespace-nowrap"
+                className="w-[11rem] px-1 text-xs font-semibold text-right whitespace-nowrap"
                 aria-label="操作"
               >
                 操作
@@ -1180,9 +1180,6 @@ export function OrdersPage({
                   className={rowReadOnly ? "group" : "group cursor-pointer"}
                   onClick={rowReadOnly ? undefined : () => handleEdit(order)}
                 >
-                  <TableCell className="px-1.5 text-sm text-muted-foreground tabular-nums">
-                    {order.order_date ? order.order_date.replace(/-/g, "/") : "—"}
-                  </TableCell>
                   <TableCell className="px-1.5 text-sm whitespace-normal">
                     <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
                       <button
@@ -1208,7 +1205,10 @@ export function OrdersPage({
                       ) : null}
                     </div>
                   </TableCell>
-                  <TableCell className="px-1.5 text-sm">
+                  <TableCell className="px-1.5 text-sm text-muted-foreground tabular-nums whitespace-nowrap">
+                    {order.order_date ? order.order_date.replace(/-/g, "/") : "—"}
+                  </TableCell>
+                  <TableCell className="px-1.5 text-sm whitespace-nowrap">
                     {rowReadOnly ? (
                       <span className="text-muted-foreground tabular-nums">
                         {order.expected_delivery_date
@@ -1298,12 +1298,12 @@ export function OrdersPage({
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="px-1.5 text-right text-sm tabular-nums">
+                  <TableCell className="px-1.5 text-right text-sm tabular-nums whitespace-nowrap">
                     {order.deposit_amount
                       ? order.deposit_amount.toLocaleString()
                       : "—"}
                   </TableCell>
-                  <TableCell className="px-1.5 text-right text-sm font-medium tabular-nums">
+                  <TableCell className="px-1.5 text-right text-sm font-medium tabular-nums whitespace-nowrap">
                     {order.total_amount.toLocaleString()}
                   </TableCell>
                   <TableCell className="text-right px-1 py-0.5">
