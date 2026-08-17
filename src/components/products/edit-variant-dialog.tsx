@@ -7,7 +7,7 @@ import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { buildSizeCode } from "@/lib/size-code";
 import { Button } from "@/components/ui/button";
 import { ProductImageDropzone } from "@/components/products/product-image-dropzone";
-import { DimensionDrawingUpload } from "@/components/products/dimension-drawing-upload";
+import { DimensionDrawingUpload, drawingScalePercent } from "@/components/products/dimension-drawing-upload";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
@@ -423,7 +423,18 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
             </label>
             {showOnSheet && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-xs text-muted-foreground">尺寸線圖（SVG / PNG，Fusion 360 匯出）</span>
+                <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>尺寸線圖（SVG / PNG，Fusion 360 匯出）</span>
+                  {(() => {
+                    const pct = drawingScalePercent(drawingUrl);
+                    if (pct == null) return null;
+                    return pct >= 100 ? (
+                      <span className="shrink-0 text-emerald-600 dark:text-emerald-400">不縮放（100%）</span>
+                    ) : (
+                      <span className="shrink-0 text-accent-warn">介紹表縮放約 {pct}%</span>
+                    );
+                  })()}
+                </span>
                 <DimensionDrawingUpload value={drawingUrl} onChange={setDrawingUrl} disabled={saving} />
                 {!drawingUrl && (
                   <p className="text-[11px] text-accent-warn">
