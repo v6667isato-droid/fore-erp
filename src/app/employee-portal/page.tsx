@@ -101,6 +101,7 @@ import {
 } from "@/lib/supabase";
 import { epSection } from "@/lib/employee-portal-section-styles";
 import { SystemTestReportBlock } from "@/components/system-test-report-block";
+import { EmployeeCheckinCard } from "@/components/employee-checkin-card";
 import { CompanyAnnouncementsBlock } from "@/components/company-announcements-block";
 import { WorkshopWeeklyRotationBlock } from "@/components/workshop-weekly-rotation-block";
 import { MeetingAssignmentsBlock } from "@/components/meeting-assignments-block";
@@ -861,6 +862,9 @@ export default function EmployeePortalPage() {
   const [makeupRows, setMakeupRows] = useState<MakeupPunchRequestRow[]>([]);
   /** 送出成功後遞增以重新載入補卡列表 */
   const [makeupTick, setMakeupTick] = useState(0);
+  /** 請假／加班／補打卡合併卡片：目前分頁；切換分頁時收合「顯示全部」 */
+  const [requestTab, setRequestTab] = useState<"leave" | "overtime" | "makeup">("leave");
+  const [requestListExpanded, setRequestListExpanded] = useState(false);
   /** 假別主檔（leave_types）；離線／載入失敗時退回既有四種 */
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>(FALLBACK_LEAVE_TYPES);
   /** 假單附件（診斷證明等）；依假別 proof_required 決定顯示與必填 */
@@ -1851,6 +1855,9 @@ export default function EmployeePortalPage() {
             </div>
           </section>
 
+          {/* 線上打卡（app_settings.portal_checkin_scope 控制；未開放時不渲染） */}
+          <EmployeeCheckinCard showAdminFieldHints={showAdminFieldHints} />
+
           <EmployeePortalMiniCalendar
             employeeId={employee.id}
             showSubtitleHints={showAdminFieldHints}
@@ -2303,286 +2310,458 @@ export default function EmployeePortalPage() {
             </div>
           </section>
 
-          {/* 我的請假狀態 */}
+          {/* 請假／加班／補打卡（Tab 合併卡片，手機以精簡列表呈現） */}
           <section className={epSection.card}>
-            <div className={cn(epSection.headerRowBetween, "sm:items-start")}>
-              <div className="flex items-center gap-2">
-                <div className={epSection.iconBox}>
-                  <Leaf className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className={epSection.title}>我的請假狀態</h3>
-                  {showAdminFieldHints ? (
-                    <p className={cn("mt-0.5", epSection.subtitle)}>leave_requests · 近期紀錄</p>
-                  ) : null}
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="default"
-                className="shrink-0 gap-1.5 self-start sm:self-auto"
-                onClick={() => setLeaveOpen(true)}
-              >
-                <CalendarPlus className="h-4 w-4" />
-                申請休假
-              </Button>
-            </div>
-            <div className={epSection.tableWrap}>
-              <table className={epSection.table}>
-                <thead>
-                  <tr className={epSection.thead}>
-                    <th className={epSection.th}>假別</th>
-                    <th className={epSection.th}>區間</th>
-                    <th className={epSection.th}>天數/時數</th>
-                    <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
-                    <th className={epSection.th}>狀態</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leave_requests.map((row) => (
-                    <tr
-                      key={row.id}
-                      className="border-b border-border/60 last:border-0 hover:bg-muted/15"
-                    >
-                      <td className={cn(epSection.td, "font-medium text-foreground")}>{row.type_label}</td>
-                      <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
-                        <span className="text-foreground">
-                          {row.start_date} — {row.end_date}
-                        </span>
-                        {(() => {
+            {(() => {
+              const REQUEST_TABS = [
+                { key: "leave", label: "請假", pending: leave_requests.filter((r) => r.status === "pending").length },
+                { key: "overtime", label: "加班", pending: overtimeRows.filter((r) => r.status === "pending").length },
+                { key: "makeup", label: "補打卡", pending: makeupRows.filter((r) => r.status === "pending").length },
+              ] as const;
+              const visibleCount = requestListExpanded ? Infinity : 3;
+              const totalOfTab =
+                requestTab === "leave"
+                  ? leave_requests.length
+                  : requestTab === "overtime"
+                    ? overtimeRows.length
+                    : makeupRows.length;
+              const subtitle = showAdminFieldHints
+                ? requestTab === "leave"
+                  ? "leave_requests · 近期紀錄"
+                  : requestTab === "overtime"
+                    ? "overtime_requests · 核准後寫入 overtime_records"
+                    : "makeup_punch_requests · 核准後於月底出勤統計自動併入缺卡側"
+                : requestTab === "leave"
+                  ? "近期假單與審核狀態。"
+                  : requestTab === "overtime"
+                    ? "選擇折抵補休者，核准後即累加補休餘額。"
+                    : "忘記打卡時申請補登；核准後月底出勤統計會自動採計。";
+              const rowItemClass = "px-3 py-2.5 sm:px-4";
+              const emptyClass = "px-3 py-6 text-center text-sm text-muted-foreground";
+              return (
+                <>
+                  <div className={cn(epSection.headerRowBetween, "sm:items-start")}>
+                    <div className="flex items-center gap-2">
+                      <div className={epSection.iconBox}>
+                        {requestTab === "leave" ? (
+                          <Leaf className="h-4 w-4" />
+                        ) : requestTab === "overtime" ? (
+                          <Clock className="h-4 w-4" />
+                        ) : (
+                          <AlarmClock className="h-4 w-4" />
+                        )}
+                      </div>
+                      <div>
+                        <h3 className={epSection.title}>請假・加班・補打卡</h3>
+                        <p className={cn("mt-0.5", epSection.subtitle)}>{subtitle}</p>
+                      </div>
+                    </div>
+                    {requestTab === "leave" ? (
+                      <Button
+                        type="button"
+                        size="default"
+                        className="shrink-0 gap-1.5 self-start sm:self-auto"
+                        onClick={() => setLeaveOpen(true)}
+                      >
+                        <CalendarPlus className="h-4 w-4" />
+                        申請休假
+                      </Button>
+                    ) : requestTab === "overtime" ? (
+                      <Button
+                        type="button"
+                        size="default"
+                        className="shrink-0 gap-1.5 self-start sm:self-auto"
+                        onClick={() => setOvertimeOpen(true)}
+                      >
+                        <Clock className="h-4 w-4" />
+                        申報加班
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="default"
+                        className="shrink-0 gap-1.5 self-start sm:self-auto"
+                        onClick={() => setMakeupOpen(true)}
+                      >
+                        <AlarmClock className="h-4 w-4" />
+                        申請補打卡
+                      </Button>
+                    )}
+                  </div>
+                  <div className="mb-4 grid grid-cols-3 gap-1 rounded-xl border border-border/70 bg-muted/40 p-1">
+                    {REQUEST_TABS.map((tab) => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => {
+                          setRequestTab(tab.key);
+                          setRequestListExpanded(false);
+                        }}
+                        className={cn(
+                          "flex items-center justify-center gap-1.5 rounded-lg px-1 py-2 text-sm font-medium transition-colors",
+                          requestTab === tab.key
+                            ? "bg-card text-foreground shadow-sm"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {tab.label}
+                        {tab.pending > 0 ? (
+                          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/15 px-1 text-[10px] font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+                            {tab.pending}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                  <ul className="divide-y divide-border/60 rounded-xl border border-border/60 md:hidden">
+                    {requestTab === "leave" ? (
+                      leave_requests.length === 0 ? (
+                        <li className={emptyClass}>尚無請假紀錄</li>
+                      ) : (
+                        leave_requests.slice(0, visibleCount).map((row) => {
                           const conflict = computeLeaveHolidayConflict(
                             row.start_date,
                             row.end_date,
                             row.created_at ?? null,
                             holidayRows,
                           );
-                          if (!conflict) return null;
-                          const { alreadyDeducted, notDeducted } = conflict;
+                          const reason = displayLeaveReason(row.reason);
                           return (
-                            <span className="mt-0.5 block text-xs font-normal leading-snug">
-                              {notDeducted.length > 0 ? (
-                                <span className="text-amber-700 dark:text-amber-400">
-                                  ⚠️ 與「{notDeducted.map((h) => h.name).join("、")}」重疊（尚未扣除 {notDeducted.length} 日，請洽管理者確認）
-                                </span>
-                              ) : null}
-                              {alreadyDeducted.length > 0 ? (
-                                <span className="block text-muted-foreground">
-                                  ℹ️ 已扣除臨時假日「{alreadyDeducted.map((h) => h.name).join("、")}」{alreadyDeducted.length} 日
-                                </span>
-                              ) : null}
-                            </span>
+                            <li key={row.id} className={rowItemClass}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium text-foreground">
+                                    {row.type_label}
+                                    <span className="ml-2 text-xs font-normal tabular-nums text-muted-foreground">
+                                      {leaveDurationTableLabel(row)}
+                                    </span>
+                                  </p>
+                                  <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                                    {row.start_date === row.end_date
+                                      ? formatDateYyMmDd(row.start_date)
+                                      : `${formatDateYyMmDd(row.start_date)} — ${formatDateYyMmDd(row.end_date)}`}
+                                    {row.start_hour != null && row.end_hour != null ? (
+                                      <>
+                                        {" "}· {row.start_hour}–{row.end_hour} 時
+                                        {row.start_date !== row.end_date &&
+                                        row.end_day_start_hour != null &&
+                                        row.end_day_end_hour != null
+                                          ? `（結束日 ${row.end_day_start_hour}–${row.end_day_end_hour} 時）`
+                                          : null}
+                                      </>
+                                    ) : null}
+                                  </p>
+                                  {conflict && conflict.notDeducted.length > 0 ? (
+                                    <p className="mt-0.5 text-xs leading-snug text-amber-700 dark:text-amber-400">
+                                      ⚠️ 與「{conflict.notDeducted.map((h) => h.name).join("、")}」重疊（尚未扣除{" "}
+                                      {conflict.notDeducted.length} 日，請洽管理者確認）
+                                    </p>
+                                  ) : null}
+                                  {conflict && conflict.alreadyDeducted.length > 0 ? (
+                                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                                      ℹ️ 已扣除臨時假日「
+                                      {conflict.alreadyDeducted.map((h) => h.name).join("、")}」
+                                      {conflict.alreadyDeducted.length} 日
+                                    </p>
+                                  ) : null}
+                                  {reason ? (
+                                    <p className="mt-0.5 truncate text-xs text-foreground/80">{reason}</p>
+                                  ) : null}
+                                </div>
+                                <div className="flex shrink-0 flex-col items-end gap-1">
+                                  {leaveStatusBadge(row)}
+                                  {leaveRequestRowWasUpdated(row) ? (
+                                    <span className="text-[11px] leading-snug text-muted-foreground">
+                                      已更新 · {formatLeaveUpdatedAtDisplay(row.updated_at)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </li>
                           );
-                        })()}
-                        {row.start_hour != null && row.end_hour != null ? (
-                          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                            起始日 {row.start_hour}–{row.end_hour} 時
-                            {row.start_date !== row.end_date &&
-                            row.end_day_start_hour != null &&
-                            row.end_day_end_hour != null ? (
-                              <>
-                                {" "}
-                                · 結束日 {row.end_day_start_hour}–{row.end_day_end_hour} 時
-                              </>
-                            ) : null}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
-                        {leaveDurationTableLabel(row)}
-                      </td>
-                      <td className={cn(epSection.td, "max-w-[14rem] text-muted-foreground")}>
-                        <span className="break-words text-xs leading-snug text-foreground/90">
-                          {displayLeaveReason(row.reason) || "—"}
-                        </span>
-                      </td>
-                      <td className={cn(epSection.td, "align-top")}>
-                        <div className="flex flex-col gap-1">
-                          {leaveStatusBadge(row)}
-                          {leaveRequestRowWasUpdated(row) ? (
-                            <span className="text-[11px] leading-snug text-muted-foreground">
-                              已更新 · {formatLeaveUpdatedAtDisplay(row.updated_at)}
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* 我的加班申報 */}
-          <section className={epSection.card}>
-            <div className={cn(epSection.headerRowBetween, "sm:items-start")}>
-              <div className="flex items-center gap-2">
-                <div className={epSection.iconBox}>
-                  <Clock className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className={epSection.title}>我的加班申報</h3>
-                  {showAdminFieldHints ? (
-                    <p className={cn("mt-0.5", epSection.subtitle)}>
-                      overtime_requests · 近期紀錄；核准後寫入 overtime_records
-                    </p>
-                  ) : (
-                    <p className={cn("mt-0.5", epSection.subtitle)}>
-                      選擇折抵補休者，核准後即累加補休餘額。
-                    </p>
-                  )}
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="default"
-                className="shrink-0 gap-1.5 self-start sm:self-auto"
-                onClick={() => setOvertimeOpen(true)}
-              >
-                <Clock className="h-4 w-4" />
-                申報加班
-              </Button>
-            </div>
-            <div className={epSection.tableWrap}>
-              <table className={epSection.table}>
-                <thead>
-                  <tr className={epSection.thead}>
-                    <th className={epSection.th}>日期</th>
-                    <th className={epSection.th}>時段</th>
-                    <th className={epSection.th}>時數</th>
-                    <th className={epSection.th}>折抵</th>
-                    <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
-                    <th className={epSection.th}>狀態</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {overtimeRows.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className={cn(epSection.td, "py-6 text-center text-muted-foreground")}
-                      >
-                        尚無加班申報紀錄
-                      </td>
-                    </tr>
-                  ) : (
-                    overtimeRows.map((row) => (
-                      <tr
-                        key={row.id}
-                        className="border-b border-border/60 last:border-0 hover:bg-muted/15"
-                      >
-                        <td className={cn(epSection.td, "tabular-nums font-medium text-foreground")}>
-                          {row.overtime_date}
-                        </td>
-                        <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
-                          {row.start_time}–{row.end_time}
-                        </td>
-                        <td className={cn(epSection.td, "tabular-nums text-foreground")}>
-                          {row.hours.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 小時
-                        </td>
-                        <td className={epSection.td}>
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
-                              row.compensation_type === "pay"
-                                ? "border-amber-700/25 bg-amber-100/90 text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
-                                : "border-sky-700/20 bg-sky-100/90 text-sky-950 dark:border-sky-500/25 dark:bg-sky-950/35 dark:text-sky-100",
-                            )}
-                          >
-                            {OVERTIME_COMPENSATION_LABELS[row.compensation_type]}
-                          </span>
-                        </td>
-                        <td className={cn(epSection.td, "max-w-[14rem] text-muted-foreground")}>
-                          <span className="break-words text-xs leading-snug text-foreground/90">
-                            {row.reason || "—"}
-                          </span>
-                        </td>
-                        <td className={cn(epSection.td, "align-top")}>{leaveStatusBadge(row)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* 我的補打卡 */}
-          <section className={epSection.card}>
-            <div className={cn(epSection.headerRowBetween, "sm:items-start")}>
-              <div className="flex items-center gap-2">
-                <div className={epSection.iconBox}>
-                  <AlarmClock className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className={epSection.title}>我的補打卡</h3>
-                  {showAdminFieldHints ? (
-                    <p className={cn("mt-0.5", epSection.subtitle)}>
-                      makeup_punch_requests · 核准後於月底出勤統計自動併入缺卡側
-                    </p>
-                  ) : (
-                    <p className={cn("mt-0.5", epSection.subtitle)}>
-                      忘記打卡時申請補登；核准後月底出勤統計會自動採計。
-                    </p>
-                  )}
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="default"
-                className="shrink-0 gap-1.5 self-start sm:self-auto"
-                onClick={() => setMakeupOpen(true)}
-              >
-                <AlarmClock className="h-4 w-4" />
-                申請補打卡
-              </Button>
-            </div>
-            <div className={epSection.tableWrap}>
-              <table className={epSection.table}>
-                <thead>
-                  <tr className={epSection.thead}>
-                    <th className={epSection.th}>日期</th>
-                    <th className={epSection.th}>補上班</th>
-                    <th className={epSection.th}>補下班</th>
-                    <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
-                    <th className={epSection.th}>狀態</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {makeupRows.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className={cn(epSection.td, "py-6 text-center text-muted-foreground")}
-                      >
-                        尚無補打卡申請紀錄
-                      </td>
-                    </tr>
-                  ) : (
-                    makeupRows.map((row) => (
-                      <tr
-                        key={row.id}
-                        className="border-b border-border/60 last:border-0 hover:bg-muted/15"
-                      >
-                        <td className={cn(epSection.td, "tabular-nums font-medium text-foreground")}>
-                          {row.punch_date}
-                        </td>
-                        <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
-                          {row.clock_in ?? "—"}
-                        </td>
-                        <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
-                          {row.clock_out ?? "—"}
-                        </td>
-                        <td className={cn(epSection.td, "max-w-[14rem] text-muted-foreground")}>
-                          <span className="break-words text-xs leading-snug text-foreground/90">
-                            {row.reason || "—"}
-                          </span>
-                        </td>
-                        <td className={cn(epSection.td, "align-top")}>{leaveStatusBadge(row)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                        })
+                      )
+                    ) : requestTab === "overtime" ? (
+                      overtimeRows.length === 0 ? (
+                        <li className={emptyClass}>尚無加班申報紀錄</li>
+                      ) : (
+                        overtimeRows.slice(0, visibleCount).map((row) => (
+                          <li key={row.id} className={rowItemClass}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium tabular-nums text-foreground">
+                                  {formatDateYyMmDd(row.overtime_date)}
+                                  <span className="ml-2 text-xs font-normal tabular-nums text-muted-foreground">
+                                    {row.hours.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 小時
+                                  </span>
+                                </p>
+                                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
+                                  {row.start_time}–{row.end_time}
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium",
+                                      row.compensation_type === "pay"
+                                        ? "border-amber-700/25 bg-amber-100/90 text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
+                                        : "border-sky-700/20 bg-sky-100/90 text-sky-950 dark:border-sky-500/25 dark:bg-sky-950/35 dark:text-sky-100",
+                                    )}
+                                  >
+                                    {OVERTIME_COMPENSATION_LABELS[row.compensation_type]}
+                                  </span>
+                                </p>
+                                {row.reason ? (
+                                  <p className="mt-0.5 truncate text-xs text-foreground/80">{row.reason}</p>
+                                ) : null}
+                              </div>
+                              <div className="shrink-0">{leaveStatusBadge(row)}</div>
+                            </div>
+                          </li>
+                        ))
+                      )
+                    ) : makeupRows.length === 0 ? (
+                      <li className={emptyClass}>尚無補打卡申請紀錄</li>
+                    ) : (
+                      makeupRows.slice(0, visibleCount).map((row) => (
+                        <li key={row.id} className={rowItemClass}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium tabular-nums text-foreground">
+                                {formatDateYyMmDd(row.punch_date)}
+                              </p>
+                              <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                                上班 {row.clock_in ?? "—"} · 下班 {row.clock_out ?? "—"}
+                              </p>
+                              {row.reason ? (
+                                <p className="mt-0.5 truncate text-xs text-foreground/80">{row.reason}</p>
+                              ) : null}
+                            </div>
+                            <div className="shrink-0">{leaveStatusBadge(row)}</div>
+                          </div>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                  {/* md 以上維持原本的表格欄位呈現 */}
+                  <div className={cn(epSection.tableWrap, "hidden md:block")}>
+                    {requestTab === "leave" ? (
+                      <table className={epSection.table}>
+                        <thead>
+                          <tr className={epSection.thead}>
+                            <th className={epSection.th}>假別</th>
+                            <th className={epSection.th}>區間</th>
+                            <th className={epSection.th}>天數/時數</th>
+                            <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
+                            <th className={epSection.th}>狀態</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {leave_requests.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={5}
+                                className={cn(epSection.td, "py-6 text-center text-muted-foreground")}
+                              >
+                                尚無請假紀錄
+                              </td>
+                            </tr>
+                          ) : (
+                            leave_requests.slice(0, visibleCount).map((row) => {
+                              const conflict = computeLeaveHolidayConflict(
+                                row.start_date,
+                                row.end_date,
+                                row.created_at ?? null,
+                                holidayRows,
+                              );
+                              return (
+                                <tr
+                                  key={row.id}
+                                  className="border-b border-border/60 last:border-0 hover:bg-muted/15"
+                                >
+                                  <td className={cn(epSection.td, "font-medium text-foreground")}>
+                                    {row.type_label}
+                                  </td>
+                                  <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
+                                    <span className="text-foreground">
+                                      {row.start_date} — {row.end_date}
+                                    </span>
+                                    {conflict ? (
+                                      <span className="mt-0.5 block text-xs font-normal leading-snug">
+                                        {conflict.notDeducted.length > 0 ? (
+                                          <span className="text-amber-700 dark:text-amber-400">
+                                            ⚠️ 與「{conflict.notDeducted.map((h) => h.name).join("、")}」重疊（尚未扣除{" "}
+                                            {conflict.notDeducted.length} 日，請洽管理者確認）
+                                          </span>
+                                        ) : null}
+                                        {conflict.alreadyDeducted.length > 0 ? (
+                                          <span className="block text-muted-foreground">
+                                            ℹ️ 已扣除臨時假日「
+                                            {conflict.alreadyDeducted.map((h) => h.name).join("、")}」
+                                            {conflict.alreadyDeducted.length} 日
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                    ) : null}
+                                    {row.start_hour != null && row.end_hour != null ? (
+                                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                                        起始日 {row.start_hour}–{row.end_hour} 時
+                                        {row.start_date !== row.end_date &&
+                                        row.end_day_start_hour != null &&
+                                        row.end_day_end_hour != null ? (
+                                          <>
+                                            {" "}
+                                            · 結束日 {row.end_day_start_hour}–{row.end_day_end_hour} 時
+                                          </>
+                                        ) : null}
+                                      </span>
+                                    ) : null}
+                                  </td>
+                                  <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
+                                    {leaveDurationTableLabel(row)}
+                                  </td>
+                                  <td className={cn(epSection.td, "max-w-[14rem] text-muted-foreground")}>
+                                    <span className="break-words text-xs leading-snug text-foreground/90">
+                                      {displayLeaveReason(row.reason) || "—"}
+                                    </span>
+                                  </td>
+                                  <td className={cn(epSection.td, "align-top")}>
+                                    <div className="flex flex-col gap-1">
+                                      {leaveStatusBadge(row)}
+                                      {leaveRequestRowWasUpdated(row) ? (
+                                        <span className="text-[11px] leading-snug text-muted-foreground">
+                                          已更新 · {formatLeaveUpdatedAtDisplay(row.updated_at)}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    ) : requestTab === "overtime" ? (
+                      <table className={epSection.table}>
+                        <thead>
+                          <tr className={epSection.thead}>
+                            <th className={epSection.th}>日期</th>
+                            <th className={epSection.th}>時段</th>
+                            <th className={epSection.th}>時數</th>
+                            <th className={epSection.th}>折抵</th>
+                            <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
+                            <th className={epSection.th}>狀態</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {overtimeRows.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className={cn(epSection.td, "py-6 text-center text-muted-foreground")}
+                              >
+                                尚無加班申報紀錄
+                              </td>
+                            </tr>
+                          ) : (
+                            overtimeRows.slice(0, visibleCount).map((row) => (
+                              <tr
+                                key={row.id}
+                                className="border-b border-border/60 last:border-0 hover:bg-muted/15"
+                              >
+                                <td className={cn(epSection.td, "tabular-nums font-medium text-foreground")}>
+                                  {row.overtime_date}
+                                </td>
+                                <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
+                                  {row.start_time}–{row.end_time}
+                                </td>
+                                <td className={cn(epSection.td, "tabular-nums text-foreground")}>
+                                  {row.hours.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 小時
+                                </td>
+                                <td className={epSection.td}>
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                                      row.compensation_type === "pay"
+                                        ? "border-amber-700/25 bg-amber-100/90 text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
+                                        : "border-sky-700/20 bg-sky-100/90 text-sky-950 dark:border-sky-500/25 dark:bg-sky-950/35 dark:text-sky-100",
+                                    )}
+                                  >
+                                    {OVERTIME_COMPENSATION_LABELS[row.compensation_type]}
+                                  </span>
+                                </td>
+                                <td className={cn(epSection.td, "max-w-[14rem] text-muted-foreground")}>
+                                  <span className="break-words text-xs leading-snug text-foreground/90">
+                                    {row.reason || "—"}
+                                  </span>
+                                </td>
+                                <td className={cn(epSection.td, "align-top")}>{leaveStatusBadge(row)}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <table className={epSection.table}>
+                        <thead>
+                          <tr className={epSection.thead}>
+                            <th className={epSection.th}>日期</th>
+                            <th className={epSection.th}>補上班</th>
+                            <th className={epSection.th}>補下班</th>
+                            <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
+                            <th className={epSection.th}>狀態</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {makeupRows.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={5}
+                                className={cn(epSection.td, "py-6 text-center text-muted-foreground")}
+                              >
+                                尚無補打卡申請紀錄
+                              </td>
+                            </tr>
+                          ) : (
+                            makeupRows.slice(0, visibleCount).map((row) => (
+                              <tr
+                                key={row.id}
+                                className="border-b border-border/60 last:border-0 hover:bg-muted/15"
+                              >
+                                <td className={cn(epSection.td, "tabular-nums font-medium text-foreground")}>
+                                  {row.punch_date}
+                                </td>
+                                <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
+                                  {row.clock_in ?? "—"}
+                                </td>
+                                <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
+                                  {row.clock_out ?? "—"}
+                                </td>
+                                <td className={cn(epSection.td, "max-w-[14rem] text-muted-foreground")}>
+                                  <span className="break-words text-xs leading-snug text-foreground/90">
+                                    {row.reason || "—"}
+                                  </span>
+                                </td>
+                                <td className={cn(epSection.td, "align-top")}>{leaveStatusBadge(row)}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                  {totalOfTab > 3 ? (
+                    <button
+                      type="button"
+                      onClick={() => setRequestListExpanded((v) => !v)}
+                      className="mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      {requestListExpanded ? "只顯示最近 3 筆" : `顯示全部 ${totalOfTab} 筆`}
+                      <ChevronDown
+                        className={cn("h-3.5 w-3.5 transition-transform", requestListExpanded && "rotate-180")}
+                      />
+                    </button>
+                  ) : null}
+                </>
+              );
+            })()}
           </section>
 
           <SystemTestReportBlock

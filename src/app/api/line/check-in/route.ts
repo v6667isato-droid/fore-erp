@@ -2,14 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { OAuth } from "@line/bot-sdk";
 import { haversineDistanceMeters } from "@/lib/haversine-meters";
+import {
+  FACTORY_LAT,
+  FACTORY_LNG,
+  GEOFENCE_RADIUS_M,
+} from "@/lib/attendance-checkin";
 
 export const runtime = "nodejs";
-
-/** 工廠中心點（WGS84） */
-const FACTORY_LAT = 22.97719574793936;
-const FACTORY_LNG = 120.27564517465072;
-/** 允許打卡半徑（公尺） */
-const GEOFENCE_RADIUS_M = 100;
 
 function getServiceSupabase() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();

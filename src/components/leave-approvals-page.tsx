@@ -65,6 +65,13 @@ import {
   type MakeupPunchRequestAdminRow,
 } from "@/lib/employee-makeup-punch-requests";
 import {
+  checkinSourceLabel,
+  checkinTypeLabel,
+  taipeiDayRangeUtc,
+  taipeiHmOfIso,
+  taipeiYmdOfIso,
+} from "@/lib/attendance-checkin";
+import {
   formatLeaveUpdatedAtDisplay,
   leaveRequestRowWasUpdated,
 } from "@/lib/leave-request-updated";
@@ -381,6 +388,10 @@ export function LeaveApprovalsPage() {
   const [otRows, setOtRows] = useState<OvertimeRequestAdminRow[]>([]);
   /** 補打卡申請（makeup_punch_requests）：與假單／加班同一區塊混列審核 */
   const [mkRows, setMkRows] = useState<MakeupPunchRequestAdminRow[]>([]);
+  /** 待審補卡的當日線上打卡佐證（attendance_logs；key = employee_id\t日期） */
+  const [mkEvidence, setMkEvidence] = useState<
+    Map<string, { check_type: string; distance_meters: number; source: string; created_at: string }[]>
+  >(new Map());
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -593,6 +604,56 @@ export function LeaveApprovalsPage() {
     void loadOvertime();
     void loadMakeup();
   }, [load, loadOvertime, loadMakeup]);
+
+  /** 待審補卡：撈同日的 LINE／儀表板打卡當佐證 */
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const pend = mkRows.filter((r) => r.status === "pending" && r.punch_date);
+    if (pend.length === 0) {
+      setMkEvidence(new Map());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const empIds = [...new Set(pend.map((r) => r.employee_id))];
+      const dates = pend.map((r) => r.punch_date).sort();
+      const { startIso } = taipeiDayRangeUtc(dates[0]!);
+      const { endIso } = taipeiDayRangeUtc(dates[dates.length - 1]!);
+      const { data, error: evErr } = await supabase
+        .from("attendance_logs")
+        .select("employee_id, check_type, distance_meters, source, created_at")
+        .in("employee_id", empIds)
+        .gte("created_at", startIso)
+        .lte("created_at", endIso)
+        .order("created_at", { ascending: true });
+      if (cancelled) return;
+      if (evErr) {
+        console.warn("[leave-approvals] attendance_logs:", evErr.message);
+        return;
+      }
+      const map = new Map<
+        string,
+        { check_type: string; distance_meters: number; source: string; created_at: string }[]
+      >();
+      for (const raw of (data ?? []) as Record<string, unknown>[]) {
+        const created = String(raw.created_at ?? "");
+        if (!created) continue;
+        const key = `${String(raw.employee_id ?? "")}\t${taipeiYmdOfIso(created)}`;
+        const list = map.get(key) ?? [];
+        list.push({
+          check_type: String(raw.check_type ?? ""),
+          distance_meters: Number(raw.distance_meters ?? 0),
+          source: String(raw.source ?? ""),
+          created_at: created,
+        });
+        map.set(key, list);
+      }
+      setMkEvidence(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mkRows]);
 
   useEffect(() => {
     if (searchParams.get("attendanceTab") !== "employees") return;
@@ -1257,6 +1318,33 @@ export function LeaveApprovalsPage() {
                               </span>
                             </p>
                           ) : null}
+                          <p className="sm:col-span-2">
+                            <span className="text-xs uppercase tracking-wide">
+                              當日線上打卡佐證
+                            </span>
+                            <br />
+                            {(() => {
+                              const ev =
+                                mkEvidence.get(`${mk.employee_id}\t${mk.punch_date}`) ?? [];
+                              if (ev.length === 0) {
+                                return (
+                                  <span className="text-muted-foreground">
+                                    無（LINE／儀表板皆無當日紀錄）
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="tabular-nums text-foreground">
+                                  {ev
+                                    .map(
+                                      (l) =>
+                                        `${checkinTypeLabel(l.check_type)} ${taipeiHmOfIso(l.created_at)}（${checkinSourceLabel(l.source)}·距廠區 ${Math.round(l.distance_meters)}m）`,
+                                    )
+                                    .join("；")}
+                                </span>
+                              );
+                            })()}
+                          </p>
                         </div>
                         <p className="text-xs text-muted-foreground">
                           核准後於月底出勤統計自動併入缺卡側；該月出勤已匯入者即時補上並重算標籤。打卡鐘實卡不會被覆蓋。

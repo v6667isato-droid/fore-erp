@@ -24,9 +24,18 @@ import {
   type PartMakeTaskRow,
 } from "@/lib/part-make-tasks";
 import { CompleteMakeTaskDialog } from "@/components/inventory/complete-make-task-dialog";
+import {
+  createPersonalTodo,
+  deletePersonalTodo,
+  fetchPersonalTodosForEmployee,
+  setPersonalTodoCompleted,
+  type PersonalTodoRow,
+} from "@/lib/personal-todos";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import * as Dialog from "@radix-ui/react-dialog";
+import { ChevronDown, Loader2, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 function formatMd(iso: string): string {
@@ -36,7 +45,7 @@ function formatMd(iso: string): string {
   return `${y}/${m}/${day}`;
 }
 
-type UnifiedSource = "meeting" | "calendar" | "stocktake" | "make";
+type UnifiedSource = "meeting" | "calendar" | "stocktake" | "make" | "todo";
 
 interface UnifiedItem {
   id: string;
@@ -61,8 +70,22 @@ function toUnified(
   calendar: CompanyEventAssigneeRow[],
   stocktakes: StocktakeTaskRow[],
   makes: PartMakeTaskRow[],
+  todos: PersonalTodoRow[],
 ): UnifiedItem[] {
   const items: UnifiedItem[] = [];
+  for (const t of todos) {
+    items.push({
+      id: `p-${t.id}`,
+      source: "todo",
+      label: "個人待辦",
+      content: t.content,
+      description: null,
+      imageUrl: null,
+      date: t.due_date ?? (t.created_at ?? "").slice(0, 10),
+      completed: t.completed,
+      completedAt: t.completed_at,
+    });
+  }
   for (const m of meetings) {
     items.push({
       id: `m-${m.assignment_id}`,
@@ -150,6 +173,7 @@ export function MeetingAssignmentsBlock({
   const [calendarRows, setCalendarRows] = useState<CompanyEventAssigneeRow[]>([]);
   const [stocktakeRows, setStocktakeRows] = useState<StocktakeTaskRow[]>([]);
   const [makeRows, setMakeRows] = useState<PartMakeTaskRow[]>([]);
+  const [todoRows, setTodoRows] = useState<PersonalTodoRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -163,6 +187,11 @@ export function MeetingAssignmentsBlock({
   } | null>(null);
   /** 點「完成回報」後開啟的製作回報視窗 */
   const [activeMakeTask, setActiveMakeTask] = useState<PartMakeTaskRow | null>(null);
+  /** 「新增待辦事項」視窗（指定自己） */
+  const [addTodoOpen, setAddTodoOpen] = useState(false);
+  const [newTodoContent, setNewTodoContent] = useState("");
+  const [newTodoDueDate, setNewTodoDueDate] = useState("");
+  const [savingTodo, setSavingTodo] = useState(false);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured || !employeeId) {
@@ -170,17 +199,19 @@ export function MeetingAssignmentsBlock({
       setCalendarRows([]);
       setStocktakeRows([]);
       setMakeRows([]);
+      setTodoRows([]);
       setError(null);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const [mRes, cRes, sRes, kRes] = await Promise.all([
+      const [mRes, cRes, sRes, kRes, pRes] = await Promise.all([
         fetchMeetingAssignmentsForEmployee(employeeId),
         fetchCompanyEventAssignmentsForEmployee(employeeId),
         fetchStocktakeTasksForEmployee(employeeId),
         fetchPartMakeTasksForEmployee(employeeId),
+        fetchPersonalTodosForEmployee(employeeId),
       ]);
       if (!mRes.ok) {
         setError(mRes.message);
@@ -206,6 +237,12 @@ export function MeetingAssignmentsBlock({
       } else {
         setMakeRows(kRes.rows);
       }
+      if (!pRes.ok) {
+        setError((prev) => (prev ? `${prev}；${pRes.message}` : pRes.message));
+        setTodoRows([]);
+      } else {
+        setTodoRows(pRes.rows);
+      }
     } finally {
       setLoading(false);
     }
@@ -215,7 +252,7 @@ export function MeetingAssignmentsBlock({
     void load();
   }, [load, meetingDataTick]);
 
-  const unified = toUnified(meetingRows, calendarRows, stocktakeRows, makeRows);
+  const unified = toUnified(meetingRows, calendarRows, stocktakeRows, makeRows, todoRows);
 
   async function toggleCompleted(item: UnifiedItem, completed: boolean) {
     if (!isSupabaseConfigured) {
@@ -264,7 +301,7 @@ export function MeetingAssignmentsBlock({
               : x,
           ),
         );
-      } else {
+      } else if (item.source === "make") {
         const rawId = item.id.slice(2);
         const r = await setPartMakeTaskCompleted({ taskId: rawId, completed });
         if (!r.ok) { toast.error(r.message); return; }
@@ -275,7 +312,63 @@ export function MeetingAssignmentsBlock({
               : x,
           ),
         );
+      } else {
+        const rawId = item.id.slice(2);
+        const r = await setPersonalTodoCompleted({ todoId: rawId, completed });
+        if (!r.ok) { toast.error(r.message); return; }
+        setTodoRows((prev) =>
+          prev.map((x) =>
+            x.id === rawId
+              ? { ...x, completed, completed_at: completed ? new Date().toISOString() : null }
+              : x,
+          ),
+        );
       }
+      onStatusChanged?.();
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  async function submitNewTodo() {
+    const content = newTodoContent.trim();
+    if (!content) {
+      toast.error("請填寫待辦內容");
+      return;
+    }
+    setSavingTodo(true);
+    try {
+      const r = await createPersonalTodo({
+        employeeId,
+        content,
+        dueDate: newTodoDueDate || null,
+      });
+      if (!r.ok) {
+        toast.error(r.message);
+        return;
+      }
+      toast.success("已新增待辦事項");
+      setAddTodoOpen(false);
+      setNewTodoContent("");
+      setNewTodoDueDate("");
+      setTab("open");
+      await load();
+      onStatusChanged?.();
+    } finally {
+      setSavingTodo(false);
+    }
+  }
+
+  async function removeTodo(item: UnifiedItem) {
+    const rawId = item.id.slice(2);
+    setPendingId(item.id);
+    try {
+      const r = await deletePersonalTodo(rawId);
+      if (!r.ok) {
+        toast.error(r.message);
+        return;
+      }
+      setTodoRows((prev) => prev.filter((x) => x.id !== rawId));
       onStatusChanged?.();
     } finally {
       setPendingId(null);
@@ -307,19 +400,13 @@ export function MeetingAssignmentsBlock({
     );
   }
 
-  if (unified.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">目前沒有指派給您的交辦事項。</p>
-    );
-  }
-
   const openItems = unified.filter((x) => !x.completed);
   const doneItems = unified.filter((x) => x.completed);
   const visible = tab === "open" ? openItems : doneItems;
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           onClick={() => setTab("open")}
@@ -353,6 +440,14 @@ export function MeetingAssignmentsBlock({
               {doneItems.length}
             </span>
           ) : null}
+        </button>
+        <button
+          type="button"
+          onClick={() => setAddTodoOpen(true)}
+          className="ml-auto inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden />
+          新增待辦事項
         </button>
       </div>
       {visible.length === 0 ? (
@@ -395,7 +490,9 @@ export function MeetingAssignmentsBlock({
                             ? "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
                             : item.source === "stocktake"
                               ? "bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200"
-                              : "bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-200",
+                              : item.source === "make"
+                                ? "bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-200"
+                                : "bg-teal-100 text-teal-800 dark:bg-teal-950/40 dark:text-teal-200",
                       )}
                     >
                       {item.label}
@@ -454,6 +551,18 @@ export function MeetingAssignmentsBlock({
                   className="mt-0.5 shrink-0 self-start whitespace-nowrap rounded-lg border border-orange-300 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-800 transition-colors hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200 dark:hover:bg-orange-950/60"
                 >
                   完成回報
+                </button>
+              )}
+              {item.source === "todo" && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void removeTodo(item)}
+                  className="mt-0.5 shrink-0 self-start rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-destructive"
+                  aria-label="刪除待辦事項"
+                  title="刪除待辦事項"
+                >
+                  <Trash2 className="h-4 w-4" />
                 </button>
               )}
               {hasDetail && (
@@ -525,6 +634,70 @@ export function MeetingAssignmentsBlock({
           onStatusChanged?.();
         }}
       />
+
+      <Dialog.Root open={addTodoOpen} onOpenChange={(o) => !savingTodo && setAddTodoOpen(o)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content
+            className="fixed left-1/2 top-1/2 z-[60] max-h-[90vh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+            aria-describedby="add-todo-desc"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <Dialog.Title className="text-base font-semibold text-foreground">新增待辦事項</Dialog.Title>
+                <p id="add-todo-desc" className="mt-1 text-sm text-muted-foreground">
+                  指定給自己，新增後會出現在交辦事項清單。
+                </p>
+              </div>
+              <Dialog.Close asChild>
+                <button type="button" className="inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent/40 focus:outline-none focus:ring-2 focus:ring-ring" aria-label="關閉">
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </Dialog.Close>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-foreground">待辦內容</span>
+                <textarea
+                  value={newTodoContent}
+                  onChange={(e) => setNewTodoContent(e.target.value)}
+                  rows={3}
+                  placeholder="例：整理倉庫層架、回覆客戶尺寸問題…"
+                  className={cn(
+                    "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm",
+                    "focus:outline-none focus:ring-2 focus:ring-ring",
+                  )}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-foreground">
+                  預定日期<span className="ml-1 font-normal text-muted-foreground">（選填）</span>
+                </span>
+                <input
+                  type="date"
+                  value={newTodoDueDate}
+                  onChange={(e) => setNewTodoDueDate(e.target.value)}
+                  className={cn(
+                    "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm",
+                    "focus:outline-none focus:ring-2 focus:ring-ring",
+                  )}
+                />
+              </label>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <Button type="button" variant="ghost" disabled={savingTodo}>取消</Button>
+              </Dialog.Close>
+              <Button type="button" disabled={savingTodo} onClick={() => void submitNewTodo()}>
+                {savingTodo ? "新增中…" : "新增"}
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

@@ -2492,6 +2492,44 @@ export type Database = {
         }
         Relationships: []
       }
+      personal_todos: {
+        Row: {
+          completed: boolean
+          completed_at: string | null
+          content: string
+          created_at: string
+          due_date: string | null
+          employee_id: string
+          id: string
+        }
+        Insert: {
+          completed?: boolean
+          completed_at?: string | null
+          content: string
+          created_at?: string
+          due_date?: string | null
+          employee_id: string
+          id?: string
+        }
+        Update: {
+          completed?: boolean
+          completed_at?: string | null
+          content?: string
+          created_at?: string
+          due_date?: string | null
+          employee_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "personal_todos_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       procurement_materials: {
         Row: {
           amortization_months: number | null
