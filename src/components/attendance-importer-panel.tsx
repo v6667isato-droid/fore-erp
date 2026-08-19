@@ -25,6 +25,8 @@ import { parseAttendanceCsvText, type AttendanceDayRow } from "@/lib/attendance-
 import {
   appendAbsentEmployeeWarnings,
   appendLeaveOnlyRowsWithoutPunch,
+  appendMakeupPunchTags,
+  applyApprovedMakeupPunches,
   buildCalendarAnomalyEntriesByDay,
   buildCalendarApprovedLeavesByDay,
   buildWarRoomRows,
@@ -37,6 +39,7 @@ import {
   pickDominantMonth,
   dateStrToIso,
   type LeaveSpan,
+  type MakeupPunchSpan,
   type PublicHolidayEntry,
   type WarRoomRow,
 } from "@/lib/attendance-war-room";
@@ -475,6 +478,8 @@ export function AttendanceImporterPanel({
   );
   const [activeEmployees, setActiveEmployees] = useState<{ id: string; name: string }[]>([]);
   const [leaves, setLeaves] = useState<LeaveSpan[]>([]);
+  /** 主力月內已核准補卡單；統計時補入 CSV 缺卡側（重匯不會洗掉補卡） */
+  const [makeupSpans, setMakeupSpans] = useState<MakeupPunchSpan[]>([]);
   const [publicHolidays, setPublicHolidays] = useState<PublicHolidayEntry[]>([]);
   const [filterEmployeeKey, setFilterEmployeeKey] = useState<string>("");
   const [dbLoading, setDbLoading] = useState(false);
@@ -519,6 +524,7 @@ export function AttendanceImporterPanel({
       setEmpClockMap(new Map());
       setActiveEmployees([]);
       setLeaves([]);
+      setMakeupSpans([]);
       setPublicHolidays([]);
       setDbError(null);
       setDbLoading(false);
@@ -536,7 +542,7 @@ export function AttendanceImporterPanel({
       setDbLoading(true);
       setDbError(null);
       try {
-        const [empRes, leaveRes, holRes] = await Promise.all([
+        const [empRes, leaveRes, holRes, makeupRes] = await Promise.all([
           supabase
             .from("employees")
             .select("id, name, timeclock_uid, employment_status")
@@ -554,12 +560,19 @@ export function AttendanceImporterPanel({
             // 依 CSV 主力「年」一次載入，避免僅月區間邊界或遠端型別差異導致漏列；畫面上仍只顯示主力月
             .gte("holiday_date", yearStart)
             .lte("holiday_date", yearEnd),
+          supabase
+            .from("makeup_punch_requests")
+            .select("employee_id, punch_date, clock_in, clock_out")
+            .eq("status", "approved")
+            .gte("punch_date", monthStart)
+            .lte("punch_date", monthEnd),
         ]);
 
         if (cancelled) return;
         if (empRes.error) throw empRes.error;
         if (leaveRes.error) throw leaveRes.error;
         if (holRes.error) throw holRes.error;
+        if (makeupRes.error) throw makeupRes.error;
 
         const m = new Map<string, { id: string; name: string }>();
         const active: { id: string; name: string }[] = [];
@@ -580,6 +593,14 @@ export function AttendanceImporterPanel({
         setActiveEmployees(active);
         const rawLeaves = (leaveRes.data ?? []) as LeaveSpan[];
         setLeaves(rawLeaves.filter((L) => isApprovedLeaveStatus(L.status)));
+        setMakeupSpans(
+          ((makeupRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
+            employee_id: String(r.employee_id ?? ""),
+            punch_date: String(r.punch_date ?? "").slice(0, 10),
+            clock_in: r.clock_in != null ? String(r.clock_in).slice(0, 5) : null,
+            clock_out: r.clock_out != null ? String(r.clock_out).slice(0, 5) : null,
+          })),
+        );
         setPublicHolidays(normalizePublicHolidayRows((holRes.data ?? []) as Record<string, unknown>[]));
       } catch (e) {
         if (!cancelled)
@@ -594,9 +615,21 @@ export function AttendanceImporterPanel({
     };
   }, [ym, holidayRefreshTick]);
 
+  /** 已核准補卡單併入 CSV 缺卡側（僅在有 CSV 時；先於戰情列計算，異常標籤自然正確） */
+  const makeupPatch = useMemo(() => {
+    if (!hasCsv) {
+      return {
+        rows: filtered,
+        patchedKeys: new Set<string>(),
+        extraNameByUid: new Map<string, { employeeId: string | null; name: string }>(),
+      };
+    }
+    return applyApprovedMakeupPunches(filtered, makeupSpans, empClockMap);
+  }, [filtered, hasCsv, makeupSpans, empClockMap]);
+
   const nameByUid = useMemo(() => {
     const map = new Map<string, { employeeId: string | null; name: string }>();
-    for (const r of filtered) {
+    for (const r of makeupPatch.rows) {
       const k = r.uid.trim();
       if (map.has(k)) continue;
       const hit = empClockMap.get(k);
@@ -604,15 +637,18 @@ export function AttendanceImporterPanel({
         k,
         hit
           ? { employeeId: hit.id, name: hit.name }
-          : { employeeId: null, name: r.displayName || "—" },
+          : (makeupPatch.extraNameByUid.get(k) ?? {
+              employeeId: null,
+              name: r.displayName || "—",
+            }),
       );
     }
     return map;
-  }, [filtered, empClockMap]);
+  }, [makeupPatch, empClockMap]);
 
   const warRows = useMemo(
-    () => buildWarRoomRows(filtered, nameByUid, leaves, publicHolidays),
-    [filtered, nameByUid, leaves, publicHolidays],
+    () => buildWarRoomRows(makeupPatch.rows, nameByUid, leaves, publicHolidays),
+    [makeupPatch.rows, nameByUid, leaves, publicHolidays],
   );
 
   const warRowsWithLeaveOnly = useMemo(() => {
@@ -621,15 +657,26 @@ export function AttendanceImporterPanel({
   }, [warRows, ym, hasCsv, activeEmployees, leaves]);
 
   const displayWarRows = useMemo(() => {
-    if (!ym || !hasCsv) return warRowsWithLeaveOnly;
-    return appendAbsentEmployeeWarnings(
-      warRowsWithLeaveOnly,
-      ym,
-      activeEmployees,
-      leaves,
-      publicHolidays,
-    );
-  }, [warRowsWithLeaveOnly, ym, hasCsv, activeEmployees, leaves, publicHolidays]);
+    const base =
+      !ym || !hasCsv
+        ? warRowsWithLeaveOnly
+        : appendAbsentEmployeeWarnings(
+            warRowsWithLeaveOnly,
+            ym,
+            activeEmployees,
+            leaves,
+            publicHolidays,
+          );
+    return appendMakeupPunchTags(base, makeupPatch.patchedKeys);
+  }, [
+    warRowsWithLeaveOnly,
+    ym,
+    hasCsv,
+    activeEmployees,
+    leaves,
+    publicHolidays,
+    makeupPatch.patchedKeys,
+  ]);
 
   const activeEmployeeIdSet = useMemo(
     () => new Set(activeEmployees.map((e) => e.id)),

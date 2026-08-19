@@ -29,6 +29,11 @@ import {
   type OvertimeRequestRow,
 } from "@/lib/employee-overtime-requests";
 import {
+  fetchEmployeeMakeupPunchRequests,
+  insertEmployeeMakeupPunchRequest,
+  type MakeupPunchRequestRow,
+} from "@/lib/employee-makeup-punch-requests";
+import {
   FALLBACK_LEAVE_TYPES,
   PERSONAL_FAMILY_ANNUAL_LIMIT_DAYS,
   SICK_ANNUAL_LIMIT_DAYS,
@@ -113,6 +118,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  AlarmClock,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -759,6 +765,21 @@ const OVERTIME_FORM_INITIAL: OvertimeFormState = {
   reason: "",
 };
 
+type MakeupPunchFormState = {
+  date: string;
+  /** 空字串表示不補這側；至少一側必填 */
+  clockIn: string;
+  clockOut: string;
+  reason: string;
+};
+
+const MAKEUP_PUNCH_FORM_INITIAL: MakeupPunchFormState = {
+  date: "",
+  clockIn: "",
+  clockOut: "",
+  reason: "",
+};
+
 /** 開始日變更時：結束日為空、仍等於「原本的」開始日、或早於新開始日 → 結束日跟進為新開始日（方便單日假）。 */
 function applyLeaveStartDateChange(
   prev: LeaveFormState,
@@ -831,6 +852,15 @@ export default function EmployeePortalPage() {
   const [overtimeRows, setOvertimeRows] = useState<OvertimeRequestRow[]>([]);
   /** 送出成功後遞增以重新載入加班列表 */
   const [overtimeTick, setOvertimeTick] = useState(0);
+  /** 補打卡申請（makeup_punch_requests）：Dialog 與自己的申請列表 */
+  const [makeupOpen, setMakeupOpen] = useState(false);
+  const [makeupForm, setMakeupForm] = useState<MakeupPunchFormState>({
+    ...MAKEUP_PUNCH_FORM_INITIAL,
+  });
+  const [makeupSubmitting, setMakeupSubmitting] = useState(false);
+  const [makeupRows, setMakeupRows] = useState<MakeupPunchRequestRow[]>([]);
+  /** 送出成功後遞增以重新載入補卡列表 */
+  const [makeupTick, setMakeupTick] = useState(0);
   /** 假別主檔（leave_types）；離線／載入失敗時退回既有四種 */
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>(FALLBACK_LEAVE_TYPES);
   /** 假單附件（診斷證明等）；依假別 proof_required 決定顯示與必填 */
@@ -932,6 +962,20 @@ export default function EmployeePortalPage() {
       cancelled = true;
     };
   }, [data?.employee.id, overtimeTick]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const employeeId = data?.employee.id;
+    if (!employeeId) return;
+    let cancelled = false;
+    void (async () => {
+      const rows = await fetchEmployeeMakeupPunchRequests(employeeId);
+      if (!cancelled) setMakeupRows(rows);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [data?.employee.id, makeupTick]);
 
   /** Mock 模式顯示技術說明便於開發；連線時僅 admin */
   const showAdminFieldHints = useMemo(
@@ -1473,6 +1517,70 @@ export default function EmployeePortalPage() {
     setOvertimeOpen(false);
     setOvertimeForm({ ...OVERTIME_FORM_INITIAL });
     setOvertimeTick((t) => t + 1);
+  }
+
+  async function submitMakeupPunchRequest(e: React.FormEvent) {
+    e.preventDefault();
+    if (!data || makeupSubmitting) return;
+    if (!makeupForm.date) {
+      toast.error("請選擇補打卡日期");
+      return;
+    }
+    if (makeupForm.date > localTodayYmd()) {
+      toast.error("補打卡日期不可晚於今天");
+      return;
+    }
+    const clockIn = makeupForm.clockIn.trim() || null;
+    const clockOut = makeupForm.clockOut.trim() || null;
+    if (clockIn == null && clockOut == null) {
+      toast.error("請至少填一側時間（補上班卡或補下班卡）");
+      return;
+    }
+    if (clockIn != null && clockOut != null && clockOut <= clockIn) {
+      toast.error("下班時間須晚於上班時間");
+      return;
+    }
+    const reason = makeupForm.reason.trim();
+    if (!reason) {
+      toast.error("請填寫補打卡事由（例如：忘記刷卡，實際 08:50 到班）");
+      return;
+    }
+
+    if (!isSupabaseConfigured) {
+      const localRow: MakeupPunchRequestRow = {
+        id: `local-${Date.now()}`,
+        punch_date: makeupForm.date,
+        clock_in: clockIn,
+        clock_out: clockOut,
+        status: "pending",
+        reason,
+        created_at: null,
+        updated_at: null,
+      };
+      setMakeupRows((prev) => [localRow, ...prev]);
+      toast.success("補打卡申請已建立（Mock，未寫入資料庫）");
+      setMakeupOpen(false);
+      setMakeupForm({ ...MAKEUP_PUNCH_FORM_INITIAL });
+      return;
+    }
+
+    setMakeupSubmitting(true);
+    const ins = await insertEmployeeMakeupPunchRequest({
+      employeeId: data.employee.id,
+      punchDate: makeupForm.date,
+      clockIn,
+      clockOut,
+      reason,
+    });
+    setMakeupSubmitting(false);
+    if (!ins.ok) {
+      toast.error(ins.message);
+      return;
+    }
+    toast.success("補打卡申請已送出，狀態為待審核");
+    setMakeupOpen(false);
+    setMakeupForm({ ...MAKEUP_PUNCH_FORM_INITIAL });
+    setMakeupTick((t) => t + 1);
   }
 
   async function handleLogout() {
@@ -2397,6 +2505,86 @@ export default function EmployeePortalPage() {
             </div>
           </section>
 
+          {/* 我的補打卡 */}
+          <section className={epSection.card}>
+            <div className={cn(epSection.headerRowBetween, "sm:items-start")}>
+              <div className="flex items-center gap-2">
+                <div className={epSection.iconBox}>
+                  <AlarmClock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className={epSection.title}>我的補打卡</h3>
+                  {showAdminFieldHints ? (
+                    <p className={cn("mt-0.5", epSection.subtitle)}>
+                      makeup_punch_requests · 核准後於月底出勤統計自動併入缺卡側
+                    </p>
+                  ) : (
+                    <p className={cn("mt-0.5", epSection.subtitle)}>
+                      忘記打卡時申請補登；核准後月底出勤統計會自動採計。
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button
+                type="button"
+                size="default"
+                className="shrink-0 gap-1.5 self-start sm:self-auto"
+                onClick={() => setMakeupOpen(true)}
+              >
+                <AlarmClock className="h-4 w-4" />
+                申請補打卡
+              </Button>
+            </div>
+            <div className={epSection.tableWrap}>
+              <table className={epSection.table}>
+                <thead>
+                  <tr className={epSection.thead}>
+                    <th className={epSection.th}>日期</th>
+                    <th className={epSection.th}>補上班</th>
+                    <th className={epSection.th}>補下班</th>
+                    <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
+                    <th className={epSection.th}>狀態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {makeupRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className={cn(epSection.td, "py-6 text-center text-muted-foreground")}
+                      >
+                        尚無補打卡申請紀錄
+                      </td>
+                    </tr>
+                  ) : (
+                    makeupRows.map((row) => (
+                      <tr
+                        key={row.id}
+                        className="border-b border-border/60 last:border-0 hover:bg-muted/15"
+                      >
+                        <td className={cn(epSection.td, "tabular-nums font-medium text-foreground")}>
+                          {row.punch_date}
+                        </td>
+                        <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
+                          {row.clock_in ?? "—"}
+                        </td>
+                        <td className={cn(epSection.td, "tabular-nums text-muted-foreground")}>
+                          {row.clock_out ?? "—"}
+                        </td>
+                        <td className={cn(epSection.td, "max-w-[14rem] text-muted-foreground")}>
+                          <span className="break-words text-xs leading-snug text-foreground/90">
+                            {row.reason || "—"}
+                          </span>
+                        </td>
+                        <td className={cn(epSection.td, "align-top")}>{leaveStatusBadge(row)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
           <SystemTestReportBlock
             employeeName={employee.full_name}
             sectionClassName={epSection.card}
@@ -3091,6 +3279,126 @@ export default function EmployeePortalPage() {
                   }
                 >
                   {overtimeSubmitting ? "送出中…" : "送出申報"}
+                </Button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root
+        open={makeupOpen}
+        onOpenChange={(open) => {
+          setMakeupOpen(open);
+          if (!open) setMakeupForm({ ...MAKEUP_PUNCH_FORM_INITIAL });
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-card p-6 shadow-xl focus:outline-none max-h-[min(90vh,36rem)] overflow-y-auto">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <Dialog.Title className="text-lg font-semibold text-foreground">申請補打卡</Dialog.Title>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="rounded-lg p-2 text-muted-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+                  aria-label="關閉"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </Dialog.Close>
+            </div>
+            <form onSubmit={(e) => void submitMakeupPunchRequest(e)} className="space-y-4">
+              <div>
+                <label
+                  htmlFor="makeup-date"
+                  className="mb-1.5 block text-sm font-medium text-foreground"
+                >
+                  補打卡日期
+                </label>
+                <input
+                  id="makeup-date"
+                  type="date"
+                  max={localTodayYmd()}
+                  value={makeupForm.date}
+                  onChange={(e) =>
+                    setMakeupForm((f) => ({ ...f, date: e.target.value }))
+                  }
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label
+                    htmlFor="makeup-clock-in"
+                    className="mb-1 block text-[10px] text-muted-foreground"
+                  >
+                    補上班卡時間
+                  </label>
+                  <input
+                    id="makeup-clock-in"
+                    type="time"
+                    value={makeupForm.clockIn}
+                    onChange={(e) =>
+                      setMakeupForm((f) => ({ ...f, clockIn: e.target.value }))
+                    }
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="makeup-clock-out"
+                    className="mb-1 block text-[10px] text-muted-foreground"
+                  >
+                    補下班卡時間
+                  </label>
+                  <input
+                    id="makeup-clock-out"
+                    type="time"
+                    value={makeupForm.clockOut}
+                    onChange={(e) =>
+                      setMakeupForm((f) => ({ ...f, clockOut: e.target.value }))
+                    }
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                只補缺的那張卡即可，另一欄留空；打卡鐘有刷到的實卡不會被覆蓋。核准後月底出勤統計會自動採計。
+              </p>
+              <div>
+                <label
+                  htmlFor="makeup-reason"
+                  className="mb-1.5 block text-sm font-medium text-foreground"
+                >
+                  事由
+                  <span className="ml-1 text-xs font-normal text-destructive">（必填）</span>
+                </label>
+                <textarea
+                  id="makeup-reason"
+                  rows={3}
+                  value={makeupForm.reason}
+                  onChange={(e) =>
+                    setMakeupForm((f) => ({ ...f, reason: e.target.value }))
+                  }
+                  placeholder="例如：早上忘記刷卡，實際 08:50 到班"
+                  className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Dialog.Close asChild>
+                  <Button type="button" variant="outline" disabled={makeupSubmitting}>
+                    取消
+                  </Button>
+                </Dialog.Close>
+                <Button
+                  type="submit"
+                  disabled={
+                    makeupSubmitting ||
+                    (!makeupForm.clockIn.trim() && !makeupForm.clockOut.trim())
+                  }
+                >
+                  {makeupSubmitting ? "送出中…" : "送出申請"}
                 </Button>
               </div>
             </form>

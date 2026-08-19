@@ -1390,6 +1390,56 @@ export type Database = {
         }
         Relationships: []
       }
+      makeup_punch_requests: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          clock_in: string | null
+          clock_out: string | null
+          created_at: string
+          employee_id: string
+          id: string
+          punch_date: string
+          reason: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          clock_in?: string | null
+          clock_out?: string | null
+          created_at?: string
+          employee_id: string
+          id?: string
+          punch_date: string
+          reason?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          clock_in?: string | null
+          clock_out?: string | null
+          created_at?: string
+          employee_id?: string
+          id?: string
+          punch_date?: string
+          reason?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "makeup_punch_requests_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       material_category_groups: {
         Row: {
           created_at: string
@@ -4097,6 +4147,10 @@ export type Database = {
       }
     }
     Functions: {
+      approve_makeup_punch_request: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
       approve_overtime_request: {
         Args: { p_request_id: string }
         Returns: Json
@@ -4112,7 +4166,19 @@ export type Database = {
       }
       current_employee_id: { Args: never; Returns: string }
       is_own_employee: { Args: { p_employee_id: string }; Returns: boolean }
+      recompute_daily_attendance_for_makeup: {
+        Args: { p_date: string; p_employee_id: string; p_mark_makeup: boolean }
+        Returns: undefined
+      }
+      reject_makeup_punch_request: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
       reject_overtime_request: { Args: { p_request_id: string }; Returns: Json }
+      revoke_makeup_punch_request: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
       revoke_overtime_comp_leave: {
         Args: { p_record_id: string }
         Returns: Json

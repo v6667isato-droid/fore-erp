@@ -58,6 +58,13 @@ import {
   type OvertimeRequestAdminRow,
 } from "@/lib/employee-overtime-requests";
 import {
+  approveMakeupPunchRequest,
+  fetchAllMakeupPunchRequests,
+  rejectMakeupPunchRequest,
+  revokeMakeupPunchRequest,
+  type MakeupPunchRequestAdminRow,
+} from "@/lib/employee-makeup-punch-requests";
+import {
   formatLeaveUpdatedAtDisplay,
   leaveRequestRowWasUpdated,
 } from "@/lib/leave-request-updated";
@@ -285,17 +292,32 @@ function leaveBadgeStyles(typeLabel: string): string {
   return "border-border bg-muted text-foreground";
 }
 
-/** 每行前面的類型標示：請假／加班 */
-function kindBadge(kind: "leave" | "overtime") {
-  return kind === "leave" ? (
-    <span className="inline-flex items-center rounded-full border border-emerald-700/25 bg-emerald-100/80 px-2 py-0.5 text-[11px] font-medium text-emerald-950 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-100">
-      請假
-    </span>
-  ) : (
+/** 每行前面的類型標示：請假／加班／補卡 */
+function kindBadge(kind: "leave" | "overtime" | "makeup") {
+  if (kind === "leave") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-emerald-700/25 bg-emerald-100/80 px-2 py-0.5 text-[11px] font-medium text-emerald-950 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-100">
+        請假
+      </span>
+    );
+  }
+  if (kind === "makeup") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-teal-700/25 bg-teal-100/90 px-2 py-0.5 text-[11px] font-medium text-teal-950 dark:border-teal-500/30 dark:bg-teal-950/40 dark:text-teal-100">
+        補卡
+      </span>
+    );
+  }
+  return (
     <span className="inline-flex items-center rounded-full border border-violet-700/25 bg-violet-100/90 px-2 py-0.5 text-[11px] font-medium text-violet-950 dark:border-violet-500/30 dark:bg-violet-950/40 dark:text-violet-100">
       加班
     </span>
   );
+}
+
+/** 補卡側顯示：08:50 ／ —（不補這側） */
+function makeupSideLabel(v: string | null): string {
+  return v ?? "—";
 }
 
 function overtimeCompBadge(type: OvertimeRequestAdminRow["compensation_type"]) {
@@ -357,6 +379,8 @@ export function LeaveApprovalsPage() {
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
   /** 加班申報（overtime_requests）：與假單同一區塊混列審核 */
   const [otRows, setOtRows] = useState<OvertimeRequestAdminRow[]>([]);
+  /** 補打卡申請（makeup_punch_requests）：與假單／加班同一區塊混列審核 */
+  const [mkRows, setMkRows] = useState<MakeupPunchRequestAdminRow[]>([]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -557,10 +581,18 @@ export function LeaveApprovalsPage() {
     else console.warn("[leave-approvals] overtime_requests:", res.message);
   }, []);
 
+  const loadMakeup = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    const res = await fetchAllMakeupPunchRequests();
+    if (res.ok) setMkRows(res.rows);
+    else console.warn("[leave-approvals] makeup_punch_requests:", res.message);
+  }, []);
+
   useEffect(() => {
     void load();
     void loadOvertime();
-  }, [load, loadOvertime]);
+    void loadMakeup();
+  }, [load, loadOvertime, loadMakeup]);
 
   useEffect(() => {
     if (searchParams.get("attendanceTab") !== "employees") return;
@@ -587,10 +619,11 @@ export function LeaveApprovalsPage() {
     );
   }, [rows, historyMonth]);
 
-  /** 假單與加班混列（每行前面以類型標示），依申請時間新→舊 */
+  /** 假單、加班與補卡混列（每行前面以類型標示），依申請時間新→舊 */
   type ReviewEntry =
     | { kind: "leave"; row: LeaveRequestAdminRow }
-    | { kind: "overtime"; row: OvertimeRequestAdminRow };
+    | { kind: "overtime"; row: OvertimeRequestAdminRow }
+    | { kind: "makeup"; row: MakeupPunchRequestAdminRow };
 
   const pendingCombined = useMemo((): ReviewEntry[] => {
     const entries: ReviewEntry[] = [
@@ -598,12 +631,15 @@ export function LeaveApprovalsPage() {
       ...otRows
         .filter((r) => r.status === "pending")
         .map((row) => ({ kind: "overtime" as const, row })),
+      ...mkRows
+        .filter((r) => r.status === "pending")
+        .map((row) => ({ kind: "makeup" as const, row })),
     ];
     entries.sort((a, b) =>
       (b.row.created_at ?? "").localeCompare(a.row.created_at ?? ""),
     );
     return entries;
-  }, [pendingList, otRows]);
+  }, [pendingList, otRows, mkRows]);
 
   const historyCombined = useMemo((): ReviewEntry[] => {
     const entries: ReviewEntry[] = [
@@ -616,12 +652,20 @@ export function LeaveApprovalsPage() {
             monthOverlap(r.overtime_date, r.overtime_date, historyMonth),
         )
         .map((row) => ({ kind: "overtime" as const, row })),
+      ...mkRows
+        .filter((r) => r.status !== "pending")
+        .filter(
+          (r) =>
+            !historyMonth ||
+            monthOverlap(r.punch_date, r.punch_date, historyMonth),
+        )
+        .map((row) => ({ kind: "makeup" as const, row })),
     ];
     entries.sort((a, b) =>
       (b.row.created_at ?? "").localeCompare(a.row.created_at ?? ""),
     );
     return entries;
-  }, [historyList, otRows, historyMonth]);
+  }, [historyList, otRows, mkRows, historyMonth]);
 
   async function approve(id: string) {
     if (!window.confirm("確定核准此假單？")) return;
@@ -702,6 +746,28 @@ export function LeaveApprovalsPage() {
       }
       toast.success(successText);
       await loadOvertime();
+    } finally {
+      setActingId(null);
+    }
+  }
+
+  /** 補打卡核准／退回／撤銷（走 SECURITY DEFINER RPC；已發薪月份會被拒絕） */
+  async function actMakeup(
+    id: string,
+    confirmText: string,
+    fn: (id: string) => Promise<{ ok: true } | { ok: false; message: string }>,
+    successText: string,
+  ) {
+    if (!window.confirm(confirmText)) return;
+    setActingId(id);
+    try {
+      const res = await fn(id);
+      if (!res.ok) {
+        toast.error(res.message);
+        return;
+      }
+      toast.success(successText);
+      await loadMakeup();
     } finally {
       setActingId(null);
     }
@@ -849,6 +915,7 @@ export function LeaveApprovalsPage() {
             onClick={() => {
               void load();
               void loadOvertime();
+              void loadMakeup();
             }}
             disabled={loading}
           >
@@ -1041,7 +1108,7 @@ export function LeaveApprovalsPage() {
           ) : pendingCombined.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 py-14 text-center">
               <Inbox className="h-10 w-10 text-muted-foreground/50" />
-              <p className="text-sm text-muted-foreground">目前沒有待審核的假單或加班申報</p>
+              <p className="text-sm text-muted-foreground">目前沒有待審核的假單、加班或補打卡申請</p>
             </div>
           ) : (
             <ul className="flex flex-col gap-3">
@@ -1133,6 +1200,95 @@ export function LeaveApprovalsPage() {
                               "確定退回此加班申報？",
                               rejectOvertimeRequest,
                               "已退回加班申報",
+                            )
+                          }
+                        >
+                          ❌ 退回
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                }
+                if (entry.kind === "makeup") {
+                  const mk = entry.row;
+                  return (
+                    <li
+                      key={`mk-${mk.id}`}
+                      className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md sm:flex-row sm:items-stretch sm:justify-between"
+                    >
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {kindBadge("makeup")}
+                          <span className="text-base font-bold text-foreground">
+                            {mk.employee_name}
+                          </span>
+                        </div>
+                        <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
+                          <p>
+                            <span className="text-xs uppercase tracking-wide">補打卡日期</span>
+                            <br />
+                            <span className="font-medium text-foreground">
+                              {formatDate(mk.punch_date)}
+                            </span>
+                          </p>
+                          <p>
+                            <span className="text-xs uppercase tracking-wide">補登時間</span>
+                            <br />
+                            <span className="font-medium tabular-nums text-foreground">
+                              上班 {makeupSideLabel(mk.clock_in)} ／ 下班{" "}
+                              {makeupSideLabel(mk.clock_out)}
+                            </span>
+                          </p>
+                          <p className="sm:col-span-2">
+                            <span className="text-xs uppercase tracking-wide">申請時間</span>
+                            <br />
+                            <span className="text-foreground">
+                              {formatDateTime(mk.created_at)}
+                            </span>
+                          </p>
+                          {mk.reason ? (
+                            <p className="sm:col-span-2">
+                              <span className="text-xs uppercase tracking-wide">
+                                事由／備註
+                              </span>
+                              <br />
+                              <span className="whitespace-pre-wrap text-foreground">
+                                {mk.reason}
+                              </span>
+                            </p>
+                          ) : null}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          核准後於月底出勤統計自動併入缺卡側；該月出勤已匯入者即時補上並重算標籤。打卡鐘實卡不會被覆蓋。
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-2 sm:w-40 sm:justify-center">
+                        <Button
+                          type="button"
+                          className="h-9 w-full bg-emerald-800 text-white hover:bg-emerald-900 dark:bg-emerald-800 dark:hover:bg-emerald-700"
+                          disabled={actingId === mk.id}
+                          onClick={() =>
+                            void actMakeup(
+                              mk.id,
+                              `確定核准 ${mk.employee_name} ${formatDate(mk.punch_date)} 的補打卡？`,
+                              approveMakeupPunchRequest,
+                              "已核准補打卡",
+                            )
+                          }
+                        >
+                          ✅ 核准
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9 w-full border-red-200 bg-red-50/80 text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
+                          disabled={actingId === mk.id}
+                          onClick={() =>
+                            void actMakeup(
+                              mk.id,
+                              "確定退回此補打卡申請？",
+                              rejectMakeupPunchRequest,
+                              "已退回補打卡申請",
                             )
                           }
                         >
@@ -1331,7 +1487,7 @@ export function LeaveApprovalsPage() {
               })}
             </select>
             <span className="text-[11px] text-muted-foreground">
-              選「全部」列出所有已審核假單與加班申報；選月份則僅顯示與該月重疊者
+              選「全部」列出所有已審核假單、加班與補打卡申請；選月份則僅顯示與該月重疊者
             </span>
           </div>
           <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
@@ -1343,7 +1499,7 @@ export function LeaveApprovalsPage() {
               <p className="py-12 text-center text-sm text-muted-foreground">
                 {historyMonth
                   ? "此月份尚無已核准、已退回或已撤銷的紀錄。"
-                  : "尚無已核准、已退回或已撤銷的假單或加班申報紀錄。"}
+                  : "尚無已核准、已退回或已撤銷的假單、加班或補打卡紀錄。"}
               </p>
             ) : (
               <Table className="min-w-[48rem]">
@@ -1440,6 +1596,78 @@ export function LeaveApprovalsPage() {
                                       ? revokeOvertimeRecord
                                       : revokeOvertimeRequest,
                                     "已撤銷加班紀錄",
+                                  )
+                                }
+                              >
+                                撤銷
+                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+                    if (entry.kind === "makeup") {
+                      const mk = entry.row;
+                      return (
+                        <TableRow
+                          key={`mk-${mk.id}`}
+                          className="border-b border-border hover:bg-muted/25"
+                        >
+                          <TableCell>{kindBadge("makeup")}</TableCell>
+                          <TableCell className="font-medium text-foreground">
+                            {mk.employee_name}
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center rounded-full border border-teal-700/25 bg-teal-100/90 px-2.5 py-0.5 text-xs font-medium text-teal-950 dark:border-teal-500/30 dark:bg-teal-950/40 dark:text-teal-100">
+                              補打卡
+                            </span>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {formatDate(mk.punch_date)}{" "}
+                            <span className="tabular-nums">
+                              上班 {makeupSideLabel(mk.clock_in)} ／ 下班{" "}
+                              {makeupSideLabel(mk.clock_out)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-sm font-medium whitespace-nowrap">
+                            —
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {mk.status === "approved" ? (
+                              <span className="text-emerald-700 dark:text-emerald-400">
+                                已核准
+                              </span>
+                            ) : mk.status === "revoked" ? (
+                              <span className="text-amber-700 dark:text-amber-400">
+                                已撤銷
+                              </span>
+                            ) : (
+                              <span className="text-red-700 dark:text-red-400">
+                                已退回
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {formatDateTime(mk.created_at)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {formatDateTime(mk.approved_at)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">
+                            {mk.status === "approved" ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
+                                disabled={actingId === mk.id}
+                                onClick={() =>
+                                  void actMakeup(
+                                    mk.id,
+                                    "確定撤銷此已核准補打卡？將自出勤紀錄清回補登的時間（打卡鐘實卡不受影響）。已發薪月份無法撤銷。",
+                                    revokeMakeupPunchRequest,
+                                    "已撤銷補打卡",
                                   )
                                 }
                               >
