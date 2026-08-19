@@ -81,10 +81,10 @@ export function formatCaseDimensions(row: CustomCaseRow): string {
   return `W:${fmt(row.dimension_w)} x D:${fmt(row.dimension_d)} x H:${fmt(row.dimension_h)}`;
 }
 
-/** 各分頁的類別建議選項：訂製案例直接沿用產品區類別；加工區類別獨立維護 */
+/** 各分頁的類別建議選項：訂製案例直接沿用產品區類別；加工區固定四大類（表單以下拉單選） */
 export const CUSTOM_CASE_CATEGORY_OPTIONS: Record<CustomCaseKind, string[]> = {
   custom: PRODUCT_CATEGORY_OPTIONS,
-  processing: ["維修", "保養", "加工", "翻新", "改裝", "其他"],
+  processing: ["加工", "保養", "維修", "CNC"],
 };
 
 export const CUSTOM_CASE_KIND_LABEL: Record<CustomCaseKind, string> = {

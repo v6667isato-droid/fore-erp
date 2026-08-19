@@ -34,9 +34,16 @@ export function orderDiscountSubtotalField(order: OrderRow): string {
   return String(Math.max(0, grand - ship));
 }
 
-/** 「結案」「已退貨」訂單後台僅能檢視，不可改寫（其餘狀態含已出貨、已結清仍可編輯）；退貨經由列表的退貨入口操作 */
-export function isOrderAdminReadOnly(order: Pick<OrderRow, "status">): boolean {
-  return order.status === "結案" || order.status === "已退貨";
+/**
+ * 「已退貨」訂單後台一律僅能檢視（退貨經由列表的退貨入口操作）；
+ * 「結案」預設僅能檢視，admin（canEditClosed）可修改；其餘狀態含已出貨、已結清皆可編輯。
+ */
+export function isOrderAdminReadOnly(
+  order: Pick<OrderRow, "status">,
+  canEditClosed = false
+): boolean {
+  if (order.status === "已退貨") return true;
+  return order.status === "結案" && !canEditClosed;
 }
 
 /**
@@ -108,7 +115,8 @@ export function manualOrderStatusOptions(current: OrderStatus): OrderStatus[] {
   if (current === "暫停") return [];
   if (current === "已完工") return ["已完工", "已出貨", "結案"];
   if (current === "已出貨") return ["已出貨", "結案"];
-  if (current === "結案") return [];
+  // 結案的下拉僅在 admin 開啟結案編輯時才會渲染；可退回「已出貨」重新開啟訂單
+  if (current === "結案") return ["結案", "已出貨"];
   // 「已退貨」僅能由退貨流程設定／還原，不開放手動切換
   if (current === "已退貨") return [];
   return [...ORDER_STATUS_OPTIONS];

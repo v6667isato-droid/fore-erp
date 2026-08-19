@@ -112,6 +112,21 @@ export function CustomCaseFormDialog({
     return Number.isFinite(n) ? n : null;
   }
 
+  /** 加工區編號自動產生：取既有 R 開頭編號的最大流水號 +1（查詢失敗時留空，不擋新增） */
+  async function nextProcessingCode(): Promise<string | null> {
+    const { data, error: err } = await supabase
+      .from(TABLE_CUSTOM_CASES)
+      .select("case_code")
+      .eq("kind", "processing")
+      .not("case_code", "is", null);
+    if (err) return null;
+    const maxNum = (data ?? []).reduce((max, r) => {
+      const m = /^R(\d+)$/i.exec(String(r.case_code ?? "").trim());
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0);
+    return `R${String(maxNum + 1).padStart(2, "0")}`;
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -122,9 +137,16 @@ export function CustomCaseFormDialog({
     }
     setSaving(true);
 
+    const resolvedCaseCode =
+      kind === "processing"
+        ? isEdit
+          ? (row.case_code ?? null)
+          : await nextProcessingCode()
+        : caseCode.trim() || null;
+
     const payload = {
       kind,
-      case_code: caseCode.trim() || null,
+      case_code: resolvedCaseCode,
       name_zh: nameZh.trim(),
       name_en: nameEn.trim() || null,
       category: category.trim() || null,
@@ -218,43 +240,76 @@ export function CustomCaseFormDialog({
             <div className="flex-1 overflow-y-auto p-5 space-y-3">
               {activeTab === "basic" && (
                 <>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="flex flex-col gap-1.5">
-                      <label htmlFor="case-form-code" className="text-xs text-muted-foreground">
-                        編號
-                      </label>
-                      <input
-                        id="case-form-code"
-                        type="text"
-                        value={caseCode}
-                        onChange={(e) => setCaseCode(e.target.value)}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                        placeholder={kind === "custom" ? "例：C14" : "例：R01"}
-                      />
-                    </div>
+                  <div
+                    className={
+                      kind === "processing"
+                        ? "grid grid-cols-1 gap-3"
+                        : "grid grid-cols-1 gap-3 sm:grid-cols-2"
+                    }
+                  >
+                    {/* 加工區編號於新增時自動產生（R01、R02…），不開放手填 */}
+                    {kind === "custom" && (
+                      <div className="flex flex-col gap-1.5">
+                        <label htmlFor="case-form-code" className="text-xs text-muted-foreground">
+                          編號
+                        </label>
+                        <input
+                          id="case-form-code"
+                          type="text"
+                          value={caseCode}
+                          onChange={(e) => setCaseCode(e.target.value)}
+                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="例：C14"
+                        />
+                      </div>
+                    )}
                     <div className="flex flex-col gap-1.5">
                       <label htmlFor="case-form-category" className="text-xs text-muted-foreground">
                         類別
                       </label>
-                      <input
-                        id="case-form-category"
-                        list="case-form-category-list"
-                        type="text"
-                        value={category}
-                        onChange={(e) => setCategory(e.target.value)}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                        placeholder={kind === "custom" ? "例：桌、椅" : "例：維修、保養"}
-                      />
-                      <datalist id="case-form-category-list">
-                        {[
-                          ...new Set([
-                            ...CUSTOM_CASE_CATEGORY_OPTIONS[kind],
-                            ...(categorySuggestions ?? []),
-                          ]),
-                        ].map((o) => (
-                          <option key={o} value={o} />
-                        ))}
-                      </datalist>
+                      {kind === "processing" ? (
+                        <select
+                          id="case-form-category"
+                          value={category}
+                          onChange={(e) => setCategory(e.target.value)}
+                          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          <option value="">請選擇類別</option>
+                          {/* 舊資料若有不在四大類的類別，保留為選項避免被清掉 */}
+                          {[
+                            ...new Set([
+                              ...CUSTOM_CASE_CATEGORY_OPTIONS.processing,
+                              ...(category.trim() ? [category.trim()] : []),
+                            ]),
+                          ].map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <>
+                          <input
+                            id="case-form-category"
+                            list="case-form-category-list"
+                            type="text"
+                            value={category}
+                            onChange={(e) => setCategory(e.target.value)}
+                            className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            placeholder="例：桌、椅"
+                          />
+                          <datalist id="case-form-category-list">
+                            {[
+                              ...new Set([
+                                ...CUSTOM_CASE_CATEGORY_OPTIONS[kind],
+                                ...(categorySuggestions ?? []),
+                              ]),
+                            ].map((o) => (
+                              <option key={o} value={o} />
+                            ))}
+                          </datalist>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-col gap-1.5">

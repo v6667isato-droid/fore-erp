@@ -113,11 +113,14 @@ const ORDERS_STATUS_PARAM_TO_FILTER: Record<string, StatusFilterValue> = {
 export function OrdersPage({
   isAdmin = false,
   canIssueInvoice = false,
+  canEditClosedOrders = false,
   initialOpenOrderId,
 }: {
   isAdmin?: boolean;
   /** 開立發票僅限 admin（isAdmin 含 manager，權限較寬） */
   canIssueInvoice?: boolean;
+  /** 修改「結案」訂單僅限 admin（已退貨、刪除仍一律鎖定） */
+  canEditClosedOrders?: boolean;
   /** 若提供，會在載入後自動開啟該筆訂單的編輯窗格 */
   initialOpenOrderId?: string;
 } = {}) {
@@ -900,7 +903,7 @@ export function OrdersPage({
     patch: Partial<Pick<OrderRow, "status" | "payment_status" | "deposit_amount" | "expected_delivery_date">>
   ) {
     const row = orders.find((o) => o.id === id);
-    if (row && isOrderAdminReadOnly(row)) {
+    if (row && isOrderAdminReadOnly(row, canEditClosedOrders)) {
       toast.error("已結案／已退貨之訂單無法變更");
       return;
     }
@@ -1171,7 +1174,9 @@ export function OrdersPage({
               </TableRow>
             ) : (
               sortedOrders.map((order) => {
-                const rowReadOnly = isOrderAdminReadOnly(order);
+                const rowReadOnly = isOrderAdminReadOnly(order, canEditClosedOrders);
+                // 刪除不隨結案編輯權開放：結案／已退貨一律不可刪
+                const rowDeleteLocked = isOrderAdminReadOnly(order);
                 const isExpanded = expandedIds.has(order.id);
                 const overview = overviewById[order.id];
                 return (
@@ -1433,8 +1438,8 @@ export function OrdersPage({
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 text-muted-foreground hover:text-destructive disabled:opacity-40"
-                        title={rowReadOnly ? "已結案/已退貨無法刪除" : "刪除"}
-                        disabled={rowReadOnly}
+                        title={rowDeleteLocked ? "已結案/已退貨無法刪除" : "刪除"}
+                        disabled={rowDeleteLocked}
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(order); }}
                       >
                         <Trash2 className="h-3 w-3" />
@@ -1515,7 +1520,9 @@ export function OrdersPage({
 
       <OrderFormDialog
         key={editingOrder?.id ?? "new-order"}
-        readOnly={Boolean(editingOrder && isOrderAdminReadOnly(editingOrder))}
+        readOnly={Boolean(
+          editingOrder && isOrderAdminReadOnly(editingOrder, canEditClosedOrders)
+        )}
         open={formOpen}
         onOpenChange={(open) => {
           if (!open) {

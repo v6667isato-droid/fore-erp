@@ -78,12 +78,12 @@ const ORDER_EXPLANATION_COMPRESSION_OPTIONS = {
 } as const;
 
 
-/** 品項類型切換選項：規格庫（產品系列）／訂製案例／加工項目（加工區）／客製品項（手填） */
+/** 品項類型切換選項：規格庫（產品系列）／訂製案例／加工項目（加工區）／客製家具（手填） */
 const ITEM_KIND_OPTIONS: { kind: OrderItemKind; label: string }[] = [
   { kind: "variant", label: "規格庫" },
   { kind: "case", label: "訂製案例" },
   { kind: "processing", label: "加工項目" },
-  { kind: "custom", label: "客製品項" },
+  { kind: "custom", label: "客製家具" },
 ];
 
 /**
@@ -694,7 +694,8 @@ function OrderFormDialog({
     return {
       case: build("custom", CUSTOM_CASE_CATEGORY_OPTIONS.custom),
       processing: build("processing", CUSTOM_CASE_CATEGORY_OPTIONS.processing),
-      custom: ["桌", "椅", "櫃", "架", "其他"],
+      // 客製品項固定六類（表單以下拉單選）
+      custom: ["桌", "椅", "凳", "櫃", "層架", "其他"],
       variant: [] as string[],
     };
   }, [customCases]);
@@ -904,7 +905,7 @@ function OrderFormDialog({
       title:
         it.custom_name?.trim() ||
         it.custom_description?.trim() ||
-        "客製品項",
+        "客製家具",
       thumb: it.image_url ?? null,
     };
   }
@@ -2474,40 +2475,74 @@ function OrderFormDialog({
                             </div>
                           )}
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                            <div className="flex flex-col gap-1.5">
-                              <label className="text-xs text-muted-foreground">
-                                類別
-                              </label>
-                              {readOnly ? (
-                                <div className={viewFieldClass}>
-                                  {it.custom_category?.trim()
-                                    ? it.custom_category
-                                    : "—"}
-                                </div>
-                              ) : (
-                                <>
-                                  <input
-                                    type="text"
-                                    list={`item-category-list-${it.id}`}
+                            {/* 加工項目挑選後已自動帶入類別（handleCaseSelect），不再重複顯示類別欄 */}
+                            {it.kind !== "processing" && (
+                              <div className="flex flex-col gap-1.5">
+                                <label className="text-xs text-muted-foreground">
+                                  類別
+                                </label>
+                                {readOnly ? (
+                                  <div className={viewFieldClass}>
+                                    {it.custom_category?.trim()
+                                      ? it.custom_category
+                                      : "—"}
+                                  </div>
+                                ) : it.kind === "custom" ? (
+                                  <select
                                     value={it.custom_category ?? ""}
                                     onChange={(e) =>
                                       updateItem(it.id, {
                                         custom_category: e.target.value || null,
                                       })
                                     }
-                                    placeholder="選擇或輸入分類"
-                                    autoComplete="off"
-                                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                  />
-                                  <datalist id={`item-category-list-${it.id}`}>
-                                    {itemCategorySuggestions[it.kind].map((opt) => (
-                                      <option key={opt} value={opt} />
+                                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                  >
+                                    <option value="">請選擇類別</option>
+                                    {/* 舊資料若有不在清單內的類別（如「架」），保留為選項避免被清掉 */}
+                                    {[
+                                      ...new Set([
+                                        ...itemCategorySuggestions.custom,
+                                        ...(it.custom_category?.trim()
+                                          ? [it.custom_category.trim()]
+                                          : []),
+                                      ]),
+                                    ].map((opt) => (
+                                      <option key={opt} value={opt}>
+                                        {opt}
+                                      </option>
                                     ))}
-                                  </datalist>
-                                </>
-                              )}
-                            </div>
-                            <div className="flex flex-col gap-1.5">
+                                  </select>
+                                ) : (
+                                  <>
+                                    <input
+                                      type="text"
+                                      list={`item-category-list-${it.id}`}
+                                      value={it.custom_category ?? ""}
+                                      onChange={(e) =>
+                                        updateItem(it.id, {
+                                          custom_category: e.target.value || null,
+                                        })
+                                      }
+                                      placeholder="選擇或輸入分類"
+                                      autoComplete="off"
+                                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                    />
+                                    <datalist id={`item-category-list-${it.id}`}>
+                                      {itemCategorySuggestions[it.kind].map((opt) => (
+                                        <option key={opt} value={opt} />
+                                      ))}
+                                    </datalist>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                            <div
+                              className={
+                                it.kind === "processing"
+                                  ? "flex flex-col gap-1.5 sm:col-span-2"
+                                  : "flex flex-col gap-1.5"
+                              }
+                            >
                               <label className="text-xs text-muted-foreground">
                                 品名 *
                               </label>
