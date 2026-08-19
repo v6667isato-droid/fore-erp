@@ -85,7 +85,7 @@ export function PartDialog({ open, onOpenChange, row, onSaved }: PartDialogProps
   const [seriesId, setSeriesId] = useState("");
   const [seriesList, setSeriesList] = useState<SeriesOption[]>([]);
   const [unit, setUnit] = useState<string>(PART_UNITS[0]);
-  const [sourceType, setSourceType] = useState<string>("採購");
+  const [sourceType, setSourceType] = useState<string>("自製");
   const [selectedMaterials, setSelectedMaterials] = useState<Set<string>>(new Set());
   const [materials, setMaterials] = useState<MaterialRow[]>([]);
   const [existingVariants, setExistingVariants] = useState<VariantLite[]>([]);
@@ -107,7 +107,7 @@ export function PartDialog({ open, onOpenChange, row, onSaved }: PartDialogProps
     setCategory(row?.category ?? PART_CATEGORIES[0]);
     setSeriesId(row?.series_id ?? "");
     setUnit(row?.unit ?? PART_UNITS[0]);
-    setSourceType(row?.source_type ?? "採購");
+    setSourceType(row?.source_type ?? "自製");
     setSelectedMaterials(new Set());
     setExistingVariants([]);
     setDimLength(row?.dim_length_mm != null ? String(row.dim_length_mm) : "");
