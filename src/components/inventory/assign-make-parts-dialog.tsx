@@ -20,7 +20,11 @@ interface PickerVariant {
   material_name: string | null;
   unit: string;
   source_type: string;
+  series_id: string | null;
 }
+
+/** 篩選下拉中代表「未分類／未指定」的哨兵值（真實 id 為 uuid、材質為中文名，不會撞名） */
+const FILTER_NONE = "__none__";
 
 interface DraftItem {
   variant_id: string;
@@ -42,6 +46,9 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
   const [error, setError] = useState<string | null>(null);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [variants, setVariants] = useState<PickerVariant[]>([]);
+  const [seriesNames, setSeriesNames] = useState<Map<string, string>>(new Map());
+  const [filterSeries, setFilterSeries] = useState("");
+  const [filterMaterial, setFilterMaterial] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -50,9 +57,11 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
     setInstructions("");
     setItems([{ variant_id: "", quantity: "" }]);
     setError(null);
+    setFilterSeries("");
+    setFilterMaterial("");
     let cancelled = false;
     void (async () => {
-      const [empRes, variantsRes] = await Promise.all([
+      const [empRes, variantsRes, seriesRes] = await Promise.all([
         supabase
           .from("employees")
           .select("id, name")
@@ -61,11 +70,16 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
           .order("name"),
         supabase
           .from("part_variant_stock_status")
-          .select("id, part_id, sku, name, material_name, unit, source_type")
+          .select("id, part_id, sku, name, material_name, unit, source_type, series_id")
           .order("sku"),
+        supabase
+          .from("product_series")
+          .select("id, series_name")
+          .is("deleted_at", null),
       ]);
       if (cancelled) return;
       setEmployees((empRes.data as EmployeeOption[]) ?? []);
+      setSeriesNames(new Map(((seriesRes.data ?? []) as { id: string; series_name: string }[]).map((s) => [s.id, s.series_name])));
       // 自製零件排前面（製作交辦幾乎都是自製件）
       const list = ((((variantsRes.data ?? []) as unknown) as PickerVariant[])).slice();
       list.sort((a, b) => {
@@ -80,6 +94,43 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
   }, [open]);
 
   const variantMap = useMemo(() => new Map(variants.map((v) => [v.id, v])), [variants]);
+
+  // 篩選選項由實際載入的變體歸納，避免出現選了卻空清單的選項
+  const seriesOptions = useMemo(() => {
+    const ids = new Set<string>();
+    let hasNone = false;
+    for (const v of variants) {
+      if (v.series_id) ids.add(v.series_id);
+      else hasNone = true;
+    }
+    const opts = [...ids]
+      .map((id) => ({ value: id, label: seriesNames.get(id) ?? "（未知系列）" }))
+      .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant"));
+    if (hasNone) opts.push({ value: FILTER_NONE, label: "未分類" });
+    return opts;
+  }, [variants, seriesNames]);
+
+  const materialOptions = useMemo(() => {
+    const names = new Set<string>();
+    let hasNone = false;
+    for (const v of variants) {
+      if (v.material_name) names.add(v.material_name);
+      else hasNone = true;
+    }
+    const opts = [...names].sort((a, b) => a.localeCompare(b, "zh-Hant")).map((n) => ({ value: n, label: n }));
+    if (hasNone) opts.push({ value: FILTER_NONE, label: "未指定" });
+    return opts;
+  }, [variants]);
+
+  const filteredVariants = useMemo(
+    () =>
+      variants.filter((v) => {
+        if (filterSeries && (filterSeries === FILTER_NONE ? v.series_id !== null : v.series_id !== filterSeries)) return false;
+        if (filterMaterial && (filterMaterial === FILTER_NONE ? v.material_name !== null : v.material_name !== filterMaterial)) return false;
+        return true;
+      }),
+    [variants, filterSeries, filterMaterial]
+  );
 
   function updateItem(idx: number, patch: Partial<DraftItem>) {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
@@ -196,7 +247,34 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
                   加一列
                 </Button>
               </div>
-              {items.map((it, idx) => (
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={filterSeries}
+                  onChange={(e) => setFilterSeries(e.target.value)}
+                  className={inputCls}
+                  aria-label="以系列篩選零件"
+                >
+                  <option value="">全部系列</option>
+                  {seriesOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                <select
+                  value={filterMaterial}
+                  onChange={(e) => setFilterMaterial(e.target.value)}
+                  className={inputCls}
+                  aria-label="以材料種類篩選零件"
+                >
+                  <option value="">全部材料</option>
+                  {materialOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              {items.map((it, idx) => {
+                const selected = it.variant_id ? variantMap.get(it.variant_id) : undefined;
+                const selectedFilteredOut = !!selected && !filteredVariants.some((v) => v.id === selected.id);
+                return (
                 <div key={idx} className="flex items-center gap-2">
                   <select
                     value={it.variant_id}
@@ -205,7 +283,12 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
                     aria-label={`第 ${idx + 1} 列零件`}
                   >
                     <option value="">選擇零件…</option>
-                    {variants.map((v) => (
+                    {selectedFilteredOut && selected && (
+                      <option value={selected.id}>
+                        {selected.sku}｜{selected.name}{selected.material_name ? `・${selected.material_name}` : ""}{selected.source_type === "自製" ? "" : "（採購件）"}
+                      </option>
+                    )}
+                    {filteredVariants.map((v) => (
                       <option key={v.id} value={v.id}>
                         {v.sku}｜{v.name}{v.material_name ? `・${v.material_name}` : ""}{v.source_type === "自製" ? "" : "（採購件）"}
                       </option>
@@ -233,7 +316,8 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="flex flex-col gap-1.5">
