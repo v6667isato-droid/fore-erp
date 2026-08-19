@@ -82,7 +82,7 @@ export function CompleteMakeTaskDialog({
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">製作完成回報</Dialog.Title>
               <p id="complete-make-desc" className="mt-1 text-sm text-muted-foreground">
-                填實際完成的數量（可與交辦數量不同），送出後自動入庫。做 0 顆的項目填 0。
+                填實際完成的數量（可與預計數量不同），送出後自動入庫。做 0 顆的項目填 0。
               </p>
             </div>
             <Dialog.Close asChild>
@@ -100,7 +100,7 @@ export function CompleteMakeTaskDialog({
                     {it.part_no}｜{it.name}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    交辦 {it.quantity} {it.unit}
+                    預計 {it.quantity} {it.unit}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">

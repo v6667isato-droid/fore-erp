@@ -111,14 +111,14 @@ function toUnified(
     });
   }
   for (const mk of makes) {
-    const lines = mk.items.map((it) => `${it.part_no}｜${it.name} × ${it.quantity}${it.unit}`);
+    const lines = mk.items.map((it) => `${it.part_no}｜${it.name} 預計 ${it.quantity}${it.unit}`);
     items.push({
       id: `k-${mk.id}`,
       source: "make",
       label: "製作交辦",
       content:
         mk.items.length === 1
-          ? `製作零件：${mk.items[0].name} × ${mk.items[0].quantity}`
+          ? `製作零件：${mk.items[0].name} 預計 ${mk.items[0].quantity}`
           : `製作零件：${mk.items.length} 項`,
       description: [lines.join("\n"), mk.instructions].filter(Boolean).join("\n\n") || null,
       imageUrl: null,

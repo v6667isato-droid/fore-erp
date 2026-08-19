@@ -100,7 +100,7 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
       return;
     }
     if (cleaned.some((it) => !Number.isFinite(it.qty) || it.qty <= 0)) {
-      setError("每項零件的製作數量必須大於 0");
+      setError("每項零件的預計製作數量必須大於 0");
       return;
     }
     const seen = new Set<string>();
@@ -157,7 +157,7 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">指派製作零件</Dialog.Title>
               <p id="assign-make-desc" className="mt-1 text-sm text-muted-foreground">
-                任務會出現在該員工儀表板的「交辦事項」；完成回報時依實際完成量自動入庫（進料）。
+                任務會出現在該員工儀表板的「交辦事項」；填入的數量為預計製作數量，完成回報時依實際完成量自動入庫（進料）。
               </p>
             </div>
             <Dialog.Close asChild>
@@ -218,8 +218,8 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
                     value={it.quantity}
                     onChange={(e) => updateItem(idx, { quantity: e.target.value })}
                     className={cn(inputCls, "w-24 text-right")}
-                    placeholder="數量"
-                    aria-label={`第 ${idx + 1} 列製作數量`}
+                    placeholder="預計數量"
+                    aria-label={`第 ${idx + 1} 列預計製作數量`}
                   />
                   <Button
                     type="button"

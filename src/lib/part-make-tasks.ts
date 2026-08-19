@@ -8,6 +8,7 @@ export interface PartMakeTaskItem {
   part_no: string;
   name: string;
   unit: string;
+  /** 預計製作數量（實際完成量由回報時另填） */
   quantity: number;
 }
 
