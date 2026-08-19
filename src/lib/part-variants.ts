@@ -71,8 +71,12 @@ export interface ResolvedBomItem {
   quantity: number;
   unit: string;
   lineType: BomLineType;
+  /** 互斥群組名稱（例如 seat）；null＝無互斥設定 */
+  exclusiveGroup: string | null;
   /** 依 spec1 尾碼列入的線才有值；null＝不分規格一律列入 */
   exclusiveKey: string | null;
+  /** 依互斥規則不適用本規格的線（僅 includeExcluded 時會出現 true） */
+  excluded: boolean;
   /** 實際會扣帳的零件變體 SKU；隨單材質線缺變體時為 null */
   sku: string | null;
   /** 缺變體時的說明，例如「缺 O 材質變體」 */
@@ -86,6 +90,7 @@ interface BomLineForResolve {
   part_variant_id: string | null;
   quantity: number;
   unit: string | null;
+  exclusive_group: string | null;
   exclusive_key: string | null;
   parts: { name: string; category: string; unit: string; deleted_at: string | null } | null;
   part_variants: {
@@ -103,13 +108,15 @@ export async function resolveVariantBom(args: {
   seriesId: string;
   woodType?: string | null;
   spec1?: string | null;
+  /** true＝互斥不適用的線也回傳（excluded: true），供複查顯示「未列入」 */
+  includeExcluded?: boolean;
 }): Promise<ResolvedBomItem[]> {
   if (!args.seriesId) return [];
   const [linesRes, materials] = await Promise.all([
     supabase
       .from("bom_lines")
       .select(
-        "id, line_type, part_id, part_variant_id, quantity, unit, exclusive_key, " +
+        "id, line_type, part_id, part_variant_id, quantity, unit, exclusive_group, exclusive_key, " +
           "parts!part_id(name, category, unit, deleted_at), " +
           "part_variants!part_variant_id(sku, deleted_at, parts!part_id(name, category, unit, deleted_at))",
       )
@@ -124,7 +131,8 @@ export async function resolveVariantBom(args: {
       ? l.parts != null && !l.parts.deleted_at
       : l.part_variants != null && !l.part_variants.deleted_at && !l.part_variants.parts?.deleted_at,
   );
-  const lines = applicableBomLines(all, specKeyFromSpec1(args.spec1));
+  const specKey = specKeyFromSpec1(args.spec1);
+  const lines = args.includeExcluded ? all : applicableBomLines(all, specKey);
   if (lines.length === 0) return [];
 
   // 隨單材質線的 part_id × 材質代碼 → SKU
@@ -163,7 +171,9 @@ export async function resolveVariantBom(args: {
       quantity: Number(l.quantity),
       unit: l.unit || part?.unit || "—",
       lineType: l.line_type,
+      exclusiveGroup: l.exclusive_group,
       exclusiveKey: l.exclusive_key,
+      excluded: !(l.exclusive_key == null || l.exclusive_key === specKey),
       sku,
       missingNote,
     };

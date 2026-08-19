@@ -8,7 +8,13 @@ import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { PART_CATEGORIES, type BomLineType } from "@/types/inventory";
-import { EXCLUSIVE_KEY_SUGGESTIONS } from "@/lib/part-variants";
+import {
+  EXCLUSIVE_KEY_SUGGESTIONS,
+  resolveVariantBom,
+  specKeyFromSpec1,
+  type ResolvedBomItem,
+} from "@/lib/part-variants";
+import { TABLE_PRODUCT_VARIANTS } from "@/lib/products-db";
 
 /** 隨單材質線的目標候選：有材質軸的邏輯零件 */
 interface AxisPartOption {
@@ -62,6 +68,15 @@ export interface BomEditorProps {
   onCountChange?: (seriesId: string, count: number) => void;
 }
 
+/** 複查下拉的規格候選：本系列的產品規格 */
+interface ReviewVariantOption {
+  id: string;
+  product_code: string;
+  wood_type: string | null;
+  spec1: string | null;
+  is_custom_order: boolean | null;
+}
+
 /** 目標＋互斥代碼的唯一鍵：同鍵視為重複線 */
 function lineDupKey(l: Pick<BomLineJoined, "line_type" | "part_id" | "part_variant_id" | "exclusive_key">): string {
   const target = l.line_type === "by_material" ? l.part_id : l.part_variant_id;
@@ -96,6 +111,12 @@ export function BomEditor({ seriesId, isAdmin = false, onCountChange }: BomEdito
   const [deleteLine, setDeleteLine] = useState<BomLineJoined | null>(null);
   /** 每列用量的編輯值（key=bom_line id）；儲存於 blur */
   const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
+
+  // 複查：選本系列規格，展開實際會扣帳的用料（含互斥判定結果）
+  const [reviewVariants, setReviewVariants] = useState<ReviewVariantOption[]>([]);
+  const [reviewVariantId, setReviewVariantId] = useState("");
+  const [reviewItems, setReviewItems] = useState<ResolvedBomItem[] | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
 
   // 加入 BOM 線的表單
   const [newLineType, setNewLineType] = useState<BomLineType>("by_material");
@@ -170,6 +191,55 @@ export function BomEditor({ seriesId, isAdmin = false, onCountChange }: BomEdito
   useEffect(() => {
     void fetchLines();
   }, [fetchLines]);
+
+  // 複查下拉的規格清單（訂製款佔位規格不列入）
+  useEffect(() => {
+    if (!seriesId) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from(TABLE_PRODUCT_VARIANTS)
+        .select("id, product_code, wood_type, spec1, is_custom_order")
+        .eq("series_id", seriesId)
+        .order("product_code");
+      if (cancelled) return;
+      setReviewVariants(
+        (((data as unknown as ReviewVariantOption[]) ?? [])).filter((v) => !v.is_custom_order),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [seriesId]);
+
+  const reviewVariant = useMemo(
+    () => reviewVariants.find((v) => v.id === reviewVariantId) ?? null,
+    [reviewVariants, reviewVariantId],
+  );
+
+  // 選定規格或線異動後重新展開（lines 變動代表剛增刪改，複查結果要同步）
+  useEffect(() => {
+    if (!reviewVariant) {
+      setReviewItems(null);
+      return;
+    }
+    let cancelled = false;
+    setReviewLoading(true);
+    void (async () => {
+      const items = await resolveVariantBom({
+        seriesId,
+        woodType: reviewVariant.wood_type,
+        spec1: reviewVariant.spec1,
+        includeExcluded: true,
+      });
+      if (cancelled) return;
+      setReviewItems(items);
+      setReviewLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [seriesId, reviewVariant, lines]);
 
   /** 依目標零件分類分組，PART_CATEGORIES 順序在前、未知分類殿後 */
   const groups = useMemo(() => {
@@ -309,6 +379,94 @@ export function BomEditor({ seriesId, isAdmin = false, onCountChange }: BomEdito
       <p className="text-xs text-muted-foreground">
         「隨單材質」線依訂單木種自動對應零件變體，「固定零件」線直接指定變體，工單開工時依此自動扣帳。
       </p>
+
+      <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
+        <label htmlFor={`bom-review-${seriesId}`} className="text-sm font-semibold text-foreground">
+          複查用料
+        </label>
+        <p className="text-xs text-muted-foreground">選一個規格，檢視依木種與座墊互斥展開後、開工實際會扣帳的用料。</p>
+        <select
+          id={`bom-review-${seriesId}`}
+          value={reviewVariantId}
+          onChange={(e) => setReviewVariantId(e.target.value)}
+          className={inputCls}
+        >
+          <option value="">選擇規格…（{reviewVariants.length} 筆）</option>
+          {reviewVariants.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.product_code}
+              {v.wood_type ? `｜${v.wood_type}` : ""}
+              {v.spec1 ? `・${v.spec1}` : ""}
+            </option>
+          ))}
+        </select>
+        {reviewVariant &&
+          (reviewLoading || reviewItems == null ? (
+            <p className="text-sm text-muted-foreground" role="status">展開用料中…</p>
+          ) : reviewItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground">此系列尚未建立用料表</p>
+          ) : (
+            (() => {
+              const specKey = specKeyFromSpec1(reviewVariant.spec1);
+              const applicable = reviewItems.filter((it) => !it.excluded);
+              const excludedItems = reviewItems.filter((it) => it.excluded);
+              const missing = applicable.filter((it) => it.missingNote != null);
+              const renderRow = (it: ResolvedBomItem, dimmed: boolean) => (
+                <div
+                  key={it.key}
+                  className={cn(
+                    "flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-3 py-2 first:border-t-0",
+                    dimmed && "opacity-50",
+                  )}
+                >
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-sm font-medium text-foreground">{it.partName}</span>
+                    {it.sku ? (
+                      <span className={badgeCls}>{it.sku}</span>
+                    ) : (
+                      <span className="text-xs text-destructive">{it.missingNote}</span>
+                    )}
+                    {it.lineType === "by_material" && (
+                      <span className={cn(badgeCls, "border-transparent bg-primary/10 text-primary")}>隨單材質</span>
+                    )}
+                    {(it.exclusiveGroup || it.exclusiveKey) && (
+                      <span className={cn(badgeCls, "border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-400")}>
+                        {it.exclusiveGroup ?? "互斥"}：{it.exclusiveKey ?? "—"}
+                      </span>
+                    )}
+                  </div>
+                  <span className="shrink-0 text-sm tabular-nums text-foreground">
+                    {it.quantity} <span className="text-muted-foreground">{it.unit}</span>
+                  </span>
+                </div>
+              );
+              return (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    木種：{reviewVariant.wood_type?.trim() || "—"}・座墊代碼：{specKey ?? "無"}・實際列入 {applicable.length} 條
+                    {excludedItems.length > 0 ? `（互斥未列入 ${excludedItems.length} 條）` : ""}
+                  </p>
+                  {missing.length > 0 && (
+                    <p className="text-xs font-medium text-destructive">
+                      有 {missing.length} 條隨單材質線缺對應變體，開工時將無法自動扣帳
+                    </p>
+                  )}
+                  <div className="rounded-lg border border-border overflow-x-auto">
+                    {applicable.map((it) => renderRow(it, false))}
+                    {excludedItems.length > 0 && (
+                      <>
+                        <p className="border-t border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+                          互斥未列入（座墊代碼不符，開工不扣帳）
+                        </p>
+                        {excludedItems.map((it) => renderRow(it, true))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()
+          ))}
+      </div>
 
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
         {loadingLines ? (
