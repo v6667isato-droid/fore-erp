@@ -1738,7 +1738,7 @@ export default function EmployeePortalPage() {
                   </div>
                 </StatMini>
                 <StatMini label="本月加班天數">{stats.monthly_overtime_days} 天</StatMini>
-                <StatMini label="本月請假天數">{stats.monthly_leave_days} 天</StatMini>
+                <StatMini label="本月請假天數">{formatDayDecimalAsDayHour(stats.monthly_leave_days)}</StatMini>
               </div>
             </div>
           </section>
