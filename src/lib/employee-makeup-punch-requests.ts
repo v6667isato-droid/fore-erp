@@ -2,7 +2,7 @@ import { supabase } from "@/lib/supabase";
 
 /**
  * 員工補打卡申請（makeup_punch_requests）：
- * 員工忘打卡時送出 pending → 管理員於「假單/加班審核」核准／退回；
+ * 員工忘打卡時送出 pending → 管理員於「請假/加班/打卡 審核」核准／退回；
  * 核准後由 RPC 即時寫回 daily_attendance（已匯入時），月底出勤戰情室匯入時亦會自動併入缺卡側。
  * 已發放（paid）月份不可核准／撤銷。
  */

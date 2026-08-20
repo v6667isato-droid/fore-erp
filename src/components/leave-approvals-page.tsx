@@ -883,7 +883,7 @@ export function LeaveApprovalsPage() {
       case "leave":
         if (tab === "pending") {
           return {
-            title: "假單/加班審核 · 待審核",
+            title: "請假/加班/打卡 審核 · 待審核",
             description: (
               <>
                 審核員工請假申請與加班申報（每行前方標示類型）。
@@ -896,7 +896,7 @@ export function LeaveApprovalsPage() {
           };
         }
         return {
-          title: "假單/加班審核 · 歷史紀錄",
+          title: "請假/加班/打卡 審核 · 歷史紀錄",
           description: "依月份檢視已核准、已退回或已撤銷的假單與加班申報紀錄。",
           Icon: ClipboardList,
           showLeaveRefresh: true,
@@ -919,7 +919,7 @@ export function LeaveApprovalsPage() {
         };
       case "paid_history":
         return {
-          title: "已發放薪資查詢",
+          title: "薪資發放查詢",
           description:
             "預設列出全部已發放薪資；可改選指定月份（period_key）篩選。",
           Icon: Receipt,
@@ -1002,32 +1002,6 @@ export function LeaveApprovalsPage() {
         </button>
         <button
           type="button"
-          onClick={() => setMainSection("leave")}
-          className={cn(
-            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-            mainSection === "leave"
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted/60 text-muted-foreground hover:bg-muted",
-          )}
-        >
-          <ClipboardList className="h-4 w-4 shrink-0 opacity-90" />
-          假單/加班審核
-        </button>
-        <button
-          type="button"
-          onClick={() => setMainSection("assignments")}
-          className={cn(
-            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-            mainSection === "assignments"
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted/60 text-muted-foreground hover:bg-muted",
-          )}
-        >
-          <ListChecks className="h-4 w-4 shrink-0 opacity-90" />
-          公司交辦
-        </button>
-        <button
-          type="button"
           onClick={() => setMainSection("payroll")}
           className={cn(
             "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
@@ -1050,20 +1024,45 @@ export function LeaveApprovalsPage() {
           )}
         >
           <Receipt className="h-4 w-4 shrink-0 opacity-90" />
-          已發放查詢
+          薪資發放查詢
         </button>
         <button
           type="button"
-          onClick={() => setMainSection("bonus")}
+          onClick={() => setMainSection("leave")}
           className={cn(
             "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-            mainSection === "bonus"
+            mainSection === "leave"
               ? "bg-primary text-primary-foreground"
               : "bg-muted/60 text-muted-foreground hover:bg-muted",
           )}
         >
-          <Award className="h-4 w-4 shrink-0 opacity-90" />
-          考績獎金
+          <ClipboardList className="h-4 w-4 shrink-0 opacity-90" />
+          請假/加班/打卡 審核
+          {pendingCombined.length > 0 && (
+            <span
+              className={cn(
+                "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold leading-none",
+                mainSection === "leave"
+                  ? "bg-primary-foreground/25 text-primary-foreground"
+                  : "bg-destructive text-destructive-foreground",
+              )}
+            >
+              {pendingCombined.length}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainSection("assignments")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "assignments"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <ListChecks className="h-4 w-4 shrink-0 opacity-90" />
+          公司交辦
         </button>
         <button
           type="button"
@@ -1090,6 +1089,19 @@ export function LeaveApprovalsPage() {
         >
           <Send className="h-4 w-4 shrink-0 opacity-90" />
           Telegram Bot
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainSection("bonus")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+            mainSection === "bonus"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <Award className="h-4 w-4 shrink-0 opacity-90" />
+          考績獎金
         </button>
       </div>
 
