@@ -158,17 +158,33 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
         else toast.error(result.error ?? "Gmail 匯入失敗");
         return;
       }
+      // 個別信箱失敗（如公司信箱授權失效）時其他信箱照常匯入，這裡逐一提示
+      for (const msg of result.accountErrors) {
+        toast.error(`Gmail 匯入部分失敗：${msg}`);
+      }
+      if (result.configuredAccounts === 1) {
+        const scanned = result.accounts[0]?.email;
+        toast.warning(
+          `目前只連接了 1 個 Gmail 信箱${scanned ? `（${scanned}）` : ""}，第二個信箱要設定 GMAIL_REFRESH_TOKEN_2 環境變數才會一併搜尋`,
+        );
+      }
+      const accountBrief =
+        result.accounts.length > 1
+          ? result.accounts.map((a) => `${a.email ?? "未知信箱"}：符合 ${a.matched} 封、匯入 ${a.imported} 張`).join("；")
+          : "";
       if (result.imported === 0) {
         toast.info(
           result.skipped > 0 || result.duplicates > 0
             ? `沒有新發票（先前已匯入 ${result.skipped} 封、重複附件 ${result.duplicates} 張）`
             : "Gmail 裡沒有找到符合條件的發票信",
+          accountBrief ? { description: accountBrief } : undefined,
         );
         await refresh();
         return;
       }
       toast.success(
         `已從 Gmail 匯入 ${result.imported} 張附件${result.duplicates > 0 ? `（另略過 ${result.duplicates} 張重複）` : ""}，AI 辨識中…`,
+        accountBrief ? { description: accountBrief } : undefined,
       );
       if (result.remaining > 0) {
         toast.info(`還有 ${result.remaining} 封新發票信未處理（單次上限 20 封），辨識完成後請再按一次「從 Gmail 匯入」`);

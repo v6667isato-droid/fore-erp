@@ -246,6 +246,8 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
 
   try {
     const insertedIds: string[] = [];
+    /** 每個信箱的掃描結果，回報給前端顯示（診斷「公司信箱怎麼沒匯到」用） */
+    const accountSummaries: { email: string | null; matched: number; new: number; imported: number }[] = [];
     let skipped = 0;
     let duplicates = 0;
     let noAttachment = 0;
@@ -257,7 +259,10 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
     /** 跨帳號共用：同一張發票兩個信箱都收到時只匯一次 */
     const seenHashes = new Set<string>();
 
-    for (const { refreshToken: rt, query } of accounts) {
+    /** 單一信箱失敗（如 refresh token 失效）不擋其他信箱，錯誤記下來回報前端 */
+    const accountErrors: string[] = [];
+
+    const processAccount = async (rt: string, query: string): Promise<void> => {
       const accessToken = await refreshAccessToken(clientId, clientSecret, rt);
       const profile = await gmailGet(accessToken, "profile");
       const account = (profile.emailAddress as string | undefined) ?? null;
@@ -273,7 +278,9 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
         messageIds.push(...(((list.messages as { id: string }[] | undefined) ?? []).map((m) => m.id)));
         pageToken = list.nextPageToken as string | undefined;
       } while (pageToken && messageIds.length < MAX_LIST_MESSAGES);
-      if (messageIds.length === 0) continue;
+      const summary = { email: account, matched: messageIds.length, new: 0, imported: 0 };
+      accountSummaries.push(summary);
+      if (messageIds.length === 0) return;
 
       // 防重複匯入：含已刪除紀錄，刪過的信不再重抓
       const { data: existing, error: existErr } = await admin
@@ -284,6 +291,7 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
       const imported = new Set((existing ?? []).map((r) => r.gmail_message_id as string));
 
       const newIds = messageIds.filter((mid) => !imported.has(mid));
+      summary.new = newIds.length;
       const toProcess = newIds.slice(0, Math.max(budget, 0));
       remaining += newIds.length - toProcess.length;
       budget -= toProcess.length;
@@ -361,6 +369,7 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
             .single();
           if (insErr || !row) throw new Error(`佇列紀錄建立失敗：${insErr?.message ?? "unknown"}`);
           insertedIds.push((row as { id: string }).id);
+          summary.imported += 1;
         }
 
         // 附件已全數處理（匯入或判定重複）→ 在 Gmail 貼上標籤；失敗不影響匯入
@@ -373,6 +382,21 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
           }
         }
       }
+    };
+
+    for (const [i, { refreshToken: rt, query }] of accounts.entries()) {
+      const label = i === 0 ? "主帳號" : "第二帳號";
+      try {
+        await processAccount(rt, query);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`gmail-import: ${label}匯入失敗:`, msg);
+        accountErrors.push(`${label}：${msg}`);
+      }
+    }
+    // 全部帳號都失敗且沒匯到任何東西才視為整體失敗
+    if (accountErrors.length === accounts.length && insertedIds.length === 0) {
+      throw new Error(accountErrors.join("；"));
     }
 
     return NextResponse.json({
@@ -387,6 +411,10 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
       labeling_unavailable: labelingUnavailable,
       ids: insertedIds,
       query: accounts.map((a) => a.query),
+      // 每個信箱各掃到幾封／匯入幾張；只有一個元素＝GMAIL_REFRESH_TOKEN_2 未設定（第二信箱沒被搜尋）
+      accounts: accountSummaries,
+      configured_accounts: accounts.length,
+      account_errors: accountErrors,
     });
   } catch (err) {
     console.error("gmail-import error:", err);

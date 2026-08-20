@@ -183,6 +183,12 @@ export interface GmailImportResult {
   labelingUnavailable: boolean;
   /** 新建佇列紀錄的 id（前端接著跑辨識） */
   ids: string[];
+  /** 每個信箱的掃描結果；只有一筆＝第二信箱（GMAIL_REFRESH_TOKEN_2）未設定 */
+  accounts: { email: string | null; matched: number; new: number; imported: number }[];
+  /** 已設定的 Gmail 帳號數（1＝只有主帳號） */
+  configuredAccounts: number;
+  /** 個別信箱的錯誤（如 refresh token 失效）；其他信箱照常匯入 */
+  accountErrors: string[];
   error?: string;
   notConfigured?: boolean;
 }
@@ -197,6 +203,9 @@ const GMAIL_IMPORT_FAILURE: Omit<GmailImportResult, "error"> = {
   labeled: 0,
   labelingUnavailable: false,
   ids: [],
+  accounts: [],
+  configuredAccounts: 0,
+  accountErrors: [],
 };
 
 /** 呼叫 Gmail 匯入 API：撈發票信件附件進佇列（source=gmail） */
@@ -224,6 +233,9 @@ export async function importInvoicesFromGmail(): Promise<GmailImportResult> {
         labeled: json.labeled ?? 0,
         labelingUnavailable: Boolean(json.labeling_unavailable),
         ids: Array.isArray(json.ids) ? json.ids : [],
+        accounts: Array.isArray(json.accounts) ? json.accounts : [],
+        configuredAccounts: json.configured_accounts ?? 0,
+        accountErrors: Array.isArray(json.account_errors) ? json.account_errors : [],
       };
     }
     return {
