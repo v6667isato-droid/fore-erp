@@ -776,8 +776,8 @@ type MakeupPunchFormState = {
 
 const MAKEUP_PUNCH_FORM_INITIAL: MakeupPunchFormState = {
   date: "",
-  clockIn: "",
-  clockOut: "",
+  clockIn: "09:00",
+  clockOut: "18:00",
   reason: "",
 };
 
@@ -3543,7 +3543,7 @@ export default function EmployeePortalPage() {
                 </div>
               </div>
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                只補缺的那張卡即可，另一欄留空；打卡鐘有刷到的實卡不會被覆蓋。核准後月底出勤統計會自動採計。
+                預設 09:00–18:00，請改成實際時間；只補缺的那張卡時把另一欄清空即可，打卡鐘有刷到的實卡不會被覆蓋。核准後月底出勤統計會自動採計。
               </p>
               <div>
                 <label

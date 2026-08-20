@@ -689,7 +689,7 @@ export function SalarySettlementCenter() {
       }
 
       const createdBounds = monthCreatedAtFilterBounds(payPeriod);
-      const [leaveOverlapRes, leaveCreatedRes, attRes, otRes, grantsRes] = await Promise.all([
+      const [leaveOverlapRes, leaveCreatedRes, attRes, otRes, grantsRes, makeupRes] = await Promise.all([
         supabase
           .from("leave_requests")
           .select("*")
@@ -721,6 +721,13 @@ export function SalarySettlementCenter() {
         supabase
           .from("annual_leave_grants")
           .select("employee_id, milestone_years")
+          .in("employee_id", ids),
+        supabase
+          .from("makeup_punch_requests")
+          .select("employee_id, punch_date")
+          .eq("status", "approved")
+          .gte("punch_date", bounds.start)
+          .lte("punch_date", bounds.end)
           .in("employee_id", ids),
       ]);
 
@@ -848,6 +855,10 @@ export function SalarySettlementCenter() {
       const attList = (
         attRes.error ? [] : (attRes.data ?? [])
       ) as Record<string, unknown>[];
+      // 已核准補打卡：出勤備註寫入「M/D 補打卡」；表尚未建立時靜默略過
+      const makeupList = (
+        makeupRes.error ? [] : (makeupRes.data ?? [])
+      ) as Record<string, unknown>[];
 
       if (slipRes.error) {
         if (!/does not exist|relation/i.test(slipRes.error.message)) {
@@ -935,6 +946,7 @@ export function SalarySettlementCenter() {
                 overtimeRows: otList,
                 overtimeDailyRate: e.overtime_rate ?? undefined,
                 holidays: monthHolidays,
+                makeupPunchRows: makeupList,
               });
           initInputs[e.id] = {
             semiAnnualBonus: semiBonus,
@@ -954,6 +966,7 @@ export function SalarySettlementCenter() {
               overtimeRows: otList,
               overtimeDailyRate: e.overtime_rate ?? undefined,
               holidays: monthHolidays,
+              makeupPunchRows: makeupList,
             });
         initInputs[e.id] = {
           semiAnnualBonus: 0,
@@ -1594,7 +1607,7 @@ export function SalarySettlementCenter() {
         ) : (
           <table className="w-full min-w-[1564px] table-fixed border-collapse text-sm">
             <colgroup>
-              {/* 欄序：姓名、年資、本月薪資、勞保、健保、請假扣款、原本特休、新增特休、本月申請、結算餘額、總加班、費率、新增補休、加班費、補休結餘、獎金、調整、實發、出勤備註、發放 */}
+              {/* 欄序：姓名、年資、本月薪資、勞保、健保、請假扣款、原本特休、新增特休、本月申請、結算餘額、總加班、費率、補休異動、加班費、補休結餘、獎金、調整、實發、出勤備註、發放 */}
               <col className="w-[5rem]" />
               <col className="w-[4rem]" />
               <col className="w-[4.5rem]" />
@@ -1657,10 +1670,10 @@ export function SalarySettlementCenter() {
                 </th>
                 <th className="text-right text-muted-foreground">費率</th>
                 <th
-                  title="本月折抵補休之時數（核准當下已入補休金庫）"
+                  title="＋：本月加班折抵補休（核准當下已入補休金庫）；−：本月申請補休假（發放時扣除）"
                   className="text-right text-muted-foreground"
                 >
-                  新增補休
+                  補休異動
                 </th>
                 <th
                   title="折抵加班費時數 × 費率 ÷ 8（依員工申報自動計算）"
@@ -1669,7 +1682,7 @@ export function SalarySettlementCenter() {
                   加班費
                 </th>
                 <th
-                  title="補休金庫餘額（小時，employees.comp_leave_remaining，已含本月新增）"
+                  title="補休金庫餘額（小時，已含本月新增、已扣本月申請之補休假）"
                   className="text-right text-muted-foreground"
                 >
                   補休結餘
@@ -1883,10 +1896,26 @@ export function SalarySettlementCenter() {
                       )}
                     </td>
                     <td
-                      className="whitespace-nowrap text-right text-xs tabular-nums text-sky-800 dark:text-sky-300"
-                      title="本月折抵補休之時數（核准當下已入補休金庫）"
+                      className="whitespace-nowrap text-right text-xs tabular-nums"
+                      title="＋：本月加班折抵補休（核准當下已入補休金庫）；−：本月申請補休假（發放時自補休金庫扣除）"
                     >
-                      {ot.comp > 0 ? `+${ot.comp}h` : "—"}
+                      {ot.comp > 0 || st.compThisMonth > 0 ? (
+                        <>
+                          {ot.comp > 0 ? (
+                            <span className="text-sky-800 dark:text-sky-300">
+                              +{ot.comp}h
+                            </span>
+                          ) : null}
+                          {ot.comp > 0 && st.compThisMonth > 0 ? " " : null}
+                          {st.compThisMonth > 0 ? (
+                            <span className="font-medium text-red-700 dark:text-red-400">
+                              -{st.compThisMonth}h
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td
                       className="whitespace-nowrap text-right text-xs tabular-nums font-medium text-foreground"
@@ -1911,14 +1940,7 @@ export function SalarySettlementCenter() {
                       {paidSnap?.compAfter != null ? (
                         `${paidSnap.compAfter}h`
                       ) : emp.comp_leave_remaining != null ? (
-                        st.compThisMonth > 0 ? (
-                          <span className="text-amber-800 dark:text-amber-400">
-                            {emp.comp_leave_remaining}h→
-                            {emp.comp_leave_remaining - st.compThisMonth}h
-                          </span>
-                        ) : (
-                          `${emp.comp_leave_remaining}h`
-                        )
+                        `${emp.comp_leave_remaining - st.compThisMonth}h`
                       ) : (
                         "—"
                       )}

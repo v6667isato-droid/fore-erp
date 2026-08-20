@@ -373,6 +373,8 @@ export function buildPayslipAttendanceRemarks(
     overtimeDailyRate?: number;
     /** 結算月內放假日（is_workday=false）：該日不再列出勤異常，並自動寫入「M/D 假日名」 */
     holidays?: PayslipRemarkHoliday[];
+    /** 結算月內已核准補打卡（makeup_punch_requests，status=approved）：寫入「M/D 補打卡」 */
+    makeupPunchRows?: Record<string, unknown>[];
   },
 ): string {
   const {
@@ -383,6 +385,7 @@ export function buildPayslipAttendanceRemarks(
     overtimeRows,
     overtimeDailyRate,
     holidays,
+    makeupPunchRows,
   } = opts;
   const items: SortableRemark[] = [];
 
@@ -436,6 +439,14 @@ export function buildPayslipAttendanceRemarks(
     if (!line) continue;
     const sortKey = String(row.overtime_date ?? "").slice(0, 10);
     items.push({ sortKey, text: line });
+  }
+
+  for (const row of makeupPunchRows ?? []) {
+    if (String(row.employee_id ?? "") !== employeeId) continue;
+    const d = String(row.punch_date ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    if (d < bounds.start || d > bounds.end) continue;
+    items.push({ sortKey: d, text: `${formatMdFromIso(d)} 補打卡` });
   }
 
   items.sort((a, b) => a.sortKey.localeCompare(b.sortKey));

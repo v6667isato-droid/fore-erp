@@ -87,25 +87,12 @@ function holidayEmoji(h: PublicHolidayEntry): string {
   return "🎉";
 }
 
-/** 與 overtime_records／核准轉補休合併顯示於同一列的異常類型（避免另起一行） */
-const TAG_IDS_MERGE_COMP_OFF_INLINE = new Set([
-  "weekend",
-  "holiday_work",
-  "holiday_work_unpaid",
-]);
-
-/** 月曆格內姓名比對（避免全形空白等導致合併失敗） */
-function normCalendarName(s: string): string {
-  return String(s ?? "")
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
 const WAR_WEEK_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 
 function WarCalendar({
   ym,
   leavesByDay,
+  makeupByDay,
   anomalyEntriesByDay,
   anomalyEntriesByDayAllEmployees,
   monthPublicHolidays,
@@ -118,6 +105,11 @@ function WarCalendar({
   leavesByDay: Map<
     number,
     { employeeName: string; leaveType: string; totalDaysSnippet: string | null }[]
+  >;
+  /** 圖層二：已核准補卡（makeup_punch_requests，與 CSV 是否有列無關） */
+  makeupByDay: Map<
+    number,
+    { employeeName: string; clockIn: string | null; clockOut: string | null }[]
   >;
   /** 圖層三：打卡衍生的異常（不含 leave 標籤，避免與假單圖層重複） */
   anomalyEntriesByDay: Map<
@@ -133,8 +125,11 @@ function WarCalendar({
   monthPublicHolidays: PublicHolidayEntry[];
   /** 主力年（YYYY）內 public_holidays 總筆數（用於空狀態判讀） */
   yearPublicHolidayCount: number;
-  /** 圖層三：已核准轉補休（overtime_records，含手動補登；hours 供顯示時數） */
-  compOffByDay: Map<number, { employeeName: string; hours?: number | null }[]>;
+  /** 圖層三：本月加班紀錄（overtime_records，含手動補登；kind：pay=加班費／comp=加班補休） */
+  compOffByDay: Map<
+    number,
+    { employeeName: string; hours?: number | null; kind?: "pay" | "comp" }[]
+  >;
   /** 該曆日 CSV 主力列是否至少有一筆打卡列（避免無資料之週末誤判為全員正常） */
   csvPunchDaySet: ReadonlySet<number>;
 }) {
@@ -275,23 +270,21 @@ function WarCalendar({
         {cells.map((day, idx) => {
           const hols = day != null ? holidaysByDay.get(day) ?? [] : [];
           const leaveRows = day != null ? leavesByDay.get(day) ?? [] : [];
+          const makeupLines = day != null ? makeupByDay.get(day) ?? [] : [];
           const entries = day != null ? anomalyEntriesByDay.get(day) ?? [] : [];
           const entriesAll =
             day != null ? anomalyEntriesByDayAllEmployees.get(day) ?? [] : [];
           const compOffLines = day != null ? compOffByDay.get(day) ?? [] : [];
-          const compOffByName = new Map(
-            compOffLines
-              .filter((c) => normCalendarName(c.employeeName))
-              .map((c) => [normCalendarName(c.employeeName), c]),
-          );
           const restHols = hols.filter((h) => !h.is_workday);
           const makeupHols = hols.filter((h) => h.is_workday);
           const hasAnomaly = entries.length > 0 || compOffLines.length > 0;
           const hasLeaves = leaveRows.length > 0;
+          const hasMakeupPunches = makeupLines.length > 0;
           const hasRestHoliday = restHols.length > 0;
           const hasMakeupOnly = makeupHols.length > 0 && restHols.length === 0;
-          /** 當日有任何 public_holiday、異常列、核准假單列 */
-          const hasCalendarContent = hasAnomaly || hols.length > 0 || hasLeaves;
+          /** 當日有任何 public_holiday、異常列、核准假單列、核准補卡列 */
+          const hasCalendarContent =
+            hasAnomaly || hols.length > 0 || hasLeaves || hasMakeupPunches;
           const showAllPunchNormal =
             day != null &&
             !hasRestHoliday &&
@@ -301,7 +294,7 @@ function WarCalendar({
           const cellTint =
             day == null
               ? null
-              : entries.length > 0 || compOffLines.length > 0
+              : entries.length > 0
                 ? "bg-amber-50/55 dark:bg-amber-950/20"
                 : hasRestHoliday
                   ? "bg-muted/70"
@@ -309,11 +302,15 @@ function WarCalendar({
                     ? "bg-blue-50/90 dark:bg-blue-950/40"
                     : hasLeaves
                       ? "bg-emerald-50/35 dark:bg-emerald-950/20"
-                      : hasMakeupOnly
-                        ? "bg-muted/50"
-                        : !hasCalendarContent
-                          ? "bg-card/60 dark:bg-card/20"
-                          : null;
+                      : hasMakeupPunches
+                        ? "bg-teal-50/50 dark:bg-teal-950/20"
+                        : compOffLines.length > 0
+                          ? "bg-sky-50/50 dark:bg-sky-950/20"
+                          : hasMakeupOnly
+                            ? "bg-muted/50"
+                            : !hasCalendarContent
+                              ? "bg-card/60 dark:bg-card/20"
+                              : null;
           return (
             <div
               key={idx}
@@ -366,66 +363,77 @@ function WarCalendar({
                       </div>
                     )}
 
-                    {(entries.length > 0 || compOffLines.length > 0) && (
-                      <ul className="space-y-0.5 text-[10px] leading-tight text-muted-foreground">
-                        {entries.map((e, i) => {
-                          const compHit = TAG_IDS_MERGE_COMP_OFF_INLINE.has(e.tagId)
-                            ? compOffByName.get(normCalendarName(e.employeeName))
-                            : undefined;
-                          const mergeCompOff = compHit != null;
+                    {makeupLines.length > 0 && (
+                      <div className="flex flex-col gap-0.5">
+                        {makeupLines.map((mk, mi) => {
+                          const timeLabel =
+                            mk.clockIn != null && mk.clockOut != null
+                              ? `${mk.clockIn}–${mk.clockOut}`
+                              : mk.clockIn != null
+                                ? `上班 ${mk.clockIn}`
+                                : `下班 ${mk.clockOut ?? "—"}`;
                           return (
-                            <li key={`${e.tagId}-${e.employeeName}-${i}`} className="break-words">
-                              <span className="font-medium text-foreground">{e.employeeName}</span>
-                              <span
-                                className={cn(
-                                  e.tagId === "holiday_rest"
-                                    ? "font-medium text-emerald-700 dark:text-emerald-400"
-                                    : e.tagId === "holiday_rest_unpaid"
-                                      ? "font-medium text-fuchsia-800 dark:text-fuchsia-300"
-                                      : e.tagId === "holiday_work"
-                                        ? "font-medium text-amber-800 dark:text-amber-300"
-                                        : e.tagId === "holiday_work_unpaid"
-                                          ? "font-medium text-orange-800 dark:text-orange-300"
-                                          : e.tagId === "hours_invalid"
-                                            ? "font-medium text-rose-700 dark:text-rose-300"
-                                            : "text-muted-foreground",
-                                )}
-                              >
-                                （{e.shortLabel}
-                                {mergeCompOff ? (
-                                  <span className="text-emerald-700 dark:text-emerald-300">
-                                    {" "}
-                                    · <span aria-hidden>💰</span>已轉補休
-                                    {compHit?.hours != null ? `·${compHit.hours}h` : ""}
-                                  </span>
-                                ) : null}
-                                ）
-                              </span>
-                            </li>
+                            <div
+                              key={`mkp-${mk.employeeName}-${mi}`}
+                              className="rounded-md bg-teal-600 px-1.5 py-0.5 text-center text-[9px] font-semibold leading-snug text-white shadow-sm dark:bg-teal-700"
+                              title={`已核准補卡：上班 ${mk.clockIn ?? "—"}／下班 ${mk.clockOut ?? "—"}`}
+                            >
+                              <span aria-hidden>📝</span> {mk.employeeName}（補卡 {timeLabel}）
+                            </div>
                           );
                         })}
-                        {compOffLines
-                          .filter((c) => {
-                            const n = normCalendarName(c.employeeName);
-                            if (!n) return true;
-                            return !entries.some(
-                              (e) =>
-                                TAG_IDS_MERGE_COMP_OFF_INLINE.has(e.tagId) &&
-                                normCalendarName(e.employeeName) === n,
-                            );
-                          })
-                          .map((c, ci) => (
-                            <li
-                              key={`comp-${c.employeeName}-${ci}`}
-                              className="break-words font-medium text-foreground"
+                      </div>
+                    )}
+
+                    {compOffLines.length > 0 && (
+                      <div className="flex flex-col gap-0.5">
+                        {compOffLines.map((c, ci) => (
+                          <div
+                            key={`ot-${c.employeeName}-${ci}`}
+                            className={cn(
+                              "rounded-md px-1.5 py-0.5 text-center text-[9px] font-semibold leading-snug shadow-sm",
+                              c.kind === "pay"
+                                ? "bg-amber-500 text-amber-950 dark:bg-amber-600 dark:text-amber-50"
+                                : "bg-sky-600 text-white dark:bg-sky-700",
+                            )}
+                            title={
+                              c.kind === "pay"
+                                ? "本月加班（折抵加班費，薪資結算計薪）"
+                                : "本月加班（轉補休，已累加補休餘額）"
+                            }
+                          >
+                            <span aria-hidden>💰</span> {c.employeeName}（
+                            {c.kind === "pay" ? "加班費" : "加班補休"}
+                            {c.hours != null ? `·${c.hours}h` : ""}）
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {entries.length > 0 && (
+                      <ul className="space-y-0.5 text-[10px] leading-tight text-muted-foreground">
+                        {entries.map((e, i) => (
+                          <li key={`${e.tagId}-${e.employeeName}-${i}`} className="break-words">
+                            <span className="font-medium text-foreground">{e.employeeName}</span>
+                            <span
+                              className={cn(
+                                e.tagId === "holiday_rest"
+                                  ? "font-medium text-emerald-700 dark:text-emerald-400"
+                                  : e.tagId === "holiday_rest_unpaid"
+                                    ? "font-medium text-fuchsia-800 dark:text-fuchsia-300"
+                                    : e.tagId === "holiday_work"
+                                      ? "font-medium text-amber-800 dark:text-amber-300"
+                                      : e.tagId === "holiday_work_unpaid"
+                                        ? "font-medium text-orange-800 dark:text-orange-300"
+                                        : e.tagId === "hours_invalid"
+                                          ? "font-medium text-rose-700 dark:text-rose-300"
+                                          : "text-muted-foreground",
+                              )}
                             >
-                              {c.employeeName}{" "}
-                              <span className="text-emerald-700 dark:text-emerald-300">
-                                <span aria-hidden>💰</span> 已轉補休
-                                {c.hours != null ? `·${c.hours}h` : ""}
-                              </span>
-                            </li>
-                          ))}
+                              （{e.shortLabel}）
+                            </span>
+                          </li>
+                        ))}
                       </ul>
                     )}
 
@@ -491,6 +499,8 @@ export function AttendanceImporterPanel({
   const [overtimeHoursByKey, setOvertimeHoursByKey] = useState<Map<string, number | null>>(
     () => new Map(),
   );
+  /** reason 前綴【加班費】之 overtime_records key（employeeId\t日期）；其餘視為轉補休 */
+  const [overtimePayKeys, setOvertimePayKeys] = useState<Set<string>>(() => new Set());
 
   /** 主力月永遠依完整 CSV 推算，避免 empClockMap 尚未載入時 ym 為空而無法查 employees */
   const { ym: csvYm, filtered: dominantMonthRows } = useMemo(
@@ -741,7 +751,10 @@ export function AttendanceImporterPanel({
   }, [filterEmployeeKey, activeEmployees, panelVisibleWarRows]);
 
   const compOffLinesByDay = useMemo(() => {
-    const map = new Map<number, { employeeName: string; hours: number | null }[]>();
+    const map = new Map<
+      number,
+      { employeeName: string; hours: number | null; kind: "pay" | "comp" }[]
+    >();
     if (!ym) return map;
     const prefix = `${ym}-`;
     const idToName = new Map(activeEmployees.map((e) => [e.id, e.name]));
@@ -757,11 +770,50 @@ export function AttendanceImporterPanel({
       const name = idToName.get(empId) ?? "—";
       const arr = map.get(day) ?? [];
       if (!arr.some((x) => x.employeeName === name))
-        arr.push({ employeeName: name, hours: overtimeHoursByKey.get(key) ?? null });
+        arr.push({
+          employeeName: name,
+          hours: overtimeHoursByKey.get(key) ?? null,
+          kind: overtimePayKeys.has(key) ? "pay" : "comp",
+        });
       map.set(day, arr);
     }
     return map;
-  }, [ym, overtimeKeys, overtimeHoursByKey, activeEmployees, scopeEmpIdsForCalendar]);
+  }, [
+    ym,
+    overtimeKeys,
+    overtimeHoursByKey,
+    overtimePayKeys,
+    activeEmployees,
+    scopeEmpIdsForCalendar,
+  ]);
+
+  /** 月曆補卡圖層：已核准補卡單（直接來自 makeup_punch_requests，與 CSV 是否匯入無關） */
+  const makeupLinesByDay = useMemo(() => {
+    const map = new Map<
+      number,
+      { employeeName: string; clockIn: string | null; clockOut: string | null }[]
+    >();
+    if (!ym) return map;
+    const prefix = `${ym}-`;
+    const idToName = new Map(activeEmployees.map((e) => [e.id, e.name]));
+    for (const m of makeupSpans) {
+      if (!m.punch_date.startsWith(prefix)) continue;
+      if (!scopeEmpIdsForCalendar.has(m.employee_id)) continue;
+      const day = Number(m.punch_date.slice(8, 10));
+      if (!Number.isFinite(day) || day < 1 || day > 31) continue;
+      const arr = map.get(day) ?? [];
+      arr.push({
+        employeeName: idToName.get(m.employee_id) ?? "—",
+        clockIn: m.clock_in,
+        clockOut: m.clock_out,
+      });
+      map.set(day, arr);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => a.employeeName.localeCompare(b.employeeName, "zh-Hant"));
+    }
+    return map;
+  }, [ym, makeupSpans, activeEmployees, scopeEmpIdsForCalendar]);
 
   const anomalyCalendarMap = useMemo(
     () => buildCalendarAnomalyEntriesByDay(filteredDisplayWarRows),
@@ -805,6 +857,7 @@ export function AttendanceImporterPanel({
     if (!ym || !isSupabaseConfigured) {
       setOvertimeKeys(new Set());
       setOvertimeHoursByKey(new Map());
+      setOvertimePayKeys(new Set());
       return;
     }
     /** 涵蓋全體在職員工：手動補登（出差等未打卡）之紀錄即使無 CSV 列也要顯示 */
@@ -817,6 +870,7 @@ export function AttendanceImporterPanel({
     if (empIds.length === 0) {
       setOvertimeKeys(new Set());
       setOvertimeHoursByKey(new Map());
+      setOvertimePayKeys(new Set());
       return;
     }
     setOvertimeKeysLoading(true);
@@ -825,27 +879,39 @@ export function AttendanceImporterPanel({
       const monthEnd = monthEndIso(ym);
       const { data, error } = await supabase
         .from("overtime_records")
-        .select("employee_id, overtime_date, hours")
+        .select("employee_id, overtime_date, hours, reason")
         .in("employee_id", empIds)
         .gte("overtime_date", monthStart)
         .lte("overtime_date", monthEnd);
       if (error) throw error;
       const next = new Set<string>();
       const hoursMap = new Map<string, number | null>();
+      const paySet = new Set<string>();
       for (const raw of data ?? []) {
-        const rec = raw as { employee_id: string; overtime_date: string; hours?: unknown };
+        const rec = raw as {
+          employee_id: string;
+          overtime_date: string;
+          hours?: unknown;
+          reason?: unknown;
+        };
         const d = String(rec.overtime_date).slice(0, 10);
         const key = `${rec.employee_id}\t${d}`;
         next.add(key);
         const h = Number(rec.hours);
         hoursMap.set(key, Number.isFinite(h) && h > 0 ? h : null);
+        // 與薪資結算同一判斷：reason 前綴【加班費】＝計薪；其餘（含手動補登）＝轉補休
+        if (String(rec.reason ?? "").trim().startsWith("【加班費】")) {
+          paySet.add(key);
+        }
       }
       setOvertimeKeys(next);
       setOvertimeHoursByKey(hoursMap);
+      setOvertimePayKeys(paySet);
     } catch (e) {
       console.error("[attendance] overtime_records:", e);
       setOvertimeKeys(new Set());
       setOvertimeHoursByKey(new Map());
+      setOvertimePayKeys(new Set());
     } finally {
       setOvertimeKeysLoading(false);
     }
@@ -1042,6 +1108,7 @@ export function AttendanceImporterPanel({
         <WarCalendar
           ym={ym}
           leavesByDay={approvedLeavesByDay}
+          makeupByDay={makeupLinesByDay}
           anomalyEntriesByDay={anomalyCalendarMap}
           anomalyEntriesByDayAllEmployees={anomalyCalendarMapAll}
           monthPublicHolidays={monthPublicHolidaysSorted}
