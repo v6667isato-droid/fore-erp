@@ -12,11 +12,6 @@ export const maxDuration = 60;
  */
 
 const DEFAULT_QUERY = "has:attachment (發票 OR 電子發票 OR invoice) newer_than:60d";
-/**
- * 第二帳號（公司信箱）預設條件：只用中文關鍵字。
- * 公司信箱多為國外貿易往來信，含英文 "invoice" 會誤抓 Proforma Invoice／B/L／到貨通知。
- */
-const DEFAULT_QUERY_ACCOUNT2 = "has:attachment (電子發票 OR 發票開立 OR 發票通知 OR 發票號碼) newer_than:60d";
 /** 匯入後自動貼上的 Gmail 標籤（需 gmail.modify 授權；唯讀授權時靜默略過） */
 const GMAIL_LABEL_NAME = "ERP已匯入";
 /** 單次最多下載處理的「新」信件數（避免超過 Vercel 60 秒上限）；超過的部分回報 remaining 請使用者再按一次 */
@@ -231,8 +226,8 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
   });
 
   // 多帳號：GMAIL_REFRESH_TOKEN（主帳號）＋ GMAIL_REFRESH_TOKEN_2（第二帳號，選用），共用同一組 client。
-  // 第二帳號可用 GMAIL_INVOICE_QUERY_2 設自己的搜尋條件（公司信箱多為國外貿易信，預設含
-  // "invoice" 會誤抓 Proforma Invoice／B/L，建議只用中文關鍵字）
+  // 兩個信箱用同一套搜尋規則（GMAIL_INVOICE_QUERY／預設條件）；
+  // 需要個別條件時可用 GMAIL_INVOICE_QUERY_2 覆寫第二帳號
   const accounts: { refreshToken: string; query: string }[] = [
     { refreshToken, query: sharedQuery },
   ];
@@ -240,7 +235,7 @@ async function handleImport(queryOverride: string | null): Promise<NextResponse>
   if (refreshToken2?.trim()) {
     accounts.push({
       refreshToken: refreshToken2,
-      query: queryOverride?.trim() || process.env.GMAIL_INVOICE_QUERY_2 || DEFAULT_QUERY_ACCOUNT2,
+      query: queryOverride?.trim() || process.env.GMAIL_INVOICE_QUERY_2 || sharedQuery,
     });
   }
 
