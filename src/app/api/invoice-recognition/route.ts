@@ -24,6 +24,8 @@ export interface RecognizedInvoice {
   total_amount_ex_tax: number | null;
   /** 含稅總計 */
   total_amount_inc_tax: number | null;
+  /** 此文件是否為台灣統一發票（員工誤傳發票到採購佇列時，建檔後自動同步到會計發票佇列）；無法判斷 null，舊資料缺欄 */
+  is_tax_invoice?: boolean | null;
   items: RecognizedInvoiceItem[];
 }
 
@@ -144,6 +146,9 @@ const RECOGNITION_PROMPT = `這是一張廠商傳來的請款單（或出貨單�
 - 每一行品項：品名（照原文抄錄，不要翻譯或改寫）、規格、數量、單位、單價、金額
 - 未稅合計與含稅總計（單據上有哪個就填哪個，兩個都有就都填）
 - 單價是含稅或未稅（單據上有「含稅」「未稅」「稅外加」等字樣時據以判斷，否則為 null）
+- is_tax_invoice：判斷這份文件是否為台灣「統一發票」——票面印有「統一發票」「電子發票證明聯」字樣，
+  或有 2 碼英文＋8 碼數字的發票號碼（如 AB12345678），包含三聯式、二聯式、收銀機發票、手開發票；
+  一般請款單、對帳單、出貨單、報價單、estimate、invoice（非統一發票）都輸出 false；無法判斷輸出 null
 
 日期特別注意：
 - 台灣單據常用民國紀年，民國年＝西元年－1911。兩、三位數的年份幾乎都是民國年，
@@ -159,13 +164,25 @@ const RECOGNITION_PROMPT = `這是一張廠商傳來的請款單（或出貨單�
 const CLAUDE_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["vendor_name", "invoice_date", "prices_tax_inclusive", "total_amount_ex_tax", "total_amount_inc_tax", "items"],
+  required: [
+    "vendor_name",
+    "invoice_date",
+    "prices_tax_inclusive",
+    "total_amount_ex_tax",
+    "total_amount_inc_tax",
+    "is_tax_invoice",
+    "items",
+  ],
   properties: {
     vendor_name: { type: ["string", "null"], description: "開立請款單的廠商名稱" },
     invoice_date: { type: ["string", "null"], description: "請款單日期，YYYY-MM-DD；民國年＝西元年－1911" },
     prices_tax_inclusive: { type: ["boolean", "null"], description: "單價是否為含稅價；文件未標示則為 null" },
     total_amount_ex_tax: { type: ["number", "null"], description: "未稅合計；單據未列則為 null" },
     total_amount_inc_tax: { type: ["number", "null"], description: "含稅總計；單據未列則為 null" },
+    is_tax_invoice: {
+      type: ["boolean", "null"],
+      description: "此文件是否為台灣統一發票（含電子發票證明聯／三聯式／二聯式／收銀機／手開）；請款單、對帳單等為 false；無法判斷 null",
+    },
     items: {
       type: "array",
       items: {
@@ -188,13 +205,26 @@ const CLAUDE_OUTPUT_SCHEMA = {
 /** Gemini responseSchema（OpenAPI 子集，nullable 以 nullable: true 表示） */
 const GEMINI_OUTPUT_SCHEMA = {
   type: "OBJECT",
-  required: ["vendor_name", "invoice_date", "prices_tax_inclusive", "total_amount_ex_tax", "total_amount_inc_tax", "items"],
+  required: [
+    "vendor_name",
+    "invoice_date",
+    "prices_tax_inclusive",
+    "total_amount_ex_tax",
+    "total_amount_inc_tax",
+    "is_tax_invoice",
+    "items",
+  ],
   properties: {
     vendor_name: { type: "STRING", nullable: true, description: "開立請款單的廠商名稱" },
     invoice_date: { type: "STRING", nullable: true, description: "請款單日期，YYYY-MM-DD；民國年＝西元年－1911" },
     prices_tax_inclusive: { type: "BOOLEAN", nullable: true, description: "單價是否為含稅價；文件未標示則為 null" },
     total_amount_ex_tax: { type: "NUMBER", nullable: true, description: "未稅合計；單據未列則為 null" },
     total_amount_inc_tax: { type: "NUMBER", nullable: true, description: "含稅總計；單據未列則為 null" },
+    is_tax_invoice: {
+      type: "BOOLEAN",
+      nullable: true,
+      description: "此文件是否為台灣統一發票（含電子發票證明聯／三聯式／二聯式／收銀機／手開）；請款單、對帳單等為 false；無法判斷 null",
+    },
     items: {
       type: "ARRAY",
       items: {

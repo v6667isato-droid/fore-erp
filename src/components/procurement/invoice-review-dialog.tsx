@@ -24,6 +24,7 @@ import {
   type VendorItemAlias,
 } from "@/lib/invoice-match";
 import { archiveScanPath, fixRocDate, type InvoiceScanRow } from "@/lib/invoice-scan";
+import { importPoInvoiceToAccounting } from "@/lib/accounting-invoice";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -449,7 +450,22 @@ export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived, onAd
         .eq("id", scan.id);
       if (scanErr) console.error("佇列狀態更新失敗:", scanErr.message);
 
-      // 5. 寫入廠商品名→料號記憶（下次同廠商自動帶入）
+      // 5. 這張其實是統一發票 → 複製附件進會計發票佇列並對應本採購單（source=採購單匯入）
+      if (scan.recognized?.is_tax_invoice === true) {
+        const syncOutcome = await importPoInvoiceToAccounting({
+          sourcePath: finalPath,
+          fileName: scan.file_name,
+          mediaType: scan.media_type,
+          purchaseOrderId,
+        });
+        if (syncOutcome.ok) {
+          toast.success("辨識為統一發票：已同步到會計發票佇列並對應本採購單");
+        } else {
+          toast.error(`發票同步到會計佇列失敗：${syncOutcome.error}（可到會計頁手動上傳）`);
+        }
+      }
+
+      // 6. 寫入廠商品名→料號記憶（下次同廠商自動帶入）
       const aliasRows = activeLines
         .filter((l) => l.rawName.trim() && l.materialId)
         .map((l) => ({
@@ -555,6 +571,12 @@ export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived, onAd
                 {scan?.status === "failed" && (
                   <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-500">
                     這張的 AI 辨識失敗（{scan.error || "原因不明"}），以下請對照照片手動輸入。
+                  </p>
+                )}
+
+                {scan?.recognized?.is_tax_invoice === true && (
+                  <p className="rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-xs text-primary">
+                    AI 判斷這張是<strong className="font-medium">統一發票</strong>：確認建檔後會自動同步到會計頁的發票佇列，並對應本次建立的採購單（來源：採購單匯入）。
                   </p>
                 )}
 

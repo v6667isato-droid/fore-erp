@@ -7,6 +7,7 @@ import { Camera, FileText, FolderUp, Loader2, Mail, RefreshCw, Trash2 } from "lu
 import { toast } from "sonner";
 import { compressInvoiceFileForStorage } from "@/lib/invoice-file";
 import { fixRocDate } from "@/lib/invoice-scan";
+import { displayPoNumber } from "@/lib/purchase-order";
 import {
   fetchInvoiceQueue,
   importInvoicesFromGmail,
@@ -365,11 +366,18 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
                           ? [row.gmail_subject, row.gmail_from, row.gmail_account && `信箱：${row.gmail_account}`]
                               .filter(Boolean)
                               .join("\n") || undefined
-                          : undefined
+                          : row.source === "po_import" && row.purchase_orders
+                            ? `對應採購單 ${displayPoNumber(row.purchase_orders.po_number)}（${row.purchase_orders.purchase_date}${row.purchase_orders.vendor_name ? `・${row.purchase_orders.vendor_name}` : ""}）`
+                            : undefined
                       }
                     >
                       {SOURCE_LABELS[row.source] ?? row.source}
                     </span>
+                    {row.source === "po_import" && row.purchase_orders && (
+                      <span className="rounded border border-primary/40 px-1.5 py-px text-[10px] text-primary">
+                        {displayPoNumber(row.purchase_orders.po_number)}
+                      </span>
+                    )}
                     {/* 辨識完成才知道有沒有買方統編：有＝公司發票、無＝家庭發票（可對獎） */}
                     {row.status === "ready" &&
                       (() => {

@@ -17,13 +17,14 @@ export interface AccountingInvoicePo {
 /** 進項憑證格式代號（報稅媒體檔用） */
 export type InvoiceFormatCode = "21" | "22" | "25";
 
-/** 發票來源：manual=手動輸入 / upload=手動上傳 / gmail=Gmail 自動抓取 */
-export type AccountingInvoiceSource = "manual" | "upload" | "gmail";
+/** 發票來源：manual=手動輸入 / upload=手動上傳 / gmail=Gmail 自動抓取 / po_import=採購單匯入（採購佇列辨識為統一發票時自動同步） */
+export type AccountingInvoiceSource = "manual" | "upload" | "gmail" | "po_import";
 
 export const SOURCE_LABELS: Record<AccountingInvoiceSource, string> = {
   manual: "手動輸入",
   upload: "手動上傳",
   gmail: "Gmail",
+  po_import: "採購單匯入",
 };
 
 /**
@@ -134,11 +135,11 @@ export function accountingArchiveFileName(invoiceNumber: string, invoiceDate: st
   return `${normalizeInvoiceNumber(invoiceNumber)}${date}.${ext}`;
 }
 
-/** 佇列（未存檔）發票，依上傳時間排序 */
+/** 佇列（未存檔）發票，依上傳時間排序；含對應採購單摘要（採購單匯入來源顯示用） */
 export async function fetchInvoiceQueue(): Promise<AccountingInvoiceRow[]> {
   const { data, error } = await supabase
     .from("accounting_invoices")
-    .select(ACCOUNTING_INVOICE_FIELDS)
+    .select(`${ACCOUNTING_INVOICE_FIELDS}, purchase_orders (id, po_number, purchase_date, vendor_name)`)
     .is("deleted_at", null)
     .neq("status", "confirmed")
     .order("created_at", { ascending: true });
@@ -284,6 +285,86 @@ export async function recognizeAccountingInvoice(
   const { error: updErr } = await supabase.from("accounting_invoices").update(patch).eq("id", invoiceId);
   if (updErr) console.error("發票狀態更新失敗:", updErr.message);
   return outcome;
+}
+
+export type PoInvoiceImportOutcome = { ok: true } | { ok: false; error: string };
+
+function newAccountingFileId(): string {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * 採購請款單佇列辨識出「這張其實是統一發票」時呼叫：
+ * 把附件從 purchase-invoices bucket 複製一份進會計發票佇列（source=po_import），
+ * 直接對應剛建立的採購單，並在背景跑統一發票辨識（未完成也沒關係，會計佇列開啟時會自動補辨識）。
+ */
+export async function importPoInvoiceToAccounting(params: {
+  /** purchase-invoices bucket 內的檔案路徑（採購建檔歸檔後的最終路徑） */
+  sourcePath: string;
+  fileName: string | null;
+  mediaType: string | null;
+  purchaseOrderId: string;
+}): Promise<PoInvoiceImportOutcome> {
+  try {
+    // 同一張採購單已同步過就不重複建（例如附件補傳、重試）
+    const { data: existing, error: existErr } = await supabase
+      .from("accounting_invoices")
+      .select("id")
+      .eq("purchase_order_id", params.purchaseOrderId)
+      .eq("source", "po_import")
+      .is("deleted_at", null)
+      .limit(1);
+    if (!existErr && (existing?.length ?? 0) > 0) return { ok: true };
+
+    const { data: blob, error: dlErr } = await supabase.storage
+      .from("purchase-invoices")
+      .download(params.sourcePath);
+    if (dlErr || !blob) {
+      return { ok: false, error: dlErr?.message || "附件下載失敗，無法同步到會計發票佇列" };
+    }
+
+    const ext = params.sourcePath.split(".").pop()?.toLowerCase() || "jpg";
+    const path = `inbox/${newAccountingFileId()}.${ext}`;
+    const { data: up, error: upErr } = await supabase.storage
+      .from("accounting-invoices")
+      .upload(path, blob, { cacheControl: "3600", upsert: false, contentType: params.mediaType ?? undefined });
+    if (upErr || !up) {
+      return { ok: false, error: upErr?.message || "附件複製失敗，無法同步到會計發票佇列" };
+    }
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("accounting-invoices").getPublicUrl(up.path);
+
+    const mediaType = params.mediaType || blob.type || "image/jpeg";
+    const { data: row, error: insErr } = await supabase
+      .from("accounting_invoices")
+      .insert({
+        file_path: up.path,
+        file_url: publicUrl,
+        file_name: params.fileName,
+        media_type: mediaType,
+        status: "pending",
+        source: "po_import",
+        purchase_order_id: params.purchaseOrderId,
+      })
+      .select("id")
+      .single();
+    if (insErr || !row) {
+      await supabase.storage.from("accounting-invoices").remove([up.path]);
+      return { ok: false, error: insErr?.message || "會計發票佇列建立失敗" };
+    }
+
+    // 背景跑統一發票辨識；失敗或中斷都不影響同步結果（佇列會顯示待辨識，開啟會計頁時自動補跑）
+    void recognizeAccountingInvoice((row as { id: string }).id, blob, mediaType).catch((err) =>
+      console.error("採購單匯入發票辨識失敗:", err),
+    );
+    return { ok: true };
+  } catch (err) {
+    console.error("採購單匯入會計發票失敗:", err);
+    return { ok: false, error: err instanceof Error ? err.message : "同步到會計發票佇列失敗" };
+  }
 }
 
 /** 從 storage 重新抓檔並辨識（佇列中的「重新辨識」） */
