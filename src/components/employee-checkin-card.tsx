@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { epSection } from "@/lib/employee-portal-section-styles";
 import {
-  checkinSourceLabel,
   checkinTypeLabel,
+  taipeiDateWeekdayOfIso,
   taipeiHmOfIso,
   type CheckinType,
   type PortalCheckinScope,
@@ -217,11 +217,15 @@ export function EmployeeCheckinCard({
                 key={`${log.created_at}-${i}`}
                 className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/30 px-3 py-1 text-xs text-foreground"
               >
-                <span className="font-medium">{checkinTypeLabel(log.check_type)}</span>
-                <span className="tabular-nums">{taipeiHmOfIso(log.created_at)}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {taipeiDateWeekdayOfIso(log.created_at)}
+                </span>
+                <span className="font-medium tabular-nums">
+                  {checkinTypeLabel(log.check_type)}
+                  {taipeiHmOfIso(log.created_at)}
+                </span>
                 <span className="text-muted-foreground">
-                  · {checkinSourceLabel(log.source)} · 距廠區{" "}
-                  {Math.round(Number(log.distance_meters))}m
+                  距廠區 {Math.round(Number(log.distance_meters))}m
                 </span>
               </li>
             ))}

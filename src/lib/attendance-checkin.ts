@@ -63,6 +63,18 @@ export function taipeiYmdOfIso(iso: string): string {
   return d.toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
 }
 
+/** timestamptz ISO → 台北時區的 YYYY/M/D(星期X)，如 2026/9/7(星期一) */
+export function taipeiDateWeekdayOfIso(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const date = d.toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" });
+  const weekday = d.toLocaleDateString("zh-TW", {
+    timeZone: "Asia/Taipei",
+    weekday: "long",
+  });
+  return `${date}(${weekday})`;
+}
+
 /** timestamptz ISO → 台北時區的 HH:MM */
 export function taipeiHmOfIso(iso: string): string {
   const d = new Date(iso);
