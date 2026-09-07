@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { amegoBanQuery } from "@/lib/sales-invoice";
+import { AddressZipcodeHint } from "@/components/crm/address-zipcode-hint";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -305,6 +306,7 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                   <span className="whitespace-nowrap">有電梯</span>
                 </label>
               </div>
+              <AddressZipcodeHint address={deliveryAddress} onApply={setDeliveryAddress} />
             </div>
 
             {/* 5. 客戶來源 + 客戶種類（同一列） */}
