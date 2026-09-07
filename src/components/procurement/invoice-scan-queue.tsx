@@ -273,6 +273,14 @@ export function InvoiceScanQueue({ onArchived }: InvoiceScanQueueProps) {
                     <span className={`rounded border px-1.5 py-px text-[10px] font-medium ${badge.className}`}>
                       {badge.label}
                     </span>
+                    {scan.recognized?.is_tax_invoice === true && (
+                      <span
+                        className="rounded border border-primary/40 px-1.5 py-px text-[10px] font-medium text-primary"
+                        title="AI 判斷這張是統一發票：建檔後會自動同步到會計頁的發票佇列並對應採購單"
+                      >
+                        統一發票
+                      </span>
+                    )}
                     <span className="truncate text-sm text-foreground">{scanSummary(scan)}</span>
                   </div>
                   {scan.status === "failed" && scan.error && (
