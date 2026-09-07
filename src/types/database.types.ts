@@ -1299,6 +1299,7 @@ export type Database = {
           id: string
           leave_type: string
           reason: string | null
+          reject_reason: string | null
           revoke_reason: string | null
           start_date: string
           status: string | null
@@ -1314,6 +1315,7 @@ export type Database = {
           id?: string
           leave_type: string
           reason?: string | null
+          reject_reason?: string | null
           revoke_reason?: string | null
           start_date: string
           status?: string | null
@@ -1329,6 +1331,7 @@ export type Database = {
           id?: string
           leave_type?: string
           reason?: string | null
+          reject_reason?: string | null
           revoke_reason?: string | null
           start_date?: string
           status?: string | null
@@ -1404,6 +1407,7 @@ export type Database = {
           id: string
           punch_date: string
           reason: string | null
+          reject_reason: string | null
           revoke_reason: string | null
           status: string
           updated_at: string
@@ -1418,6 +1422,7 @@ export type Database = {
           id?: string
           punch_date: string
           reason?: string | null
+          reject_reason?: string | null
           revoke_reason?: string | null
           status?: string
           updated_at?: string
@@ -1432,6 +1437,7 @@ export type Database = {
           id?: string
           punch_date?: string
           reason?: string | null
+          reject_reason?: string | null
           revoke_reason?: string | null
           status?: string
           updated_at?: string
@@ -1906,6 +1912,7 @@ export type Database = {
           overtime_date: string
           reason: string | null
           record_id: string | null
+          reject_reason: string | null
           revoke_reason: string | null
           start_time: string
           status: string
@@ -1923,6 +1930,7 @@ export type Database = {
           overtime_date: string
           reason?: string | null
           record_id?: string | null
+          reject_reason?: string | null
           revoke_reason?: string | null
           start_time: string
           status?: string
@@ -1940,6 +1948,7 @@ export type Database = {
           overtime_date?: string
           reason?: string | null
           record_id?: string | null
+          reject_reason?: string | null
           revoke_reason?: string | null
           start_time?: string
           status?: string
@@ -4227,10 +4236,13 @@ export type Database = {
         Returns: undefined
       }
       reject_makeup_punch_request: {
-        Args: { p_request_id: string }
+        Args: { p_reason?: string; p_request_id: string }
         Returns: Json
       }
-      reject_overtime_request: { Args: { p_request_id: string }; Returns: Json }
+      reject_overtime_request: {
+        Args: { p_reason?: string; p_request_id: string }
+        Returns: Json
+      }
       revoke_makeup_punch_request: {
         Args: { p_reason?: string; p_request_id: string }
         Returns: Json

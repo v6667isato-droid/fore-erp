@@ -18,6 +18,10 @@ export type MakeupPunchRequestRow = {
   clock_out: string | null;
   status: MakeupPunchRequestStatus;
   reason: string | null;
+  /** 管理端撤銷原因（status=revoked 時顯示於儀表板） */
+  revoke_reason: string | null;
+  /** 管理端退回原因（status=rejected 時顯示於儀表板） */
+  reject_reason: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -54,6 +58,10 @@ function mapRow(r: Record<string, unknown>): MakeupPunchRequestRow {
     clock_out: toHmOrNull(r.clock_out),
     status: normalizeMakeupPunchStatus(r.status as string | null),
     reason: r.reason != null && String(r.reason).trim() ? String(r.reason) : null,
+    revoke_reason:
+      r.revoke_reason != null && String(r.revoke_reason).trim() ? String(r.revoke_reason) : null,
+    reject_reason:
+      r.reject_reason != null && String(r.reject_reason).trim() ? String(r.reject_reason) : null,
     created_at: r.created_at != null ? String(r.created_at) : null,
     updated_at: r.updated_at != null ? String(r.updated_at) : null,
   };
@@ -64,7 +72,9 @@ export async function fetchEmployeeMakeupPunchRequests(
 ): Promise<MakeupPunchRequestRow[]> {
   const { data, error } = await supabase
     .from("makeup_punch_requests")
-    .select("id, punch_date, clock_in, clock_out, status, reason, created_at, updated_at")
+    .select(
+      "id, punch_date, clock_in, clock_out, status, reason, revoke_reason, reject_reason, created_at, updated_at",
+    )
     .eq("employee_id", employeeId)
     .order("created_at", { ascending: false })
     .limit(30);
@@ -117,7 +127,7 @@ export async function fetchAllMakeupPunchRequests(): Promise<
   const { data, error } = await supabase
     .from("makeup_punch_requests")
     .select(
-      "id, employee_id, punch_date, clock_in, clock_out, status, reason, created_at, updated_at, approved_at, employees ( name )",
+      "id, employee_id, punch_date, clock_in, clock_out, status, reason, revoke_reason, reject_reason, created_at, updated_at, approved_at, employees ( name )",
     )
     .order("created_at", { ascending: false });
   if (error) return { ok: false, message: error.message };
@@ -138,14 +148,10 @@ const MAKEUP_RPC_ERROR_MESSAGES: Record<string, string> = {
   month_settled: "該月份薪資已發放，出勤依據已凍結；如需調整請人工處理",
 };
 
-async function callMakeupRpc(
-  fn:
-    | "approve_makeup_punch_request"
-    | "reject_makeup_punch_request"
-    | "revoke_makeup_punch_request",
-  requestId: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  const { data, error } = await supabase.rpc(fn, { p_request_id: requestId });
+function mapMakeupRpcResult(
+  data: unknown,
+  error: { message: string } | null,
+): { ok: true } | { ok: false; message: string } {
   if (error) return { ok: false, message: error.message };
   const res = data as { ok?: boolean; error?: string } | null;
   if (res?.ok) return { ok: true };
@@ -153,14 +159,25 @@ async function callMakeupRpc(
   return { ok: false, message: MAKEUP_RPC_ERROR_MESSAGES[code] ?? `操作失敗（${code}）` };
 }
 
-export function approveMakeupPunchRequest(requestId: string) {
-  return callMakeupRpc("approve_makeup_punch_request", requestId);
+export async function approveMakeupPunchRequest(requestId: string) {
+  const { data, error } = await supabase.rpc("approve_makeup_punch_request", {
+    p_request_id: requestId,
+  });
+  return mapMakeupRpcResult(data, error);
 }
 
-export function rejectMakeupPunchRequest(requestId: string) {
-  return callMakeupRpc("reject_makeup_punch_request", requestId);
+export async function rejectMakeupPunchRequest(requestId: string, reason?: string | null) {
+  const { data, error } = await supabase.rpc("reject_makeup_punch_request", {
+    p_request_id: requestId,
+    p_reason: reason?.trim() || undefined,
+  });
+  return mapMakeupRpcResult(data, error);
 }
 
-export function revokeMakeupPunchRequest(requestId: string) {
-  return callMakeupRpc("revoke_makeup_punch_request", requestId);
+export async function revokeMakeupPunchRequest(requestId: string, reason?: string | null) {
+  const { data, error } = await supabase.rpc("revoke_makeup_punch_request", {
+    p_request_id: requestId,
+    p_reason: reason?.trim() || undefined,
+  });
+  return mapMakeupRpcResult(data, error);
 }

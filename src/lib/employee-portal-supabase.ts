@@ -738,6 +738,16 @@ function mapLeaveRow(row: Record<string, unknown>, index: number): LeaveRequestR
   const reasonRaw = row.reason;
   const reason =
     reasonRaw != null && String(reasonRaw).trim() !== "" ? String(reasonRaw).trim() : null;
+  const revokeReasonRaw = row.revoke_reason;
+  const revokeReason =
+    revokeReasonRaw != null && String(revokeReasonRaw).trim() !== ""
+      ? String(revokeReasonRaw).trim()
+      : null;
+  const rejectReasonRaw = row.reject_reason;
+  const rejectReason =
+    rejectReasonRaw != null && String(rejectReasonRaw).trim() !== ""
+      ? String(rejectReasonRaw).trim()
+      : null;
   const createdAt =
     row.created_at != null ? String(row.created_at) : row.inserted_at != null ? String(row.inserted_at) : null;
   const updatedAt = row.updated_at != null ? String(row.updated_at) : null;
@@ -755,6 +765,8 @@ function mapLeaveRow(row: Record<string, unknown>, index: number): LeaveRequestR
     end_day_end_hour: endDayEndHour,
     hours_count: hoursCount,
     reason,
+    revoke_reason: revokeReason,
+    reject_reason: rejectReason,
     created_at: createdAt,
     updated_at: updatedAt,
   };

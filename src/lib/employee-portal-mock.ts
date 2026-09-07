@@ -65,6 +65,10 @@ export interface LeaveRequestRow {
   hours_count?: number | null;
   /** 請假事由（leave_requests.reason） */
   reason?: string | null;
+  /** 管理端撤銷原因（status=revoked 時顯示） */
+  revoke_reason?: string | null;
+  /** 管理端退回原因（status=rejected 時顯示） */
+  reject_reason?: string | null;
   /** 申請建立時間 */
   created_at?: string | null;
   /** 最後更新（leave_requests.updated_at；核准／退回或內容修改） */

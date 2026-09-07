@@ -14,6 +14,7 @@ import {
   SUPABASE_CONFIG_HELP,
 } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Table,
   TableBody,
@@ -103,6 +104,10 @@ interface LeaveRequestAdminRow {
   updated_at: string | null;
   status_raw: string;
   reason: string | null;
+  /** 管理端撤銷原因（status=revoked 時顯示） */
+  revoke_reason: string | null;
+  /** 管理端退回原因（status=rejected 時顯示） */
+  reject_reason: string | null;
   /** leave-attachments bucket 內的物件路徑 */
   attachment_url: string | null;
 }
@@ -210,6 +215,22 @@ function HolidayConflictNote({
   );
 }
 
+/** 歷史列表狀態欄：已撤銷／已退回時顯示管理端填寫的原因 */
+function historyReasonNote(
+  status: string,
+  revokeReason: string | null,
+  rejectReason: string | null,
+) {
+  const text =
+    status === "revoked" ? revokeReason : status === "rejected" ? rejectReason : null;
+  if (!text) return null;
+  return (
+    <span className="block max-w-[12rem] text-xs leading-snug text-muted-foreground">
+      原因：{text}
+    </span>
+  );
+}
+
 function mapRowToAdminRow(
   r: Record<string, unknown>,
   nameById: Map<string, string>,
@@ -246,6 +267,10 @@ function mapRowToAdminRow(
     updated_at: updated,
     status_raw: String(r.status ?? ""),
     reason: r.reason != null && String(r.reason).trim() ? String(r.reason) : null,
+    revoke_reason:
+      r.revoke_reason != null && String(r.revoke_reason).trim() ? String(r.revoke_reason) : null,
+    reject_reason:
+      r.reject_reason != null && String(r.reject_reason).trim() ? String(r.reject_reason) : null,
     attachment_url:
       r.attachment_url != null && String(r.attachment_url).trim()
         ? String(r.attachment_url)
@@ -381,6 +406,20 @@ export function LeaveApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
+  /** 撤銷／退回確認 dialog：目標申請單與可填寫的原因（原因會顯示於員工儀表板） */
+  const [reviewTarget, setReviewTarget] = useState<
+    | { action: "revoke" | "reject"; kind: "leave"; id: string; warning: string }
+    | {
+        action: "revoke" | "reject";
+        kind: "overtime";
+        id: string;
+        warning: string;
+        source: "request" | "record";
+      }
+    | { action: "revoke" | "reject"; kind: "makeup"; id: string; warning: string }
+    | null
+  >(null);
+  const [reviewReason, setReviewReason] = useState("");
   const [holidayRows, setHolidayRows] = useState<HolidayLookupRow[]>([]);
   /** 假別主檔（含停用），供顯示規則說明與審核須知 */
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
@@ -505,6 +544,8 @@ export function LeaveApprovalsPage() {
         created_at,
         updated_at,
         reason,
+        revoke_reason,
+        reject_reason,
         attachment_url,
         employees ( name )
       `;
@@ -530,7 +571,7 @@ export function LeaveApprovalsPage() {
         let plain = await supabase
           .from("leave_requests")
           .select(
-            "id, employee_id, leave_type, start_date, end_date, status, total_days, hours_count, created_at, updated_at, reason, attachment_url",
+            "id, employee_id, leave_type, start_date, end_date, status, total_days, hours_count, created_at, updated_at, reason, revoke_reason, reject_reason, attachment_url",
           )
           .order("created_at", { ascending: false });
 
@@ -747,44 +788,57 @@ export function LeaveApprovalsPage() {
     }
   }
 
-  async function reject(id: string) {
-    if (!window.confirm("確定退回此假單？")) return;
-    setActingId(id);
-    try {
-      const { error: uErr } = await supabase
-        .from("leave_requests")
-        .update({ status: "rejected" })
-        .eq("id", id);
-      if (uErr) {
-        toast.error(uErr.message || "更新失敗");
-        return;
-      }
-      toast.success("已退回假單");
-      await load();
-    } finally {
-      setActingId(null);
-    }
+  function openReviewDialog(target: NonNullable<typeof reviewTarget>) {
+    setReviewReason("");
+    setReviewTarget(target);
   }
 
-  async function revoke(id: string) {
-    if (
-      !window.confirm(
-        "確定撤銷此已核准假單？撤銷後該假單不會再計入請假天數與薪資結算。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
-      )
-    )
-      return;
-    setActingId(id);
+  /** 撤銷／退回 dialog 按下確定：依申請類型分流，原因寫入 revoke_reason／reject_reason 供員工儀表板顯示 */
+  async function confirmReviewAction() {
+    const target = reviewTarget;
+    if (!target) return;
+    const isRevoke = target.action === "revoke";
+    const reason = reviewReason.trim();
+    setActingId(target.id);
     try {
-      const { error: uErr } = await supabase
-        .from("leave_requests")
-        .update({ status: "revoked" })
-        .eq("id", id);
-      if (uErr) {
-        toast.error(uErr.message || "更新失敗");
-        return;
+      if (target.kind === "leave") {
+        const { error: uErr } = await supabase
+          .from("leave_requests")
+          .update(
+            isRevoke
+              ? { status: "revoked", revoke_reason: reason || null }
+              : { status: "rejected", reject_reason: reason || null },
+          )
+          .eq("id", target.id);
+        if (uErr) {
+          toast.error(uErr.message || "更新失敗");
+          return;
+        }
+        toast.success(isRevoke ? "已撤銷假單" : "已退回假單");
+        await load();
+      } else if (target.kind === "overtime") {
+        const res = isRevoke
+          ? target.source === "record"
+            ? await revokeOvertimeRecord(target.id)
+            : await revokeOvertimeRequest(target.id, reason)
+          : await rejectOvertimeRequest(target.id, reason);
+        if (!res.ok) {
+          toast.error(res.message);
+          return;
+        }
+        toast.success(isRevoke ? "已撤銷加班紀錄" : "已退回加班申報");
+        await loadOvertime();
+      } else {
+        const res = isRevoke
+          ? await revokeMakeupPunchRequest(target.id, reason)
+          : await rejectMakeupPunchRequest(target.id, reason);
+        if (!res.ok) {
+          toast.error(res.message);
+          return;
+        }
+        toast.success(isRevoke ? "已撤銷補打卡" : "已退回補打卡申請");
+        await loadMakeup();
       }
-      toast.success("已撤銷假單");
-      await load();
     } finally {
       setActingId(null);
     }
@@ -1256,12 +1310,13 @@ export function LeaveApprovalsPage() {
                           className="h-9 w-full border-red-200 bg-red-50/80 text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
                           disabled={actingId === ot.id}
                           onClick={() =>
-                            void actOvertime(
-                              ot.id,
-                              "確定退回此加班申報？",
-                              rejectOvertimeRequest,
-                              "已退回加班申報",
-                            )
+                            openReviewDialog({
+                              action: "reject",
+                              kind: "overtime",
+                              id: ot.id,
+                              source: "request",
+                              warning: "確定退回此加班申報？",
+                            })
                           }
                         >
                           ❌ 退回
@@ -1372,12 +1427,12 @@ export function LeaveApprovalsPage() {
                           className="h-9 w-full border-red-200 bg-red-50/80 text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
                           disabled={actingId === mk.id}
                           onClick={() =>
-                            void actMakeup(
-                              mk.id,
-                              "確定退回此補打卡申請？",
-                              rejectMakeupPunchRequest,
-                              "已退回補打卡申請",
-                            )
+                            openReviewDialog({
+                              action: "reject",
+                              kind: "makeup",
+                              id: mk.id,
+                              warning: "確定退回此補打卡申請？",
+                            })
                           }
                         >
                           ❌ 退回
@@ -1536,7 +1591,14 @@ export function LeaveApprovalsPage() {
                       variant="outline"
                       className="h-9 w-full border-red-200 bg-red-50/80 text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
                       disabled={actingId === row.id}
-                      onClick={() => void reject(row.id)}
+                      onClick={() =>
+                        openReviewDialog({
+                          action: "reject",
+                          kind: "leave",
+                          id: row.id,
+                          warning: "確定退回此假單？",
+                        })
+                      }
                     >
                       ❌ 退回
                     </Button>
@@ -1658,6 +1720,7 @@ export function LeaveApprovalsPage() {
                                 已退回
                               </span>
                             )}
+                            {historyReasonNote(ot.status, ot.revoke_reason, ot.reject_reason)}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                             {formatDateTime(ot.created_at)}
@@ -1675,16 +1738,16 @@ export function LeaveApprovalsPage() {
                                 className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
                                 disabled={actingId === ot.id}
                                 onClick={() =>
-                                  void actOvertime(
-                                    ot.id,
-                                    ot.compensation_type === "comp_leave"
-                                      ? `確定撤銷此已核准加班？將刪除對應加班紀錄並立即扣回補休 ${fmtOvertimeHours(ot.hours)}（若補休已被請掉，餘額可能為負，需人工處理）。`
-                                      : "確定撤銷此已核准加班？將刪除對應加班紀錄。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
-                                    ot.source === "record"
-                                      ? revokeOvertimeRecord
-                                      : revokeOvertimeRequest,
-                                    "已撤銷加班紀錄",
-                                  )
+                                  openReviewDialog({
+                                    action: "revoke",
+                                    kind: "overtime",
+                                    id: ot.id,
+                                    source: ot.source,
+                                    warning:
+                                      ot.compensation_type === "comp_leave"
+                                        ? `確定撤銷此已核准加班？將刪除對應加班紀錄並立即扣回補休 ${fmtOvertimeHours(ot.hours)}（若補休已被請掉，餘額可能為負，需人工處理）。`
+                                        : "確定撤銷此已核准加班？將刪除對應加班紀錄。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
+                                  })
                                 }
                               >
                                 撤銷
@@ -1736,6 +1799,7 @@ export function LeaveApprovalsPage() {
                                 已退回
                               </span>
                             )}
+                            {historyReasonNote(mk.status, mk.revoke_reason, mk.reject_reason)}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                             {formatDateTime(mk.created_at)}
@@ -1751,12 +1815,13 @@ export function LeaveApprovalsPage() {
                                 className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
                                 disabled={actingId === mk.id}
                                 onClick={() =>
-                                  void actMakeup(
-                                    mk.id,
-                                    "確定撤銷此已核准補打卡？將自出勤紀錄清回補登的時間（打卡鐘實卡不受影響）。已發薪月份無法撤銷。",
-                                    revokeMakeupPunchRequest,
-                                    "已撤銷補打卡",
-                                  )
+                                  openReviewDialog({
+                                    action: "revoke",
+                                    kind: "makeup",
+                                    id: mk.id,
+                                    warning:
+                                      "確定撤銷此已核准補打卡？將自出勤紀錄清回補登的時間（打卡鐘實卡不受影響）。已發薪月份無法撤銷。",
+                                  })
                                 }
                               >
                                 撤銷
@@ -1821,6 +1886,7 @@ export function LeaveApprovalsPage() {
                               已退回
                             </span>
                           )}
+                          {historyReasonNote(st, row.revoke_reason, row.reject_reason)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                           {formatDateTime(row.created_at)}
@@ -1846,7 +1912,15 @@ export function LeaveApprovalsPage() {
                                 variant="outline"
                                 className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
                                 disabled={actingId === row.id}
-                                onClick={() => void revoke(row.id)}
+                                onClick={() =>
+                                  openReviewDialog({
+                                    action: "revoke",
+                                    kind: "leave",
+                                    id: row.id,
+                                    warning:
+                                      "確定撤銷此已核准假單？撤銷後該假單不會再計入請假天數與薪資結算。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
+                                  })
+                                }
                               >
                                 撤銷
                               </Button>
@@ -1864,6 +1938,48 @@ export function LeaveApprovalsPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={reviewTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setReviewTarget(null);
+        }}
+        title={reviewTarget?.action === "reject" ? "退回申請" : "撤銷申請"}
+        confirmLabel={reviewTarget?.action === "reject" ? "確定退回" : "確定撤銷"}
+        destructive
+        onConfirm={confirmReviewAction}
+        description={
+          <div className="space-y-3">
+            <p className="whitespace-pre-line">{reviewTarget?.warning}</p>
+            {reviewTarget?.kind === "overtime" && reviewTarget.source === "record" ? (
+              <p className="text-xs">
+                此為管理端補登紀錄，撤銷後紀錄即刪除，無法附註撤銷原因。
+              </p>
+            ) : (
+              <div>
+                <label
+                  htmlFor="review-reason"
+                  className="text-xs font-medium text-foreground"
+                >
+                  {reviewTarget?.action === "reject" ? "退回原因" : "撤銷原因"}
+                  （選填，會顯示於員工儀表板）
+                </label>
+                <textarea
+                  id="review-reason"
+                  value={reviewReason}
+                  onChange={(e) => setReviewReason(e.target.value)}
+                  rows={3}
+                  placeholder={
+                    reviewTarget?.action === "reject"
+                      ? "例如：時段與出勤紀錄不符、請改用補休…"
+                      : "例如：時數登記錯誤、重複申請…"
+                  }
+                  className="mt-1 w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            )}
+          </div>
+        }
+      />
     </div>
   );
 }

@@ -25,6 +25,10 @@ export type OvertimeRequestRow = {
   compensation_type: OvertimeCompensationType;
   status: OvertimeRequestStatus;
   reason: string | null;
+  /** 管理端撤銷原因（status=revoked 時顯示於儀表板） */
+  revoke_reason: string | null;
+  /** 管理端退回原因（status=rejected 時顯示於儀表板） */
+  reject_reason: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -92,6 +96,10 @@ function mapRow(r: Record<string, unknown>): OvertimeRequestRow {
     compensation_type: comp === "pay" ? "pay" : "comp_leave",
     status: normalizeOvertimeStatus(r.status as string | null),
     reason: r.reason != null && String(r.reason).trim() ? String(r.reason) : null,
+    revoke_reason:
+      r.revoke_reason != null && String(r.revoke_reason).trim() ? String(r.revoke_reason) : null,
+    reject_reason:
+      r.reject_reason != null && String(r.reject_reason).trim() ? String(r.reject_reason) : null,
     created_at: r.created_at != null ? String(r.created_at) : null,
     updated_at: r.updated_at != null ? String(r.updated_at) : null,
   };
@@ -103,7 +111,7 @@ export async function fetchEmployeeOvertimeRequests(
   const { data, error } = await supabase
     .from("overtime_requests")
     .select(
-      "id, overtime_date, start_time, end_time, hours, compensation_type, status, reason, created_at, updated_at",
+      "id, overtime_date, start_time, end_time, hours, compensation_type, status, reason, revoke_reason, reject_reason, created_at, updated_at",
     )
     .eq("employee_id", employeeId)
     .order("created_at", { ascending: false })
@@ -165,7 +173,7 @@ export async function fetchAllOvertimeRequests(): Promise<
     supabase
       .from("overtime_requests")
       .select(
-        "id, employee_id, overtime_date, start_time, end_time, hours, compensation_type, status, reason, record_id, created_at, updated_at, approved_at, employees ( name )",
+        "id, employee_id, overtime_date, start_time, end_time, hours, compensation_type, status, reason, revoke_reason, reject_reason, record_id, created_at, updated_at, approved_at, employees ( name )",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -208,6 +216,8 @@ export async function fetchAllOvertimeRequests(): Promise<
       compensation_type: (reason ?? "").startsWith("【加班費】") ? "pay" : "comp_leave",
       status: "approved",
       reason,
+      revoke_reason: null,
+      reject_reason: null,
       created_at: raw.created_at != null ? String(raw.created_at) : null,
       updated_at: null,
       employee_id: String(raw.employee_id ?? ""),
@@ -245,14 +255,10 @@ const OVERTIME_RPC_ERROR_MESSAGES: Record<string, string> = {
   already_exists: "該員工當日已有加班紀錄（可能已由手動補登建立），無法重複核准",
 };
 
-async function callOvertimeRpc(
-  fn:
-    | "approve_overtime_request"
-    | "reject_overtime_request"
-    | "revoke_overtime_request",
-  requestId: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  const { data, error } = await supabase.rpc(fn, { p_request_id: requestId });
+function mapOvertimeRpcResult(
+  data: unknown,
+  error: { message: string } | null,
+): { ok: true } | { ok: false; message: string } {
   if (error) return { ok: false, message: error.message };
   const res = data as { ok?: boolean; error?: string } | null;
   if (res?.ok) return { ok: true };
@@ -260,14 +266,25 @@ async function callOvertimeRpc(
   return { ok: false, message: OVERTIME_RPC_ERROR_MESSAGES[code] ?? `操作失敗（${code}）` };
 }
 
-export function approveOvertimeRequest(requestId: string) {
-  return callOvertimeRpc("approve_overtime_request", requestId);
+export async function approveOvertimeRequest(requestId: string) {
+  const { data, error } = await supabase.rpc("approve_overtime_request", {
+    p_request_id: requestId,
+  });
+  return mapOvertimeRpcResult(data, error);
 }
 
-export function rejectOvertimeRequest(requestId: string) {
-  return callOvertimeRpc("reject_overtime_request", requestId);
+export async function rejectOvertimeRequest(requestId: string, reason?: string | null) {
+  const { data, error } = await supabase.rpc("reject_overtime_request", {
+    p_request_id: requestId,
+    p_reason: reason?.trim() || undefined,
+  });
+  return mapOvertimeRpcResult(data, error);
 }
 
-export function revokeOvertimeRequest(requestId: string) {
-  return callOvertimeRpc("revoke_overtime_request", requestId);
+export async function revokeOvertimeRequest(requestId: string, reason?: string | null) {
+  const { data, error } = await supabase.rpc("revoke_overtime_request", {
+    p_request_id: requestId,
+    p_reason: reason?.trim() || undefined,
+  });
+  return mapOvertimeRpcResult(data, error);
 }

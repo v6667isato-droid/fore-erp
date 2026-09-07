@@ -198,6 +198,29 @@ function leaveStatusBadge(row: { status: string }) {
   );
 }
 
+/** 已撤銷／退回申請的管理端原因（請假・加班・補打卡共用） */
+function reviewReasonNote(row: {
+  status: string;
+  revoke_reason?: string | null;
+  reject_reason?: string | null;
+}) {
+  if (row.status === "revoked" && row.revoke_reason) {
+    return (
+      <p className="mt-0.5 break-words text-xs leading-snug text-amber-700 dark:text-amber-400">
+        撤銷原因：{row.revoke_reason}
+      </p>
+    );
+  }
+  if (row.status === "rejected" && row.reject_reason) {
+    return (
+      <p className="mt-0.5 break-words text-xs leading-snug text-red-700 dark:text-red-400">
+        退回原因：{row.reject_reason}
+      </p>
+    );
+  }
+  return null;
+}
+
 function formatNtd(n: number) {
   return `NT$ ${n.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}`;
 }
@@ -1492,6 +1515,8 @@ export default function EmployeePortalPage() {
         compensation_type: overtimeForm.compType,
         status: "pending",
         reason: reason || null,
+        revoke_reason: null,
+        reject_reason: null,
         created_at: null,
         updated_at: null,
       };
@@ -1558,6 +1583,8 @@ export default function EmployeePortalPage() {
         clock_out: clockOut,
         status: "pending",
         reason,
+        revoke_reason: null,
+        reject_reason: null,
         created_at: null,
         updated_at: null,
       };
@@ -2467,6 +2494,7 @@ export default function EmployeePortalPage() {
                                   {reason ? (
                                     <p className="mt-0.5 truncate text-xs text-foreground/80">{reason}</p>
                                   ) : null}
+                                  {reviewReasonNote(row)}
                                 </div>
                                 <div className="flex shrink-0 flex-col items-end gap-1">
                                   {leaveStatusBadge(row)}
@@ -2511,6 +2539,7 @@ export default function EmployeePortalPage() {
                                 {row.reason ? (
                                   <p className="mt-0.5 truncate text-xs text-foreground/80">{row.reason}</p>
                                 ) : null}
+                                {reviewReasonNote(row)}
                               </div>
                               <div className="shrink-0">{leaveStatusBadge(row)}</div>
                             </div>
@@ -2533,6 +2562,7 @@ export default function EmployeePortalPage() {
                               {row.reason ? (
                                 <p className="mt-0.5 truncate text-xs text-foreground/80">{row.reason}</p>
                               ) : null}
+                              {reviewReasonNote(row)}
                             </div>
                             <div className="shrink-0">{leaveStatusBadge(row)}</div>
                           </div>
@@ -2550,7 +2580,7 @@ export default function EmployeePortalPage() {
                             <th className={epSection.th}>區間</th>
                             <th className={epSection.th}>天數/時數</th>
                             <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
-                            <th className={epSection.th}>狀態</th>
+                            <th className={cn(epSection.th, "min-w-[12rem]")}>狀態</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2630,6 +2660,7 @@ export default function EmployeePortalPage() {
                                           已更新 · {formatLeaveUpdatedAtDisplay(row.updated_at)}
                                         </span>
                                       ) : null}
+                                      {reviewReasonNote(row)}
                                     </div>
                                   </td>
                                 </tr>
@@ -2647,7 +2678,7 @@ export default function EmployeePortalPage() {
                             <th className={epSection.th}>時數</th>
                             <th className={epSection.th}>折抵</th>
                             <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
-                            <th className={epSection.th}>狀態</th>
+                            <th className={cn(epSection.th, "min-w-[12rem]")}>狀態</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2692,7 +2723,12 @@ export default function EmployeePortalPage() {
                                     {row.reason || "—"}
                                   </span>
                                 </td>
-                                <td className={cn(epSection.td, "align-top")}>{leaveStatusBadge(row)}</td>
+                                <td className={cn(epSection.td, "align-top")}>
+                                  <div className="flex max-w-[14rem] flex-col gap-1">
+                                    {leaveStatusBadge(row)}
+                                    {reviewReasonNote(row)}
+                                  </div>
+                                </td>
                               </tr>
                             ))
                           )}
@@ -2706,7 +2742,7 @@ export default function EmployeePortalPage() {
                             <th className={epSection.th}>補上班</th>
                             <th className={epSection.th}>補下班</th>
                             <th className={cn(epSection.th, "min-w-[6rem]")}>事由</th>
-                            <th className={epSection.th}>狀態</th>
+                            <th className={cn(epSection.th, "min-w-[12rem]")}>狀態</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2739,7 +2775,12 @@ export default function EmployeePortalPage() {
                                     {row.reason || "—"}
                                   </span>
                                 </td>
-                                <td className={cn(epSection.td, "align-top")}>{leaveStatusBadge(row)}</td>
+                                <td className={cn(epSection.td, "align-top")}>
+                                  <div className="flex max-w-[14rem] flex-col gap-1">
+                                    {leaveStatusBadge(row)}
+                                    {reviewReasonNote(row)}
+                                  </div>
+                                </td>
                               </tr>
                             ))
                           )}
