@@ -26,6 +26,12 @@ interface PrintOrder {
   customer_type?: string | null;
   deposit_amount: number;
   explanation_image_url?: string | null;
+  /** 稅金外加：總金額另加 5% 營業稅 */
+  tax_extra: boolean;
+  /** 稅金外加時的營業稅額（已含在 total_amount 內） */
+  tax_extra_amount: number;
+  /** 備註顯示「報價含營業稅」 */
+  quote_includes_tax: boolean;
 }
 
 type ExplanationImage = { url: string; title?: string | null };
@@ -147,7 +153,7 @@ export default function PrintQuotationPage() {
         const { data: orderRow, error: orderErr } = await supabase
           .from('orders')
           .select(
-            'id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, shipping_contact_name, shipping_contact_phone, shipping_address, invoice_title, invoice_tax_id, explanation_image_url, customer_id, customers(name, customer_type)'
+            'id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, shipping_contact_name, shipping_contact_phone, shipping_address, invoice_title, invoice_tax_id, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, customer_id, customers(name, customer_type)'
           )
           .eq('id', safeOrderId)
           .single();
@@ -158,6 +164,7 @@ export default function PrintQuotationPage() {
 
         const safeTotal = Number(orderRow.total_amount ?? 0);
         const shippingFee = Number(orderRow.shipping_fee ?? 0);
+        const taxExtraAmount = Math.max(0, Number(orderRow.tax_extra_amount ?? 0));
 
         const lineRes = await supabase
           .from('order_items')
@@ -390,10 +397,10 @@ export default function PrintQuotationPage() {
           0
         );
 
-        // total_amount 已含運費；折扣只計算商品本體差異
+        // total_amount 已含運費與外加稅額；折扣只計算商品本體差異
         const discountAmount = Math.max(
           0,
-          originalAmount - Math.max(0, safeTotal - shippingFee)
+          originalAmount - Math.max(0, safeTotal - shippingFee - taxExtraAmount)
         );
 
         const customer =
@@ -422,6 +429,9 @@ export default function PrintQuotationPage() {
           customer_type: customer?.customer_type ?? null,
           deposit_amount: Number(orderRow.deposit_amount ?? 0),
           explanation_image_url: orderRow.explanation_image_url ?? null,
+          tax_extra: Boolean(orderRow.tax_extra),
+          tax_extra_amount: taxExtraAmount,
+          quote_includes_tax: Boolean(orderRow.quote_includes_tax),
         });
 
         setItems(mappedItems);
@@ -698,6 +708,12 @@ export default function PrintQuotationPage() {
                   <dd className="text-gray-900 tabular-nums">{totals.discount.toLocaleString()}</dd>
                 </div>
               )}
+              {order.tax_extra && order.tax_extra_amount > 0 && (
+                <div className="flex items-center justify-between">
+                  <dt className="text-gray-600">營業稅（5%）</dt>
+                  <dd className="text-gray-900 tabular-nums">{order.tax_extra_amount.toLocaleString()}</dd>
+                </div>
+              )}
               <div className="flex items-center justify-between border-t border-gray-200 pt-2">
                 <dt className="font-bold text-gray-900">報價總金額</dt>
                 <dd className="font-bold text-gray-900 tabular-nums">{totals.total.toLocaleString()}</dd>
@@ -714,6 +730,7 @@ export default function PrintQuotationPage() {
 
         <div className="mb-8 space-y-1 text-sm text-gray-600 leading-relaxed">
           <p>備註：</p>
+          {order.quote_includes_tax && <p>報價含營業稅。</p>}
           <p>本報價單內容如有疑義，請於 3 日內與我們聯繫確認。</p>
           <p>本報價單效期為一個月。</p>
           <p>為確保設計與實作精準對接，正式設計圖稿將於報價核定並進入訂製程序後開始製作。</p>

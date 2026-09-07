@@ -374,6 +374,14 @@ function OrderFormDialog({
   const [discountLocked, setDiscountLocked] = useState(() => Boolean(initialOrder));
   /** 折扣 %（例：輸入 10 = 打 9 折）；輸入後自動計算折扣後總金額，手改折扣後金額則清空 */
   const [discountPct, setDiscountPct] = useState<string>("");
+  /** 稅金外加：勾選後總金額（折扣後小計＋運費）另加 5% 營業稅 */
+  const [taxExtra, setTaxExtra] = useState<boolean>(() =>
+    Boolean(initialOrder?.tax_extra)
+  );
+  /** 報價含營業稅：勾選後報價單備註顯示「報價含營業稅」 */
+  const [quoteIncludesTax, setQuoteIncludesTax] = useState<boolean>(() =>
+    Boolean(initialOrder?.quote_includes_tax)
+  );
   const [deposit, setDeposit] = useState<string>(() => {
     if (initialOrder?.deposit_amount != null) {
       return String(initialOrder.deposit_amount);
@@ -541,6 +549,8 @@ function OrderFormDialog({
       setDiscountTotal(orderDiscountSubtotalField(initialOrder));
       setDiscountLocked(true);
       setDiscountPct("");
+      setTaxExtra(Boolean(initialOrder.tax_extra));
+      setQuoteIncludesTax(Boolean(initialOrder.quote_includes_tax));
       setDeposit(
         initialOrder.deposit_amount != null
           ? String(initialOrder.deposit_amount)
@@ -576,6 +586,8 @@ function OrderFormDialog({
     setDiscountLocked(false);
     setDiscountPct("");
     setDiscountTotal("");
+    setTaxExtra(false);
+    setQuoteIncludesTax(false);
     setShippingAddress("");
     setShippingContactName("");
     setShippingContactPhone("");
@@ -934,7 +946,11 @@ function OrderFormDialog({
     if (!Number.isFinite(n) || n < 0) return totalAmount;
     return n;
   })();
-  const grandTotal = discountBase + shippingFeeAmount;
+  /** 稅金外加：以折扣後小計＋運費為基礎另加 5% 營業稅 */
+  const taxExtraAmount = taxExtra
+    ? Math.round((discountBase + shippingFeeAmount) * 0.05)
+    : 0;
+  const grandTotal = discountBase + shippingFeeAmount + taxExtraAmount;
 
   /** 依訂金比例與折扣後底額計算訂金試算；不會自動寫入預收訂金，須按「帶入訂金」 */
   const trialDepositAmount = useMemo(() => {
@@ -1166,6 +1182,9 @@ function OrderFormDialog({
         total_amount: grandTotal,
         deposit_amount: Number(deposit) || 0,
         shipping_fee: shippingFeeAmount,
+        tax_extra: taxExtra,
+        tax_extra_amount: taxExtraAmount,
+        quote_includes_tax: quoteIncludesTax,
         shipping_address: shippingAddress || null,
         shipping_contact_name: shippingContactName.trim() || null,
         shipping_contact_phone: shippingContactPhone.trim() || null,
@@ -3006,6 +3025,37 @@ function OrderFormDialog({
                       />
                     )}
                   </label>
+
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border/60 pt-2.5 sm:col-span-3">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={taxExtra}
+                        disabled={readOnly}
+                        onChange={(e) => setTaxExtra(e.target.checked)}
+                        className="h-4 w-4 rounded border-border text-primary focus:ring-ring/30"
+                      />
+                      稅金外加 5%
+                      {taxExtra && (
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                          （營業稅 +{taxExtraAmount.toLocaleString()}）
+                        </span>
+                      )}
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={quoteIncludesTax}
+                        disabled={readOnly}
+                        onChange={(e) => setQuoteIncludesTax(e.target.checked)}
+                        className="h-4 w-4 rounded border-border text-primary focus:ring-ring/30"
+                      />
+                      報價含營業稅
+                      <span className="text-xs text-muted-foreground">
+                        （報價單備註顯示）
+                      </span>
+                    </label>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_minmax(0,11rem)] lg:items-end lg:gap-x-3">

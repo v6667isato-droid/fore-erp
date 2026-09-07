@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.4"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -1299,6 +1299,7 @@ export type Database = {
           id: string
           leave_type: string
           reason: string | null
+          revoke_reason: string | null
           start_date: string
           status: string | null
           total_days: number
@@ -1313,6 +1314,7 @@ export type Database = {
           id?: string
           leave_type: string
           reason?: string | null
+          revoke_reason?: string | null
           start_date: string
           status?: string | null
           total_days: number
@@ -1327,6 +1329,7 @@ export type Database = {
           id?: string
           leave_type?: string
           reason?: string | null
+          revoke_reason?: string | null
           start_date?: string
           status?: string | null
           total_days?: number
@@ -1401,6 +1404,7 @@ export type Database = {
           id: string
           punch_date: string
           reason: string | null
+          revoke_reason: string | null
           status: string
           updated_at: string
         }
@@ -1414,6 +1418,7 @@ export type Database = {
           id?: string
           punch_date: string
           reason?: string | null
+          revoke_reason?: string | null
           status?: string
           updated_at?: string
         }
@@ -1427,6 +1432,7 @@ export type Database = {
           id?: string
           punch_date?: string
           reason?: string | null
+          revoke_reason?: string | null
           status?: string
           updated_at?: string
         }
@@ -1763,6 +1769,7 @@ export type Database = {
           order_date: string | null
           order_number: string
           payment_status: string | null
+          quote_includes_tax: boolean
           shipped_date: string | null
           shipping_address: string | null
           shipping_contact_name: string | null
@@ -1771,6 +1778,8 @@ export type Database = {
           shipping_has_elevator: boolean | null
           source: string | null
           status: string | null
+          tax_extra: boolean
+          tax_extra_amount: number
           total_amount: number | null
         }
         Insert: {
@@ -1790,6 +1799,7 @@ export type Database = {
           order_date?: string | null
           order_number: string
           payment_status?: string | null
+          quote_includes_tax?: boolean
           shipped_date?: string | null
           shipping_address?: string | null
           shipping_contact_name?: string | null
@@ -1798,6 +1808,8 @@ export type Database = {
           shipping_has_elevator?: boolean | null
           source?: string | null
           status?: string | null
+          tax_extra?: boolean
+          tax_extra_amount?: number
           total_amount?: number | null
         }
         Update: {
@@ -1817,6 +1829,7 @@ export type Database = {
           order_date?: string | null
           order_number?: string
           payment_status?: string | null
+          quote_includes_tax?: boolean
           shipped_date?: string | null
           shipping_address?: string | null
           shipping_contact_name?: string | null
@@ -1825,6 +1838,8 @@ export type Database = {
           shipping_has_elevator?: boolean | null
           source?: string | null
           status?: string | null
+          tax_extra?: boolean
+          tax_extra_amount?: number
           total_amount?: number | null
         }
         Relationships: [
@@ -1891,6 +1906,7 @@ export type Database = {
           overtime_date: string
           reason: string | null
           record_id: string | null
+          revoke_reason: string | null
           start_time: string
           status: string
           updated_at: string
@@ -1907,6 +1923,7 @@ export type Database = {
           overtime_date: string
           reason?: string | null
           record_id?: string | null
+          revoke_reason?: string | null
           start_time: string
           status?: string
           updated_at?: string
@@ -1923,6 +1940,7 @@ export type Database = {
           overtime_date?: string
           reason?: string | null
           record_id?: string | null
+          revoke_reason?: string | null
           start_time?: string
           status?: string
           updated_at?: string
@@ -4214,14 +4232,17 @@ export type Database = {
       }
       reject_overtime_request: { Args: { p_request_id: string }; Returns: Json }
       revoke_makeup_punch_request: {
-        Args: { p_request_id: string }
+        Args: { p_reason?: string; p_request_id: string }
         Returns: Json
       }
       revoke_overtime_comp_leave: {
         Args: { p_record_id: string }
         Returns: Json
       }
-      revoke_overtime_request: { Args: { p_request_id: string }; Returns: Json }
+      revoke_overtime_request: {
+        Args: { p_reason?: string; p_request_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
@@ -4240,12 +4261,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4269,11 +4290,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4294,11 +4315,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4319,11 +4340,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -4336,11 +4357,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

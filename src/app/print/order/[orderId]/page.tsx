@@ -28,6 +28,12 @@ interface PrintOrder {
   invoice_title?: string | null;
   invoice_tax_id?: string | null;
   internal_notes?: string | null;
+  /** 稅金外加：總金額另加 5% 營業稅 */
+  tax_extra: boolean;
+  /** 稅金外加時的營業稅額（已含在 total_amount 內） */
+  tax_extra_amount: number;
+  /** 訂單備註顯示「報價含營業稅」 */
+  quote_includes_tax: boolean;
 }
 
 type ExplanationImage = { url: string; title?: string | null };
@@ -154,7 +160,7 @@ export default function PrintOrderPage() {
         const { data: orderRow, error: orderErr } = await supabase
           .from("orders")
           .select(
-            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, customer_id, customers(name, customer_type)"
+            "id, order_number, order_date, expected_delivery_date, status, total_amount, deposit_amount, shipping_fee, explanation_image_url, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, tax_extra, tax_extra_amount, quote_includes_tax, customer_id, customers(name, customer_type)"
           )
           .eq("id", safeOrderId)
           .single();
@@ -165,6 +171,7 @@ export default function PrintOrderPage() {
 
         const safeTotal = Number(orderRow.total_amount ?? 0);
         const shippingFee = Number(orderRow.shipping_fee ?? 0);
+        const taxExtraAmount = Math.max(0, Number(orderRow.tax_extra_amount ?? 0));
 
         const lineRes = await supabase
           .from("order_items")
@@ -388,8 +395,11 @@ export default function PrintOrderPage() {
           0
         );
 
-        // total_amount 已含運費，折扣僅計算商品金額的差異
-        const discountAmount = Math.max(0, originalAmount - Math.max(0, safeTotal - shippingFee));
+        // total_amount 已含運費與外加稅額，折扣僅計算商品金額的差異
+        const discountAmount = Math.max(
+          0,
+          originalAmount - Math.max(0, safeTotal - shippingFee - taxExtraAmount)
+        );
 
         const customer =
           (orderRow.customers &&
@@ -423,6 +433,9 @@ export default function PrintOrderPage() {
           invoice_title: orderRow.invoice_title ?? null,
           invoice_tax_id: orderRow.invoice_tax_id ?? null,
           internal_notes: orderRow.internal_notes ?? null,
+          tax_extra: Boolean(orderRow.tax_extra),
+          tax_extra_amount: taxExtraAmount,
+          quote_includes_tax: Boolean(orderRow.quote_includes_tax),
         });
 
         setItems(mappedItems);
@@ -712,6 +725,12 @@ export default function PrintOrderPage() {
                     <dd className="text-gray-900 tabular-nums">-{totals.discount.toLocaleString()}</dd>
                   </div>
                 )}
+                {order.tax_extra && order.tax_extra_amount > 0 && (
+                  <div className="flex items-center justify-between">
+                    <dt className="text-gray-600">營業稅（5%）</dt>
+                    <dd className="text-gray-900 tabular-nums">{order.tax_extra_amount.toLocaleString()}</dd>
+                  </div>
+                )}
                 <div className="flex items-center justify-between border-t border-gray-200 pt-2">
                   <dt className="font-medium text-gray-900">總金額</dt>
                   <dd className="font-medium text-gray-900 tabular-nums">
@@ -735,6 +754,9 @@ export default function PrintOrderPage() {
           </div>
           <div className="mt-6 border-t border-gray-200 pt-4 text-sm leading-relaxed">
             <p className="mb-1 font-semibold text-gray-900">訂單備註</p>
+            {order.quote_includes_tax && (
+              <p className="text-gray-700">報價含營業稅。</p>
+            )}
             <p className="text-gray-700">
               尾款金額請於收到商品確認無誤後，一週內匯款至指定帳戶。
             </p>

@@ -36,6 +36,12 @@ export interface OrderRow {
   invoice_tax_id?: string | null;
   internal_notes?: string | null;
   explanation_image_url?: string | null;
+  /** 稅金外加：總金額（折扣後小計＋運費）另加 5% 營業稅 */
+  tax_extra?: boolean;
+  /** 稅金外加時的營業稅額（已含在 total_amount 內；未勾選為 0） */
+  tax_extra_amount?: number;
+  /** 報價單備註顯示「報價含營業稅」 */
+  quote_includes_tax?: boolean;
 }
 
 export interface CustomerOption {

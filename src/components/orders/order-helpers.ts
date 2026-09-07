@@ -24,14 +24,15 @@ export function mapCustomerViewRow(r: Record<string, unknown>): CustomerRow {
   };
 }
 
-/** DB total_amount 為應收總額（折扣後小計+運費）→ 表單「折扣後總金額」欄位 */
+/** DB total_amount 為應收總額（折扣後小計+運費+外加稅額）→ 表單「折扣後總金額」欄位（未稅） */
 export function orderDiscountSubtotalField(order: OrderRow): string {
   if (order.total_amount == null || !Number.isFinite(Number(order.total_amount))) {
     return "";
   }
   const grand = Number(order.total_amount);
   const ship = Math.max(0, Number(order.shipping_fee) || 0);
-  return String(Math.max(0, grand - ship));
+  const tax = Math.max(0, Number(order.tax_extra_amount) || 0);
+  return String(Math.max(0, grand - ship - tax));
 }
 
 /**

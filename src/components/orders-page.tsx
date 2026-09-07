@@ -323,7 +323,7 @@ export function OrdersPage({
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, customer_id, customers(name, alias)"
         )
         .is("deleted_at", null)
         .order("order_date", { ascending: false });
@@ -367,6 +367,9 @@ export function OrdersPage({
           invoice_tax_id: row.invoice_tax_id ?? null,
           internal_notes: row.internal_notes ?? null,
           explanation_image_url: row.explanation_image_url ?? null,
+          tax_extra: Boolean(row.tax_extra),
+          tax_extra_amount: Number(row.tax_extra_amount ?? 0),
+          quote_includes_tax: Boolean(row.quote_includes_tax),
         }))
       );
     }
@@ -397,7 +400,7 @@ export function OrdersPage({
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, customer_id, customers(name, alias)"
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, customer_id, customers(name, alias)"
       )
       .is("deleted_at", null)
       .order("order_date", { ascending: false });
@@ -441,6 +444,9 @@ export function OrdersPage({
         invoice_tax_id: row.invoice_tax_id ?? null,
         internal_notes: row.internal_notes ?? null,
         explanation_image_url: row.explanation_image_url ?? null,
+        tax_extra: Boolean(row.tax_extra),
+        tax_extra_amount: Number(row.tax_extra_amount ?? 0),
+        quote_includes_tax: Boolean(row.quote_includes_tax),
       }))
     );
   }
