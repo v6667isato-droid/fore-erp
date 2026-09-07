@@ -228,13 +228,15 @@ export function OrdersPage({
       await fetchCustomers();
 
       // 產品系列名稱／類別（用於規格庫先選系列 & 自動帶入 custom_category）
+      // 含已軟刪除系列：舊訂單明細仍需顯示名稱，挑選清單靠 is_deleted 排除
       const { data: seriesData } = await supabase
         .from("product_series")
-        .select("id, series_name, category, image_url")
+        .select("id, series_name, category, image_url, deleted_at")
         .order("id", { ascending: true });
       const seriesNameMap = new Map<string, string>();
       const seriesCategoryMap = new Map<string, string | null>();
       const seriesImageMap = new Map<string, string | null>();
+      const deletedSeriesIds = new Set<string>();
       (seriesData ?? []).forEach((s: any) => {
         const name = s.series_name ?? "";
         const cat =
@@ -246,13 +248,14 @@ export function OrdersPage({
         seriesCategoryMap.set(id, cat);
         const img = s.image_url != null && String(s.image_url).trim() ? String(s.image_url).trim() : null;
         seriesImageMap.set(id, img);
+        if (s.deleted_at != null) deletedSeriesIds.add(id);
       });
 
-      // 產品規格選單（含 series_id）
+      // 產品規格選單（含 series_id；含已軟刪除規格，供舊訂單明細顯示）
       const { data: variantData } = await supabase
         .from("product_variants")
         .select(
-          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, spec1, image_url, is_custom_order"
+          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, spec1, image_url, is_custom_order, deleted_at"
         )
         .order("product_code", { ascending: true });
       setVariants(
@@ -307,6 +310,7 @@ export function OrdersPage({
             seat_height_cm:
               v.seat_height_cm != null ? Number(v.seat_height_cm) : null,
             arm_height_cm: armHeightCm(v.arm_height_cm),
+            is_deleted: v.deleted_at != null || deletedSeriesIds.has(seriesId),
           };
         })
       );

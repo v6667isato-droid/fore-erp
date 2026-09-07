@@ -714,14 +714,24 @@ function OrderFormDialog({
   }, [customCases]);
 
   // 系列下拉選項：從 variants 推出唯一系列列表
+  // 已軟刪除的系列（如搬到加工區的「維修保養」）標記 is_deleted，只在舊明細已選中時顯示
   const seriesOptions = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, { name: string; is_deleted: boolean }>();
     variants.forEach((v) => {
       if (!v.series_id) return;
       const name = v.series_name || v.series_id;
-      map.set(v.series_id, name);
+      const prev = map.get(v.series_id);
+      map.set(v.series_id, {
+        name,
+        // 系列底下只要還有未刪除的規格就可挑選
+        is_deleted: (prev?.is_deleted ?? true) && v.is_deleted === true,
+      });
     });
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+    return Array.from(map.entries()).map(([id, s]) => ({
+      id,
+      name: s.name,
+      is_deleted: s.is_deleted,
+    }));
   }, [variants]);
 
   /**
@@ -2043,11 +2053,16 @@ function OrderFormDialog({
                                   className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                                 >
                                   <option value="">全部系列</option>
-                                  {seriesOptions.map((s) => (
-                                    <option key={s.id} value={s.id}>
-                                      {s.name}
-                                    </option>
-                                  ))}
+                                  {seriesOptions
+                                    .filter(
+                                      (s) =>
+                                        !s.is_deleted || s.id === it.series_id
+                                    )
+                                    .map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.name}
+                                      </option>
+                                    ))}
                                 </select>
                               )}
                             </div>
@@ -2088,10 +2103,14 @@ function OrderFormDialog({
                                   >
                                     <option value="">請選擇規格</option>
                                     {variants
-                                      .filter((v) =>
-                                        it.series_id
-                                          ? v.series_id === it.series_id
-                                          : true
+                                      .filter(
+                                        (v) =>
+                                          // 已刪除規格只在舊明細已選中時保留，避免出現在挑選清單
+                                          (!v.is_deleted ||
+                                            v.id === it.variant_id) &&
+                                          (it.series_id
+                                            ? v.series_id === it.series_id
+                                            : true)
                                       )
                                       .map((v) => (
                                         <option key={v.id} value={v.id}>

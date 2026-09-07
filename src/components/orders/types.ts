@@ -73,6 +73,8 @@ export interface VariantOption {
   seat_height_cm?: number | null;
   /** 扶手高度（cm，英文標示 AH）；未填寫則不顯示 */
   arm_height_cm?: number | null;
+  /** 已軟刪除（規格本身或所屬系列）：僅供舊訂單明細顯示名稱，不進規格庫挑選清單 */
+  is_deleted?: boolean;
 }
 
 /**
