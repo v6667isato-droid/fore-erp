@@ -25,6 +25,7 @@ interface PrintLine {
   order_number: string | null;
   shipped_date: string | null;
   customer_name: string | null;
+  contact_person: string | null;
 }
 
 function formatMonthLabel(statementMonth: string): string {
@@ -91,7 +92,7 @@ export default function ChannelStatementPrintPage() {
         const { data: lineRows, error: lineErr } = await supabase
           .from("channel_statement_lines")
           .select(
-            "id, line_type, description, amount, orders(order_number, shipped_date, customers(name, alias))"
+            "id, line_type, description, amount, orders(order_number, shipped_date, customers(name, alias, contact_person))"
           )
           .eq("statement_id", safeId)
           .order("line_type", { ascending: true })
@@ -113,6 +114,8 @@ export default function ChannelStatementPrintPage() {
               order_number: ord?.order_number != null ? String(ord.order_number) : null,
               shipped_date: ord?.shipped_date ?? null,
               customer_name: alias || (cust?.name != null ? String(cust.name).trim() : null),
+              contact_person:
+                cust?.contact_person != null ? String(cust.contact_person).trim() || null : null,
             };
           })
         );
@@ -215,6 +218,7 @@ export default function ChannelStatementPrintPage() {
           </div>
         </header>
 
+        <div className="overflow-x-auto print:overflow-visible">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b-2 border-gray-800 text-left">
@@ -222,6 +226,7 @@ export default function ChannelStatementPrintPage() {
               <th className="px-2 py-2 font-semibold text-gray-700 whitespace-nowrap">出貨日</th>
               <th className="px-2 py-2 font-semibold text-gray-700 whitespace-nowrap">訂單編號</th>
               <th className="px-2 py-2 font-semibold text-gray-700">客戶</th>
+              <th className="px-2 py-2 font-semibold text-gray-700 whitespace-nowrap">聯絡人</th>
               <th className="px-2 py-2 font-semibold text-gray-700 text-right whitespace-nowrap">金額</th>
             </tr>
           </thead>
@@ -236,6 +241,7 @@ export default function ChannelStatementPrintPage() {
                 <td className="px-2 py-2 text-gray-900">
                   {l.customer_name ?? l.description ?? "—"}
                 </td>
+                <td className="px-2 py-2 text-gray-700">{l.contact_person ?? "—"}</td>
                 <td className="px-2 py-2 text-right tabular-nums text-gray-900 whitespace-nowrap">
                   {formatAmount(l.amount)}
                 </td>
@@ -244,7 +250,7 @@ export default function ChannelStatementPrintPage() {
             {deductionLines.map((l) => (
               <tr key={l.id} className="border-b border-gray-200">
                 <td className="px-2 py-2 text-gray-500">—</td>
-                <td className="px-2 py-2 text-gray-700" colSpan={3}>
+                <td className="px-2 py-2 text-gray-700" colSpan={4}>
                   {l.description || (l.line_type === "return" ? "退貨扣款" : "調整")}
                 </td>
                 <td
@@ -259,7 +265,7 @@ export default function ChannelStatementPrintPage() {
             {deductionLines.length > 0 && (
               <>
                 <tr>
-                  <td colSpan={4} className="px-2 pt-3 pb-1 text-right text-gray-600">
+                  <td colSpan={5} className="px-2 pt-3 pb-1 text-right text-gray-600">
                     出貨小計（{orderLines.length} 筆）
                   </td>
                   <td className="px-2 pt-3 pb-1 text-right tabular-nums text-gray-900 whitespace-nowrap">
@@ -267,7 +273,7 @@ export default function ChannelStatementPrintPage() {
                   </td>
                 </tr>
                 <tr>
-                  <td colSpan={4} className="px-2 py-1 text-right text-gray-600">
+                  <td colSpan={5} className="px-2 py-1 text-right text-gray-600">
                     退貨／調整小計
                   </td>
                   <td
@@ -281,7 +287,7 @@ export default function ChannelStatementPrintPage() {
               </>
             )}
             <tr className="border-t-2 border-gray-800">
-              <td colSpan={4} className="px-2 py-2.5 text-right font-semibold text-gray-900">
+              <td colSpan={5} className="px-2 py-2.5 text-right font-semibold text-gray-900">
                 本期應收總計
               </td>
               <td className="px-2 py-2.5 text-right font-semibold tabular-nums text-gray-900 whitespace-nowrap text-base">
@@ -290,6 +296,7 @@ export default function ChannelStatementPrintPage() {
             </tr>
           </tfoot>
         </table>
+        </div>
 
         {statement.notes ? (
           <p className="mt-4 text-xs text-gray-600">備註：{statement.notes}</p>
