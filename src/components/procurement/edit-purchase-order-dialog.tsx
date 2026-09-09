@@ -22,6 +22,12 @@ import {
   vendorCategoryFilterMatches,
   type VendorCategoryGroup,
 } from "@/lib/vendor-category-groups";
+import { CategoryFilterOptions } from "@/components/procurement/category-filter-options";
+import {
+  fetchMaterialCategoryGroups,
+  materialCategoryFilterMatches,
+  type MaterialCategoryGroup,
+} from "@/lib/material-category-groups";
 
 const FILTER_MATERIAL_UNCATEGORIZED = "__uncategorized__";
 
@@ -88,6 +94,7 @@ export function EditPurchaseOrderDialog({ open, onOpenChange, group, onSuccess }
   const [error, setError] = useState<string | null>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [categoryGroups, setCategoryGroups] = useState<VendorCategoryGroup[]>([]);
+  const [materialCategoryGroups, setMaterialCategoryGroups] = useState<MaterialCategoryGroup[]>([]);
   const [materials, setMaterials] = useState<ProcurementMaterialRow[]>([]);
   const [materialDialogOpen, setMaterialDialogOpen] = useState(false);
 
@@ -130,6 +137,7 @@ export function EditPurchaseOrderDialog({ open, onOpenChange, group, onSuccess }
         setVendors((data as VendorOption[]) ?? []);
       });
     fetchVendorCategoryGroups().then(setCategoryGroups);
+    fetchMaterialCategoryGroups().then(setMaterialCategoryGroups);
     supabase
       .from("procurement_materials")
       .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
@@ -206,9 +214,9 @@ export function EditPurchaseOrderDialog({ open, onOpenChange, group, onSuccess }
       if (filter === FILTER_MATERIAL_UNCATEGORIZED) {
         return materials.filter((m) => !m.item_category?.trim());
       }
-      return materials.filter((m) => (m.item_category || "").trim() === filter);
+      return materials.filter((m) => materialCategoryFilterMatches(filter, (m.item_category || "").trim(), materialCategoryGroups));
     },
-    [materials],
+    [materials, materialCategoryGroups],
   );
 
   const materialsOptionsForLine = useCallback(
@@ -545,11 +553,7 @@ export function EditPurchaseOrderDialog({ open, onOpenChange, group, onSuccess }
                         {hasUncategorizedMaterials ? (
                           <option value={FILTER_MATERIAL_UNCATEGORIZED}>（未分類）</option>
                         ) : null}
-                        {materialCategoryOptions.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
+                        <CategoryFilterOptions categories={materialCategoryOptions} groups={materialCategoryGroups} />
                       </select>
                     </div>
 

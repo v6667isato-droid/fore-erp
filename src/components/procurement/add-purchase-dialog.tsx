@@ -22,6 +22,12 @@ import {
   vendorCategoryFilterMatches,
   type VendorCategoryGroup,
 } from "@/lib/vendor-category-groups";
+import { CategoryFilterOptions } from "@/components/procurement/category-filter-options";
+import {
+  fetchMaterialCategoryGroups,
+  materialCategoryFilterMatches,
+  type MaterialCategoryGroup,
+} from "@/lib/material-category-groups";
 
 export interface AddPurchaseDialogProps {
   onSuccess: () => void;
@@ -79,6 +85,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
   const [priceInputIsTaxInclusive, setPriceInputIsTaxInclusive] = useState(false);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [categoryGroups, setCategoryGroups] = useState<VendorCategoryGroup[]>([]);
+  const [materialCategoryGroups, setMaterialCategoryGroups] = useState<MaterialCategoryGroup[]>([]);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [materials, setMaterials] = useState<ProcurementMaterialRow[]>([]);
@@ -137,9 +144,9 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
       if (filter === FILTER_MATERIAL_UNCATEGORIZED) {
         return materials.filter((m) => !m.item_category?.trim());
       }
-      return materials.filter((m) => (m.item_category || "").trim() === filter);
+      return materials.filter((m) => materialCategoryFilterMatches(filter, (m.item_category || "").trim(), materialCategoryGroups));
     },
-    [materials],
+    [materials, materialCategoryGroups],
   );
 
   const materialsOptionsForLine = useCallback(
@@ -176,6 +183,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
         setVendors((data as VendorOption[]) ?? []);
       });
       fetchVendorCategoryGroups().then(setCategoryGroups);
+      fetchMaterialCategoryGroups().then(setMaterialCategoryGroups);
       supabase
         .from("procurement_materials")
         .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
@@ -470,11 +478,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                         {hasUncategorizedMaterials ? (
                           <option value={FILTER_MATERIAL_UNCATEGORIZED}>（未分類）</option>
                         ) : null}
-                        {materialCategoryOptions.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
+                        <CategoryFilterOptions categories={materialCategoryOptions} groups={materialCategoryGroups} />
                       </select>
                       <p className="text-[11px] text-muted-foreground">縮小下方「採購物料」選項；已選物料若不在篩選結果內仍會保留在清單中。</p>
                     </div>

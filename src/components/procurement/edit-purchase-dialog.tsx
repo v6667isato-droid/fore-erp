@@ -21,6 +21,12 @@ import {
   vendorCategoryFilterMatches,
   type VendorCategoryGroup,
 } from "@/lib/vendor-category-groups";
+import { CategoryFilterOptions } from "@/components/procurement/category-filter-options";
+import {
+  fetchMaterialCategoryGroups,
+  materialCategoryFilterMatches,
+  type MaterialCategoryGroup,
+} from "@/lib/material-category-groups";
 
 const FILTER_MATERIAL_UNCATEGORIZED = "__uncategorized__";
 
@@ -50,6 +56,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
   const [error, setError] = useState<string | null>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [categoryGroups, setCategoryGroups] = useState<VendorCategoryGroup[]>([]);
+  const [materialCategoryGroups, setMaterialCategoryGroups] = useState<MaterialCategoryGroup[]>([]);
   const [materials, setMaterials] = useState<ProcurementMaterialRow[]>([]);
   const [materialId, setMaterialId] = useState<string | null>(null);
   const [materialCategoryFilter, setMaterialCategoryFilter] = useState("");
@@ -98,6 +105,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
         setVendors((data as VendorOption[]) ?? []);
       });
     fetchVendorCategoryGroups().then(setCategoryGroups);
+    fetchMaterialCategoryGroups().then(setMaterialCategoryGroups);
     supabase
       .from("procurement_materials")
       .select("id, name, item_category, spec, spec2, unit, notes, amortization_months, created_at")
@@ -177,8 +185,8 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
     if (materialCategoryFilter === FILTER_MATERIAL_UNCATEGORIZED) {
       return materials.filter((m) => !m.item_category?.trim());
     }
-    return materials.filter((m) => (m.item_category || "").trim() === materialCategoryFilter);
-  }, [materials, materialCategoryFilter]);
+    return materials.filter((m) => materialCategoryFilterMatches(materialCategoryFilter, (m.item_category || "").trim(), materialCategoryGroups));
+  }, [materials, materialCategoryFilter, materialCategoryGroups]);
 
   const materialSelectOptions = useMemo(() => {
     const selected = materialId ? materials.find((m) => m.id === materialId) : null;
@@ -350,11 +358,7 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
                 {hasUncategorizedMaterials ? (
                   <option value={FILTER_MATERIAL_UNCATEGORIZED}>（未分類）</option>
                 ) : null}
-                {materialCategoryOptions.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
+                <CategoryFilterOptions categories={materialCategoryOptions} groups={materialCategoryGroups} />
               </select>
             </div>
             <div className="flex flex-col gap-1.5">
