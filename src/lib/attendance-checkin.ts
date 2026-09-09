@@ -13,6 +13,9 @@ export const GEOFENCE_RADIUS_M = 100;
 /** app_settings：儀表板打卡開放範圍（off=關閉／admin=僅管理員測試／all=全員） */
 export const PORTAL_CHECKIN_SCOPE_KEY = "portal_checkin_scope";
 
+/** app_settings：Telegram 打卡與提醒開放範圍（off／admin 測試／all），值域同 portal */
+export const TELEGRAM_CHECKIN_SCOPE_KEY = "telegram_checkin_scope";
+
 export type PortalCheckinScope = "off" | "admin" | "all";
 
 export function normalizePortalCheckinScope(raw: unknown): PortalCheckinScope {

@@ -1883,7 +1883,7 @@ export default function EmployeePortalPage() {
           </section>
 
           {/* 線上打卡（app_settings.portal_checkin_scope 控制；未開放時不渲染） */}
-          <EmployeeCheckinCard showAdminFieldHints={showAdminFieldHints} />
+          <EmployeeCheckinCard />
 
           <EmployeePortalMiniCalendar
             employeeId={employee.id}

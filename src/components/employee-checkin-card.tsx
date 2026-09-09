@@ -4,15 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { epSection } from "@/lib/employee-portal-section-styles";
 import {
   CHECKIN_WINDOW_HINT,
   checkinTypeLabel,
   normalizeCheckinType,
   resolveCheckinTypeByTime,
-  taipeiDateWeekdayOfIso,
-  taipeiHmOfIso,
   type CheckinType,
   type PortalCheckinScope,
 } from "@/lib/attendance-checkin";
@@ -68,11 +65,7 @@ function geolocationErrorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "無法取得定位";
 }
 
-export function EmployeeCheckinCard({
-  showAdminFieldHints,
-}: {
-  showAdminFieldHints: boolean;
-}) {
+export function EmployeeCheckinCard() {
   const [status, setStatus] = useState<CheckinStatus | null>(null);
   const [punching, setPunching] = useState(false);
   /** 依台北時間判定目前是上班卡／下班卡時段（每 30 秒重新判定） */
@@ -185,72 +178,34 @@ export function EmployeeCheckinCard({
 
   return (
     <section className={epSection.card}>
-      <div className={cn(epSection.headerRowBetween, "sm:items-start")}>
-        <div className="flex items-center gap-2">
+      <div className={epSection.headerRowBetween}>
+        <div className="flex min-w-0 items-center gap-2">
           <div className={epSection.iconBox}>
             <MapPin className="h-4 w-4" />
           </div>
-          <div>
-            <h3 className={epSection.title}>
-              線上打卡
-              {status.scope === "admin" ? (
-                <span className="ml-2 inline-flex items-center rounded-full border border-amber-600/40 bg-amber-100/90 px-2 py-0.5 text-[11px] font-medium text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
-                  測試中
-                </span>
-              ) : null}
-            </h3>
-            {showAdminFieldHints ? (
-              <p className={cn("mt-0.5", epSection.subtitle)}>
-                attendance_logs · source=portal · 限廠區 100 公尺內；{CHECKIN_WINDOW_HINT}
-              </p>
-            ) : (
-              <p className={cn("mt-0.5", epSection.subtitle)}>
-                {CHECKIN_WINDOW_HINT}；需在廠區 100 公尺內，並允許瀏覽器取得定位。
-              </p>
-            )}
-          </div>
+          <h3 className={epSection.title}>
+            線上打卡
+            {status.scope === "admin" ? (
+              <span className="ml-2 inline-flex items-center rounded-full border border-amber-600/40 bg-amber-100/90 px-2 py-0.5 text-[11px] font-medium text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
+                測試中
+              </span>
+            ) : null}
+          </h3>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2 self-start sm:self-auto">
-          <Button
-            type="button"
-            className="gap-1.5"
-            disabled={punching || punchType == null}
-            onClick={() => void punch()}
-          >
-            {punching
-              ? "定位中…"
-              : punchType === "in"
-                ? "上班打卡"
-                : punchType === "out"
-                  ? "下班打卡"
-                  : "非打卡時段"}
-          </Button>
-        </div>
-      </div>
-      <div className="mt-1">
-        {status.logs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">今日尚無線上打卡紀錄。</p>
-        ) : (
-          <ul className="flex flex-wrap gap-2">
-            {status.logs.map((log, i) => (
-              <li
-                key={`${log.created_at}-${i}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/30 px-3 py-1 text-xs text-foreground"
-              >
-                <span className="tabular-nums text-muted-foreground">
-                  {taipeiDateWeekdayOfIso(log.created_at)}
-                </span>
-                <span className="font-medium tabular-nums">
-                  {checkinTypeLabel(log.check_type)}
-                  {taipeiHmOfIso(log.created_at)}
-                </span>
-                <span className="text-muted-foreground">
-                  距廠區 {Math.round(Number(log.distance_meters))}m
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <Button
+          type="button"
+          className="shrink-0 gap-1.5"
+          disabled={punching || punchType == null}
+          onClick={() => void punch()}
+        >
+          {punching
+            ? "定位中…"
+            : punchType === "in"
+              ? "上班打卡"
+              : punchType === "out"
+                ? "下班打卡"
+                : "非打卡時段"}
+        </Button>
       </div>
     </section>
   );

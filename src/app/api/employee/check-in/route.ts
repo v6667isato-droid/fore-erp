@@ -1,24 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { haversineDistanceMeters } from "@/lib/haversine-meters";
 import {
-  CHECKIN_WINDOW_HINT,
-  FACTORY_LAT,
-  FACTORY_LNG,
   GEOFENCE_RADIUS_M,
   PORTAL_CHECKIN_SCOPE_KEY,
-  normalizeCheckinType,
   normalizePortalCheckinScope,
-  resolveCheckinTypeByTime,
-  taipeiDayRangeUtc,
   type PortalCheckinScope,
 } from "@/lib/attendance-checkin";
+import { fetchTodayCheckinLogs, performCheckin } from "@/lib/attendance-checkin-server";
 
 export const runtime = "nodejs";
 
 /**
  * 員工儀表板線上打卡（attendance_logs, source='portal'）。
- * 測試期僅作為補卡審核佐證，不進月底出勤統計；開放範圍由 app_settings.portal_checkin_scope 控制。
+ * 開放範圍由 app_settings.portal_checkin_scope 控制；打卡類型由伺服器時間判定（單一按鈕），
+ * 同類型一天限打一次、限廠區 100 公尺內。
  * 身分以 Supabase session（Authorization: Bearer <access_token>）驗證，employee_id 由 user_profiles 反查、不信任 client。
  */
 
@@ -98,26 +93,6 @@ async function resolveCaller(
   return { ok: true, ctx: { employeeId, isAdmin, scope, allowed } };
 }
 
-function taipeiTodayYmd(): string {
-  return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
-}
-
-async function fetchTodayLogs(supabase: SupabaseClient, employeeId: string) {
-  const { startIso, endIso } = taipeiDayRangeUtc(taipeiTodayYmd());
-  const { data, error } = await supabase
-    .from("attendance_logs")
-    .select("check_type, distance_meters, source, created_at")
-    .eq("employee_id", employeeId)
-    .gte("created_at", startIso)
-    .lte("created_at", endIso)
-    .order("created_at", { ascending: true });
-  if (error) {
-    console.error("[employee/check-in] attendance_logs fetch:", error);
-    return [];
-  }
-  return data ?? [];
-}
-
 /** 目前開放狀態＋自己今日的線上打卡紀錄 */
 export async function GET(request: NextRequest) {
   const supabase = getServiceSupabase();
@@ -132,7 +107,7 @@ export async function GET(request: NextRequest) {
 
   const { ctx } = caller;
   const logs =
-    ctx.allowed && ctx.employeeId ? await fetchTodayLogs(supabase, ctx.employeeId) : [];
+    ctx.allowed && ctx.employeeId ? await fetchTodayCheckinLogs(supabase, ctx.employeeId) : [];
 
   return NextResponse.json({
     ok: true,
@@ -169,27 +144,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  // 打卡類型由伺服器時間判定（單一按鈕）：上班 09:00±2h、下班 18:00±2h
-  const checkType = resolveCheckinTypeByTime();
   const lat = parseNumber(body.latitude);
   const lng = parseNumber(body.longitude);
-
-  if (!checkType) {
-    return NextResponse.json({
-      ok: false,
-      warning: `目前非打卡時段（${CHECKIN_WINDOW_HINT}）。`,
-    });
-  }
-
-  // 同類型一天只能打一次（含 LINE 打卡），以第一筆為準
-  const todayLogs = await fetchTodayLogs(supabase, ctx.employeeId);
-  if (todayLogs.some((l) => normalizeCheckinType(l.check_type) === checkType)) {
-    return NextResponse.json({
-      ok: false,
-      warning: `今日${checkType === "in" ? "上班" : "下班"}已打過卡。`,
-      logs: todayLogs,
-    });
-  }
   if (lat === null || lng === null) {
     return NextResponse.json(
       { ok: false, error: "無法取得定位（latitude / longitude 無效）" },
@@ -197,38 +153,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const distanceM = haversineDistanceMeters(lat, lng, FACTORY_LAT, FACTORY_LNG);
-  const distanceRounded = Math.round(distanceM * 100) / 100;
+  const result = await performCheckin(supabase, ctx.employeeId, lat, lng, "portal");
 
-  if (distanceM > GEOFENCE_RADIUS_M) {
+  if (!result.ok) {
+    if (result.reason === "insert_failed") {
+      return NextResponse.json({ ok: false, error: result.message }, { status: 500 });
+    }
     return NextResponse.json({
       ok: false,
-      warning: `目前位置距離工廠約 ${distanceRounded} 公尺，超過允許範圍 ${GEOFENCE_RADIUS_M} 公尺，無法完成打卡。`,
-      distance_meters: distanceRounded,
+      warning: result.message,
+      distance_meters: result.distanceMeters,
+      logs: result.logs,
     });
   }
-
-  const { error: insErr } = await supabase.from("attendance_logs").insert({
-    employee_id: ctx.employeeId,
-    check_type: checkType,
-    latitude: lat,
-    longitude: lng,
-    distance_meters: distanceRounded,
-    source: "portal",
-  });
-
-  if (insErr) {
-    console.error("[employee/check-in] attendance_logs insert:", insErr);
-    return NextResponse.json({ ok: false, error: "寫入打卡紀錄失敗" }, { status: 500 });
-  }
-
-  const logs = await fetchTodayLogs(supabase, ctx.employeeId);
 
   return NextResponse.json({
     ok: true,
     message: "打卡成功",
-    check_type: checkType,
-    distance_meters: distanceRounded,
-    logs,
+    check_type: result.checkType,
+    distance_meters: result.distanceMeters,
+    logs: result.logs,
   });
 }
