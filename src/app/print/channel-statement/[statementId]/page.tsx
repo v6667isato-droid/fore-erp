@@ -92,7 +92,7 @@ export default function ChannelStatementPrintPage() {
         const { data: lineRows, error: lineErr } = await supabase
           .from("channel_statement_lines")
           .select(
-            "id, line_type, description, amount, orders(order_number, shipped_date, customers(name, alias, contact_person))"
+            "id, line_type, description, amount, orders(order_number, shipped_date, shipping_contact_name, customers(name, alias))"
           )
           .eq("statement_id", safeId)
           .order("line_type", { ascending: true })
@@ -115,7 +115,9 @@ export default function ChannelStatementPrintPage() {
               shipped_date: ord?.shipped_date ?? null,
               customer_name: alias || (cust?.name != null ? String(cust.name).trim() : null),
               contact_person:
-                cust?.contact_person != null ? String(cust.contact_person).trim() || null : null,
+                ord?.shipping_contact_name != null
+                  ? String(ord.shipping_contact_name).trim() || null
+                  : null,
             };
           })
         );
