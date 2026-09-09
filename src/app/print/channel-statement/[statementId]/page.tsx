@@ -169,8 +169,8 @@ export default function ChannelStatementPrintPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-black">
-      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:shadow-none print:px-4 print:py-8">
+    <div className="min-h-screen bg-white text-black print:min-h-0">
+      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:min-h-0 print:shadow-none print:px-4 print:py-0">
         <div className="flex justify-end mb-6 print:hidden">
           <button
             type="button"
