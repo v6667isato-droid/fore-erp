@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { epSection } from "@/lib/employee-portal-section-styles";
 import {
+  CHECKIN_WINDOW_HINT,
   checkinTypeLabel,
+  normalizeCheckinType,
+  resolveCheckinTypeByTime,
   taipeiDateWeekdayOfIso,
   taipeiHmOfIso,
   type CheckinType,
@@ -71,7 +74,13 @@ export function EmployeeCheckinCard({
   showAdminFieldHints: boolean;
 }) {
   const [status, setStatus] = useState<CheckinStatus | null>(null);
-  const [punching, setPunching] = useState<CheckinType | null>(null);
+  const [punching, setPunching] = useState(false);
+  /** 依台北時間判定目前是上班卡／下班卡時段（每 30 秒重新判定） */
+  const [punchType, setPunchType] = useState<CheckinType | null>(() => resolveCheckinTypeByTime());
+  useEffect(() => {
+    const timer = setInterval(() => setPunchType(resolveCheckinTypeByTime()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const loadStatus = useCallback(async () => {
     if (!isSupabaseConfigured) return;
@@ -102,9 +111,19 @@ export function EmployeeCheckinCard({
     void loadStatus();
   }, [loadStatus]);
 
-  async function punch(type: CheckinType) {
+  async function punch() {
     if (punching) return;
-    setPunching(type);
+    const type = resolveCheckinTypeByTime();
+    if (type == null) {
+      toast.error(`目前非打卡時段（${CHECKIN_WINDOW_HINT}）。`);
+      setPunchType(null);
+      return;
+    }
+    if (status?.logs.some((l) => normalizeCheckinType(l.check_type) === type)) {
+      toast.error(`今日${type === "in" ? "上班" : "下班"}已打過卡。`);
+      return;
+    }
+    setPunching(true);
     try {
       let pos: GeolocationPosition;
       try {
@@ -125,7 +144,6 @@ export function EmployeeCheckinCard({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          check_type: type,
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
         }),
@@ -135,12 +153,13 @@ export function EmployeeCheckinCard({
         message?: string;
         warning?: string;
         error?: string;
+        check_type?: string;
         distance_meters?: number;
         logs?: CheckinLog[];
       };
       if (json.ok) {
         toast.success(
-          `${type === "in" ? "上班" : "下班"}打卡成功（距廠區 ${json.distance_meters ?? "?"} 公尺）`,
+          `${checkinTypeLabel(json.check_type)}打卡成功（距廠區 ${json.distance_meters ?? "?"} 公尺）`,
         );
         if (json.logs) {
           setStatus((s) => (s ? { ...s, logs: json.logs! } : s));
@@ -149,12 +168,16 @@ export function EmployeeCheckinCard({
         }
       } else {
         toast.error(json.warning ?? json.error ?? "打卡失敗");
+        if (json.logs) {
+          setStatus((s) => (s ? { ...s, logs: json.logs! } : s));
+        }
       }
     } catch (e) {
       console.warn("[employee-checkin-card] punch:", e);
       toast.error("打卡失敗，請確認網路後重試");
     } finally {
-      setPunching(null);
+      setPunching(false);
+      setPunchType(resolveCheckinTypeByTime());
     }
   }
 
@@ -178,11 +201,11 @@ export function EmployeeCheckinCard({
             </h3>
             {showAdminFieldHints ? (
               <p className={cn("mt-0.5", epSection.subtitle)}>
-                attendance_logs · source=portal · 限廠區 100 公尺內；測試期不進月底出勤統計
+                attendance_logs · source=portal · 限廠區 100 公尺內；{CHECKIN_WINDOW_HINT}
               </p>
             ) : (
               <p className={cn("mt-0.5", epSection.subtitle)}>
-                需在廠區 100 公尺內，並允許瀏覽器取得定位。
+                {CHECKIN_WINDOW_HINT}；需在廠區 100 公尺內，並允許瀏覽器取得定位。
               </p>
             )}
           </div>
@@ -191,19 +214,16 @@ export function EmployeeCheckinCard({
           <Button
             type="button"
             className="gap-1.5"
-            disabled={punching != null}
-            onClick={() => void punch("in")}
+            disabled={punching || punchType == null}
+            onClick={() => void punch()}
           >
-            {punching === "in" ? "定位中…" : "上班打卡"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="gap-1.5"
-            disabled={punching != null}
-            onClick={() => void punch("out")}
-          >
-            {punching === "out" ? "定位中…" : "下班打卡"}
+            {punching
+              ? "定位中…"
+              : punchType === "in"
+                ? "上班打卡"
+                : punchType === "out"
+                  ? "下班打卡"
+                  : "非打卡時段"}
           </Button>
         </div>
       </div>

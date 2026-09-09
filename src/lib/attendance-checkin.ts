@@ -27,6 +27,37 @@ export function normalizePortalCheckinScope(raw: unknown): PortalCheckinScope {
 
 export type CheckinType = "in" | "out";
 
+/** 單一打卡鈕開放時段（台北時間，自午夜起分鐘數，含頭尾）：上班卡 06:00–10:00、下班卡 16:00–20:00 */
+export const CHECKIN_IN_WINDOW = { start: 6 * 60, end: 10 * 60 };
+export const CHECKIN_OUT_WINDOW = { start: 16 * 60, end: 20 * 60 };
+
+function minutesToHm(total: number): string {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** 打卡開放時段說明文字，如「上班卡 06:00–10:00、下班卡 16:00–20:00」 */
+export const CHECKIN_WINDOW_HINT = `上班卡 ${minutesToHm(CHECKIN_IN_WINDOW.start)}–${minutesToHm(
+  CHECKIN_IN_WINDOW.end,
+)}、下班卡 ${minutesToHm(CHECKIN_OUT_WINDOW.start)}–${minutesToHm(CHECKIN_OUT_WINDOW.end)}`;
+
+/** 依台北目前時間判定打卡類型：上班卡時段 → in、下班卡時段 → out、其他 → null */
+export function resolveCheckinTypeByTime(now: Date = new Date()): CheckinType | null {
+  const hm = now.toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Taipei",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const [h, m] = hm.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  const mins = h * 60 + m;
+  if (mins >= CHECKIN_IN_WINDOW.start && mins <= CHECKIN_IN_WINDOW.end) return "in";
+  if (mins >= CHECKIN_OUT_WINDOW.start && mins <= CHECKIN_OUT_WINDOW.end) return "out";
+  return null;
+}
+
 export function normalizeCheckinType(raw: unknown): CheckinType | null {
   const s = String(raw ?? "").trim().toLowerCase();
   if (s === "in" || s === "clock_in" || s === "上班") return "in";

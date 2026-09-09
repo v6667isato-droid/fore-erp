@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { haversineDistanceMeters } from "@/lib/haversine-meters";
 import {
+  CHECKIN_WINDOW_HINT,
   FACTORY_LAT,
   FACTORY_LNG,
   GEOFENCE_RADIUS_M,
   PORTAL_CHECKIN_SCOPE_KEY,
   normalizeCheckinType,
   normalizePortalCheckinScope,
+  resolveCheckinTypeByTime,
   taipeiDayRangeUtc,
   type PortalCheckinScope,
 } from "@/lib/attendance-checkin";
@@ -167,12 +169,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const checkType = normalizeCheckinType(body.check_type);
+  // 打卡類型由伺服器時間判定（單一按鈕）：上班 09:00±2h、下班 18:00±2h
+  const checkType = resolveCheckinTypeByTime();
   const lat = parseNumber(body.latitude);
   const lng = parseNumber(body.longitude);
 
   if (!checkType) {
-    return NextResponse.json({ ok: false, error: "check_type 須為 in 或 out" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      warning: `目前非打卡時段（${CHECKIN_WINDOW_HINT}）。`,
+    });
+  }
+
+  // 同類型一天只能打一次（含 LINE 打卡），以第一筆為準
+  const todayLogs = await fetchTodayLogs(supabase, ctx.employeeId);
+  if (todayLogs.some((l) => normalizeCheckinType(l.check_type) === checkType)) {
+    return NextResponse.json({
+      ok: false,
+      warning: `今日${checkType === "in" ? "上班" : "下班"}已打過卡。`,
+      logs: todayLogs,
+    });
   }
   if (lat === null || lng === null) {
     return NextResponse.json(

@@ -19,6 +19,12 @@ import {
   fetchCompanyEventAssignmentsForEmployee,
   type CompanyEventAssigneeRow,
 } from "@/lib/company-events";
+import {
+  checkinSourceLabel,
+  checkinTypeLabel,
+  taipeiHmOfIso,
+  taipeiYmdOfIso,
+} from "@/lib/attendance-checkin";
 
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -208,6 +214,41 @@ async function loadRemoteEvents(
   return merged;
 }
 
+type MyCheckinRow = {
+  check_type: string;
+  distance_meters: number | null;
+  source: string;
+  created_at: string;
+};
+
+/** 當月自己的打卡紀錄（attendance_logs；RLS 僅能讀本人），依台北日期分組 */
+async function loadMyCheckinsForMonth(
+  employeeId: string,
+  year: number,
+  month: number,
+): Promise<Record<string, MyCheckinRow[]>> {
+  const dim = getDaysInMonth(year, month);
+  const start = formatDateKey(year, month, 1);
+  const end = formatDateKey(year, month, dim);
+  const { data, error } = await supabase
+    .from("attendance_logs")
+    .select("check_type, distance_meters, source, created_at")
+    .eq("employee_id", employeeId)
+    .gte("created_at", `${start}T00:00:00+08:00`)
+    .lte("created_at", `${end}T23:59:59.999+08:00`)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.warn("[EmployeePortalMiniCalendar] attendance_logs", error);
+    return {};
+  }
+  const grouped: Record<string, MyCheckinRow[]> = {};
+  for (const row of (data ?? []) as MyCheckinRow[]) {
+    const key = taipeiYmdOfIso(row.created_at);
+    (grouped[key] ??= []).push(row);
+  }
+  return grouped;
+}
+
 interface TodaySummaryItem {
   id: string;
   kind: DataKind;
@@ -365,6 +406,8 @@ export function EmployeePortalMiniCalendar({
 
   const [remoteByDate, setRemoteByDate] = useState<Record<string, CalendarEventItem[]>>({});
   const [remoteLoading, setRemoteLoading] = useState(false);
+  /** 當月自己的打卡紀錄（僅本人；只顯示在右側選取日期面板，不畫月曆圓點） */
+  const [checkinsByDate, setCheckinsByDate] = useState<Record<string, MyCheckinRow[]>>({});
 
   /** 展開前顯示的今日摘要（僅本人可見範圍） */
   const [todayItems, setTodayItems] = useState<TodaySummaryItem[]>([]);
@@ -395,16 +438,22 @@ export function EmployeePortalMiniCalendar({
   const reloadRemote = useCallback(async () => {
     if (!useDb) {
       setRemoteByDate({});
+      setCheckinsByDate({});
       return;
     }
     const id = String(employeeId).trim();
     setRemoteLoading(true);
     try {
-      const merged = await loadRemoteEvents(id, year, month);
+      const [merged, checkins] = await Promise.all([
+        loadRemoteEvents(id, year, month),
+        loadMyCheckinsForMonth(id, year, month),
+      ]);
       setRemoteByDate(merged);
+      setCheckinsByDate(checkins);
     } catch (e) {
       console.warn("[EmployeePortalMiniCalendar]", e);
       setRemoteByDate({});
+      setCheckinsByDate({});
     } finally {
       setRemoteLoading(false);
     }
@@ -451,6 +500,7 @@ export function EmployeePortalMiniCalendar({
   }
 
   const selectedEvents = selectedKey ? eventsByDate[selectedKey] ?? [] : [];
+  const selectedCheckins = selectedKey ? checkinsByDate[selectedKey] ?? [] : [];
   const todayKey = formatDateKey(today.getFullYear(), today.getMonth() + 1, today.getDate());
 
   return (
@@ -650,9 +700,11 @@ export function EmployeePortalMiniCalendar({
               : "—"}
           </p>
           {selectedEvents.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">
-              {useDb ? "這天沒有國定假日／補班／您的休假紀錄。" : "這天沒有示意事件。"}
-            </p>
+            selectedCheckins.length === 0 ? (
+              <p className="mt-3 text-sm text-muted-foreground">
+                {useDb ? "這天沒有國定假日／補班／您的休假紀錄。" : "這天沒有示意事件。"}
+              </p>
+            ) : null
           ) : (
             <ul className="mt-3 space-y-2">
               {selectedEvents.map((ev) => (
@@ -678,6 +730,32 @@ export function EmployeePortalMiniCalendar({
               ))}
             </ul>
           )}
+          {selectedCheckins.length > 0 ? (
+            <div className="mt-3 border-t border-border/50 pt-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                我的打卡
+              </p>
+              <ul className="mt-2 space-y-1.5">
+                {selectedCheckins.map((log, i) => (
+                  <li
+                    key={`${log.created_at}-${i}`}
+                    className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/80 px-2.5 py-2 text-sm"
+                  >
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-cyan-500" aria-hidden />
+                    <span className="font-medium tabular-nums text-foreground">
+                      {checkinTypeLabel(log.check_type)} {taipeiHmOfIso(log.created_at)}
+                    </span>
+                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                      {checkinSourceLabel(log.source)}
+                      {Number.isFinite(Number(log.distance_meters))
+                        ? ` · 距廠區 ${Math.round(Number(log.distance_meters))}m`
+                        : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
           </div>
         </div>
