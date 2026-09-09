@@ -150,11 +150,29 @@ export const paymentStatusStyles: Record<PaymentStatus, string> = {
   已結清: "bg-emerald-100 text-emerald-800 border-emerald-200",
 };
 
-export function generateOrderNumber() {
+/** 訂單編號前綴：ORD＝一般銷售單；STK＝內部備貨單（0 元、不計入應收） */
+export type OrderNumberPrefix = "ORD" | "STK";
+
+/** 客戶名稱含此關鍵字視為內部備貨客戶（如「Føre 備貨」）：編號用 STK-、付款狀態帶「已結清」 */
+export const STOCK_CUSTOMER_KEYWORD = "備貨";
+
+export function isStockCustomerName(name: string | null | undefined): boolean {
+  return Boolean(name?.includes(STOCK_CUSTOMER_KEYWORD));
+}
+
+export function generateOrderNumber(prefix: OrderNumberPrefix = "ORD") {
   const now = new Date();
   const ymd = now.toISOString().slice(0, 10).replace(/-/g, "");
   const suffix = String(now.getTime()).slice(-4);
-  return `ORD-${ymd}-${suffix}`;
+  return `${prefix}-${ymd}-${suffix}`;
+}
+
+/** 切換草稿編號前綴（保留日期與流水號）；非 ORD-/STK- 開頭的編號原樣返回 */
+export function swapOrderNumberPrefix(
+  orderNumber: string,
+  prefix: OrderNumberPrefix
+): string {
+  return orderNumber.replace(/^(ORD|STK)-/, `${prefix}-`);
 }
 
 export function parseExplanationImages(raw: string | null | undefined): ExplanationImage[] {

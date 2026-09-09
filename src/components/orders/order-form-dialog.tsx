@@ -50,6 +50,8 @@ import {
 import {
   orderDiscountSubtotalField,
   generateOrderNumber,
+  isStockCustomerName,
+  swapOrderNumberPrefix,
   parseExplanationImages,
   manualOrderStatusOptions,
   PAYMENT_STATUS_OPTIONS,
@@ -400,6 +402,8 @@ function OrderFormDialog({
     return "0";
   });
   const prevCustomerIdRef = useRef<string>("");
+  /** 上一次選取是否為備貨客戶；切回一般客戶時用來還原自動帶入的付款狀態 */
+  const wasStockCustomerRef = useRef(false);
   const [draftOrderNumber, setDraftOrderNumber] = useState<string>(() => {
     return initialOrder?.order_number ?? generateOrderNumber();
   });
@@ -582,6 +586,7 @@ function OrderFormDialog({
     setDepositPercent("50");
     setShippingFee("0");
     prevCustomerIdRef.current = "";
+    wasStockCustomerRef.current = false;
     setDraftOrderNumber(generateOrderNumber());
     setDiscountLocked(false);
     setDiscountPct("");
@@ -643,6 +648,25 @@ function OrderFormDialog({
       }
     }
   }, [customerId, customers, isEdit, deposit, depositPercent]);
+
+  // 新增模式：選到備貨客戶（名稱含「備貨」）時，編號改用 STK- 前綴、付款狀態帶「已結清」
+  useEffect(() => {
+    if (isEdit) return;
+    const isStock = isStockCustomerName(
+      customers.find((c) => c.id === customerId)?.name
+    );
+    if (isStock) {
+      setDraftOrderNumber((n) => swapOrderNumberPrefix(n, "STK"));
+      setPaymentStatus((p) => (p === "未付款" ? "已結清" : p));
+    } else {
+      setDraftOrderNumber((n) => swapOrderNumberPrefix(n, "ORD"));
+      // 只還原自動帶入的「已結清」，不動使用者手動選的狀態
+      if (wasStockCustomerRef.current) {
+        setPaymentStatus((p) => (p === "已結清" ? "未付款" : p));
+      }
+    }
+    wasStockCustomerRef.current = isStock;
+  }, [customerId, customers, isEdit]);
 
   // 若是編輯模式，初始化寄送資訊
   useEffect(() => {
