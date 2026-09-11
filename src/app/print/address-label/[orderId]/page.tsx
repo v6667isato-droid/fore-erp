@@ -279,13 +279,24 @@ export default function AddressLabelPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-black">
-      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:shadow-none print:px-10 print:py-8">
+    <div className="min-h-screen bg-white text-black print:min-h-0">
+      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:min-h-0 print:shadow-none print:px-10 print:py-0">
         <div className="flex justify-between items-center mb-6 print:hidden">
           <h1 className="text-lg font-semibold text-gray-900">出貨地址條</h1>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => {
+              // 記錄列印時間供訂單列表標示「已列印地址條」；寫入失敗不阻擋列印
+              const printedIds = entries.map((e) => e.order.id);
+              void supabase
+                .from("orders")
+                .update({ address_label_printed_at: new Date().toISOString() })
+                .in("id", printedIds)
+                .then(({ error }) => {
+                  if (error) console.error("記錄地址條列印時間失敗:", error);
+                });
+              window.print();
+            }}
             className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400"
           >
             <span>🖨️ 列印 / 存成 PDF</span>

@@ -42,6 +42,8 @@ export interface OrderRow {
   tax_extra_amount?: number;
   /** 報價單備註顯示「報價含營業稅」 */
   quote_includes_tax?: boolean;
+  /** 最近一次列印地址條的時間（未列印過為 NULL） */
+  address_label_printed_at?: string | null;
 }
 
 export interface CustomerOption {

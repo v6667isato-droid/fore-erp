@@ -1759,6 +1759,7 @@ export type Database = {
       }
       orders: {
         Row: {
+          address_label_printed_at: string | null
           created_at: string | null
           customer_id: string | null
           deleted_at: string | null
@@ -1789,6 +1790,7 @@ export type Database = {
           total_amount: number | null
         }
         Insert: {
+          address_label_printed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
           deleted_at?: string | null
@@ -1819,6 +1821,7 @@ export type Database = {
           total_amount?: number | null
         }
         Update: {
+          address_label_printed_at?: string | null
           created_at?: string | null
           customer_id?: string | null
           deleted_at?: string | null
@@ -4254,6 +4257,10 @@ export type Database = {
       revoke_overtime_request: {
         Args: { p_reason?: string; p_request_id: string }
         Returns: Json
+      }
+      verify_leave_notify_secret: {
+        Args: { p_secret: string }
+        Returns: boolean
       }
     }
     Enums: {

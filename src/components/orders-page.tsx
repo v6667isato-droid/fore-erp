@@ -327,7 +327,7 @@ export function OrdersPage({
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, customer_id, customers(name, alias)"
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, address_label_printed_at, customer_id, customers(name, alias)"
         )
         .is("deleted_at", null)
         .order("order_date", { ascending: false });
@@ -374,6 +374,7 @@ export function OrdersPage({
           tax_extra: Boolean(row.tax_extra),
           tax_extra_amount: Number(row.tax_extra_amount ?? 0),
           quote_includes_tax: Boolean(row.quote_includes_tax),
+          address_label_printed_at: row.address_label_printed_at ?? null,
         }))
       );
     }
@@ -404,7 +405,7 @@ export function OrdersPage({
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, customer_id, customers(name, alias)"
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, address_label_printed_at, customer_id, customers(name, alias)"
       )
       .is("deleted_at", null)
       .order("order_date", { ascending: false });
@@ -451,6 +452,7 @@ export function OrdersPage({
         tax_extra: Boolean(row.tax_extra),
         tax_extra_amount: Number(row.tax_extra_amount ?? 0),
         quote_includes_tax: Boolean(row.quote_includes_tax),
+        address_label_printed_at: row.address_label_printed_at ?? null,
       }))
     );
   }
@@ -1447,8 +1449,16 @@ export function OrdersPage({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                        title="地址條"
+                        className={`h-6 w-6 ${
+                          order.address_label_printed_at
+                            ? "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        title={
+                          order.address_label_printed_at
+                            ? `地址條（已於 ${new Date(order.address_label_printed_at).toLocaleString("zh-TW", { hour12: false })} 列印）`
+                            : "地址條"
+                        }
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
