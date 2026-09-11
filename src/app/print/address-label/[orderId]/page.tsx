@@ -26,6 +26,11 @@ interface AddressLabelItem {
   quantity: number;
 }
 
+interface AddressLabelEntry {
+  order: AddressLabelOrder;
+  items: AddressLabelItem[];
+}
+
 function seriesNameFromVariant(variant: {
   product_series?: { series_name?: string } | { series_name?: string }[] | null;
 } | null): string {
@@ -80,15 +85,51 @@ function formatShippingItemLine(
   return `${core}${dimSuffix}`;
 }
 
+function effectiveContact(order: AddressLabelOrder): string {
+  return (
+    order.shipping_contact_name?.trim() ||
+    order.customer_contact_person?.trim() ||
+    order.customer_name ||
+    ""
+  );
+}
+
+function effectivePhone(order: AddressLabelOrder): string {
+  return (
+    order.shipping_contact_phone?.trim() || order.customer_phone?.trim() || ""
+  );
+}
+
+function effectiveElevator(order: AddressLabelOrder): string {
+  return order.shipping_has_elevator === true
+    ? "有"
+    : order.shipping_has_elevator === false
+      ? "無"
+      : "—";
+}
+
+function effectiveAddress(order: AddressLabelOrder): string {
+  return (
+    order.shipping_address?.trim() || order.customer_address?.trim() || ""
+  );
+}
+
 export default function AddressLabelPage() {
   const params = useParams<{ orderId: string }>();
   const rawOrderId = params?.orderId;
-  const orderId = typeof rawOrderId === "string" ? decodeURIComponent(rawOrderId) : undefined;
+  // 路徑段支援以逗號串多筆訂單 id（自訂單列表多選列印），單一 id 行為不變
+  const orderIds = useMemo(() => {
+    if (typeof rawOrderId !== "string") return [];
+    return decodeURIComponent(rawOrderId)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }, [rawOrderId]);
   const { ready: authReady } = useRequireAuth();
 
   const [loading, setLoading] = useState(true);
-  const [order, setOrder] = useState<AddressLabelOrder | null>(null);
-  const [items, setItems] = useState<AddressLabelItem[]>([]);
+  const [entries, setEntries] = useState<AddressLabelEntry[]>([]);
+  const [missingCount, setMissingCount] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [showShippingInfo, setShowShippingInfo] = useState(true);
@@ -99,54 +140,33 @@ export default function AddressLabelPage() {
   const [markThisSideUp, setMarkThisSideUp] = useState(false);
 
   useEffect(() => {
-    if (!orderId || !authReady) return;
-    const safeOrderId = orderId;
+    if (orderIds.length === 0 || !authReady) return;
+    const safeOrderIds = orderIds;
 
     async function fetchData() {
       setLoading(true);
       setLoadError(null);
       try {
-        const { data: orderRow, error: orderErr } = await supabase
+        const { data: orderRows, error: orderErr } = await supabase
           .from("orders")
           .select(
             "id, order_number, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, customers(name, contact_person, phone, delivery_address)"
           )
-          .eq("id", safeOrderId)
-          .single();
+          .in("id", safeOrderIds);
 
-        if (orderErr || !orderRow) {
-          throw new Error(orderErr?.message || "找不到此訂單");
+        if (orderErr) {
+          throw new Error(orderErr.message || "讀取訂單失敗");
         }
-
-        const custRaw =
-          (orderRow.customers &&
-            (Array.isArray(orderRow.customers)
-              ? orderRow.customers[0]
-              : orderRow.customers)) ||
-          null;
-
-        const orderData: AddressLabelOrder = {
-          id: String(orderRow.id),
-          order_number: String(orderRow.order_number ?? ""),
-          customer_name: custRaw?.name ?? "",
-          shipping_contact_name: orderRow.shipping_contact_name ?? null,
-          shipping_contact_phone: orderRow.shipping_contact_phone ?? null,
-          shipping_has_elevator:
-            orderRow.shipping_has_elevator === true || orderRow.shipping_has_elevator === false
-              ? orderRow.shipping_has_elevator
-              : null,
-          shipping_address: orderRow.shipping_address ?? null,
-          customer_contact_person: custRaw?.contact_person ?? null,
-          customer_phone: custRaw?.phone ?? null,
-          customer_address: custRaw?.delivery_address ?? null,
-        };
+        if (!orderRows || orderRows.length === 0) {
+          throw new Error("找不到訂單");
+        }
 
         const { data: itemRows, error: itemErr } = await supabase
           .from("order_items")
           .select(
-            "id, variant_id, quantity, custom_name, custom_category, custom_dimension_w, custom_dimension_d, custom_dimension_h, product_variants(product_code, spec1, dimension_w, dimension_d, dimension_h, product_series(series_name))"
+            "id, order_id, variant_id, quantity, custom_name, custom_category, custom_dimension_w, custom_dimension_d, custom_dimension_h, product_variants(product_code, spec1, dimension_w, dimension_d, dimension_h, product_series(series_name))"
           )
-          .eq("order_id", safeOrderId)
+          .in("order_id", safeOrderIds)
           .order("line_order", { ascending: true })
           .order("id", { ascending: true });
 
@@ -154,7 +174,8 @@ export default function AddressLabelPage() {
           throw new Error(itemErr.message || "讀取訂單品項失敗");
         }
 
-        const mappedItems: AddressLabelItem[] = (itemRows ?? []).map((r: any, idx: number) => {
+        const itemsByOrder = new Map<string, AddressLabelItem[]>();
+        (itemRows ?? []).forEach((r: any, idx: number) => {
           const variantRaw = r.product_variants;
           const variant =
             variantRaw && !Array.isArray(variantRaw)
@@ -163,17 +184,52 @@ export default function AddressLabelPage() {
                 ? variantRaw[0]
                 : null;
 
-          const name = formatShippingItemLine(r, idx, variant);
-
-          return {
+          const oid = String(r.order_id ?? "");
+          const list = itemsByOrder.get(oid) ?? [];
+          list.push({
             id: String(r.id ?? `item-${idx}`),
-            name,
+            name: formatShippingItemLine(r, list.length, variant),
             quantity: Number(r.quantity ?? 1),
-          };
+          });
+          itemsByOrder.set(oid, list);
         });
 
-        setOrder(orderData);
-        setItems(mappedItems);
+        const orderById = new Map<string, AddressLabelOrder>();
+        orderRows.forEach((orderRow) => {
+          const custRaw =
+            (orderRow.customers &&
+              (Array.isArray(orderRow.customers)
+                ? orderRow.customers[0]
+                : orderRow.customers)) ||
+            null;
+
+          orderById.set(String(orderRow.id), {
+            id: String(orderRow.id),
+            order_number: String(orderRow.order_number ?? ""),
+            customer_name: custRaw?.name ?? "",
+            shipping_contact_name: orderRow.shipping_contact_name ?? null,
+            shipping_contact_phone: orderRow.shipping_contact_phone ?? null,
+            shipping_has_elevator:
+              orderRow.shipping_has_elevator === true || orderRow.shipping_has_elevator === false
+                ? orderRow.shipping_has_elevator
+                : null,
+            shipping_address: orderRow.shipping_address ?? null,
+            customer_contact_person: custRaw?.contact_person ?? null,
+            customer_phone: custRaw?.phone ?? null,
+            customer_address: custRaw?.delivery_address ?? null,
+          });
+        });
+
+        // 依網址中的順序排列（即列表勾選的顯示順序）
+        const mapped: AddressLabelEntry[] = safeOrderIds
+          .filter((id) => orderById.has(id))
+          .map((id) => ({
+            order: orderById.get(id)!,
+            items: itemsByOrder.get(id) ?? [],
+          }));
+
+        setEntries(mapped);
+        setMissingCount(safeOrderIds.length - mapped.length);
       } catch (err) {
         console.error(err);
         setLoadError(err instanceof Error ? err.message : "讀取地址條資料失敗");
@@ -183,35 +239,22 @@ export default function AddressLabelPage() {
     }
 
     void fetchData();
-  }, [orderId, authReady]);
+  }, [orderIds, authReady]);
 
   const labels = useMemo(() => {
-    if (!order || labelCount <= 0) return [];
-    return Array.from({ length: labelCount }, (_, idx) => ({
-      seq: idx + 1,
-    }));
-  }, [order, labelCount]);
+    if (entries.length === 0 || labelCount <= 0) return [];
+    const list: { entry: AddressLabelEntry; seq: number }[] = [];
+    entries.forEach((entry) => {
+      for (let i = 0; i < labelCount; i += 1) {
+        list.push({ entry, seq: list.length + 1 });
+      }
+    });
+    return list;
+  }, [entries, labelCount]);
 
-  const effectiveContact =
-    order?.shipping_contact_name?.trim() ||
-    order?.customer_contact_person?.trim() ||
-    order?.customer_name ||
-    "";
+  const isMulti = orderIds.length > 1;
 
-  const effectivePhone =
-    order?.shipping_contact_phone?.trim() || order?.customer_phone?.trim() || "";
-
-  const effectiveElevator =
-    order?.shipping_has_elevator === true
-      ? "有"
-      : order?.shipping_has_elevator === false
-        ? "無"
-        : "—";
-
-  const effectiveAddress =
-    order?.shipping_address?.trim() || order?.customer_address?.trim() || "";
-
-  if (!orderId) {
+  if (orderIds.length === 0) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <p className="text-sm text-gray-600">無效的訂單連結</p>
@@ -227,7 +270,7 @@ export default function AddressLabelPage() {
     );
   }
 
-  if (loadError || !order) {
+  if (loadError || entries.length === 0) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <p className="text-sm text-red-600">{loadError || "找不到訂單"}</p>
@@ -251,17 +294,24 @@ export default function AddressLabelPage() {
 
         {/* 控制區（只在螢幕上顯示） */}
         <div className="mb-6 space-y-3 print:hidden">
-          <div className="text-xs text-gray-600">
-            <p>
-              訂單編號：
-              <span className="font-mono text-gray-900 ml-1">
-                {order.order_number || order.id}
-              </span>
-            </p>
-            <p>
-              客戶名稱：
-              <span className="ml-1 text-gray-900">{order.customer_name || "—"}</span>
-            </p>
+          <div className="text-xs text-gray-600 space-y-0.5">
+            {entries.map(({ order }) => (
+              <p key={order.id}>
+                訂單編號：
+                <span className="font-mono text-gray-900 ml-1">
+                  {order.order_number || order.id}
+                </span>
+                <span className="ml-2">
+                  客戶名稱：
+                  <span className="ml-1 text-gray-900">{order.customer_name || "—"}</span>
+                </span>
+              </p>
+            ))}
+            {missingCount > 0 && (
+              <p className="text-amber-700">
+                有 {missingCount} 筆訂單找不到資料，未列入地址條。
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-3 text-xs text-gray-700 items-center">
             <label className="inline-flex items-center gap-1">
@@ -283,7 +333,7 @@ export default function AddressLabelPage() {
               <span>出貨品項</span>
             </label>
             <div className="inline-flex items-center gap-1">
-              <span>地址條數量：</span>
+              <span>{isMulti ? "每筆訂單張數：" : "地址條數量："}</span>
               <input
                 type="number"
                 min={1}
@@ -342,10 +392,12 @@ export default function AddressLabelPage() {
 
         {/* 標籤列印區 */}
         <div className="grid grid-cols-1 gap-4 print:gap-2">
-          {labels.map((l) => (
+          {labels.map(({ entry, seq }) => {
+            const { order, items } = entry;
+            return (
             <div
-              key={l.seq}
-              className="border border-gray-300 rounded-md px-4 py-4 text-base leading-relaxed break-words print:px-5 print:py-4 print:text-lg"
+              key={seq}
+              className="border border-gray-300 rounded-md px-4 py-4 text-base leading-relaxed break-words print:px-5 print:py-4 print:text-lg break-inside-avoid"
             >
               {(markHandleWithCare || markFragile || markThisSideUp) && (
                 <div className="mb-3 flex flex-wrap gap-2 print:mb-2 print:gap-1.5">
@@ -391,19 +443,19 @@ export default function AddressLabelPage() {
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm text-gray-800 print:text-base">
                   <div className="min-w-0">
                     <span className="text-gray-500">聯絡人</span>{" "}
-                    <span className="font-medium break-words">{effectiveContact || "—"}</span>
+                    <span className="font-medium break-words">{effectiveContact(order) || "—"}</span>
                   </div>
                   <div className="min-w-0">
                     <span className="text-gray-500">電話</span>{" "}
-                    <span className="font-medium tabular-nums break-all">{effectivePhone || "—"}</span>
+                    <span className="font-medium tabular-nums break-all">{effectivePhone(order) || "—"}</span>
                   </div>
                   <div className="min-w-0">
                     <span className="text-gray-500">電梯</span>{" "}
-                    <span className="font-medium">{effectiveElevator}</span>
+                    <span className="font-medium">{effectiveElevator(order)}</span>
                   </div>
                   <div className="min-w-0">
                     <span className="text-gray-500">地址</span>{" "}
-                    <span className="font-medium break-words">{effectiveAddress || "—"}</span>
+                    <span className="font-medium break-words">{effectiveAddress(order) || "—"}</span>
                   </div>
                 </div>
               )}
@@ -431,10 +483,11 @@ export default function AddressLabelPage() {
                 <span className="sr-only">（件數請產線填寫）</span>
               </div>
               <div className="mt-1 text-[10px] text-gray-500 text-right">
-                地址條 {l.seq}/{labels.length}
+                地址條 {seq}/{labels.length}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

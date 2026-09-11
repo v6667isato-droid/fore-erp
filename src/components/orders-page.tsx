@@ -161,6 +161,10 @@ export function OrdersPage({
   const [invoiceCounts, setInvoiceCounts] = useState<Record<string, number>>({});
   /** 退貨對話框（已完工／已出貨／結案後可操作；已退貨訂單可檢視、刪除紀錄） */
   const [returnOrder, setReturnOrder] = useState<OrderRow | null>(null);
+  /** 地址條多選列印：勾選的訂單 id（一次列印多筆省 A4） */
+  const [selectedPrintIds, setSelectedPrintIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const hasAppliedInitialOpenRef = useRef(false);
   const lastInitialOpenOrderIdRef = useRef<string | undefined>(undefined);
 
@@ -535,6 +539,25 @@ export function OrdersPage({
     [preStatusFiltered, statusFilter]
   );
 
+  // 篩選變更時把已看不見的勾選剔除，避免印到畫面外的訂單
+  useEffect(() => {
+    setSelectedPrintIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visible = new Set(filtered.map((o) => o.id));
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filtered]);
+
+  function togglePrintSelect(orderId: string) {
+    setSelectedPrintIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  }
+
   const statusCards = useMemo(() => {
     return STATUS_FILTER_OPTIONS.map((f) => {
       const subset = preStatusFiltered.filter((o) =>
@@ -692,6 +715,20 @@ export function OrdersPage({
     a.click();
     URL.revokeObjectURL(url);
     toast.success("已匯出訂單 CSV");
+  }
+
+  /** 勾選多筆後一次開啟地址條列印（依目前列表排序，同一張 A4 連續排版） */
+  function openSelectedAddressLabels() {
+    const ids = sortedOrders
+      .filter((o) => selectedPrintIds.has(o.id))
+      .map((o) => o.id);
+    if (!ids.length) {
+      toast.info("請先勾選要列印地址條的訂單");
+      return;
+    }
+    const path = `/print/address-label/${ids.map(encodeURIComponent).join(",")}`;
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   async function openCustomerOverview(order: OrderRow) {
@@ -1065,6 +1102,18 @@ export function OrdersPage({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {selectedPrintIds.size > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-3 text-xs"
+              onClick={openSelectedAddressLabels}
+              aria-label={`列印已勾選 ${selectedPrintIds.size} 筆訂單的地址條`}
+            >
+              <Printer className="h-3.5 w-3.5 mr-1" />
+              地址條 ({selectedPrintIds.size})
+            </Button>
+          )}
           {isAdmin && (
             <>
               <span className="text-xs text-foreground whitespace-nowrap">
@@ -1112,9 +1161,28 @@ export function OrdersPage({
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
-        <Table className="min-w-[54rem]">
+        <Table className="min-w-[56rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
+              <TableHead className="w-8 px-1.5 text-center">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 align-middle"
+                  aria-label="全選（地址條列印）"
+                  title="全選／取消全選（地址條列印）"
+                  checked={
+                    filtered.length > 0 &&
+                    filtered.every((o) => selectedPrintIds.has(o.id))
+                  }
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedPrintIds(new Set(filtered.map((o) => o.id)));
+                    } else {
+                      setSelectedPrintIds(new Set());
+                    }
+                  }}
+                />
+              </TableHead>
               <TableHead
                 className="min-w-[8rem] px-1.5 text-xs font-semibold cursor-pointer select-none hover:bg-muted/50 transition-colors"
                 onClick={() => toggleOrderSort("customer_name")}
@@ -1176,7 +1244,7 @@ export function OrdersPage({
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="h-24 text-center text-muted-foreground"
                 >
                   查無符合條件的訂單
@@ -1195,6 +1263,19 @@ export function OrdersPage({
                   className={rowReadOnly ? "group" : "group cursor-pointer"}
                   onClick={rowReadOnly ? undefined : () => handleEdit(order)}
                 >
+                  <TableCell
+                    className="w-8 px-1.5 text-center"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 align-middle"
+                      aria-label={`勾選訂單 ${order.order_number || order.id}（地址條列印）`}
+                      checked={selectedPrintIds.has(order.id)}
+                      onChange={() => togglePrintSelect(order.id)}
+                    />
+                  </TableCell>
                   <TableCell className="px-1.5 text-sm whitespace-normal">
                     <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
                       <button
@@ -1459,7 +1540,7 @@ export function OrdersPage({
                 </TableRow>
                 {isExpanded ? (
                   <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={8} className="p-0">
+                    <TableCell colSpan={9} className="p-0">
                       <div className="border-t border-border bg-muted/20 p-3 sm:p-4">
                         {overview === undefined || overview === "loading" ? (
                           <p className="py-6 text-center text-sm text-muted-foreground">
