@@ -141,7 +141,7 @@ export interface PayslipRow {
   notes: string | null;
 }
 
-/** 員工為工單負責人時，生產交辦區塊顯示之 work_orders（與生產管理列表對齊；聯絡人僅附於客戶欄供辨識，不獨立欄） */
+/** 員工為工單負責人時，生產交辦區塊顯示之 work_orders（與生產管理列表對齊） */
 export interface AssigneeWorkOrderRow {
   id: string;
   order_id: string | null;
@@ -152,6 +152,8 @@ export interface AssigneeWorkOrderRow {
   shipping_contact_name: string | null;
   /** 品項＋尺寸，同生產管理「品項 / 尺寸」 */
   item_size_label: string;
+  /** 該品項備註：order_items.custom_description ＋ custom_notes（以換行併接） */
+  item_notes: string | null;
   quantity: number;
   category: string;
   stage: string | null;
@@ -315,6 +317,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       customer_alias: null,
       shipping_contact_name: "陳大明",
       item_size_label: "餐桌系列 B / W:140 x D:80 x H:75",
+      item_notes: "桌面胡桃木，邊角導圓 R5\n客戶指定霧面塗裝",
       quantity: 3,
       category: "桌",
       stage: "組裝中(一)",
@@ -331,6 +334,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       customer_alias: "專案 A",
       shipping_contact_name: "林小姐",
       item_size_label: "ST01-C / W:40 x D:48 x H:75",
+      item_notes: null,
       quantity: 3,
       category: "凳",
       stage: "待排程",

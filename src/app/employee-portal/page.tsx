@@ -148,6 +148,11 @@ function splitWoItemLabel(label: string): { name: string; dims: string | null } 
   return { name: t.slice(0, idx), dims: t.slice(idx + 3) };
 }
 
+/** 生產交辦備註過長時，手機卡片先摺疊（超過 2 行或 60 字） */
+function isLongWoNote(text: string): boolean {
+  return text.length > 60 || text.split("\n").length > 2;
+}
+
 function localTodayYmd(): string {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
@@ -861,6 +866,8 @@ export default function EmployeePortalPage() {
   const [woSortAsc, setWoSortAsc] = useState(true);
   /** 生產交辦分頁：進行中／已出貨（工序為已出貨或訂單已結案者歸入已出貨） */
   const [woTab, setWoTab] = useState<"active" | "shipped">("active");
+  /** 手機生產交辦卡片：已展開完整備註的工單 id */
+  const [expandedWoNotes, setExpandedWoNotes] = useState<Record<string, boolean>>({});
   const [savingWorkOrderStageId, setSavingWorkOrderStageId] = useState<string | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
@@ -2033,6 +2040,10 @@ export default function EmployeePortalPage() {
                             const { name: woItemName, dims: woItemDims } = splitWoItemLabel(
                               wo.item_size_label,
                             );
+                            const woContact = wo.shipping_contact_name?.trim() ?? "";
+                            const woNotes = wo.item_notes?.trim() ?? "";
+                            const woNotesLong = !!woNotes && isLongWoNote(woNotes);
+                            const woNotesOpen = !!expandedWoNotes[wo.id];
                             const overdue =
                               woTab === "active" &&
                               !!wo.planned_end_date &&
@@ -2070,6 +2081,39 @@ export default function EmployeePortalPage() {
                                   <p className="mt-0.5 truncate text-xs text-muted-foreground/70">
                                     {woItemDims}
                                   </p>
+                                ) : null}
+                                {woContact ? (
+                                  <p className="mt-1 truncate text-[13px] text-muted-foreground">
+                                    聯絡人：
+                                    <span className="text-foreground">{woContact}</span>
+                                  </p>
+                                ) : null}
+                                {woNotes ? (
+                                  <div className="mt-2 rounded-lg bg-muted/60 px-2.5 py-1.5">
+                                    <p
+                                      className={cn(
+                                        "whitespace-pre-line break-words text-xs leading-relaxed text-foreground/90",
+                                        woNotesLong && !woNotesOpen && "line-clamp-2",
+                                      )}
+                                    >
+                                      <span className="text-muted-foreground">備註：</span>
+                                      {woNotes}
+                                    </p>
+                                    {woNotesLong ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setExpandedWoNotes((m) => ({
+                                            ...m,
+                                            [wo.id]: !woNotesOpen,
+                                          }))
+                                        }
+                                        className="mt-1 text-[11px] font-medium text-primary underline-offset-2 hover:underline"
+                                      >
+                                        {woNotesOpen ? "收合" : "顯示全部"}
+                                      </button>
+                                    ) : null}
+                                  </div>
                                 ) : null}
                                 <div className="mt-2.5 flex items-center gap-3">
                                   {orderClosed ? (
@@ -2175,14 +2219,25 @@ export default function EmployeePortalPage() {
                                           {wo.customer_name || "—"}
                                         </span>
                                         {wo.shipping_contact_name?.trim() ? (
-                                          <span className="ml-1.5 text-xs text-muted-foreground">
-                                            {wo.shipping_contact_name.trim()}
+                                          <span className="block text-xs text-muted-foreground">
+                                            聯絡人：
+                                            <span className="text-foreground">
+                                              {wo.shipping_contact_name.trim()}
+                                            </span>
                                           </span>
                                         ) : null}
                                       </div>
                                     </TableCell>
                                     <TableCell className="p-2 align-middle text-sm max-w-[14rem]">
                                       <span className="line-clamp-2">{wo.item_size_label || "—"}</span>
+                                      {wo.item_notes?.trim() ? (
+                                        <span
+                                          title={wo.item_notes.trim()}
+                                          className="mt-0.5 line-clamp-2 whitespace-pre-line break-words text-xs text-muted-foreground"
+                                        >
+                                          備註：{wo.item_notes.trim()}
+                                        </span>
+                                      ) : null}
                                     </TableCell>
                                     <TableCell className="p-2 align-middle text-sm text-right tabular-nums">
                                       {Number.isFinite(wo.quantity) && wo.quantity > 0 ? wo.quantity : "—"}
