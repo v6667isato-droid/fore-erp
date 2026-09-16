@@ -938,6 +938,13 @@ function mapWorkOrderRowToAssigneePortal(r: Record<string, unknown>): AssigneeWo
   const fullNameParts = [itemName, dim].filter((s) => typeof s === "string" && s.trim()) as string[];
   const item_size_label = fullNameParts.length ? fullNameParts.join(" / ") : "—";
 
+  // 品項備註：與訂單總覽一致，客製說明＋客製化備註併接
+  const itemNotesJoined = [oi?.custom_description, oi?.custom_notes]
+    .map((t) => (t == null ? "" : String(t).trim()))
+    .filter(Boolean)
+    .join("\n");
+  const item_notes = itemNotesJoined ? itemNotesJoined : null;
+
   const order_number = orderObj?.order_number != null ? String(orderObj.order_number) : "";
   const order_id = orderObj?.id != null ? String(orderObj.id) : null;
   const expected_delivery_date =
@@ -958,6 +965,7 @@ function mapWorkOrderRowToAssigneePortal(r: Record<string, unknown>): AssigneeWo
     customer_alias: customerAlias,
     shipping_contact_name,
     item_size_label,
+    item_notes,
     quantity: Number(oi?.quantity ?? 0),
     category: cat,
     stage: normalizeWorkOrderStage(r.stage as string | null | undefined),
@@ -987,6 +995,8 @@ async function fetchAssigneeWorkOrders(employeeId: string): Promise<AssigneeWork
         id,
         custom_name,
         custom_category,
+        custom_description,
+        custom_notes,
         custom_dimension_w,
         custom_dimension_d,
         custom_dimension_h,
