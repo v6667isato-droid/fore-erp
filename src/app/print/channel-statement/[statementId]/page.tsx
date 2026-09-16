@@ -221,7 +221,7 @@ export default function ChannelStatementPrintPage() {
         </header>
 
         <div className="overflow-x-auto print:overflow-visible">
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full min-w-[640px] border-collapse text-sm sm:min-w-0 print:min-w-0">
           <thead>
             <tr className="border-b-2 border-gray-800 text-left">
               <th className="px-2 py-2 font-semibold text-gray-700 w-10">#</th>
