@@ -507,7 +507,21 @@ export default function PrintOrderPage() {
 
   return (
     <div className="min-h-screen bg-white text-black">
-      <div className="max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:shadow-none print:px-4 print:py-8">
+      <style>{`
+        @media print {
+          /* 固定 A4 直式與邊界，避免各瀏覽器預設邊界不同造成內容被裁切 */
+          @page {
+            size: A4 portrait;
+            margin: 12mm 10mm;
+          }
+          html,
+          body {
+            width: auto;
+            margin: 0;
+          }
+        }
+      `}</style>
+      <div className="print-sheet max-w-[210mm] min-h-[297mm] mx-auto bg-white text-black px-6 py-8 shadow-lg print:shadow-none print:p-0">
         <div className="flex justify-end mb-6 print:hidden">
           <button
             type="button"
@@ -524,13 +538,13 @@ export default function PrintOrderPage() {
         <header className="mb-8">
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-[2fr_1fr]">
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <div className="flex h-full items-center justify-between gap-4">
+              <div className="flex h-full flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <img
                   src="/logo.png"
                   alt="Føre Furniture"
                   className="block h-24 w-auto shrink-0 object-contain object-left"
                 />
-                <div className="space-y-1 border-l border-gray-200 pl-5 text-xs text-gray-700 leading-relaxed">
+                <div className="space-y-1 text-xs text-gray-700 leading-relaxed sm:border-l sm:border-gray-200 sm:pl-5">
                   <p>電話：06-2302861</p>
                   <p>聯絡時間：上班日 9:00 - 17:00</p>
                   <p className="whitespace-nowrap">地址：台南市歸仁區丁厝街125號</p>
@@ -611,7 +625,7 @@ export default function PrintOrderPage() {
           <p className="text-sm font-semibold text-gray-900">報價內容</p>
         </section>
 
-        <section className="mb-8 print-quote-table-wrap">
+        <section className="mb-8 -mx-6 overflow-x-auto px-6 print:mx-0 print:overflow-visible print:px-0 print-quote-table-wrap">
           <table className="w-full table-auto border-collapse text-sm leading-snug">
             <thead>
               <tr className="border-b-2 border-gray-300 bg-gray-50">
@@ -669,7 +683,7 @@ export default function PrintOrderPage() {
                         )}
                       </td>
                       <td className="px-2 py-2">
-                        <div className="font-medium text-gray-900 whitespace-nowrap">
+                        <div className="font-medium text-gray-900 whitespace-nowrap print:whitespace-normal">
                           {item.name}
                         </div>
                       </td>
