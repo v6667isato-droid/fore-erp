@@ -683,7 +683,7 @@ export default function PrintOrderPage() {
                         )}
                       </td>
                       <td className="px-2 py-2">
-                        <div className="font-medium text-gray-900 whitespace-nowrap print:whitespace-normal">
+                        <div className="font-medium text-gray-900 whitespace-nowrap sm:whitespace-normal">
                           {item.name}
                         </div>
                       </td>

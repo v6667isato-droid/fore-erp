@@ -681,7 +681,7 @@ export default function PrintQuotationPage() {
                         )}
                       </td>
                       <td className="px-2 py-2">
-                        <div className="font-medium text-gray-900 whitespace-nowrap print:whitespace-normal">{item.name}</div>
+                        <div className="font-medium text-gray-900 whitespace-nowrap sm:whitespace-normal">{item.name}</div>
                       </td>
                       <td className="px-2 py-2 text-gray-700 whitespace-nowrap">{item.wood_type ?? '—'}</td>
                       <td className="print-col-dimension px-2 py-2 text-gray-700 whitespace-nowrap">
