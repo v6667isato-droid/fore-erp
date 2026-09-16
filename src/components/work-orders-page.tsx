@@ -880,8 +880,10 @@ export function WorkOrdersPage() {
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto min-w-0 max-w-full">
-        {/* 與訂單管理頁一致：自動欄寬＋外層橫向捲動；table-fixed 會讓不換行內容溢出蓋到相鄰欄 */}
-        <Table className="min-w-[52rem] text-sm">
+        {/* 手機：固定最小寬度＋橫向捲動。電腦（lg 以上）：解除 Table 預設的 min-w-max，
+            讓表格縮到容器寬度、文字欄改為可換行，桌機不出現左右捲軸。
+            table-fixed 會讓不換行內容溢出蓋到相鄰欄，故不使用。 */}
+        <Table className="min-w-[52rem] text-sm lg:min-w-0 lg:w-full">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
@@ -940,8 +942,8 @@ export function WorkOrdersPage() {
                         w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—"
                       )}
                     </TableCell>
-                    <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap">
-                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
+                    <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap lg:whitespace-normal">
+                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 break-words">
                         <span className="font-medium text-foreground">
                           {w.customer_name || "—"}
                         </span>
@@ -957,9 +959,11 @@ export function WorkOrdersPage() {
                         ) : null}
                       </div>
                     </TableCell>
-                    <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap">
-                      <div className="flex items-center gap-1">
-                        <span className="text-foreground">{w.item_name || "—"}</span>
+                    <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap lg:whitespace-normal">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1">
+                        <span className="break-words text-foreground">
+                          {w.item_name || "—"}
+                        </span>
                         {noteSections.length > 0 && (
                           <button
                             type="button"
