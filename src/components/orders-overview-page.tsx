@@ -821,11 +821,12 @@ export function OrderOverviewCard({
       {/* 精簡檢視：品項負責人與工序進度表（完整檢視已併入訂單明細） */}
       {!full ? (
       <>
-      {/* 欄位皆不換行；容器（ui/table 外層）在寬度不足時整表橫向捲動（含手機） */}
-      <Table className="min-w-[48rem] w-full text-xs">
+      {/* 手機：固定最小寬度＋整表橫向捲動。電腦（lg 以上）：解除 Table 預設的
+          min-w-max，讓表格縮到容器（含彈窗）寬度、文字欄改為可換行，不出現左右捲軸。 */}
+      <Table className="min-w-[48rem] w-full text-xs lg:min-w-0">
         <TableHeader>
           <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
-            <TableHead className="px-2 text-xs font-semibold whitespace-nowrap">
+            <TableHead className="px-2 text-xs font-semibold whitespace-nowrap lg:w-[30%]">
               品項
             </TableHead>
             <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
@@ -851,10 +852,10 @@ export function OrderOverviewCard({
             </TableHead>
             <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
               <span
-                className="inline-flex items-center gap-1"
+                className="inline-flex items-start gap-1 lg:whitespace-normal"
                 title="同訂單各品項工單中之最晚預計完成日"
               >
-                <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 預計完成（全單最晚）
               </span>
             </TableHead>
@@ -882,8 +883,8 @@ export function OrderOverviewCard({
               return (
                 <Fragment key={line.order_item_id}>
                 <TableRow className="border-b border-border">
-                  <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
-                    <div className="flex items-center gap-2">
+                  <TableCell className="p-2 align-middle text-xs whitespace-nowrap lg:whitespace-normal">
+                    <div className="flex min-w-0 items-center gap-2">
                       {full && line.image_url ? (
                         <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border bg-muted/40">
                           <img
@@ -899,8 +900,9 @@ export function OrderOverviewCard({
                         compactPlaceholder
                       />
                       )}
-                      <span className="text-foreground">{itemDisplay}</span>
-                      {noteSections.length > 0 && (
+                      <div className="flex min-w-0 flex-wrap items-center gap-1">
+                        <span className="break-words text-foreground">{itemDisplay}</span>
+                        {noteSections.length > 0 && (
                         <button
                           type="button"
                           onClick={() => toggleNote(line.order_item_id)}
@@ -919,13 +921,14 @@ export function OrderOverviewCard({
                             aria-hidden
                           />
                         </button>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell className="p-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
                     {line.wood_type || "—"}
                   </TableCell>
-                  <TableCell className="p-2 align-middle text-xs tabular-nums text-muted-foreground whitespace-nowrap">
+                  <TableCell className="p-2 align-middle text-xs tabular-nums text-muted-foreground whitespace-nowrap lg:whitespace-normal">
                     {line.dimension_text || "—"}
                   </TableCell>
                   <TableCell className="p-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
