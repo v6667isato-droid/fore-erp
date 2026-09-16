@@ -11,8 +11,28 @@
 --    紀錄時，才移除 daily_attendance 的「🔒 已轉補休」標籤
 -- 5) approve_overtime_to_comp_leave（手動補登）改為只擋「同員工同日同時數」的重複補登
 -- 一天一筆 → 一天多段
-ALTER TABLE public.overtime_records
-DROP CONSTRAINT IF EXISTS overtime_records_employee_date_key;
+-- （線上與本 repo 的約束名稱不同：unique_employee_date／overtime_records_employee_date_key，
+--   故改為掃出 (employee_id, overtime_date) 上的 UNIQUE 約束逐一移除）
+DO $$
+DECLARE
+  v_conname text;
+BEGIN
+  FOR v_conname IN
+    SELECT c.conname
+    FROM pg_constraint c
+    WHERE
+      c.conrelid = 'public.overtime_records'::regclass
+      AND c.contype = 'u'
+      AND (
+        SELECT array_agg(a.attname::text ORDER BY a.attname)
+        FROM unnest(c.conkey) AS k
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k
+      ) = ARRAY['employee_id', 'overtime_date']
+  LOOP
+    EXECUTE format('ALTER TABLE public.overtime_records DROP CONSTRAINT %I', v_conname);
+  END LOOP;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS overtime_records_employee_date_idx ON public.overtime_records (employee_id, overtime_date);
 
