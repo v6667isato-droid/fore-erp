@@ -3,18 +3,13 @@
 import { useCallback, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { supabase } from "@/lib/supabase";
+import { compressionOptionsFor, type ImageQualityPreset } from "@/lib/image-compression";
 import { cn } from "@/lib/utils";
 import { Upload, Loader2, Trash2, ArrowLeft, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 /** 與 Supabase Storage bucket 名稱一致（與主視覺圖共用） */
 const BUCKET = "product-images";
-
-const COMPRESSION_OPTIONS = {
-  maxSizeMB: 0.5,
-  maxWidthOrHeight: 1920,
-  useWebWorker: true,
-};
 
 const BUCKET_REGEX = new RegExp(`/object/public/${BUCKET}/(.+)$`);
 
@@ -34,6 +29,8 @@ export interface ProductImagesDropzoneProps {
   onChange: (urls: string[]) => void;
   disabled?: boolean;
   className?: string;
+  /** 壓縮強度：會印在介紹表或放上官網的產品照請用 print，保留高解析度 */
+  quality?: ImageQualityPreset;
 }
 
 /**
@@ -45,6 +42,7 @@ export function ProductImagesDropzone({
   onChange,
   disabled = false,
   className,
+  quality = "standard",
 }: ProductImagesDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
@@ -54,7 +52,7 @@ export function ProductImagesDropzone({
 
   const uploadOne = useCallback(async (file: File): Promise<string | null> => {
     if (!file.type.startsWith("image/")) return null;
-    const compressed = await imageCompression(file, COMPRESSION_OPTIONS);
+    const compressed = await imageCompression(file, compressionOptionsFor(quality));
     const ext = compressed.name.split(".").pop()?.toLowerCase() || "webp";
     const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "webp";
     const filename = `${crypto.randomUUID()}.${safeExt}`;
@@ -67,7 +65,7 @@ export function ProductImagesDropzone({
       data: { publicUrl },
     } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
     return publicUrl;
-  }, []);
+  }, [quality]);
 
   const handleFiles = useCallback(
     async (files: File[]) => {

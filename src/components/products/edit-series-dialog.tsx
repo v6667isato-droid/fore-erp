@@ -466,7 +466,12 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                 <>
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">主視覺圖</span>
-                    <ProductImageDropzone value={imageUrl} onChange={setImageUrl} disabled={saving} />
+                    <ProductImageDropzone
+                      value={imageUrl}
+                      onChange={setImageUrl}
+                      disabled={saving}
+                      quality="print"
+                    />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">
@@ -476,6 +481,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       value={hoverImageUrl}
                       onChange={setHoverImageUrl}
                       disabled={saving}
+                      quality="print"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -486,6 +492,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       value={detailImageUrls}
                       onChange={setDetailImageUrls}
                       disabled={saving}
+                      quality="print"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -496,6 +503,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       value={sizeChartUrls}
                       onChange={setSizeChartUrls}
                       disabled={saving}
+                      quality="print"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5 border-t border-border pt-3">
@@ -532,6 +540,7 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       onChange={setSheetHeroImageUrl}
                       disabled={saving}
                       fallbackPreview={imageUrl}
+                      quality="print"
                     />
                     {!sheetHeroImageUrl && imageUrl && (
                       <span className="text-[11px] text-muted-foreground">目前沿用產品主視覺</span>

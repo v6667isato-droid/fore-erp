@@ -3,18 +3,17 @@
 import { useCallback, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { supabase } from "@/lib/supabase";
+import {
+  compressionHintFor,
+  compressionOptionsFor,
+  type ImageQualityPreset,
+} from "@/lib/image-compression";
 import { cn } from "@/lib/utils";
 import { Upload, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 /** 預設 bucket（若你的是 product-image 單數，可改為 "product-image"）；可用 bucket prop 覆寫 */
 const DEFAULT_BUCKET = "product-images";
-
-const COMPRESSION_OPTIONS = {
-  maxSizeMB: 0.5,
-  maxWidthOrHeight: 1920,
-  useWebWorker: true,
-};
 
 export interface ProductImageDropzoneProps {
   value: string | null;
@@ -25,6 +24,8 @@ export interface ProductImageDropzoneProps {
   bucket?: string;
   /** 無 value 時顯示的沿用中圖片（唯讀預覽：可點擊上傳取代，但不提供移除，也不會動到該檔案） */
   fallbackPreview?: string | null;
+  /** 壓縮強度：會印在介紹表或放上官網的產品照請用 print，保留高解析度 */
+  quality?: ImageQualityPreset;
 }
 
 /** 從 Supabase 公開 URL 解析 storage path（用於刪除） */
@@ -44,6 +45,7 @@ export function ProductImageDropzone({
   className,
   bucket = DEFAULT_BUCKET,
   fallbackPreview = null,
+  quality = "standard",
 }: ProductImageDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -55,7 +57,7 @@ export function ProductImageDropzone({
       if (!file.type.startsWith("image/")) return;
       setUploading(true);
       try {
-        const compressed = await imageCompression(file, COMPRESSION_OPTIONS);
+        const compressed = await imageCompression(file, compressionOptionsFor(quality));
         const ext = compressed.name.split(".").pop()?.toLowerCase() || "webp";
         const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "webp";
         const filename = `${crypto.randomUUID()}.${safeExt}`;
@@ -79,7 +81,7 @@ export function ProductImageDropzone({
         setUploading(false);
       }
     },
-    [onChange, bucket]
+    [onChange, bucket, quality]
   );
 
   const handleRemove = useCallback(async () => {
@@ -206,9 +208,7 @@ export function ProductImageDropzone({
             <p className="text-sm font-medium text-[var(--muted-foreground)]">
               點擊或拖曳上傳高畫質產品主圖
             </p>
-            <p className="text-xs text-[var(--muted-foreground)]/80">
-              建議 1920px 內，將自動壓縮至 500KB 以內
-            </p>
+            <p className="text-xs text-[var(--muted-foreground)]/80">{compressionHintFor(quality)}</p>
           </div>
         )}
       </div>

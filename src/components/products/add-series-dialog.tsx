@@ -279,7 +279,12 @@ export function AddSeriesDialog({ onSuccess, defaultCategory }: AddSeriesDialogP
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">主視覺圖</span>
-                    <ProductImageDropzone value={imageUrl} onChange={setImageUrl} disabled={adding} />
+                    <ProductImageDropzone
+                      value={imageUrl}
+                      onChange={setImageUrl}
+                      disabled={adding}
+                      quality="print"
+                    />
                   </div>
                 </>
               )}
