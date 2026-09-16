@@ -184,13 +184,13 @@ export default function ChannelStatementPrintPage() {
         <header className="mb-8">
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-[2fr_1fr]">
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <div className="flex h-full items-center justify-between gap-4">
+              <div className="flex h-full flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <img
                   src="/logo.png"
                   alt="Føre Furniture"
                   className="block h-24 w-auto shrink-0 object-contain object-left"
                 />
-                <div className="space-y-1 border-l border-gray-200 pl-5 text-xs text-gray-700 leading-relaxed">
+                <div className="space-y-1 text-xs text-gray-700 leading-relaxed sm:border-l sm:border-gray-200 sm:pl-5">
                   <p>電話：06-2302861</p>
                   <p>聯絡時間：上班日 9:00 - 17:00</p>
                   <p className="whitespace-nowrap">地址：台南市歸仁區丁厝街125號</p>
