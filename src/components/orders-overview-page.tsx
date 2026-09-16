@@ -14,8 +14,10 @@ import {
 } from "@/components/ui/table";
 import {
   CalendarDays,
+  ChevronDown,
   ExternalLink,
   Layers,
+  MessageSquare,
   RefreshCw,
   Search,
   User,
@@ -38,6 +40,7 @@ import {
 } from "@/lib/chair-product-code";
 import { parseExplanationImages, type ExplanationImage } from "@/lib/explanation-images";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
+import { orderNoteSections } from "@/lib/order-notes";
 import { ORDER_OVERVIEW_SELECT } from "@/lib/order-overview-select";
 import { appendArmHeight } from "@/lib/product-arm-height";
 
@@ -560,77 +563,77 @@ function OrderFullDetailSections({
                     .join("\n");
                   const lineTotal = line.quantity * line.unit_price;
                   return (
-                    <Fragment key={line.order_item_id}>
-                      <tr className="border-b border-border align-top">
-                        <td className="p-2">
-                          {line.image_url ? (
-                            <div className="h-14 w-14 overflow-hidden rounded border border-border bg-muted/40">
-                              <img
-                                src={line.image_url}
-                                alt={line.item_name}
-                                className="h-full w-full object-cover"
+                      <Fragment key={line.order_item_id}>
+                        <tr className="border-b border-border align-top">
+                          <td className="p-2">
+                            {line.image_url ? (
+                              <div className="h-14 w-14 overflow-hidden rounded border border-border bg-muted/40">
+                                <img
+                                  src={line.image_url}
+                                  alt={line.item_name}
+                                  className="h-full w-full object-cover"
+                                />
+                              </div>
+                            ) : (
+                              <VariantSeriesThumb
+                                imageUrl={line.thumbnail_url}
+                                sizeClassName="h-14 w-14"
+                                compactPlaceholder
                               />
-                            </div>
-                          ) : (
-                            <VariantSeriesThumb
-                              imageUrl={line.thumbnail_url}
-                              sizeClassName="h-14 w-14"
-                              compactPlaceholder
-                            />
-                          )}
-                        </td>
-                        <td className="p-2 font-medium text-foreground break-words">{line.item_name}</td>
-                        <td className="p-2 text-muted-foreground break-words">{line.wood_type ?? "—"}</td>
-                        <td className="p-2 text-muted-foreground whitespace-nowrap">{line.dimension_text ?? "—"}</td>
-                        <td className="p-2 font-mono text-muted-foreground break-words">{line.spec_text ?? "—"}</td>
-                        <td className="p-2 text-right tabular-nums text-muted-foreground">{line.quantity}</td>
-                        <td className="p-2 text-right tabular-nums text-muted-foreground">
-                          {line.unit_price.toLocaleString()}
-                        </td>
-                        <td className="p-2 text-right tabular-nums font-medium text-foreground">
-                          {lineTotal.toLocaleString()}
-                        </td>
-                        <td className="p-2 whitespace-nowrap">
-                          {line.has_work_order ? (
-                            <span
-                              className={cn(
-                                "inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
-                                stageStyleClassName(line.stage)
-                              )}
-                            >
-                              {line.stage}
-                            </span>
-                          ) : (
-                            <span className="inline-flex rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                              尚無工單
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-2 text-muted-foreground whitespace-nowrap">
-                          {line.assignee ? (
-                            <span className="inline-flex items-center gap-1 text-foreground">
-                              <User className="h-3 w-3 shrink-0 text-muted-foreground" />
-                              {line.assignee}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="p-2 text-muted-foreground tabular-nums whitespace-nowrap">
-                          {order.planned_end_order_max
-                            ? formatDateYyMmDd(order.planned_end_order_max)
-                            : "—"}
-                        </td>
-                      </tr>
-                      {notes ? (
-                        <tr className="border-b border-border">
-                          <td className="px-2 py-1.5 text-muted-foreground align-top">備註</td>
-                          <td colSpan={10} className="px-2 py-1.5 text-muted-foreground whitespace-pre-line break-words">
-                            {notes}
+                            )}
+                          </td>
+                          <td className="p-2 font-medium text-foreground break-words">{line.item_name}</td>
+                          <td className="p-2 text-muted-foreground break-words">{line.wood_type ?? "—"}</td>
+                          <td className="p-2 text-muted-foreground whitespace-nowrap">{line.dimension_text ?? "—"}</td>
+                          <td className="p-2 font-mono text-muted-foreground break-words">{line.spec_text ?? "—"}</td>
+                          <td className="p-2 text-right tabular-nums text-muted-foreground">{line.quantity}</td>
+                          <td className="p-2 text-right tabular-nums text-muted-foreground">
+                            {line.unit_price.toLocaleString()}
+                          </td>
+                          <td className="p-2 text-right tabular-nums font-medium text-foreground">
+                            {lineTotal.toLocaleString()}
+                          </td>
+                          <td className="p-2 whitespace-nowrap">
+                            {line.has_work_order ? (
+                              <span
+                                className={cn(
+                                  "inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
+                                  stageStyleClassName(line.stage)
+                                )}
+                              >
+                                {line.stage}
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                尚無工單
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2 text-muted-foreground whitespace-nowrap">
+                            {line.assignee ? (
+                              <span className="inline-flex items-center gap-1 text-foreground">
+                                <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                {line.assignee}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="p-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                            {order.planned_end_order_max
+                              ? formatDateYyMmDd(order.planned_end_order_max)
+                              : "—"}
                           </td>
                         </tr>
-                      ) : null}
-                    </Fragment>
+                        {notes ? (
+                          <tr className="border-b border-border">
+                            <td className="px-2 py-1.5 text-muted-foreground align-top">備註</td>
+                            <td colSpan={10} className="px-2 py-1.5 text-muted-foreground whitespace-pre-line break-words">
+                              {notes}
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
                   );
                 })
               )}
@@ -706,6 +709,20 @@ export function OrderOverviewCard({
   detailLevel?: "summary" | "full";
 }) {
   const full = detailLevel === "full";
+  /** 精簡檢視中已展開品項備註的 order_item_id（可同時展開多筆） */
+  const [expandedNoteIds, setExpandedNoteIds] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  function toggleNote(id: string) {
+    setExpandedNoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
       <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-4 py-3 sm:p-4">
@@ -789,6 +806,14 @@ export function OrderOverviewCard({
             </span>
           )}
         </div>
+        {!full && order.internal_notes?.trim() ? (
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            <span className="shrink-0 font-semibold text-foreground">訂單備註</span>
+            <span className="whitespace-pre-line break-words">
+              {order.internal_notes.trim()}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       {full ? <OrderFullDetailSections order={order} /> : null}
@@ -848,8 +873,15 @@ export function OrderOverviewCard({
               const itemDisplay = line.product_code
                 ? `${line.product_code} ${line.item_name}`
                 : line.item_name;
+              // 訂單備註已顯示在卡片抬頭，這裡只列該品項自己的備註
+              const noteSections = orderNoteSections({
+                itemNotes: line.custom_notes,
+                itemDescription: line.description,
+              });
+              const noteExpanded = expandedNoteIds.has(line.order_item_id);
               return (
-                <TableRow key={line.order_item_id} className="border-b border-border">
+                <Fragment key={line.order_item_id}>
+                <TableRow className="border-b border-border">
                   <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       {full && line.image_url ? (
@@ -868,6 +900,26 @@ export function OrderOverviewCard({
                       />
                       )}
                       <span className="text-foreground">{itemDisplay}</span>
+                      {noteSections.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => toggleNote(line.order_item_id)}
+                          aria-expanded={noteExpanded}
+                          aria-label={`${noteExpanded ? "收合" : "展開"}備註`}
+                          title={noteExpanded ? "收合備註" : "查看備註"}
+                          className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-secondary/60 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          <MessageSquare className="h-3 w-3 shrink-0" aria-hidden />
+                          備註
+                          <ChevronDown
+                            className={cn(
+                              "h-3 w-3 shrink-0 transition-transform",
+                              noteExpanded && "rotate-180"
+                            )}
+                            aria-hidden
+                          />
+                        </button>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="p-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
@@ -914,6 +966,28 @@ export function OrderOverviewCard({
                       : "—"}
                   </TableCell>
                 </TableRow>
+                {noteExpanded && noteSections.length > 0 && (
+                  <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30">
+                    <TableCell colSpan={8} className="p-0">
+                      {/* 表格可橫向捲動：備註面板貼齊左側並限寬，窄畫面不必左右滑才讀得到 */}
+                      <div className="sticky left-0 max-w-[calc(100vw-4rem)] px-3 py-2.5 lg:max-w-[44rem]">
+                        <div className="flex flex-col gap-2">
+                          {noteSections.map((sec) => (
+                            <div key={sec.label} className="flex flex-col gap-0.5">
+                              <span className="text-[11px] font-semibold text-foreground">
+                                {sec.label}
+                              </span>
+                              <p className="whitespace-pre-line break-words text-xs leading-relaxed text-muted-foreground">
+                                {sec.text}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+                </Fragment>
               );
             })
           )}
