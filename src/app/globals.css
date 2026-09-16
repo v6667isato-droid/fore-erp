@@ -252,14 +252,19 @@ body {
     box-shadow: none !important;
   }
 
-  /*
-   * 「報價內容」表格：
-   * 欄寬用 auto 分配，最長的尺寸欄允許換行，讓整張表一定塞得進紙張寬度，
-   * 不會因為每格 nowrap 而把表格撐爆、右側欄位被裁掉。
-   */
+  /* 列印時不需要螢幕用的橫向捲動容器 */
   .print-quote-table-wrap {
     overflow: visible !important;
   }
+}
+
+/*
+ * 「報價內容」表格排版：列印與 sm 以上的螢幕預覽共用同一套規則，
+ * 讓預覽看到的就是印出來的樣子（欄寬由內容決定、最長的尺寸欄可換行，
+ * 不會因為每格 nowrap 而把表格撐爆、右側欄位凸出紙張）。
+ * 手機（sm 以下）維持原本的寬版＋橫向捲動，避免欄位被壓到讀不了。
+ */
+@media print, screen and (min-width: 40rem) {
   .print-quote-table-wrap table {
     table-layout: auto !important;
     width: 100% !important;
