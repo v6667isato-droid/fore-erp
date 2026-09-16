@@ -25,6 +25,8 @@ import {
   PackageCheck,
   Truck,
   PauseCircle,
+  ChevronDown,
+  MessageSquare,
 } from "lucide-react";
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
@@ -67,7 +69,23 @@ interface WorkOrderRow {
   expected_delivery_date: string | null;
   planned_start_date: string | null;
   planned_end_date: string | null;
-  note: string | null;
+  /** 明細「客製化備註」（order_items.custom_notes） */
+  item_notes: string | null;
+  /** 明細「詳細描述 / 備註」（order_items.custom_description） */
+  item_description: string | null;
+  /** 訂單主檔「訂單備註」（orders.internal_notes） */
+  order_notes: string | null;
+}
+
+/** 工單可展開檢視的備註區塊（空白者不列入，全空則不顯示展開鈕） */
+function workOrderNoteSections(
+  w: WorkOrderRow
+): { label: string; text: string }[] {
+  return [
+    { label: "客製化備註", text: (w.item_notes ?? "").trim() },
+    { label: "詳細描述", text: (w.item_description ?? "").trim() },
+    { label: "訂單備註", text: (w.order_notes ?? "").trim() },
+  ].filter((sec) => sec.text !== "");
 }
 
 /** 品項無類別時之下拉顯示與篩選鍵 */
@@ -217,6 +235,19 @@ export function WorkOrdersPage() {
     | "planned_end_date";
   const [sortBy, setSortBy] = useState<WorkSortKey>("stage");
   const [sortAsc, setSortAsc] = useState(true);
+  /** 已展開備註的工單 id（可同時展開多筆） */
+  const [expandedNoteIds, setExpandedNoteIds] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  function toggleNote(id: string) {
+    setExpandedNoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     bootstrap();
@@ -275,6 +306,7 @@ export function WorkOrdersPage() {
           custom_name,
           custom_category,
           custom_description,
+          custom_notes,
           quantity,
           seat_height_cm,
           wood_type,
@@ -286,6 +318,7 @@ export function WorkOrdersPage() {
             deleted_at,
             expected_delivery_date,
             shipping_contact_name,
+            internal_notes,
             customers(name, alias)
           ),
           product_variants(
@@ -397,7 +430,9 @@ export function WorkOrdersPage() {
         expected_delivery_date: order?.expected_delivery_date ?? null,
         planned_start_date: r.planned_start_date ?? null,
         planned_end_date: r.planned_end_date ?? null,
-        note: oi?.custom_description ?? null,
+        item_notes: oi?.custom_notes ?? null,
+        item_description: oi?.custom_description ?? null,
+        order_notes: order?.internal_notes ?? null,
       };
     });
 
@@ -886,121 +921,170 @@ export function WorkOrdersPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((w) => (
-                <TableRow key={w.id} className="border-b border-border">
-                  <TableCell className="p-2 align-top font-mono text-sm font-medium whitespace-nowrap">
-                    {w.order_id ? (
-                      <button
-                        type="button"
-                        onClick={() => openOrderOverview(w)}
-                        className="text-left text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded px-0.5 py-0.5"
-                      >
-                        {w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—"}
-                      </button>
-                    ) : (
-                      w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—"
-                    )}
-                  </TableCell>
-                  <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap">
-                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
-                      <span className="font-medium text-foreground">
-                        {w.customer_name || "—"}
-                      </span>
-                      {w.customer_alias && String(w.customer_alias).trim() && (
-                        <span className="text-xs text-muted-foreground">
-                          ({w.customer_alias})
-                        </span>
+              filtered.map((w) => {
+                const noteSections = workOrderNoteSections(w);
+                const noteExpanded = expandedNoteIds.has(w.id);
+                return (
+                  <React.Fragment key={w.id}>
+                  <TableRow className="border-b border-border">
+                    <TableCell className="p-2 align-top font-mono text-sm font-medium whitespace-nowrap">
+                      {w.order_id ? (
+                        <button
+                          type="button"
+                          onClick={() => openOrderOverview(w)}
+                          className="text-left text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded px-0.5 py-0.5"
+                        >
+                          {w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—"}
+                        </button>
+                      ) : (
+                        w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—"
                       )}
-                      {w.shipping_contact_name?.trim() ? (
-                        <span className="text-xs font-normal text-muted-foreground">
-                          ／{w.shipping_contact_name.trim()}
+                    </TableCell>
+                    <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap">
+                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
+                        <span className="font-medium text-foreground">
+                          {w.customer_name || "—"}
                         </span>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap">
-                    <span className="text-foreground">{w.item_name || "—"}</span>
-                  </TableCell>
-                  <TableCell className="p-2 align-top text-right text-sm tabular-nums whitespace-nowrap">
-                    {Number.isFinite(w.quantity) && w.quantity > 0 ? w.quantity : "—"}
-                  </TableCell>
-                  <TableCell className="p-2 align-top whitespace-nowrap">
-                    <select
-                      value={w.stage}
-                      onChange={(e) =>
-                        updateWorkOrderInline(w.id, {
-                          stage: e.target.value as WorkOrderStage,
-                        })
-                      }
-                      title={w.stage}
-                      className={`h-8 min-w-[5.5rem] rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${stageStyleClassName(
-                        isWorkOrderStage(w.stage) ? w.stage : DEFAULT_WORK_ORDER_STAGE
-                      )}`}
-                    >
-                      {STAGE_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </TableCell>
-                  <TableCell className="p-2 align-top whitespace-nowrap">
-                    <select
-                      value={w.assignee_id ?? ""}
-                      onChange={(e) => {
-                        const id = e.target.value || null;
-                        const emp = employees.find((x) => x.id === id);
-                        updateWorkOrderInline(w.id, {
-                          assignee_id: id,
-                          assignee_name: emp?.name ?? null,
-                        });
-                      }}
-                      title={w.assignee_name ?? undefined}
-                      aria-label="負責人"
-                      className="h-8 min-w-[5.5rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      <option value="">未指派</option>
-                      {employees.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name}
-                        </option>
-                      ))}
-                    </select>
-                  </TableCell>
-                  <TableCell className="p-2 align-top whitespace-nowrap">
-                    <input
-                      type="date"
-                      value={dateInputValue(w.expected_delivery_date)}
-                      onChange={(e) => {
-                        const v = e.target.value || null;
-                        updateDeliveryDate(w.order_id, v, w.id);
-                      }}
-                      className="h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-                      aria-label="交期"
-                    />
-                  </TableCell>
-                  <TableCell className="p-2 align-top whitespace-nowrap">
-                    <div className="flex min-w-0 items-center gap-1">
-                      <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                      <input
-                        type="date"
-                        value={dateInputValue(w.planned_end_date)}
-                        onChange={(e) => {
-                          const v = e.target.value;
+                        {w.customer_alias && String(w.customer_alias).trim() && (
+                          <span className="text-xs text-muted-foreground">
+                            ({w.customer_alias})
+                          </span>
+                        )}
+                        {w.shipping_contact_name?.trim() ? (
+                          <span className="text-xs font-normal text-muted-foreground">
+                            ／{w.shipping_contact_name.trim()}
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <span className="text-foreground">{w.item_name || "—"}</span>
+                        {noteSections.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleNote(w.id)}
+                            aria-expanded={noteExpanded}
+                            aria-label={`${noteExpanded ? "收合" : "展開"}備註`}
+                            title={noteExpanded ? "收合備註" : "查看備註"}
+                            className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-secondary/60 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                            <MessageSquare className="h-3 w-3 shrink-0" aria-hidden />
+                            備註
+                            <ChevronDown
+                              className={cn(
+                                "h-3 w-3 shrink-0 transition-transform",
+                                noteExpanded && "rotate-180"
+                              )}
+                              aria-hidden
+                            />
+                          </button>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="p-2 align-top text-right text-sm tabular-nums whitespace-nowrap">
+                      {Number.isFinite(w.quantity) && w.quantity > 0 ? w.quantity : "—"}
+                    </TableCell>
+                    <TableCell className="p-2 align-top whitespace-nowrap">
+                      <select
+                        value={w.stage}
+                        onChange={(e) =>
                           updateWorkOrderInline(w.id, {
-                            planned_end_date: v ? v : null,
+                            stage: e.target.value as WorkOrderStage,
+                          })
+                        }
+                        title={w.stage}
+                        className={`h-8 min-w-[5.5rem] rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${stageStyleClassName(
+                          isWorkOrderStage(w.stage) ? w.stage : DEFAULT_WORK_ORDER_STAGE
+                        )}`}
+                      >
+                        {STAGE_OPTIONS.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </TableCell>
+                    <TableCell className="p-2 align-top whitespace-nowrap">
+                      <select
+                        value={w.assignee_id ?? ""}
+                        onChange={(e) => {
+                          const id = e.target.value || null;
+                          const emp = employees.find((x) => x.id === id);
+                          updateWorkOrderInline(w.id, {
+                            assignee_id: id,
+                            assignee_name: emp?.name ?? null,
                           });
                         }}
-                        className={cn(
-                          "h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-ring",
-                          plannedVsDeliveryTone(w.planned_end_date, w.expected_delivery_date),
-                        )}
-                        aria-label="預計完成日"
+                        title={w.assignee_name ?? undefined}
+                        aria-label="負責人"
+                        className="h-8 min-w-[5.5rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        <option value="">未指派</option>
+                        {employees.map((emp) => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.name}
+                          </option>
+                        ))}
+                      </select>
+                    </TableCell>
+                    <TableCell className="p-2 align-top whitespace-nowrap">
+                      <input
+                        type="date"
+                        value={dateInputValue(w.expected_delivery_date)}
+                        onChange={(e) => {
+                          const v = e.target.value || null;
+                          updateDeliveryDate(w.order_id, v, w.id);
+                        }}
+                        className="h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                        aria-label="交期"
                       />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+                    </TableCell>
+                    <TableCell className="p-2 align-top whitespace-nowrap">
+                      <div className="flex min-w-0 items-center gap-1">
+                        <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <input
+                          type="date"
+                          value={dateInputValue(w.planned_end_date)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            updateWorkOrderInline(w.id, {
+                              planned_end_date: v ? v : null,
+                            });
+                          }}
+                          className={cn(
+                            "h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-ring",
+                            plannedVsDeliveryTone(w.planned_end_date, w.expected_delivery_date),
+                          )}
+                          aria-label="預計完成日"
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {noteExpanded && noteSections.length > 0 && (
+                    <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30">
+                      <TableCell colSpan={8} className="p-0">
+                        {/* 表格可橫向捲動：備註面板貼齊左側並限寬，手機上不必左右滑才讀得到 */}
+                        <div className="sticky left-0 max-w-[calc(100vw-3rem)] px-3 py-2.5 lg:max-w-[44rem]">
+                          <div className="flex flex-col gap-2">
+                            {noteSections.map((sec) => (
+                              <div key={sec.label} className="flex flex-col gap-0.5">
+                                <span className="text-[11px] font-semibold text-foreground">
+                                  {sec.label}
+                                </span>
+                                <p className="whitespace-pre-line break-words text-xs leading-relaxed text-muted-foreground">
+                                  {sec.text}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </React.Fragment>
+                );
+              })
             )}
           </TableBody>
         </Table>
