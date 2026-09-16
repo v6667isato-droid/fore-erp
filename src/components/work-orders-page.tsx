@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
+import { orderNoteSections } from "@/lib/order-notes";
 import {
   DEFAULT_WORK_ORDER_STAGE,
   isWorkOrderStage,
@@ -77,15 +78,13 @@ interface WorkOrderRow {
   order_notes: string | null;
 }
 
-/** 工單可展開檢視的備註區塊（空白者不列入，全空則不顯示展開鈕） */
-function workOrderNoteSections(
-  w: WorkOrderRow
-): { label: string; text: string }[] {
-  return [
-    { label: "客製化備註", text: (w.item_notes ?? "").trim() },
-    { label: "詳細描述", text: (w.item_description ?? "").trim() },
-    { label: "訂單備註", text: (w.order_notes ?? "").trim() },
-  ].filter((sec) => sec.text !== "");
+/** 工單可展開檢視的備註區塊（與訂單總覽共用來源與標籤） */
+function workOrderNoteSections(w: WorkOrderRow) {
+  return orderNoteSections({
+    itemNotes: w.item_notes,
+    itemDescription: w.item_description,
+    orderNotes: w.order_notes,
+  });
 }
 
 /** 品項無類別時之下拉顯示與篩選鍵 */
@@ -892,7 +891,8 @@ export function WorkOrdersPage() {
               <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
                 <SortHeader label="客戶 / 專案" sortKey="customer_name" />
               </TableHead>
-              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
+              {/* 品項內容最長，桌機給固定配額避免被日期／下拉欄擠到每列都折行 */}
+              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap lg:w-[22%]">
                 <SortHeader label="品項" sortKey="item_name" />
               </TableHead>
               <TableHead className="px-2 text-right text-sm font-semibold whitespace-nowrap">
@@ -929,7 +929,7 @@ export function WorkOrdersPage() {
                 return (
                   <React.Fragment key={w.id}>
                   <TableRow className="border-b border-border">
-                    <TableCell className="p-2 align-top font-mono text-sm font-medium whitespace-nowrap">
+                    <TableCell className="p-2 align-top font-mono text-sm font-medium whitespace-nowrap lg:px-1.5 lg:text-xs">
                       {w.order_id ? (
                         <button
                           type="button"
