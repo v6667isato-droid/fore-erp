@@ -239,20 +239,59 @@ body {
   color: var(--foreground);
 }
 
-/* 列印頁「報價內容」表格：避免 table-fixed + nowrap 在列印寬度下尺寸／規格欄重疊 */
+/*
+ * A4 列印頁共用規則（訂單確認單／報價單等）
+ * 目標：列印時內容一律收在可列印範圍內，不得橫向超出紙張。
+ */
 @media print {
+  /* 螢幕上用 210mm 模擬紙張；列印時寬度交給 @page margin 決定，避免比可列印區還寬 */
+  .print-sheet {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /*
+   * 「報價內容」表格：
+   * 欄寬用 auto 分配，最長的尺寸欄允許換行，讓整張表一定塞得進紙張寬度，
+   * 不會因為每格 nowrap 而把表格撐爆、右側欄位被裁掉。
+   */
+  .print-quote-table-wrap {
+    overflow: visible !important;
+  }
   .print-quote-table-wrap table {
     table-layout: auto !important;
     width: 100% !important;
+    max-width: 100% !important;
   }
-  .print-quote-table-wrap .print-col-dimension,
+  /* 字級與左右內距寫在儲存格上（tr 的 text-sm 會蓋掉 table 的字級） */
+  .print-quote-table-wrap th,
+  .print-quote-table-wrap td {
+    font-size: 11px !important;
+    line-height: 1.4 !important;
+    padding-left: 0.25rem !important;
+    padding-right: 0.25rem !important;
+  }
+  .print-quote-table-wrap td[colspan] {
+    font-size: 10px !important;
+  }
+  /* 欄寬改由內容決定，避免螢幕用的固定欄寬把尺寸欄擠到換行 */
+  .print-quote-table-wrap thead th {
+    width: auto !important;
+    min-width: 0 !important;
+  }
+  /* 尺寸欄：內容最長，超過寬度時換行（不從中文詞中間斷開）而不是撐破表格 */
+  .print-quote-table-wrap .print-col-dimension {
+    white-space: normal !important;
+    word-break: keep-all !important;
+    min-width: 0 !important;
+    width: auto !important;
+  }
+  /* 規格欄：內容短，維持不換行，但不再硬撐最小寬度 */
   .print-quote-table-wrap .print-col-spec {
     white-space: nowrap !important;
-  }
-  .print-quote-table-wrap .print-col-dimension {
-    min-width: 7rem !important;
-  }
-  .print-quote-table-wrap .print-col-spec {
-    min-width: 5.5rem !important;
+    min-width: 0 !important;
+    width: auto !important;
   }
 }
