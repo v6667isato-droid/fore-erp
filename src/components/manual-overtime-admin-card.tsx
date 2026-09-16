@@ -11,7 +11,7 @@ const ERR_ZH: Record<string, string> = {
   forbidden: "僅管理員可補登加班。",
   invalid_hours: "請輸入大於 0 的加班時數。",
   employee_not_found: "找不到有效員工。",
-  already_exists: "該員此日已有加班紀錄（已轉補休）。",
+  already_exists: "該員此日已有相同時數的加班紀錄，請確認是否重複補登（同日多段加班請填不同時數或改用員工申報）。",
   record_not_found: "找不到該筆加班紀錄，可能已被刪除。",
 };
 

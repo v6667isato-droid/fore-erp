@@ -315,25 +315,51 @@ export function isPayOvertimeRecord(row: Record<string, unknown>): boolean {
   return String(row.reason ?? "").trim().startsWith("【加班費】");
 }
 
-function overtimeLineForRow(
-  row: Record<string, unknown>,
+function overtimeLine(
+  dateIso: string,
+  hours: number,
+  isPay: boolean,
   overtimeDailyRate?: number,
 ): string | null {
-  const d = String(row.overtime_date ?? "").slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
-  const h = num(row.hours, 0);
-  if (h <= 0) return null;
-  const hDisp = Number.isInteger(h) ? String(h) : String(h);
-  const md = formatMdFromIso(d);
-  if (!isPayOvertimeRecord(row)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) return null;
+  if (hours <= 0) return null;
+  const hDisp = String(hours);
+  const md = formatMdFromIso(dateIso);
+  if (!isPay) {
     return `${md} 加班轉補休 ${hDisp}hr`;
   }
   const rate = overtimeDailyRate ?? 0;
   if (rate > 0) {
-    const amt = Math.round((rate * h) / 8);
+    const amt = Math.round((rate * hours) / 8);
     return `${md} 加班費${amt.toLocaleString("zh-TW")}元`;
   }
   return `${md} 加班 ${hDisp}hr（計薪）`;
+}
+
+/**
+ * 同一天可有多段加班紀錄（早上提早來＋下班後各一筆），備註依「日期＋折抵方式」合併時數，
+ * 避免兩段時數相同時被去重後少算。
+ */
+export function sumOvertimeHoursByDateAndKind(
+  employeeId: string,
+  overtimeRows: Record<string, unknown>[],
+): Map<string, { dateIso: string; isPay: boolean; hours: number }> {
+  const map = new Map<string, { dateIso: string; isPay: boolean; hours: number }>();
+  for (const row of overtimeRows) {
+    if (String(row.employee_id ?? "") !== employeeId) continue;
+    const dateIso = String(row.overtime_date ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) continue;
+    const h = num(row.hours, 0);
+    if (h <= 0) continue;
+    const isPay = isPayOvertimeRecord(row);
+    const key = `${dateIso}\t${isPay ? "pay" : "comp"}`;
+    const prev = map.get(key);
+    if (prev) prev.hours += h;
+    else map.set(key, { dateIso, isPay, hours: h });
+  }
+  // 浮點累加（0.5 步階）殘差修掉，避免出現 1.5000000000000002hr
+  for (const v of map.values()) v.hours = Math.round(v.hours * 100) / 100;
+  return map;
 }
 
 export function sumApprovedOvertimeHoursForEmployee(
@@ -433,12 +459,10 @@ export function buildPayslipAttendanceRemarks(
     items.push({ sortKey: start, text: line });
   }
 
-  for (const row of overtimeRows) {
-    if (String(row.employee_id ?? "") !== employeeId) continue;
-    const line = overtimeLineForRow(row, overtimeDailyRate);
+  for (const ot of sumOvertimeHoursByDateAndKind(employeeId, overtimeRows).values()) {
+    const line = overtimeLine(ot.dateIso, ot.hours, ot.isPay, overtimeDailyRate);
     if (!line) continue;
-    const sortKey = String(row.overtime_date ?? "").slice(0, 10);
-    items.push({ sortKey, text: line });
+    items.push({ sortKey: ot.dateIso, text: line });
   }
 
   for (const row of makeupPunchRows ?? []) {

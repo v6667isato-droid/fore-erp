@@ -496,11 +496,13 @@ export function AttendanceImporterPanel({
   const [overtimeKeys, setOvertimeKeys] = useState<Set<string>>(() => new Set());
   const [overtimeKeysLoading, setOvertimeKeysLoading] = useState(false);
   const [approvalRow, setApprovalRow] = useState<WarRoomRow | null>(null);
-  const [overtimeHoursByKey, setOvertimeHoursByKey] = useState<Map<string, number | null>>(
-    () => new Map(),
-  );
-  /** reason 前綴【加班費】之 overtime_records key（employeeId\t日期）；其餘視為轉補休 */
-  const [overtimePayKeys, setOvertimePayKeys] = useState<Set<string>>(() => new Set());
+  /**
+   * 每個 key（employeeId\t日期）的加班時數合計，依折抵方式分開累加：
+   * pay＝reason 前綴【加班費】，comp＝其餘（轉補休）。同一天可有多段加班。
+   */
+  const [overtimeSumsByKey, setOvertimeSumsByKey] = useState<
+    Map<string, { comp: number; pay: number }>
+  >(() => new Map());
 
   /** 主力月永遠依完整 CSV 推算，避免 empClockMap 尚未載入時 ym 為空而無法查 employees */
   const { ym: csvYm, filtered: dominantMonthRows } = useMemo(
@@ -769,20 +771,23 @@ export function AttendanceImporterPanel({
       if (!Number.isFinite(day) || day < 1 || day > 31) continue;
       const name = idToName.get(empId) ?? "—";
       const arr = map.get(day) ?? [];
-      if (!arr.some((x) => x.employeeName === name))
-        arr.push({
-          employeeName: name,
-          hours: overtimeHoursByKey.get(key) ?? null,
-          kind: overtimePayKeys.has(key) ? "pay" : "comp",
-        });
+      const sums = overtimeSumsByKey.get(key);
+      // 同日可同時有「加班費」與「轉補休」兩段，各列一行；時數皆為當日該類合計
+      const entries: { hours: number | null; kind: "pay" | "comp" }[] = [];
+      if (sums && sums.comp > 0) entries.push({ hours: sums.comp, kind: "comp" });
+      if (sums && sums.pay > 0) entries.push({ hours: sums.pay, kind: "pay" });
+      if (entries.length === 0) entries.push({ hours: null, kind: "comp" });
+      for (const entry of entries) {
+        if (arr.some((x) => x.employeeName === name && x.kind === entry.kind)) continue;
+        arr.push({ employeeName: name, hours: entry.hours, kind: entry.kind });
+      }
       map.set(day, arr);
     }
     return map;
   }, [
     ym,
     overtimeKeys,
-    overtimeHoursByKey,
-    overtimePayKeys,
+    overtimeSumsByKey,
     activeEmployees,
     scopeEmpIdsForCalendar,
   ]);
@@ -856,8 +861,7 @@ export function AttendanceImporterPanel({
   const refreshOvertimeKeys = useCallback(async () => {
     if (!ym || !isSupabaseConfigured) {
       setOvertimeKeys(new Set());
-      setOvertimeHoursByKey(new Map());
-      setOvertimePayKeys(new Set());
+      setOvertimeSumsByKey(new Map());
       return;
     }
     /** 涵蓋全體在職員工：手動補登（出差等未打卡）之紀錄即使無 CSV 列也要顯示 */
@@ -869,8 +873,7 @@ export function AttendanceImporterPanel({
     ];
     if (empIds.length === 0) {
       setOvertimeKeys(new Set());
-      setOvertimeHoursByKey(new Map());
-      setOvertimePayKeys(new Set());
+      setOvertimeSumsByKey(new Map());
       return;
     }
     setOvertimeKeysLoading(true);
@@ -885,8 +888,7 @@ export function AttendanceImporterPanel({
         .lte("overtime_date", monthEnd);
       if (error) throw error;
       const next = new Set<string>();
-      const hoursMap = new Map<string, number | null>();
-      const paySet = new Set<string>();
+      const sums = new Map<string, { comp: number; pay: number }>();
       for (const raw of data ?? []) {
         const rec = raw as {
           employee_id: string;
@@ -898,20 +900,26 @@ export function AttendanceImporterPanel({
         const key = `${rec.employee_id}\t${d}`;
         next.add(key);
         const h = Number(rec.hours);
-        hoursMap.set(key, Number.isFinite(h) && h > 0 ? h : null);
+        const acc = sums.get(key) ?? { comp: 0, pay: 0 };
         // 與薪資結算同一判斷：reason 前綴【加班費】＝計薪；其餘（含手動補登）＝轉補休
-        if (String(rec.reason ?? "").trim().startsWith("【加班費】")) {
-          paySet.add(key);
+        const isPay = String(rec.reason ?? "").trim().startsWith("【加班費】");
+        if (Number.isFinite(h) && h > 0) {
+          if (isPay) acc.pay += h;
+          else acc.comp += h;
         }
+        sums.set(key, acc);
+      }
+      // 0.5 步階累加的浮點殘差修掉（避免顯示 1.5000000000000002hr）
+      for (const acc of sums.values()) {
+        acc.comp = Math.round(acc.comp * 100) / 100;
+        acc.pay = Math.round(acc.pay * 100) / 100;
       }
       setOvertimeKeys(next);
-      setOvertimeHoursByKey(hoursMap);
-      setOvertimePayKeys(paySet);
+      setOvertimeSumsByKey(sums);
     } catch (e) {
       console.error("[attendance] overtime_records:", e);
       setOvertimeKeys(new Set());
-      setOvertimeHoursByKey(new Map());
-      setOvertimePayKeys(new Set());
+      setOvertimeSumsByKey(new Map());
     } finally {
       setOvertimeKeysLoading(false);
     }

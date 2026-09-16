@@ -23,6 +23,7 @@ import {
   OVERTIME_COMPENSATION_LABELS,
   computeOvertimeHoursFromTimes,
   fetchEmployeeOvertimeRequests,
+  hasOvertimeTimeOverlap,
   insertEmployeeOvertimeRequest,
   isHalfHourStep,
   type OvertimeCompensationType,
@@ -1509,6 +1510,17 @@ export default function EmployeePortalPage() {
     const reason = overtimeForm.reason.trim();
     if (!reason) {
       toast.error("請填寫加班事由");
+      return;
+    }
+    // 同一天可分段申報（早上提早來＋下班後），但時段不得重疊
+    if (
+      hasOvertimeTimeOverlap(overtimeRows, {
+        overtimeDate: overtimeForm.date,
+        startTime: overtimeForm.startTime,
+        endTime: overtimeForm.endTime,
+      })
+    ) {
+      toast.error("此時段與同日已申報的加班重疊，請確認起訖時間");
       return;
     }
 
@@ -3446,6 +3458,7 @@ export default function EmployeePortalPage() {
               </div>
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 以 0.5 小時為最小單位（分鐘請選 00 或 30）；不支援跨午夜，跨夜加班請分兩筆申報。
+                同一天若有多段加班（例：早上提早來、下班後再加班），分開各送一筆即可，時段不重疊就能分別核准。
               </p>
               {overtimeHoursPreview != null ? (
                 isHalfHourStep(overtimeHoursPreview) ? (

@@ -13,7 +13,7 @@ const ERR_ZH: Record<string, string> = {
   forbidden: "僅管理員可核准加班。",
   invalid_hours: "請輸入大於 0 的補休時數。",
   employee_not_found: "找不到有效員工。",
-  already_exists: "此日已核准並轉入補休。",
+  already_exists: "此日已有相同時數的加班紀錄，請確認是否重複核准。",
 };
 
 type RpcPayload = { ok?: boolean; error?: string };

@@ -80,6 +80,27 @@ export function computeOvertimeHoursFromTimes(
   return (e - s) / 60;
 }
 
+/**
+ * 同一天可分段申報（例：早上提早來加班＋下班後加班），但時段不得重疊。
+ * 僅比對 pending／approved 之申報單；DB 端另有 trigger 與核准時的重疊檢查。
+ */
+export function hasOvertimeTimeOverlap(
+  rows: Pick<OvertimeRequestRow, "overtime_date" | "start_time" | "end_time" | "status">[],
+  candidate: { overtimeDate: string; startTime: string; endTime: string },
+): boolean {
+  const s = parseHmToMinutes(candidate.startTime);
+  const e = parseHmToMinutes(candidate.endTime);
+  if (s == null || e == null) return false;
+  return rows.some((r) => {
+    if (r.status !== "pending" && r.status !== "approved") return false;
+    if (r.overtime_date !== candidate.overtimeDate) return false;
+    const rs = parseHmToMinutes(r.start_time);
+    const re = parseHmToMinutes(r.end_time);
+    if (rs == null || re == null) return false;
+    return rs < e && re > s;
+  });
+}
+
 /** 是否為 0.5 小時的整數倍（DB 亦有同樣 CHECK） */
 export function isHalfHourStep(hours: number): boolean {
   return Math.abs(hours * 2 - Math.round(hours * 2)) < 1e-9;
@@ -252,7 +273,8 @@ const OVERTIME_RPC_ERROR_MESSAGES: Record<string, string> = {
   request_not_found: "找不到此申報單，請重新整理",
   invalid_status: "申報單狀態已變更，請重新整理後再操作",
   employee_not_found: "找不到對應員工（可能已刪除）",
-  already_exists: "該員工當日已有加班紀錄（可能已由手動補登建立），無法重複核准",
+  already_exists: "該員工當日已有整日加班紀錄（手動補登／週末戰情核准），無法重複核准",
+  overlap: "此時段與同日另一筆已核准加班重疊，請確認起訖時間",
 };
 
 function mapOvertimeRpcResult(
