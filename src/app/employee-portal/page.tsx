@@ -148,9 +148,9 @@ function splitWoItemLabel(label: string): { name: string; dims: string | null } 
   return { name: t.slice(0, idx), dims: t.slice(idx + 3) };
 }
 
-/** 生產交辦備註過長時，手機卡片先摺疊（超過 2 行或 60 字） */
+/** 生產交辦備註過長時，手機卡片先摺疊（超過 3 行或 90 字） */
 function isLongWoNote(text: string): boolean {
-  return text.length > 60 || text.split("\n").length > 2;
+  return text.length > 90 || text.split("\n").length > 3;
 }
 
 function localTodayYmd(): string {
@@ -2093,7 +2093,7 @@ export default function EmployeePortalPage() {
                                     <p
                                       className={cn(
                                         "whitespace-pre-line break-words text-xs leading-relaxed text-foreground/90",
-                                        woNotesLong && !woNotesOpen && "line-clamp-2",
+                                        woNotesLong && !woNotesOpen && "line-clamp-3",
                                       )}
                                     >
                                       <span className="text-muted-foreground">備註：</span>
