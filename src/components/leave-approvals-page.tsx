@@ -302,14 +302,6 @@ function LeaveTypeRulePanel({ lt }: { lt: LeaveTypeRow | undefined }) {
   );
 }
 
-/** 特休以「X 天 Y 小時」顯示（total_days 為小數日）；其他假別維持「X 天」 */
-function formatLeaveDaysForType(typeLabel: string, days: number): string {
-  if (typeLabel.trim().startsWith("特休")) {
-    return formatDayDecimalAsDayHour(days);
-  }
-  return `${days.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`;
-}
-
 function leaveBadgeStyles(typeLabel: string): string {
   const t = typeLabel.trim();
   if (t === "特休" || t.startsWith("特休")) {
@@ -901,6 +893,220 @@ export function LeaveApprovalsPage() {
     });
   }
 
+  /** 歷史列表單列顯示內容：桌機表格與手機卡片共用 */
+  function historyView(entry: ReviewEntry): {
+    key: string;
+    kind: ReactNode;
+    employee: string;
+    typeBadge: ReactNode;
+    range: ReactNode;
+    amount: string;
+    status: ReactNode;
+    createdAt: string;
+    updatedAt: string;
+    actions: ReactNode;
+  } {
+    const revokeBtnClass =
+      "h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50";
+    const statusLabel = (st: string) =>
+      st === "approved" ? (
+        <span className="text-emerald-700 dark:text-emerald-400">已核准</span>
+      ) : st === "revoked" ? (
+        <span className="text-amber-700 dark:text-amber-400">已撤銷</span>
+      ) : (
+        <span className="text-red-700 dark:text-red-400">已退回</span>
+      );
+    const none = <span className="text-muted-foreground">—</span>;
+
+    if (entry.kind === "overtime") {
+      const ot = entry.row;
+      return {
+        key: `ot-${ot.id}`,
+        kind: kindBadge("overtime"),
+        employee: ot.employee_name,
+        typeBadge: overtimeCompBadge(ot.compensation_type),
+        range: (
+          <>
+            {formatDate(ot.overtime_date)}{" "}
+            <span className="tabular-nums">
+              {ot.start_time ? `${ot.start_time}–${ot.end_time}` : ""}
+            </span>
+            {ot.source === "record" ? (
+              <span className="ml-1 text-[11px] text-muted-foreground">（管理端補登）</span>
+            ) : null}
+          </>
+        ),
+        amount: fmtOvertimeHours(ot.hours),
+        status: (
+          <>
+            {statusLabel(ot.status)}
+            {historyReasonNote(ot.status, ot.revoke_reason, ot.reject_reason)}
+          </>
+        ),
+        createdAt: formatDateTime(ot.created_at),
+        updatedAt: formatDateTime(ot.approved_at),
+        actions:
+          ot.status === "approved" &&
+          (ot.source === "request" || ot.compensation_type === "comp_leave") ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={revokeBtnClass}
+              disabled={actingId === ot.id}
+              onClick={() =>
+                openReviewDialog({
+                  action: "revoke",
+                  kind: "overtime",
+                  id: ot.id,
+                  source: ot.source,
+                  warning:
+                    ot.compensation_type === "comp_leave"
+                      ? `確定撤銷此已核准加班？將刪除對應加班紀錄並立即扣回補休 ${fmtOvertimeHours(ot.hours)}（若補休已被請掉，餘額可能為負，需人工處理）。`
+                      : "確定撤銷此已核准加班？將刪除對應加班紀錄。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
+                })
+              }
+            >
+              撤銷
+            </Button>
+          ) : (
+            none
+          ),
+      };
+    }
+
+    if (entry.kind === "makeup") {
+      const mk = entry.row;
+      return {
+        key: `mk-${mk.id}`,
+        kind: kindBadge("makeup"),
+        employee: mk.employee_name,
+        typeBadge: (
+          <span className="inline-flex items-center rounded-full border border-teal-700/25 bg-teal-100/90 px-2.5 py-0.5 text-xs font-medium text-teal-950 dark:border-teal-500/30 dark:bg-teal-950/40 dark:text-teal-100">
+            補打卡
+          </span>
+        ),
+        range: (
+          <>
+            {formatDate(mk.punch_date)}{" "}
+            <span className="tabular-nums">
+              上班 {makeupSideLabel(mk.clock_in)} ／ 下班 {makeupSideLabel(mk.clock_out)}
+            </span>
+          </>
+        ),
+        amount: "—",
+        status: (
+          <>
+            {statusLabel(mk.status)}
+            {historyReasonNote(mk.status, mk.revoke_reason, mk.reject_reason)}
+          </>
+        ),
+        createdAt: formatDateTime(mk.created_at),
+        updatedAt: formatDateTime(mk.approved_at),
+        actions:
+          mk.status === "approved" ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={revokeBtnClass}
+              disabled={actingId === mk.id}
+              onClick={() =>
+                openReviewDialog({
+                  action: "revoke",
+                  kind: "makeup",
+                  id: mk.id,
+                  warning:
+                    "確定撤銷此已核准補打卡？將自出勤紀錄清回補登的時間（打卡鐘實卡不受影響）。已發薪月份無法撤銷。",
+                })
+              }
+            >
+              撤銷
+            </Button>
+          ) : (
+            none
+          ),
+      };
+    }
+
+    const row = entry.row;
+    const st = normalizeStatus(row.status_raw);
+    const showUpdated = leaveRequestRowWasUpdated({
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    });
+    return {
+      key: row.id,
+      kind: kindBadge("leave"),
+      employee: row.employee_name,
+      typeBadge: (
+        <span
+          className={cn(
+            "inline-flex rounded-full border px-2 py-0.5 text-xs font-medium",
+            leaveBadgeStyles(row.leave_type_label),
+          )}
+        >
+          {row.leave_type_label}
+        </span>
+      ),
+      range: (
+        <>
+          {row.start_date !== "—" ? formatDate(row.start_date) : "—"} ～{" "}
+          {row.end_date !== "—" ? formatDate(row.end_date) : "—"}
+          <HolidayConflictNote
+            startDate={row.start_date}
+            endDate={row.end_date}
+            createdAt={row.created_at}
+            holidayRows={holidayRows}
+          />
+        </>
+      ),
+      amount: formatDayDecimalAsDayHour(row.days),
+      status: (
+        <>
+          {statusLabel(st)}
+          {historyReasonNote(st, row.revoke_reason, row.reject_reason)}
+        </>
+      ),
+      createdAt: formatDateTime(row.created_at),
+      updatedAt: showUpdated ? formatLeaveUpdatedAtDisplay(row.updated_at) : "—",
+      actions:
+        row.attachment_url || st === "approved" ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            {row.attachment_url ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => void openAttachment(row.attachment_url!)}
+              >
+                📎 附件
+              </Button>
+            ) : null}
+            {st === "approved" ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={revokeBtnClass}
+                disabled={actingId === row.id}
+                onClick={() =>
+                  openReviewDialog({
+                    action: "revoke",
+                    kind: "leave",
+                    id: row.id,
+                    warning:
+                      "確定撤銷此已核准假單？撤銷後該假單不會再計入請假天數與薪資結算。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
+                  })
+                }
+              >
+                撤銷
+              </Button>
+            ) : null}
+          </span>
+        ) : (
+          none
+        ),
+    };
+  }
+
   const pageHeader = useMemo((): {
     title: string;
     description: ReactNode;
@@ -1486,7 +1692,7 @@ export function LeaveApprovalsPage() {
                         </span>
                         <br />
                         <span className="text-lg font-semibold tabular-nums text-primary">
-                          {formatLeaveDaysForType(row.leave_type_label, row.days)}
+                          {formatDayDecimalAsDayHour(row.days)}
                         </span>
                       </p>
                       <p className="sm:col-span-2">
@@ -1640,302 +1846,113 @@ export function LeaveApprovalsPage() {
               選「全部」列出所有已審核假單、加班與補打卡申請；選月份則僅顯示與該月重疊者
             </span>
           </div>
-          <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
-            {loading ? (
-              <p className="py-12 text-center text-sm text-muted-foreground">
-                載入中…
-              </p>
-            ) : historyCombined.length === 0 ? (
-              <p className="py-12 text-center text-sm text-muted-foreground">
-                {historyMonth
-                  ? "此月份尚無已核准、已退回或已撤銷的紀錄。"
-                  : "尚無已核准、已退回或已撤銷的假單、加班或補打卡紀錄。"}
-              </p>
-            ) : (
-              <Table className="min-w-[48rem]">
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
-                    <TableHead className="text-xs font-semibold">類型</TableHead>
-                    <TableHead className="text-xs font-semibold">員工</TableHead>
-                    <TableHead className="text-xs font-semibold whitespace-nowrap">
-                      假別／折抵
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold whitespace-nowrap">
-                      區間
-                    </TableHead>
-                    <TableHead className="text-right text-xs font-semibold whitespace-nowrap">
-                      天數／時數
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold">狀態</TableHead>
-                    <TableHead className="text-xs font-semibold whitespace-nowrap">
-                      申請時間
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold whitespace-nowrap">
-                      最後異動
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold whitespace-nowrap">
-                      操作
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {historyCombined.map((entry) => {
-                    if (entry.kind === "overtime") {
-                      const ot = entry.row;
+          {loading ? (
+            <p className="rounded-xl border border-border bg-card py-12 text-center text-sm text-muted-foreground shadow-sm">
+              載入中…
+            </p>
+          ) : historyCombined.length === 0 ? (
+            <p className="rounded-xl border border-border bg-card py-12 text-center text-sm text-muted-foreground shadow-sm">
+              {historyMonth
+                ? "此月份尚無已核准、已退回或已撤銷的紀錄。"
+                : "尚無已核准、已退回或已撤銷的假單、加班或補打卡紀錄。"}
+            </p>
+          ) : (
+            <>
+              {/* 手機：卡片列表 */}
+              <ul className="space-y-2 md:hidden">
+                {historyCombined.map((entry) => {
+                  const v = historyView(entry);
+                  return (
+                    <li
+                      key={v.key}
+                      className="rounded-xl border border-border bg-card p-3 shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          {v.kind}
+                          <span className="font-medium text-foreground">{v.employee}</span>
+                          {v.typeBadge}
+                        </div>
+                        <div className="shrink-0 text-right text-sm">{v.status}</div>
+                      </div>
+                      <div className="mt-2 flex items-start justify-between gap-2 text-sm">
+                        <div className="min-w-0 break-words text-muted-foreground">{v.range}</div>
+                        <div className="shrink-0 font-medium tabular-nums">{v.amount}</div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+                        <div className="text-[11px] leading-snug text-muted-foreground">
+                          <div>申請 {v.createdAt}</div>
+                          <div>異動 {v.updatedAt}</div>
+                        </div>
+                        <div className="text-sm">{v.actions}</div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* 桌機：表格 */}
+              <div className="hidden overflow-x-auto rounded-xl border border-border bg-card shadow-sm md:block">
+                <Table className="table-fixed min-w-0 [&_td]:whitespace-normal [&_td]:break-words [&_th]:whitespace-normal">
+                  <colgroup>
+                    <col className="w-[6%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[7%]" />
+                    <col className="w-[13%]" />
+                    <col className="w-[11%]" />
+                    <col className="w-[11%]" />
+                    <col className="w-[14%]" />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
+                      <TableHead className="text-xs font-semibold">類型</TableHead>
+                      <TableHead className="text-xs font-semibold">員工</TableHead>
+                      <TableHead className="text-xs font-semibold">假別／折抵</TableHead>
+                      <TableHead className="text-xs font-semibold">區間</TableHead>
+                      <TableHead className="text-right text-xs font-semibold">天數／時數</TableHead>
+                      <TableHead className="text-xs font-semibold">狀態</TableHead>
+                      <TableHead className="text-xs font-semibold">申請時間</TableHead>
+                      <TableHead className="text-xs font-semibold">最後異動</TableHead>
+                      <TableHead className="text-xs font-semibold">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {historyCombined.map((entry) => {
+                      const v = historyView(entry);
                       return (
                         <TableRow
-                          key={`ot-${ot.id}`}
+                          key={v.key}
                           className="border-b border-border hover:bg-muted/25"
                         >
-                          <TableCell>{kindBadge("overtime")}</TableCell>
+                          <TableCell>{v.kind}</TableCell>
                           <TableCell className="font-medium text-foreground">
-                            {ot.employee_name}
+                            {v.employee}
                           </TableCell>
-                          <TableCell>{overtimeCompBadge(ot.compensation_type)}</TableCell>
-                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                            {formatDate(ot.overtime_date)}{" "}
-                            <span className="tabular-nums">
-                              {ot.start_time ? `${ot.start_time}–${ot.end_time}` : ""}
-                            </span>
-                            {ot.source === "record" ? (
-                              <span className="ml-1 text-[11px] text-muted-foreground">
-                                （管理端補登）
-                              </span>
-                            ) : null}
+                          <TableCell>{v.typeBadge}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {v.range}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums text-sm font-medium whitespace-nowrap">
-                            {fmtOvertimeHours(ot.hours)}
+                          <TableCell className="text-right text-sm font-medium tabular-nums whitespace-nowrap!">
+                            {v.amount}
                           </TableCell>
-                          <TableCell className="text-sm">
-                            {ot.status === "approved" ? (
-                              <span className="text-emerald-700 dark:text-emerald-400">
-                                已核准
-                              </span>
-                            ) : ot.status === "revoked" ? (
-                              <span className="text-amber-700 dark:text-amber-400">
-                                已撤銷
-                              </span>
-                            ) : (
-                              <span className="text-red-700 dark:text-red-400">
-                                已退回
-                              </span>
-                            )}
-                            {historyReasonNote(ot.status, ot.revoke_reason, ot.reject_reason)}
+                          <TableCell className="text-sm">{v.status}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {v.createdAt}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                            {formatDateTime(ot.created_at)}
+                          <TableCell className="text-sm text-muted-foreground">
+                            {v.updatedAt}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                            {formatDateTime(ot.approved_at)}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm">
-                            {ot.status === "approved" &&
-                            (ot.source === "request" ||
-                              ot.compensation_type === "comp_leave") ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
-                                disabled={actingId === ot.id}
-                                onClick={() =>
-                                  openReviewDialog({
-                                    action: "revoke",
-                                    kind: "overtime",
-                                    id: ot.id,
-                                    source: ot.source,
-                                    warning:
-                                      ot.compensation_type === "comp_leave"
-                                        ? `確定撤銷此已核准加班？將刪除對應加班紀錄並立即扣回補休 ${fmtOvertimeHours(ot.hours)}（若補休已被請掉，餘額可能為負，需人工處理）。`
-                                        : "確定撤銷此已核准加班？將刪除對應加班紀錄。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
-                                  })
-                                }
-                              >
-                                撤銷
-                              </Button>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
+                          <TableCell className="text-sm">{v.actions}</TableCell>
                         </TableRow>
                       );
-                    }
-                    if (entry.kind === "makeup") {
-                      const mk = entry.row;
-                      return (
-                        <TableRow
-                          key={`mk-${mk.id}`}
-                          className="border-b border-border hover:bg-muted/25"
-                        >
-                          <TableCell>{kindBadge("makeup")}</TableCell>
-                          <TableCell className="font-medium text-foreground">
-                            {mk.employee_name}
-                          </TableCell>
-                          <TableCell>
-                            <span className="inline-flex items-center rounded-full border border-teal-700/25 bg-teal-100/90 px-2.5 py-0.5 text-xs font-medium text-teal-950 dark:border-teal-500/30 dark:bg-teal-950/40 dark:text-teal-100">
-                              補打卡
-                            </span>
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                            {formatDate(mk.punch_date)}{" "}
-                            <span className="tabular-nums">
-                              上班 {makeupSideLabel(mk.clock_in)} ／ 下班{" "}
-                              {makeupSideLabel(mk.clock_out)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums text-sm font-medium whitespace-nowrap">
-                            —
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {mk.status === "approved" ? (
-                              <span className="text-emerald-700 dark:text-emerald-400">
-                                已核准
-                              </span>
-                            ) : mk.status === "revoked" ? (
-                              <span className="text-amber-700 dark:text-amber-400">
-                                已撤銷
-                              </span>
-                            ) : (
-                              <span className="text-red-700 dark:text-red-400">
-                                已退回
-                              </span>
-                            )}
-                            {historyReasonNote(mk.status, mk.revoke_reason, mk.reject_reason)}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                            {formatDateTime(mk.created_at)}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                            {formatDateTime(mk.approved_at)}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm">
-                            {mk.status === "approved" ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
-                                disabled={actingId === mk.id}
-                                onClick={() =>
-                                  openReviewDialog({
-                                    action: "revoke",
-                                    kind: "makeup",
-                                    id: mk.id,
-                                    warning:
-                                      "確定撤銷此已核准補打卡？將自出勤紀錄清回補登的時間（打卡鐘實卡不受影響）。已發薪月份無法撤銷。",
-                                  })
-                                }
-                              >
-                                撤銷
-                              </Button>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    }
-                    const row = entry.row;
-                    const st = normalizeStatus(row.status_raw);
-                    const showUpdated = leaveRequestRowWasUpdated({
-                      created_at: row.created_at,
-                      updated_at: row.updated_at,
-                    });
-                    return (
-                      <TableRow
-                        key={row.id}
-                        className="border-b border-border hover:bg-muted/25"
-                      >
-                        <TableCell>{kindBadge("leave")}</TableCell>
-                        <TableCell className="font-medium text-foreground">
-                          {row.employee_name}
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={cn(
-                              "inline-flex rounded-full border px-2 py-0.5 text-xs font-medium",
-                              leaveBadgeStyles(row.leave_type_label),
-                            )}
-                          >
-                            {row.leave_type_label}
-                          </span>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                          {row.start_date !== "—" ? formatDate(row.start_date) : "—"}{" "}
-                          ～{" "}
-                          {row.end_date !== "—" ? formatDate(row.end_date) : "—"}
-                          <HolidayConflictNote
-                            startDate={row.start_date}
-                            endDate={row.end_date}
-                            createdAt={row.created_at}
-                            holidayRows={holidayRows}
-                          />
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-sm font-medium whitespace-nowrap">
-                          {formatLeaveDaysForType(row.leave_type_label, row.days)}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {st === "approved" ? (
-                            <span className="text-emerald-700 dark:text-emerald-400">
-                              已核准
-                            </span>
-                          ) : st === "revoked" ? (
-                            <span className="text-amber-700 dark:text-amber-400">
-                              已撤銷
-                            </span>
-                          ) : (
-                            <span className="text-red-700 dark:text-red-400">
-                              已退回
-                            </span>
-                          )}
-                          {historyReasonNote(st, row.revoke_reason, row.reject_reason)}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                          {formatDateTime(row.created_at)}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                          {showUpdated ? formatLeaveUpdatedAtDisplay(row.updated_at) : "—"}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-sm">
-                          <span className="inline-flex items-center gap-1.5">
-                            {row.attachment_url ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => void openAttachment(row.attachment_url!)}
-                              >
-                                📎 附件
-                              </Button>
-                            ) : null}
-                            {st === "approved" ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-7 border-amber-300 bg-amber-50/80 px-2 text-xs text-amber-900 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
-                                disabled={actingId === row.id}
-                                onClick={() =>
-                                  openReviewDialog({
-                                    action: "revoke",
-                                    kind: "leave",
-                                    id: row.id,
-                                    warning:
-                                      "確定撤銷此已核准假單？撤銷後該假單不會再計入請假天數與薪資結算。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
-                                  })
-                                }
-                              >
-                                撤銷
-                              </Button>
-                            ) : row.attachment_url ? null : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </div>
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
         </div>
       )}
       <ConfirmDialog
