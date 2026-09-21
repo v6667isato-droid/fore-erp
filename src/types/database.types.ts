@@ -153,28 +153,34 @@ export type Database = {
       }
       annual_leave_grants: {
         Row: {
+          applied_at: string | null
           days: number
           employee_id: string
           granted_at: string
           id: string
           milestone_years: number
           note: string | null
+          pay_period: string | null
         }
         Insert: {
+          applied_at?: string | null
           days: number
           employee_id: string
           granted_at?: string
           id?: string
           milestone_years: number
           note?: string | null
+          pay_period?: string | null
         }
         Update: {
+          applied_at?: string | null
           days?: number
           employee_id?: string
           granted_at?: string
           id?: string
           milestone_years?: number
           note?: string | null
+          pay_period?: string | null
         }
         Relationships: [
           {
@@ -4233,6 +4239,10 @@ export type Database = {
         Returns: Json
       }
       current_employee_id: { Args: never; Returns: string }
+      is_comp_leave_overtime_record: {
+        Args: { p_reason: string }
+        Returns: boolean
+      }
       is_own_employee: { Args: { p_employee_id: string }; Returns: boolean }
       recompute_daily_attendance_for_makeup: {
         Args: { p_date: string; p_employee_id: string; p_mark_makeup: boolean }

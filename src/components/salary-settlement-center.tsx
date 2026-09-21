@@ -31,6 +31,8 @@ import {
   dueAnnualLeaveMilestones,
   milestoneLabel,
   nextAnnualLeaveMilestone,
+  withAnnualLeaveGrantRemark,
+  type AnnualLeaveGrantRow,
   type AnnualLeaveMilestone,
 } from "@/lib/annual-leave-grant";
 import {
@@ -508,9 +510,10 @@ export function SalarySettlementCenter() {
     name: string;
     empId: string | null;
   }>({ open: false, name: "", empId: null });
-  const [grantedByEmp, setGrantedByEmp] = useState<Map<string, Set<number>>>(
-    new Map(),
-  );
+  /** 各員工全部特休授予紀錄（含已入帳與待發放） */
+  const [grantRowsByEmp, setGrantRowsByEmp] = useState<
+    Map<string, AnnualLeaveGrantRow[]>
+  >(new Map());
   const [grantsTableMissing, setGrantsTableMissing] = useState(false);
   const [grantingId, setGrantingId] = useState<string | null>(null);
   const [bonusImportLabel, setBonusImportLabel] = useState<string | null>(null);
@@ -684,7 +687,7 @@ export function SalarySettlementCenter() {
         setOvertimeRows([]);
         setPaidIds(new Set());
         setInputs({});
-        setGrantedByEmp(new Map());
+        setGrantRowsByEmp(new Map());
         return true;
       }
 
@@ -720,21 +723,21 @@ export function SalarySettlementCenter() {
           .in("employee_id", ids),
         supabase
           .from("annual_leave_grants")
-          .select("employee_id, milestone_years")
+          .select("id, employee_id, milestone_years, days, pay_period, applied_at")
           .in("employee_id", ids),
         supabase
           .from("makeup_punch_requests")
-          .select("employee_id, punch_date")
+          .select("employee_id, punch_date, clock_in, clock_out")
           .eq("status", "approved")
           .gte("punch_date", bounds.start)
           .lte("punch_date", bounds.end)
           .in("employee_id", ids),
       ]);
 
+      const grantMap = new Map<string, AnnualLeaveGrantRow[]>();
       if (grantsRes.error) {
         // 資料表尚未建立時停用「新增特休」提醒，避免對老員工重複提醒歷史里程碑
         setGrantsTableMissing(true);
-        setGrantedByEmp(new Map());
         if (!/does not exist|relation|schema cache/i.test(grantsRes.error.message)) {
           console.warn(
             "[salary-settlement] annual_leave_grants:",
@@ -743,20 +746,29 @@ export function SalarySettlementCenter() {
         }
       } else {
         setGrantsTableMissing(false);
-        const map = new Map<string, Set<number>>();
         for (const g of (grantsRes.data ?? []) as {
+          id: string;
           employee_id: string;
           milestone_years: unknown;
+          days: unknown;
+          pay_period: string | null;
+          applied_at: string | null;
         }[]) {
-          const eid = String(g.employee_id);
           const y = Number(g.milestone_years);
           if (!Number.isFinite(y)) continue;
-          const set = map.get(eid) ?? new Set<number>();
-          set.add(y);
-          map.set(eid, set);
+          const eid = String(g.employee_id);
+          const list = grantMap.get(eid) ?? [];
+          list.push({
+            id: String(g.id),
+            milestoneYears: y,
+            days: num(g.days, 0),
+            payPeriod: g.pay_period,
+            appliedAt: g.applied_at,
+          });
+          grantMap.set(eid, list);
         }
-        setGrantedByEmp(map);
       }
+      setGrantRowsByEmp(grantMap);
 
       // 結算月內放假日：出勤備註自動寫入、抑制請假／放假日的無打卡異常
       const holidayRes = await supabase
@@ -948,10 +960,17 @@ export function SalarySettlementCenter() {
                 holidays: monthHolidays,
                 makeupPunchRows: makeupList,
               });
+          // 已發放：本月發放時入帳的特休新增也要出現在備註（舊單可能沒寫入說明行）
+          const appliedThisPeriodGrants = (grantMap.get(e.id) ?? []).filter(
+            (g) => g.appliedAt != null && g.payPeriod === payPeriod,
+          );
           initInputs[e.id] = {
             semiAnnualBonus: semiBonus,
             otherAdjust,
-            attendanceNotes,
+            attendanceNotes:
+              appliedThisPeriodGrants.length > 0
+                ? withAnnualLeaveGrantRemark(attendanceNotes, appliedThisPeriodGrants)
+                : attendanceNotes,
           };
           continue;
         }
@@ -968,10 +987,17 @@ export function SalarySettlementCenter() {
               holidays: monthHolidays,
               makeupPunchRows: makeupList,
             });
+        // 已核准待入帳的特休新增，備註附上說明行
+        const pendingApplyGrants = (grantMap.get(e.id) ?? []).filter(
+          (g) => g.appliedAt == null,
+        );
         initInputs[e.id] = {
           semiAnnualBonus: 0,
           otherAdjust: 0,
-          attendanceNotes,
+          attendanceNotes: withAnnualLeaveGrantRemark(
+            attendanceNotes,
+            pendingApplyGrants,
+          ),
         };
       }
       setInputs(initInputs);
@@ -1067,25 +1093,45 @@ export function SalarySettlementCenter() {
     }
   }
 
-  /** 老闆核准授予年資特休：寫入授予紀錄＋加到員工特休餘額 */
+  /** 更新某員工畫面上的授予紀錄，並同步備註欄的特休新增說明行 */
+  function applyGrantRowsLocally(empId: string, rows: AnnualLeaveGrantRow[]) {
+    setGrantRowsByEmp((prev) => {
+      const next = new Map(prev);
+      next.set(empId, rows);
+      return next;
+    });
+    setInputs((prev) => {
+      const row = prev[empId] ?? defaultRowInputs();
+      return {
+        ...prev,
+        [empId]: {
+          ...row,
+          attendanceNotes: withAnnualLeaveGrantRemark(
+            row.attendanceNotes,
+            rows.filter((g) => g.appliedAt == null),
+          ),
+        },
+      };
+    });
+  }
+
+  /** 老闆核准年資特休：只寫授予紀錄（待入帳），發放薪資時才加到員工特休餘額 */
   async function handleGrantAnnualLeave(
     emp: SettlementEmployee,
     pending: AnnualLeaveMilestone[],
   ) {
     if (pending.length === 0 || grantingId != null) return;
     const totalDays = pending.reduce((s, m) => s + m.days, 0);
-    const cur = emp.annual_leave_remaining ?? 0;
-    const after = cur + totalDays;
     const fmt = (n: number) =>
       n.toLocaleString("zh-TW", { maximumFractionDigits: 1 });
     const lines = [
-      `確定為「${emp.name}」新增特休（勞基法年資）？`,
+      `確定核准「${emp.name}」新增特休（勞基法年資）？`,
       ``,
       ...pending.map(
         (m) => `${milestoneLabel(m.milestoneYears)}：+${m.days} 天`,
       ),
       ``,
-      `特休餘額：${formatDayDecimalAsDayHour(cur)} → ${formatDayDecimalAsDayHour(after)}`,
+      `核准後列入本月「新增特休」，發放薪資時才加入特休餘額。`,
     ];
     if (!window.confirm(lines.join("\n"))) return;
 
@@ -1098,10 +1144,11 @@ export function SalarySettlementCenter() {
             employee_id: emp.id,
             milestone_years: m.milestoneYears,
             days: m.days,
-            note: `薪資結算頁授予（結算月份 ${payPeriod}）`,
+            pay_period: payPeriod,
+            note: `薪資結算頁核准（結算月份 ${payPeriod}）`,
           })),
         )
-        .select("id");
+        .select("id, milestone_years, days, pay_period, applied_at");
 
       if (insErr) {
         if (/duplicate key/i.test(insErr.message)) {
@@ -1114,48 +1161,65 @@ export function SalarySettlementCenter() {
         return;
       }
 
-      const grantIds = (inserted ?? []).map((r) =>
-        String((r as { id: string }).id),
+      const added: AnnualLeaveGrantRow[] = (
+        (inserted ?? []) as {
+          id: string;
+          milestone_years: unknown;
+          days: unknown;
+          pay_period: string | null;
+          applied_at: string | null;
+        }[]
+      ).map((g) => ({
+        id: String(g.id),
+        milestoneYears: Number(g.milestone_years),
+        days: num(g.days, 0),
+        payPeriod: g.pay_period,
+        appliedAt: g.applied_at,
+      }));
+      applyGrantRowsLocally(emp.id, [
+        ...(grantRowsByEmp.get(emp.id) ?? []),
+        ...added,
+      ]);
+      toast.success(
+        `已核准「${emp.name}」新增特休 ${fmt(totalDays)} 天（${pending
+          .map((m) => milestoneLabel(m.milestoneYears))
+          .join("、")}），發放薪資時入帳`,
       );
-      const { error: updErr } = await supabase
-        .from("employees")
-        .update({ annual_leave_remaining: after })
-        .eq("id", emp.id);
+    } finally {
+      setGrantingId(null);
+    }
+  }
 
-      if (updErr) {
-        if (grantIds.length > 0) {
-          const { error: rollbackErr } = await supabase
-            .from("annual_leave_grants")
-            .delete()
-            .in("id", grantIds);
-          if (rollbackErr) {
-            console.error(
-              "[salary-settlement] rollback annual_leave_grants failed:",
-              rollbackErr,
-            );
-          }
-        }
-        toast.error(updErr.message || "更新特休餘額失敗，已取消本次授予");
+  /** 取消尚未入帳的特休核准（刪除授予紀錄，里程碑回到待核准） */
+  async function handleCancelGrant(
+    emp: SettlementEmployee,
+    grants: AnnualLeaveGrantRow[],
+  ) {
+    if (grants.length === 0 || grantingId != null) return;
+    const ok = window.confirm(
+      `取消「${emp.name}」已核准的新增特休？\n\n${grants
+        .map((g) => `${milestoneLabel(g.milestoneYears)}：+${g.days} 天`)
+        .join("\n")}\n\n尚未入帳，取消後可重新核准。`,
+    );
+    if (!ok) return;
+
+    setGrantingId(emp.id);
+    try {
+      const ids = grants.map((g) => g.id);
+      const { error } = await supabase
+        .from("annual_leave_grants")
+        .delete()
+        .in("id", ids)
+        .is("applied_at", null);
+      if (error) {
+        toast.error(error.message || "取消特休核准失敗");
         return;
       }
-
-      setEmployees((prev) =>
-        prev.map((e) =>
-          e.id === emp.id ? { ...e, annual_leave_remaining: after } : e,
-        ),
+      applyGrantRowsLocally(
+        emp.id,
+        (grantRowsByEmp.get(emp.id) ?? []).filter((g) => !ids.includes(g.id)),
       );
-      setGrantedByEmp((prev) => {
-        const next = new Map(prev);
-        const set = new Set(next.get(emp.id) ?? []);
-        for (const m of pending) set.add(m.milestoneYears);
-        next.set(emp.id, set);
-        return next;
-      });
-      toast.success(
-        `已為「${emp.name}」新增特休 ${fmt(totalDays)} 天（${pending
-          .map((m) => milestoneLabel(m.milestoneYears))
-          .join("、")}），餘額 ${formatDayDecimalAsDayHour(after)}`,
-      );
+      toast.success(`已取消「${emp.name}」的新增特休核准`);
     } finally {
       setGrantingId(null);
     }
@@ -1206,7 +1270,12 @@ export function SalarySettlementCenter() {
     );
 
     const baseRemaining = emp.annual_leave_remaining ?? 0;
-    const settledRemaining = baseRemaining - st.specialThisMonth;
+    /** 已核准待入帳的特休新增：本次發放一併加入餘額 */
+    const applyGrants = (grantRowsByEmp.get(emp.id) ?? []).filter(
+      (g) => g.appliedAt == null,
+    );
+    const grantDays = applyGrants.reduce((s, g) => s + g.days, 0);
+    const settledRemaining = baseRemaining + grantDays - st.specialThisMonth;
 
     /** 折抵方式由員工申報時決定（reason 前綴），計薪時數不曾入補休金庫，無需沖回；
      *  本月申請之補休假：發放時自補休金庫扣除（同特休以建立月為準） */
@@ -1237,7 +1306,9 @@ export function SalarySettlementCenter() {
       );
     }
     confirmLines.push(
-      `特休結算後餘額將更新為：${formatSignedDayDecimalAsDayHour(settledRemaining)}（原本 ${formatDayDecimalAsDayHour(baseRemaining)} − 本月建立之特休 ${formatDayDecimalAsDayHour(st.specialThisMonth)}）`,
+      `特休結算後餘額將更新為：${formatSignedDayDecimalAsDayHour(settledRemaining)}（原本 ${formatDayDecimalAsDayHour(baseRemaining)}${
+        grantDays > 0 ? ` ＋ 新增特休 ${formatDayDecimalAsDayHour(grantDays)}` : ""
+      } − 本月建立之特休 ${formatDayDecimalAsDayHour(st.specialThisMonth)}）`,
     );
     if (overtimeAmt > 0) {
       confirmLines.push(
@@ -1270,7 +1341,12 @@ export function SalarySettlementCenter() {
         : semiBonus > 0 && bonusImportLabel
           ? `【${bonusImportLabel}獎金】合計 NT$ ${semiBonus.toLocaleString("zh-TW")}`
           : "";
-    const notes = [inp.attendanceNotes.trim(), bonusNote].filter(Boolean).join("\n");
+    const notes = [
+      withAnnualLeaveGrantRemark(inp.attendanceNotes, applyGrants).trim(),
+      bonusNote,
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     /** 與 payslips 表／migrations 對齊；缺欄時依序略過 notes → 再略過 PAYSLIP_DETAIL_SNAPSHOT_KEYS */
     const insertPayload: Record<string, unknown> = {
@@ -1386,12 +1462,38 @@ export function SalarySettlementCenter() {
       );
     }
 
-    const { error: updErr } = await supabase
-      .from("employees")
-      .update({ annual_leave_remaining: settledRemaining })
-      .eq("id", emp.id);
+    /** 特休新增入帳：先標記授予紀錄已入帳，餘額更新失敗時一併還原 */
+    const applyGrantIds = applyGrants.map((g) => g.id);
+    const appliedAt = new Date().toISOString();
+    let grantMarkErr: { message: string } | null = null;
+    if (applyGrantIds.length > 0) {
+      const { error } = await supabase
+        .from("annual_leave_grants")
+        .update({ applied_at: appliedAt, pay_period: payPeriod })
+        .in("id", applyGrantIds);
+      grantMarkErr = error;
+    }
+
+    const { error: updErr } = grantMarkErr
+      ? { error: grantMarkErr }
+      : await supabase
+          .from("employees")
+          .update({ annual_leave_remaining: settledRemaining })
+          .eq("id", emp.id);
 
     if (updErr) {
+      if (applyGrantIds.length > 0 && !grantMarkErr) {
+        const { error: grantRollbackErr } = await supabase
+          .from("annual_leave_grants")
+          .update({ applied_at: null })
+          .in("id", applyGrantIds);
+        if (grantRollbackErr) {
+          console.error(
+            "[salary-settlement] rollback annual_leave_grants applied_at failed:",
+            grantRollbackErr,
+          );
+        }
+      }
       if (slipId) {
         const { error: delErr } = await supabase
           .from("payslips")
@@ -1506,6 +1608,20 @@ export function SalarySettlementCenter() {
           : e,
       ),
     );
+    if (applyGrantIds.length > 0) {
+      setGrantRowsByEmp((prev) => {
+        const next = new Map(prev);
+        next.set(
+          emp.id,
+          (prev.get(emp.id) ?? []).map((g) =>
+            applyGrantIds.includes(g.id)
+              ? { ...g, appliedAt, payPeriod }
+              : g,
+          ),
+        );
+        return next;
+      });
+    }
   }
 
   if (!isSupabaseConfigured) {
@@ -1645,13 +1761,13 @@ export function SalarySettlementCenter() {
                 <th className="text-right text-muted-foreground">健保</th>
                 <th className="text-right text-muted-foreground">請假扣款</th>
                 <th
-                  title="特休假結算"
+                  title="特休假結算（結算餘額＝原本＋新增−本月申請）"
                   className="border-l border-border bg-[var(--secondary)]/40 text-right text-muted-foreground dark:bg-muted/50"
                 >
                   原本特休
                 </th>
                 <th
-                  title="勞基法年資特休：年資達里程碑時提醒，按鈕核准後加入餘額"
+                  title="勞基法年資特休：年資達里程碑時提醒；核准後列入本月新增、發放薪資時才加入特休餘額"
                   className="bg-[var(--secondary)]/40 text-center text-muted-foreground dark:bg-muted/50"
                 >
                   新增特休
@@ -1728,26 +1844,44 @@ export function SalarySettlementCenter() {
                 const paidSnap = paid ? paidLeaveSnapByEmp.get(emp.id) : undefined;
                 const specialThisMonthDisp =
                   paidSnap?.specialSettled ?? st.specialThisMonth;
+
+                /** 新增特休：未發放列＝已核准待入帳；已發放列＝本月發放時入帳者 */
+                const empGrants = grantRowsByEmp.get(emp.id) ?? [];
+                const monthGrants = paid
+                  ? empGrants.filter(
+                      (g) => g.appliedAt != null && g.payPeriod === payPeriod,
+                    )
+                  : empGrants.filter((g) => g.appliedAt == null);
+                const monthGrantDays = monthGrants.reduce(
+                  (s, g) => s + g.days,
+                  0,
+                );
+
                 const orig =
                   paidSnap?.specialAfter != null
-                    ? paidSnap.specialAfter + (paidSnap.specialSettled ?? 0)
+                    ? paidSnap.specialAfter +
+                      (paidSnap.specialSettled ?? 0) -
+                      monthGrantDays
                     : emp.annual_leave_remaining != null
                       ? emp.annual_leave_remaining
                       : null;
                 const settledRemaining =
                   paidSnap?.specialAfter != null
                     ? paidSnap.specialAfter
-                    : (orig ?? 0) - st.specialThisMonth;
+                    : (orig ?? 0) + monthGrantDays - st.specialThisMonth;
                 const hasSpecialUse = specialThisMonthDisp > 0;
 
-                const grantedSet = grantedByEmp.get(emp.id);
-                const pendingGrants = grantsTableMissing
+                const grantedSet = new Set(
+                  empGrants.map((g) => g.milestoneYears),
+                );
+                // 已發放列不再核准（待下月結算時出現）
+                const pendingGrants = grantsTableMissing || paid
                   ? []
                   : dueAnnualLeaveMilestones(
                       emp.hire_date,
                       monthEndDate,
                       emp.unpaid_leave_months,
-                    ).filter((m) => !grantedSet?.has(m.milestoneYears));
+                    ).filter((m) => !grantedSet.has(m.milestoneYears));
                 const pendingGrantDays = pendingGrants.reduce(
                   (s, m) => s + m.days,
                   0,
@@ -1834,26 +1968,61 @@ export function SalarySettlementCenter() {
                       {orig != null ? formatDayHourShort(orig) : "—"}
                     </td>
                     <td className="text-center">
-                      {pendingGrants.length > 0 ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={grantingId != null}
-                          title={`年資達${pendingGrants
-                            .map(
-                              (m) =>
-                                `${milestoneLabel(m.milestoneYears)}（+${m.days} 天）`,
-                            )
-                            .join("、")}，點擊核准加入特休餘額`}
-                          className="h-6 px-1.5 text-[11px] font-semibold border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
-                          onClick={() =>
-                            void handleGrantAnnualLeave(emp, pendingGrants)
-                          }
-                        >
-                          {grantingId === emp.id
-                            ? "授予中…"
-                            : `+${pendingGrantDays.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}天`}
-                        </Button>
+                      {monthGrants.length > 0 || pendingGrants.length > 0 ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          {monthGrants.length > 0 &&
+                            (paid ? (
+                              <span
+                                title={`本月發放時已入帳：${monthGrants
+                                  .map(
+                                    (g) =>
+                                      `${milestoneLabel(g.milestoneYears)}（+${g.days} 天）`,
+                                  )
+                                  .join("、")}`}
+                                className="whitespace-nowrap text-xs font-semibold tabular-nums text-foreground"
+                              >
+                                +{formatDayHourShort(monthGrantDays)}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={grantingId != null}
+                                title={`已核准：${monthGrants
+                                  .map(
+                                    (g) =>
+                                      `${milestoneLabel(g.milestoneYears)}（+${g.days} 天）`,
+                                  )
+                                  .join("、")}，發放薪資時加入特休餘額；點擊可取消核准`}
+                                onClick={() =>
+                                  void handleCancelGrant(emp, monthGrants)
+                                }
+                                className="whitespace-nowrap rounded px-1 text-xs font-semibold tabular-nums text-primary hover:bg-muted disabled:opacity-50"
+                              >
+                                +{formatDayHourShort(monthGrantDays)}
+                              </button>
+                            ))}
+                          {pendingGrants.length > 0 && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={grantingId != null}
+                              title={`年資達${pendingGrants
+                                .map(
+                                  (m) =>
+                                    `${milestoneLabel(m.milestoneYears)}（+${m.days} 天）`,
+                                )
+                                .join("、")}，點擊核准（發放薪資時入帳）`}
+                              className="h-6 px-1.5 text-[11px] font-semibold border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
+                              onClick={() =>
+                                void handleGrantAnnualLeave(emp, pendingGrants)
+                              }
+                            >
+                              {grantingId === emp.id
+                                ? "處理中…"
+                                : `核准+${pendingGrantDays.toLocaleString("zh-TW", { maximumFractionDigits: 1 })}天`}
+                            </Button>
+                          )}
+                        </div>
                       ) : (
                         <span
                           title={grantIdleTitle}

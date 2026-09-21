@@ -467,7 +467,25 @@ export function PayslipPaidHistoryPanel() {
       const specialRestore = row.special_leave_days_settled;
       let previousRemaining: number | null = null;
 
-      if (specialRestore > 0 && row.employee_id.trim()) {
+      /** 該月發放時入帳的特休新增：刪除薪資時扣回並改回待入帳 */
+      let appliedGrantIds: string[] = [];
+      let appliedGrantDays = 0;
+      if (row.employee_id.trim()) {
+        const { data: grants } = await supabase
+          .from("annual_leave_grants")
+          .select("id, days")
+          .eq("employee_id", row.employee_id)
+          .eq("pay_period", row.period_key)
+          .not("applied_at", "is", null);
+        for (const g of (grants ?? []) as { id: string; days: unknown }[]) {
+          appliedGrantIds.push(String(g.id));
+          const d = Number(g.days);
+          if (Number.isFinite(d)) appliedGrantDays += d;
+        }
+      }
+      const balanceDelta = specialRestore - appliedGrantDays;
+
+      if (balanceDelta !== 0 && row.employee_id.trim()) {
         const { data: emp, error: empErr } = await supabase
           .from("employees")
           .select("annual_leave_remaining")
@@ -485,7 +503,7 @@ export function PayslipPaidHistoryPanel() {
           cur != null && cur !== "" && Number.isFinite(Number(cur))
             ? Number(cur)
             : 0;
-        const restored = previousRemaining + specialRestore;
+        const restored = previousRemaining + balanceDelta;
 
         const { error: updErr } = await supabase
           .from("employees")
@@ -505,7 +523,6 @@ export function PayslipPaidHistoryPanel() {
 
       if (delErr) {
         if (
-          specialRestore > 0 &&
           previousRemaining != null &&
           row.employee_id.trim()
         ) {
@@ -522,6 +539,19 @@ export function PayslipPaidHistoryPanel() {
         }
         toast.error(delErr.message || "刪除薪資紀錄失敗");
         return;
+      }
+
+      if (appliedGrantIds.length > 0) {
+        const { error: grantErr } = await supabase
+          .from("annual_leave_grants")
+          .update({ applied_at: null })
+          .in("id", appliedGrantIds);
+        if (grantErr) {
+          toast.warning(
+            "薪資紀錄已刪除，但特休新增未能改回待入帳，請重新載入薪資結算確認。",
+            { duration: 10000 },
+          );
+        }
       }
 
       setRows((prev) => prev.filter((r) => r.id !== row.id));

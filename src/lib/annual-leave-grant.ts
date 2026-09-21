@@ -73,3 +73,38 @@ export function nextAnnualLeaveMilestone(
     monthsAway: nextYears * 12 - totalMonths,
   };
 }
+
+/** annual_leave_grants 一筆授予紀錄（appliedAt 為 null＝已核准、待發放薪資時入餘額） */
+export type AnnualLeaveGrantRow = {
+  id: string;
+  milestoneYears: number;
+  days: number;
+  payPeriod: string | null;
+  appliedAt: string | null;
+};
+
+/** 薪資單備註中的特休新增說明行 */
+export const ANNUAL_LEAVE_GRANT_REMARK_RE = /^特休新增：/;
+
+export function formatAnnualLeaveGrantRemark(
+  grants: Pick<AnnualLeaveGrantRow, "milestoneYears" | "days">[],
+): string {
+  const parts = [...grants]
+    .sort((a, b) => a.milestoneYears - b.milestoneYears)
+    .map((g) => `${milestoneLabel(g.milestoneYears)} +${g.days}天`);
+  return `特休新增：${parts.join("、")}（勞基法年資）`;
+}
+
+/** 移除舊的特休新增說明行，再依 grants 附上新行（grants 為空時只移除） */
+export function withAnnualLeaveGrantRemark(
+  notes: string,
+  grants: Pick<AnnualLeaveGrantRow, "milestoneYears" | "days">[],
+): string {
+  const cleaned = notes
+    .split("\n")
+    .filter((line) => !ANNUAL_LEAVE_GRANT_REMARK_RE.test(line.trim()))
+    .join("\n")
+    .replace(/\n+$/, "");
+  if (grants.length === 0) return cleaned;
+  return [cleaned, formatAnnualLeaveGrantRemark(grants)].filter(Boolean).join("\n");
+}
