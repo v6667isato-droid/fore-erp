@@ -6,6 +6,7 @@ import {
   hoursToDayHourParts,
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
+import { isOffFixedShift, meetsSpecialAttendanceHours } from "@/lib/attendance-war-room";
 
 export type PayslipRemarkBounds = {
   start: string;
@@ -432,9 +433,46 @@ export function buildPayslipAttendanceRemarks(
   );
   const holidayDateSet = new Set(holidayList.map((h) => h.date));
 
+  /**
+   * 特殊出勤日：已核准補打卡，且補卡併入後有效工時（扣午休）滿 8 小時 →
+   * 不依 9:00–18:00 判遲到／早退，該日備註改寫「M/D 特殊出勤（補打卡）」。
+   * 補卡只補缺的那側（實卡優先），與戰情合併規則一致；戰情已標「特殊出勤」者亦算。
+   * 假日出勤、放假日、請假日本來就不判遲到早退，不列特殊出勤。
+   */
+  const specialDates = new Set<string>();
+  const attByDate = new Map<string, Record<string, unknown>>();
+  for (const row of attendanceRows) {
+    if (String(row.employee_id ?? "") !== employeeId) continue;
+    const d = String(row.attendance_date ?? "").slice(0, 10);
+    attByDate.set(d, row);
+    const tags = Array.isArray(row.status_tags) ? (row.status_tags as string[]) : [];
+    if (tags.some((t) => String(t).includes("特殊出勤"))) specialDates.add(d);
+  }
+  const pickClock = (v: unknown): string | null =>
+    v != null && String(v).trim() !== "" ? String(v) : null;
+  for (const row of makeupPunchRows ?? []) {
+    if (String(row.employee_id ?? "") !== employeeId) continue;
+    const d = String(row.punch_date ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    if (holidayDateSet.has(d) || isOnApprovedLeave(d)) continue;
+    const att = attByDate.get(d);
+    const attTags = Array.isArray(att?.status_tags) ? (att.status_tags as string[]) : null;
+    const isOffDay = attTags
+      ? attTags.some((t) => String(t).includes("假日出勤"))
+      : [0, 6].includes(parseLocalYmd(d).getDay());
+    if (isOffDay) continue;
+    const clockIn = pickClock(att?.clock_in) ?? pickClock(row.clock_in);
+    const clockOut = pickClock(att?.clock_out) ?? pickClock(row.clock_out);
+    // 正常班時段的補卡（未遲到早退）維持「補打卡」，不改寫特殊出勤
+    if (!isOffFixedShift(clockIn, clockOut)) continue;
+    if (meetsSpecialAttendanceHours(clockIn, clockOut)) specialDates.add(d);
+  }
+
   for (const row of attendanceRows) {
     if (String(row.employee_id ?? "") !== employeeId) continue;
     const dateIso = String(row.attendance_date ?? "").slice(0, 10);
+    // 特殊出勤日：不列遲到／早退等固定班別判定，改由下方補打卡列寫「特殊出勤」
+    if (specialDates.has(dateIso)) continue;
     // 已請假或放假日且當天完全沒有打卡：無打卡是正常的，不列出勤異常。
     // （仍有打卡者照常判斷，例如請半天假但遲到）
     const hasAnyPunch =
@@ -470,7 +508,18 @@ export function buildPayslipAttendanceRemarks(
     const d = String(row.punch_date ?? "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
     if (d < bounds.start || d > bounds.end) continue;
-    items.push({ sortKey: d, text: `${formatMdFromIso(d)} 補打卡` });
+    items.push({
+      sortKey: d,
+      text: specialDates.has(d)
+        ? `${formatMdFromIso(d)} 特殊出勤（補打卡）`
+        : `${formatMdFromIso(d)} 補打卡`,
+    });
+  }
+
+  // 戰情已標特殊出勤、但補卡單不在本次查詢內（理論上不會發生）時仍寫入備註
+  for (const d of specialDates) {
+    if (d < bounds.start || d > bounds.end) continue;
+    items.push({ sortKey: d, text: `${formatMdFromIso(d)} 特殊出勤（補打卡）` });
   }
 
   items.sort((a, b) => a.sortKey.localeCompare(b.sortKey));

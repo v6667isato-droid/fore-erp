@@ -749,7 +749,50 @@ export function applyApprovedMakeupPunches(
   return { rows: out, patchedKeys, extraNameByUid };
 }
 
-/** 於戰情列補上「📝 已補卡」標籤（合併過補卡單的員工日） */
+/** 補卡日有效工時（扣午休）達此分鐘數：不依 9:00–18:00 判遲到／早退，改標「特殊出勤」 */
+export const SPECIAL_ATTENDANCE_MIN_MINUTES = 8 * 60;
+
+export const SPECIAL_ATTENDANCE_TAG: WarRoomTag = {
+  id: "special",
+  label: "🕘 特殊出勤",
+  className:
+    "border-cyan-600/45 bg-cyan-600 text-white dark:border-cyan-700 dark:bg-cyan-800",
+};
+
+/** 上下班皆有且有效工時 ≥ 8h（時間格式 HH:mm 或 HH:mm:ss） */
+export function meetsSpecialAttendanceHours(
+  clockIn: string | null | undefined,
+  clockOut: string | null | undefined,
+): boolean {
+  const inM = clockToMinutes(clockIn ?? null);
+  const outM = clockToMinutes(clockOut ?? null);
+  if (inM == null || outM == null || outM <= inM) return false;
+  return effectiveWorkMinutes(inM, outM) >= SPECIAL_ATTENDANCE_MIN_MINUTES;
+}
+
+/** 依 9:00–18:00 班別會被判遲到（>09:15）或早退（<17:45） */
+export function isOffFixedShift(
+  clockIn: string | null | undefined,
+  clockOut: string | null | undefined,
+): boolean {
+  const inM = clockToMinutes(clockIn ?? null);
+  const outM = clockToMinutes(clockOut ?? null);
+  return (inM != null && inM > LATE_AFTER_MIN) || (outM != null && outM < EARLY_BEFORE_MIN);
+}
+
+/** 特殊出勤日不再列出之固定班別判定標籤 */
+const SPECIAL_ATTENDANCE_SUPPRESSED_TAG_IDS = new Set(["late", "early", "short"]);
+const SPECIAL_ATTENDANCE_EXCLUDED_TAG_IDS = new Set([
+  "leave",
+  "weekend",
+  "holiday_work",
+  "holiday_work_unpaid",
+]);
+
+/**
+ * 於戰情列補上「📝 已補卡」標籤（合併過補卡單的員工日）；
+ * 補卡後有效工時滿 8 小時者，移除遲到／早退／工時不足並加上「🕘 特殊出勤」。
+ */
 export function appendMakeupPunchTags(
   warRows: WarRoomRow[],
   patchedKeys: Set<string>,
@@ -759,6 +802,20 @@ export function appendMakeupPunchTags(
     if (!r.employeeId) return r;
     if (!patchedKeys.has(makeupKey(r.employeeId, r.dateIso.slice(0, 10)))) return r;
     if (r.tags.some((t) => t.id === MAKEUP_PUNCH_TAG.id)) return r;
+    // 假日／國定假日出勤、請假日本來就不判遲到早退，不另標特殊出勤
+    const isRegularWorkday = !r.tags.some((t) => SPECIAL_ATTENDANCE_EXCLUDED_TAG_IDS.has(t.id));
+    // 僅在「原本會被判遲到／早退」時才改標特殊出勤；正常班時段的補卡維持「已補卡」
+    const offFixedShift = r.tags.some((t) => t.id === "late" || t.id === "early");
+    if (isRegularWorkday && offFixedShift && meetsSpecialAttendanceHours(r.clockIn, r.clockOut)) {
+      return {
+        ...r,
+        tags: [
+          ...r.tags.filter((t) => !SPECIAL_ATTENDANCE_SUPPRESSED_TAG_IDS.has(t.id)),
+          MAKEUP_PUNCH_TAG,
+          SPECIAL_ATTENDANCE_TAG,
+        ],
+      };
+    }
     return { ...r, tags: [...r.tags, MAKEUP_PUNCH_TAG] };
   });
 }

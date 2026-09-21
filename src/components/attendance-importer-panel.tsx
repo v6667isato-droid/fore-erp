@@ -38,6 +38,7 @@ import {
   overtimeApprovalButtonLabel,
   pickDominantMonth,
   dateStrToIso,
+  SPECIAL_ATTENDANCE_TAG,
   type LeaveSpan,
   type MakeupPunchSpan,
   type PublicHolidayEntry,
@@ -109,7 +110,13 @@ function WarCalendar({
   /** 圖層二：已核准補卡（makeup_punch_requests，與 CSV 是否有列無關） */
   makeupByDay: Map<
     number,
-    { employeeName: string; clockIn: string | null; clockOut: string | null }[]
+    {
+      employeeName: string;
+      clockIn: string | null;
+      clockOut: string | null;
+      /** 補卡後有效工時滿 8 小時：不判遲到早退，標示特殊出勤 */
+      special: boolean;
+    }[]
   >;
   /** 圖層三：打卡衍生的異常（不含 leave 標籤，避免與假單圖層重複） */
   anomalyEntriesByDay: Map<
@@ -376,9 +383,12 @@ function WarCalendar({
                             <div
                               key={`mkp-${mk.employeeName}-${mi}`}
                               className="rounded-md bg-teal-600 px-1.5 py-0.5 text-center text-[9px] font-semibold leading-snug text-white shadow-sm dark:bg-teal-700"
-                              title={`已核准補卡：上班 ${mk.clockIn ?? "—"}／下班 ${mk.clockOut ?? "—"}`}
+                              title={`已核准補卡：上班 ${mk.clockIn ?? "—"}／下班 ${mk.clockOut ?? "—"}${
+                                mk.special ? "；滿 8 小時，不依 9:00–18:00 判遲到早退（特殊出勤）" : ""
+                              }`}
                             >
-                              <span aria-hidden>📝</span> {mk.employeeName}（補卡 {timeLabel}）
+                              <span aria-hidden>📝</span> {mk.employeeName}（補卡 {timeLabel}
+                              {mk.special ? "·特殊出勤" : ""}）
                             </div>
                           );
                         })}
@@ -796,11 +806,23 @@ export function AttendanceImporterPanel({
   const makeupLinesByDay = useMemo(() => {
     const map = new Map<
       number,
-      { employeeName: string; clockIn: string | null; clockOut: string | null }[]
+      {
+        employeeName: string;
+        clockIn: string | null;
+        clockOut: string | null;
+        special: boolean;
+      }[]
     >();
     if (!ym) return map;
     const prefix = `${ym}-`;
     const idToName = new Map(activeEmployees.map((e) => [e.id, e.name]));
+    /** 戰情列已判定「特殊出勤」（補卡後滿 8 小時）之員工日 */
+    const specialKeys = new Set<string>();
+    for (const r of displayWarRows) {
+      if (!r.employeeId) continue;
+      if (!r.tags.some((t) => t.id === SPECIAL_ATTENDANCE_TAG.id)) continue;
+      specialKeys.add(`${r.employeeId}\t${r.dateIso.slice(0, 10)}`);
+    }
     for (const m of makeupSpans) {
       if (!m.punch_date.startsWith(prefix)) continue;
       if (!scopeEmpIdsForCalendar.has(m.employee_id)) continue;
@@ -811,6 +833,7 @@ export function AttendanceImporterPanel({
         employeeName: idToName.get(m.employee_id) ?? "—",
         clockIn: m.clock_in,
         clockOut: m.clock_out,
+        special: specialKeys.has(`${m.employee_id}\t${m.punch_date.slice(0, 10)}`),
       });
       map.set(day, arr);
     }
@@ -818,7 +841,7 @@ export function AttendanceImporterPanel({
       arr.sort((a, b) => a.employeeName.localeCompare(b.employeeName, "zh-Hant"));
     }
     return map;
-  }, [ym, makeupSpans, activeEmployees, scopeEmpIdsForCalendar]);
+  }, [ym, makeupSpans, activeEmployees, scopeEmpIdsForCalendar, displayWarRows]);
 
   const anomalyCalendarMap = useMemo(
     () => buildCalendarAnomalyEntriesByDay(filteredDisplayWarRows),
