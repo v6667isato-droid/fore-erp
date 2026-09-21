@@ -27,10 +27,13 @@ import {
   PauseCircle,
   ChevronDown,
   MessageSquare,
+  ClipboardList,
 } from "lucide-react";
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
 import { orderNoteSections } from "@/lib/order-notes";
+import { appendArmHeight } from "@/lib/product-arm-height";
+import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
 import {
   DEFAULT_WORK_ORDER_STAGE,
   isWorkOrderStage,
@@ -70,6 +73,12 @@ interface WorkOrderRow {
   expected_delivery_date: string | null;
   planned_start_date: string | null;
   planned_end_date: string | null;
+  /** 木種（明細優先，未填退回規格庫） */
+  item_wood: string;
+  /** 尺寸：W/D/H（明細客製尺寸優先）＋座高＋扶手高 */
+  item_size: string;
+  /** 規格：product_variants.spec1（略去 -P/-R/-W/-F 代碼） */
+  item_spec: string;
   /** 明細「客製化備註」（order_items.custom_notes） */
   item_notes: string | null;
   /** 明細「詳細描述 / 備註」（order_items.custom_description） */
@@ -78,13 +87,154 @@ interface WorkOrderRow {
   order_notes: string | null;
 }
 
-/** 工單可展開檢視的備註區塊（與訂單總覽共用來源與標籤） */
-function workOrderNoteSections(w: WorkOrderRow) {
+/** 品項層級備註（客製化備註＋詳細描述），與訂單總覽共用來源與標籤 */
+function workOrderItemNoteSections(w: WorkOrderRow) {
   return orderNoteSections({
     itemNotes: w.item_notes,
     itemDescription: w.item_description,
-    orderNotes: w.order_notes,
   });
+}
+
+function workOrderHasNotes(w: WorkOrderRow): boolean {
+  return (
+    workOrderItemNoteSections(w).length > 0 || !!(w.order_notes ?? "").trim()
+  );
+}
+
+function formatWdh(w: unknown, d: unknown, h: unknown): string | null {
+  const parts: string[] = [];
+  if (w != null && w !== "") parts.push(`W${w}`);
+  if (d != null && d !== "") parts.push(`D${d}`);
+  if (h != null && h !== "") parts.push(`H${h}`);
+  return parts.length > 0 ? parts.join(" × ") : null;
+}
+
+/** 尺寸字串：明細客製尺寸優先於規格庫，後接座高、扶手高（與列印訂單同口徑） */
+function buildItemSizeText(oi: any, variant: any): string {
+  const hasCustom =
+    oi?.custom_dimension_w != null ||
+    oi?.custom_dimension_d != null ||
+    oi?.custom_dimension_h != null;
+  let text = hasCustom
+    ? formatWdh(oi.custom_dimension_w, oi.custom_dimension_d, oi.custom_dimension_h)
+    : formatWdh(variant?.dimension_w, variant?.dimension_d, variant?.dimension_h);
+  const seat = resolveSeatHeightCmForDisplay(oi?.seat_height_cm, variant?.seat_height_cm);
+  if (seat != null) {
+    const sh = formatSeatHeightCmLabel(seat);
+    text = text ? `${text} · ${sh}` : sh;
+  }
+  return appendArmHeight(text, variant?.arm_height_cm) ?? "";
+}
+
+/** 下拉展開的品項明細：規格三欄＋品項備註／訂單備註 */
+function WorkOrderDetailPanel({ w }: { w: WorkOrderRow }) {
+  const specs = [
+    { label: "木種", value: w.item_wood },
+    { label: "尺寸", value: w.item_size },
+    { label: "規格", value: w.item_spec },
+  ];
+  const itemNotes = workOrderItemNoteSections(w);
+  const orderNote = (w.order_notes ?? "").trim();
+  return (
+    <div className="flex flex-col gap-3">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-3">
+        {specs.map((s) => (
+          <div
+            key={s.label}
+            className="flex min-w-0 items-baseline gap-3 sm:flex-col sm:gap-0.5"
+          >
+            <dt className="w-9 shrink-0 text-xs text-muted-foreground sm:w-auto">
+              {s.label}
+            </dt>
+            <dd
+              className={cn(
+                "min-w-0 break-words text-sm",
+                s.value ? "font-medium text-foreground" : "text-muted-foreground"
+              )}
+            >
+              {s.value || "—"}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
+          <p className="mb-1 flex items-center gap-1 text-xs font-semibold text-foreground">
+            <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            品項備註
+          </p>
+          {itemNotes.length === 0 ? (
+            <p className="text-xs text-muted-foreground">無</p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {itemNotes.map((sec) => (
+                <div key={sec.label}>
+                  {itemNotes.length > 1 && (
+                    <span className="text-[11px] text-muted-foreground">
+                      {sec.label}
+                    </span>
+                  )}
+                  <p className="whitespace-pre-line break-words text-sm leading-relaxed text-foreground">
+                    {sec.text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
+          <p className="mb-1 flex flex-wrap items-center gap-1 text-xs font-semibold text-foreground">
+            <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            訂單備註
+            <span className="font-normal text-muted-foreground">（整張訂單共用）</span>
+          </p>
+          {orderNote ? (
+            <p className="whitespace-pre-line break-words text-sm leading-relaxed text-foreground">
+              {orderNote}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">無</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 展開明細的切換鈕；有任何備註時以小圓點提示 */
+function DetailToggle({
+  expanded,
+  hasNotes,
+  onClick,
+  className,
+}: {
+  expanded: boolean;
+  hasNotes: boolean;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={expanded}
+      aria-label={`${expanded ? "收合" : "展開"}品項明細${hasNotes ? "（有備註）" : ""}`}
+      title={expanded ? "收合明細" : hasNotes ? "查看明細（有備註）" : "查看明細"}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-secondary/60 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+        className
+      )}
+    >
+      明細
+      {hasNotes && (
+        <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+      )}
+      <ChevronDown
+        className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-180")}
+        aria-hidden
+      />
+    </button>
+  );
 }
 
 /** 品項無類別時之下拉顯示與篩選鍵 */
@@ -306,6 +456,9 @@ export function WorkOrdersPage() {
           custom_category,
           custom_description,
           custom_notes,
+          custom_dimension_w,
+          custom_dimension_d,
+          custom_dimension_h,
           quantity,
           seat_height_cm,
           wood_type,
@@ -325,6 +478,10 @@ export function WorkOrdersPage() {
             wood_type,
             spec1,
             seat_height_cm,
+            arm_height_cm,
+            dimension_w,
+            dimension_d,
+            dimension_h,
             product_series(category)
           )
         )
@@ -429,6 +586,9 @@ export function WorkOrdersPage() {
         expected_delivery_date: order?.expected_delivery_date ?? null,
         planned_start_date: r.planned_start_date ?? null,
         planned_end_date: r.planned_end_date ?? null,
+        item_wood: woodType,
+        item_size: buildItemSizeText(oi, variant),
+        item_spec: stripSpecSuffixCodes(spec1),
         item_notes: oi?.custom_notes ?? null,
         item_description: oi?.custom_description ?? null,
         order_notes: order?.internal_notes ?? null,
@@ -706,6 +866,117 @@ export function WorkOrdersPage() {
     );
   }
 
+  /* 以下四個欄位控制項由桌機表格與手機卡片共用 */
+  function renderStageSelect(w: WorkOrderRow, className?: string) {
+    return (
+      <select
+        value={w.stage}
+        onChange={(e) =>
+          updateWorkOrderInline(w.id, {
+            stage: e.target.value as WorkOrderStage,
+          })
+        }
+        title={w.stage}
+        aria-label="工序"
+        className={cn(
+          "h-8 min-w-[5.5rem] rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring",
+          stageStyleClassName(
+            isWorkOrderStage(w.stage) ? w.stage : DEFAULT_WORK_ORDER_STAGE
+          ),
+          className
+        )}
+      >
+        {STAGE_OPTIONS.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  function renderAssigneeSelect(w: WorkOrderRow, className?: string) {
+    return (
+      <select
+        value={w.assignee_id ?? ""}
+        onChange={(e) => {
+          const id = e.target.value || null;
+          const emp = employees.find((x) => x.id === id);
+          updateWorkOrderInline(w.id, {
+            assignee_id: id,
+            assignee_name: emp?.name ?? null,
+          });
+        }}
+        title={w.assignee_name ?? undefined}
+        aria-label="負責人"
+        className={cn(
+          "h-8 min-w-[5.5rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring",
+          className
+        )}
+      >
+        <option value="">未指派</option>
+        {employees.map((emp) => (
+          <option key={emp.id} value={emp.id}>
+            {emp.name}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  function renderDeliveryInput(w: WorkOrderRow, className?: string) {
+    return (
+      <input
+        type="date"
+        value={dateInputValue(w.expected_delivery_date)}
+        onChange={(e) => {
+          const v = e.target.value || null;
+          updateDeliveryDate(w.order_id, v, w.id);
+        }}
+        className={cn(
+          "h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring",
+          className
+        )}
+        aria-label="交期"
+      />
+    );
+  }
+
+  function renderPlannedInput(w: WorkOrderRow, className?: string) {
+    return (
+      <input
+        type="date"
+        value={dateInputValue(w.planned_end_date)}
+        onChange={(e) => {
+          const v = e.target.value;
+          updateWorkOrderInline(w.id, {
+            planned_end_date: v ? v : null,
+          });
+        }}
+        className={cn(
+          "h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-ring",
+          plannedVsDeliveryTone(w.planned_end_date, w.expected_delivery_date),
+          className
+        )}
+        aria-label="預計完成日"
+      />
+    );
+  }
+
+  function renderOrderNumber(w: WorkOrderRow) {
+    const label = w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—";
+    if (!w.order_id) return label;
+    return (
+      <button
+        type="button"
+        onClick={() => openOrderOverview(w)}
+        className="text-left text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded px-0.5 py-0.5"
+      >
+        {label}
+      </button>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col gap-4">
@@ -878,11 +1149,124 @@ export function WorkOrdersPage() {
         </Button>
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-x-auto min-w-0 max-w-full">
-        {/* 手機：固定最小寬度＋橫向捲動。電腦（lg 以上）：解除 Table 預設的 min-w-max，
-            讓表格縮到容器寬度、文字欄改為可換行，桌機不出現左右捲軸。
-            table-fixed 會讓不換行內容溢出蓋到相鄰欄，故不使用。 */}
-        <Table className="min-w-[52rem] text-sm lg:min-w-0 lg:w-full">
+      {/* 手機／平板（lg 以下）：卡片清單 */}
+      <div className="flex flex-col gap-2 lg:hidden">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={sortBy}
+            onChange={(e) => {
+              setSortBy(e.target.value as WorkSortKey);
+              setSortAsc(true);
+            }}
+            aria-label="排序欄位"
+            className="h-8 rounded-md border border-input bg-background px-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="stage">排序：工序</option>
+            <option value="expected_delivery_date">排序：交期</option>
+            <option value="planned_end_date">排序：預計完成</option>
+            <option value="order_number">排序：訂單</option>
+            <option value="customer_name">排序：客戶</option>
+            <option value="item_name">排序：品項</option>
+            <option value="assignee_name">排序：負責人</option>
+          </select>
+          <Button
+            type="button"
+            variant="outline"
+            size="default"
+            className="h-8 gap-1 px-2 text-xs"
+            onClick={() => setSortAsc((v) => !v)}
+            aria-label={sortAsc ? "目前升冪，切換為降冪" : "目前降冪，切換為升冪"}
+          >
+            {sortAsc ? (
+              <ArrowUp className="h-3.5 w-3.5" />
+            ) : (
+              <ArrowDown className="h-3.5 w-3.5" />
+            )}
+            {sortAsc ? "升冪" : "降冪"}
+          </Button>
+        </div>
+        {filtered.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+            目前尚無工單或不符合篩選條件。
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {filtered.map((w) => {
+              const expanded = expandedNoteIds.has(w.id);
+              return (
+                <div
+                  key={w.id}
+                  className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-card p-3"
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-2">
+                    <div className="min-w-0 text-xs leading-snug">
+                      <span className="font-mono font-medium">{renderOrderNumber(w)}</span>
+                      <span className="ml-1.5 font-medium text-foreground">
+                        {w.customer_name || "—"}
+                      </span>
+                      {w.customer_alias && String(w.customer_alias).trim() && (
+                        <span className="text-muted-foreground"> ({w.customer_alias})</span>
+                      )}
+                      {w.shipping_contact_name?.trim() ? (
+                        <span className="text-muted-foreground">
+                          ／{w.shipping_contact_name.trim()}
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 rounded-md bg-secondary px-1.5 py-0.5 text-xs font-semibold tabular-nums text-foreground">
+                      ×{Number.isFinite(w.quantity) && w.quantity > 0 ? w.quantity : "—"}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleNote(w.id)}
+                    aria-expanded={expanded}
+                    className="flex min-w-0 items-start justify-between gap-2 text-left focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                  >
+                    <span className="min-w-0 break-words text-sm font-semibold leading-snug text-foreground">
+                      {w.item_name || "—"}
+                    </span>
+                    <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+                      明細
+                      {workOrderHasNotes(w) && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+                      )}
+                      <ChevronDown
+                        className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")}
+                        aria-hidden
+                      />
+                    </span>
+                  </button>
+                  {expanded && (
+                    <div className="rounded-lg bg-muted/40 p-2.5">
+                      <WorkOrderDetailPanel w={w} />
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    {renderStageSelect(w, "w-full min-w-0")}
+                    {renderAssigneeSelect(w, "w-full min-w-0")}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[11px] text-muted-foreground">交期</span>
+                      {renderDeliveryInput(w, "w-full min-w-0")}
+                    </label>
+                    <label className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[11px] text-muted-foreground">預計完成</span>
+                      {renderPlannedInput(w, "w-full min-w-0")}
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 電腦（lg 以上）：表格。解除 Table 預設的 min-w-max，讓表格縮到容器寬度、
+          文字欄可換行，不出現左右捲軸。table-fixed 會讓不換行內容溢出蓋到相鄰欄，故不使用。 */}
+      <div className="hidden rounded-xl border border-border bg-card overflow-x-auto min-w-0 max-w-full lg:block">
+        <Table className="w-full min-w-0 text-sm">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="px-2 text-sm font-semibold whitespace-nowrap">
@@ -892,7 +1276,7 @@ export function WorkOrdersPage() {
                 <SortHeader label="客戶 / 專案" sortKey="customer_name" />
               </TableHead>
               {/* 品項內容最長，桌機給固定配額避免被日期／下拉欄擠到每列都折行 */}
-              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap lg:w-[22%]">
+              <TableHead className="px-2 text-sm font-semibold whitespace-nowrap w-[22%]">
                 <SortHeader label="品項" sortKey="item_name" />
               </TableHead>
               <TableHead className="px-2 text-right text-sm font-semibold whitespace-nowrap">
@@ -924,25 +1308,14 @@ export function WorkOrdersPage() {
               </TableRow>
             ) : (
               filtered.map((w) => {
-                const noteSections = workOrderNoteSections(w);
-                const noteExpanded = expandedNoteIds.has(w.id);
+                const expanded = expandedNoteIds.has(w.id);
                 return (
                   <React.Fragment key={w.id}>
-                  <TableRow className="border-b border-border">
-                    <TableCell className="p-2 align-top font-mono text-sm font-medium whitespace-nowrap lg:px-1.5 lg:text-xs">
-                      {w.order_id ? (
-                        <button
-                          type="button"
-                          onClick={() => openOrderOverview(w)}
-                          className="text-left text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded px-0.5 py-0.5"
-                        >
-                          {w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—"}
-                        </button>
-                      ) : (
-                        w.order_number ? w.order_number.replace(/^ORD-/i, "") : "—"
-                      )}
+                  <TableRow className={cn("border-b border-border", expanded && "border-b-0")}>
+                    <TableCell className="px-1.5 py-2 align-top font-mono text-xs font-medium whitespace-nowrap">
+                      {renderOrderNumber(w)}
                     </TableCell>
-                    <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap lg:whitespace-normal">
+                    <TableCell className="p-2 align-top text-sm leading-tight">
                       <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 break-words">
                         <span className="font-medium text-foreground">
                           {w.customer_name || "—"}
@@ -959,129 +1332,42 @@ export function WorkOrdersPage() {
                         ) : null}
                       </div>
                     </TableCell>
-                    <TableCell className="p-2 align-top text-sm leading-tight whitespace-nowrap lg:whitespace-normal">
+                    <TableCell className="p-2 align-top text-sm leading-tight">
                       <div className="flex min-w-0 flex-wrap items-center gap-1">
                         <span className="break-words text-foreground">
                           {w.item_name || "—"}
                         </span>
-                        {noteSections.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => toggleNote(w.id)}
-                            aria-expanded={noteExpanded}
-                            aria-label={`${noteExpanded ? "收合" : "展開"}備註`}
-                            title={noteExpanded ? "收合備註" : "查看備註"}
-                            className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-secondary/60 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                          >
-                            <MessageSquare className="h-3 w-3 shrink-0" aria-hidden />
-                            備註
-                            <ChevronDown
-                              className={cn(
-                                "h-3 w-3 shrink-0 transition-transform",
-                                noteExpanded && "rotate-180"
-                              )}
-                              aria-hidden
-                            />
-                          </button>
-                        )}
+                        <DetailToggle
+                          expanded={expanded}
+                          hasNotes={workOrderHasNotes(w)}
+                          onClick={() => toggleNote(w.id)}
+                        />
                       </div>
                     </TableCell>
                     <TableCell className="p-2 align-top text-right text-sm tabular-nums whitespace-nowrap">
                       {Number.isFinite(w.quantity) && w.quantity > 0 ? w.quantity : "—"}
                     </TableCell>
                     <TableCell className="p-2 align-top whitespace-nowrap">
-                      <select
-                        value={w.stage}
-                        onChange={(e) =>
-                          updateWorkOrderInline(w.id, {
-                            stage: e.target.value as WorkOrderStage,
-                          })
-                        }
-                        title={w.stage}
-                        className={`h-8 min-w-[5.5rem] rounded-md border px-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-ring ${stageStyleClassName(
-                          isWorkOrderStage(w.stage) ? w.stage : DEFAULT_WORK_ORDER_STAGE
-                        )}`}
-                      >
-                        {STAGE_OPTIONS.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
+                      {renderStageSelect(w)}
                     </TableCell>
                     <TableCell className="p-2 align-top whitespace-nowrap">
-                      <select
-                        value={w.assignee_id ?? ""}
-                        onChange={(e) => {
-                          const id = e.target.value || null;
-                          const emp = employees.find((x) => x.id === id);
-                          updateWorkOrderInline(w.id, {
-                            assignee_id: id,
-                            assignee_name: emp?.name ?? null,
-                          });
-                        }}
-                        title={w.assignee_name ?? undefined}
-                        aria-label="負責人"
-                        className="h-8 min-w-[5.5rem] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="">未指派</option>
-                        {employees.map((emp) => (
-                          <option key={emp.id} value={emp.id}>
-                            {emp.name}
-                          </option>
-                        ))}
-                      </select>
+                      {renderAssigneeSelect(w)}
                     </TableCell>
                     <TableCell className="p-2 align-top whitespace-nowrap">
-                      <input
-                        type="date"
-                        value={dateInputValue(w.expected_delivery_date)}
-                        onChange={(e) => {
-                          const v = e.target.value || null;
-                          updateDeliveryDate(w.order_id, v, w.id);
-                        }}
-                        className="h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-                        aria-label="交期"
-                      />
+                      {renderDeliveryInput(w)}
                     </TableCell>
                     <TableCell className="p-2 align-top whitespace-nowrap">
                       <div className="flex min-w-0 items-center gap-1">
                         <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                        <input
-                          type="date"
-                          value={dateInputValue(w.planned_end_date)}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            updateWorkOrderInline(w.id, {
-                              planned_end_date: v ? v : null,
-                            });
-                          }}
-                          className={cn(
-                            "h-8 min-h-8 min-w-[7.5rem] rounded-md border border-input bg-background px-1.5 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-ring",
-                            plannedVsDeliveryTone(w.planned_end_date, w.expected_delivery_date),
-                          )}
-                          aria-label="預計完成日"
-                        />
+                        {renderPlannedInput(w)}
                       </div>
                     </TableCell>
                   </TableRow>
-                  {noteExpanded && noteSections.length > 0 && (
+                  {expanded && (
                     <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30">
-                      <TableCell colSpan={8} className="p-0">
-                        {/* 表格可橫向捲動：備註面板貼齊左側並限寬，手機上不必左右滑才讀得到 */}
-                        <div className="sticky left-0 max-w-[calc(100vw-3rem)] px-3 py-2.5 lg:max-w-[44rem]">
-                          <div className="flex flex-col gap-2">
-                            {noteSections.map((sec) => (
-                              <div key={sec.label} className="flex flex-col gap-0.5">
-                                <span className="text-[11px] font-semibold text-foreground">
-                                  {sec.label}
-                                </span>
-                                <p className="whitespace-pre-line break-words text-xs leading-relaxed text-muted-foreground">
-                                  {sec.text}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
+                      <TableCell colSpan={8} className="px-3 pb-3 pt-1">
+                        <div className="max-w-[60rem] rounded-lg border border-border/70 bg-card/60 p-3">
+                          <WorkOrderDetailPanel w={w} />
                         </div>
                       </TableCell>
                     </TableRow>

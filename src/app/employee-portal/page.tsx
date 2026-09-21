@@ -149,6 +149,11 @@ function splitWoItemLabel(label: string): { name: string; dims: string | null } 
   return { name: t.slice(0, idx), dims: t.slice(idx + 3) };
 }
 
+/** 「W:200 x D:90 x H:75」→「W200 × D90 × H75」，卡片上接在品項名稱右側 */
+function formatWoDims(dims: string): string {
+  return dims.replace(/([WDH]):\s*/g, "$1").replace(/\s+x\s+/gi, " × ");
+}
+
 /** 生產交辦備註過長時，手機卡片先摺疊（超過 3 行或 90 字） */
 function isLongWoNote(text: string): boolean {
   return text.length > 90 || text.split("\n").length > 3;
@@ -2066,8 +2071,18 @@ export default function EmployeePortalPage() {
                                 className="rounded-xl border border-border/70 bg-card/40 p-3"
                               >
                                 <div className="flex items-start gap-2">
-                                  <p className="min-w-0 flex-1 text-[15px] font-medium leading-snug text-foreground">
-                                    {woItemName}
+                                  <p className="min-w-0 flex-1 leading-snug">
+                                    <span className="text-[15px] font-medium text-foreground">
+                                      {woItemName}
+                                    </span>
+                                    {woItemDims ? (
+                                      <span className="ml-2 inline-block text-xs text-muted-foreground">
+                                        尺寸：
+                                        <span className="tabular-nums text-foreground/80">
+                                          {formatWoDims(woItemDims)}
+                                        </span>
+                                      </span>
+                                    ) : null}
                                   </p>
                                   {Number.isFinite(wo.quantity) && wo.quantity > 1 ? (
                                     <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">
@@ -2081,19 +2096,16 @@ export default function EmployeePortalPage() {
                                   ) : null}
                                 </div>
                                 <p className="mt-1 truncate text-[13px] text-muted-foreground">
-                                  {wo.customer_name || "—"}
-                                  {" · "}
-                                  <span className="font-mono">
+                                  訂單：
+                                  <span className="text-foreground">
+                                    {wo.customer_name || "—"}
+                                  </span>{" "}
+                                  <span className="font-mono text-foreground">
                                     {wo.order_number
                                       ? wo.order_number.replace(/^ORD-/i, "")
                                       : "—"}
                                   </span>
                                 </p>
-                                {woItemDims ? (
-                                  <p className="mt-0.5 truncate text-xs text-muted-foreground/70">
-                                    {woItemDims}
-                                  </p>
-                                ) : null}
                                 {woContact ? (
                                   <p className="mt-1 truncate text-[13px] text-muted-foreground">
                                     聯絡人：
@@ -2189,13 +2201,10 @@ export default function EmployeePortalPage() {
                           <Table className="min-w-[44rem]">
                             <TableHeader>
                               <TableRow className="hover:bg-transparent border-border/60">
-                                <TableHead className="text-xs font-semibold whitespace-nowrap min-w-[7rem]">
-                                  <WoSortHeader label="訂單編號" sortKey="order_number" />
-                                </TableHead>
-                                <TableHead className="text-xs font-semibold min-w-[8rem]">
-                                  <WoSortHeader label="客戶 / 專案" sortKey="customer_name" />
-                                </TableHead>
                                 <TableHead className="text-xs font-semibold min-w-[10rem]">
+                                  <WoSortHeader label="訂單" sortKey="customer_name" />
+                                </TableHead>
+                                <TableHead className="text-xs font-semibold min-w-[12rem]">
                                   <WoSortHeader label="品項 / 尺寸" sortKey="item_size_label" />
                                 </TableHead>
                                 <TableHead className="text-xs font-semibold text-right whitespace-nowrap w-[3.5rem]">
@@ -2220,15 +2229,19 @@ export default function EmployeePortalPage() {
                                   ? stageVal
                                   : DEFAULT_WORK_ORDER_STAGE;
                                 const orderClosed = isWoOrderClosed(wo);
+                                const { name: woItemName, dims: woItemDims } = splitWoItemLabel(
+                                  wo.item_size_label,
+                                );
                                 return (
                                   <TableRow key={wo.id} className="border-border/60">
-                                    <TableCell className="p-2 align-middle font-mono text-xs font-medium whitespace-nowrap">
-                                      {wo.order_number ? wo.order_number.replace(/^ORD-/i, "") : "—"}
-                                    </TableCell>
                                     <TableCell className="p-2 align-middle text-sm">
                                       <div className="min-w-0 leading-snug">
+                                        <span className="text-xs text-muted-foreground">訂單：</span>
                                         <span className="font-medium text-foreground">
                                           {wo.customer_name || "—"}
+                                        </span>{" "}
+                                        <span className="whitespace-nowrap font-mono text-xs text-foreground">
+                                          {wo.order_number ? wo.order_number.replace(/^ORD-/i, "") : "—"}
                                         </span>
                                         {wo.shipping_contact_name?.trim() ? (
                                           <span className="block text-xs text-muted-foreground">
@@ -2240,8 +2253,18 @@ export default function EmployeePortalPage() {
                                         ) : null}
                                       </div>
                                     </TableCell>
-                                    <TableCell className="p-2 align-middle text-sm max-w-[14rem]">
-                                      <span className="line-clamp-2">{wo.item_size_label || "—"}</span>
+                                    <TableCell className="p-2 align-middle text-sm max-w-[18rem]">
+                                      <span className="line-clamp-2">
+                                        <span className="font-medium text-foreground">{woItemName}</span>
+                                        {woItemDims ? (
+                                          <span className="ml-2 inline-block text-xs text-muted-foreground">
+                                            尺寸：
+                                            <span className="tabular-nums text-foreground/80">
+                                              {formatWoDims(woItemDims)}
+                                            </span>
+                                          </span>
+                                        ) : null}
+                                      </span>
                                       {wo.item_notes?.trim() ? (
                                         <span
                                           title={wo.item_notes.trim()}
