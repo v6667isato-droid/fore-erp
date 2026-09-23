@@ -27,7 +27,7 @@ import {
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CustomerRow } from "@/types/crm";
-import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2 } from "lucide-react";
+import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2, History } from "lucide-react";
 import { toast } from "sonner";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import {
@@ -38,6 +38,7 @@ import { fetchOrderInvoiceCounts } from "@/lib/sales-invoice";
 import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
 import { OrderInvoicesDialog } from "@/components/orders/order-invoices-dialog";
 import { OrderReturnDialog } from "@/components/orders/order-return-dialog";
+import { OrderAuditTrailDialog } from "@/components/order-audit-trail";
 import type {
   OrderRow,
   CustomerOption,
@@ -114,6 +115,7 @@ export function OrdersPage({
   isAdmin = false,
   canIssueInvoice = false,
   canEditClosedOrders = false,
+  canViewAuditTrail = false,
   initialOpenOrderId,
 }: {
   isAdmin?: boolean;
@@ -121,6 +123,8 @@ export function OrdersPage({
   canIssueInvoice?: boolean;
   /** 修改「結案」訂單僅限 admin（已退貨、刪除仍一律鎖定） */
   canEditClosedOrders?: boolean;
+  /** 訂單修改紀錄僅限 admin（audit_logs RLS 僅 admin 可讀） */
+  canViewAuditTrail?: boolean;
   /** 若提供，會在載入後自動開啟該筆訂單的編輯窗格 */
   initialOpenOrderId?: string;
 } = {}) {
@@ -161,6 +165,7 @@ export function OrdersPage({
   const [invoiceCounts, setInvoiceCounts] = useState<Record<string, number>>({});
   /** 退貨對話框（已完工／已出貨／結案後可操作；已退貨訂單可檢視、刪除紀錄） */
   const [returnOrder, setReturnOrder] = useState<OrderRow | null>(null);
+  const [historyOrder, setHistoryOrder] = useState<OrderRow | null>(null);
   /** 地址條多選列印：勾選的訂單 id（一次列印多筆省 A4） */
   const [selectedPrintIds, setSelectedPrintIds] = useState<Set<string>>(
     () => new Set()
@@ -1520,6 +1525,22 @@ export function OrdersPage({
                           <Undo2 className="h-3 w-3" />
                         </Button>
                       )}
+                      {canViewAuditTrail && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          title="修改紀錄"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setHistoryOrder(order);
+                          }}
+                        >
+                          <History className="h-3 w-3" />
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
@@ -1617,6 +1638,14 @@ export function OrdersPage({
           if (!open) setReturnOrder(null);
         }}
         onSaved={reloadOrders}
+      />
+
+      <OrderAuditTrailDialog
+        order={historyOrder}
+        open={historyOrder != null}
+        onOpenChange={(open) => {
+          if (!open) setHistoryOrder(null);
+        }}
       />
 
       <OrderFormDialog

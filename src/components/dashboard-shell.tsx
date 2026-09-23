@@ -623,6 +623,7 @@ export default function DashboardShell() {
                   isAdmin={isErpEditorRole(userRole)}
                   canIssueInvoice={userRole === "admin"}
                   canEditClosedOrders={userRole === "admin"}
+                  canViewAuditTrail={userRole === "admin"}
                   initialOpenOrderId={resolvedInitialOpenOrderId ?? undefined}
                 />
               )}
