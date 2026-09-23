@@ -60,7 +60,7 @@ function buildPrompt(text: string): string {
   - dimension_w（寬／長）、dimension_d（深）、dimension_h（高）：一律換算成公分，例如「W90 D45 H90」；沒提到填 null。
   - seat_height_cm：椅凳座高（公分），沒提到填 null。
   - wood_type：木種，例如胡桃木、白橡木、柚木。
-  - notes：其他規格，例如顏色、塗裝、造型、藤編／布墊。
+  - notes：其他規格或備註，例如顏色、塗裝、造型、藤編／布墊、「層板可自由調整」；已填在木種、尺寸、價格、數量的內容不要重複。
 - order.expected_delivery_date：客戶希望的交期，格式 YYYY-MM-DD。今天是 ${taiwanToday()}，相對日期據此換算，「月底」取該月最後一天；沒提到填 null。
 - order.discount_percent：整張訂單的折扣百分比。「折扣5%」→ 5、「打95折」→ 5、「9折」→ 10；沒提到填 null。
 - order.discount_amount：整張訂單直接折抵的金額，例如「折2000」「便宜2000元」→ 2000；沒提到填 null。

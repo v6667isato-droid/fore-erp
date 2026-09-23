@@ -21,6 +21,7 @@ import {
   findCustomerMatches,
   pickDefaultMatch,
   sanitizeIntakeResult,
+  searchCustomers,
   type CustomerMatch,
   type ExistingCustomerFields,
   type FieldUpdate,
@@ -225,7 +226,7 @@ function existingFields(row: CustomerRow): ExistingCustomerFields {
   };
 }
 
-/** 比對需掃過全部客戶；Supabase 單次最多回 1000 筆，分頁讀完 */
+/** 比對需掃過全部客戶；Supabase 單次最多回 1000 筆，分頁讀完（新→舊，同姓等同分結果先列近期客戶） */
 async function fetchAllCustomers(): Promise<CustomerRow[]> {
   const pageSize = 1000;
   const rows: CustomerRow[] = [];
@@ -234,6 +235,7 @@ async function fetchAllCustomers(): Promise<CustomerRow[]> {
       .from("customers")
       .select(CUSTOMER_VIEW_SELECT)
       .is("deleted_at", null)
+      .order("created_at", { ascending: false })
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) throw new Error(`讀取客戶資料失敗：${error.message}`);
@@ -256,6 +258,8 @@ function displayUpdateValue(u: FieldUpdate, value: string | boolean | null): str
 
 const STRONG_REASON_CLASS = "border-emerald-200 bg-emerald-100 text-emerald-800";
 const POSSIBLE_REASON_CLASS = "border-amber-200 bg-amber-100 text-amber-800";
+/** 同姓、手動選擇：僅供參考 */
+const NEUTRAL_REASON_CLASS = "border-border bg-muted text-muted-foreground";
 const STRONG_REASONS: MatchReason[] = ["phone", "tax_id", "line_id", "ig_account"];
 
 const inputClass =
@@ -269,6 +273,64 @@ const PLACEHOLDER = `例：
 台南市東區大學路1號5樓（有電梯）
 統編 12345678 抬頭 小明設計有限公司
 想訂胡桃木餐桌 180x90 一張、餐椅 4 張，希望 11 月底前送到`;
+
+/** 既有客戶選項（比對結果與搜尋結果共用） */
+function CustomerOptionButton({
+  customer: c,
+  reasons,
+  manual = false,
+  selected,
+  onSelect,
+}: {
+  customer: CustomerRow;
+  reasons: MatchReason[];
+  /** 從搜尋選取、不在比對結果中 */
+  manual?: boolean;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const detail = [c.contact_person !== c.name ? c.contact_person : null, c.phone, c.company, c.delivery_address]
+    .filter(Boolean)
+    .join("・");
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={`flex w-full flex-col items-start gap-1 rounded-lg border px-3 py-2 text-left transition ${
+        selected ? "border-primary bg-primary/5 ring-2 ring-primary/30" : "border-border hover:bg-muted/50"
+      }`}
+    >
+      <span className="flex w-full flex-wrap items-center gap-1.5">
+        <span className="text-sm font-medium text-foreground">
+          {c.name}
+          {c.alias ? <span className="ml-1 text-xs text-muted-foreground">（{c.alias}）</span> : null}
+        </span>
+        {reasons.map((r) => (
+          <span
+            key={r}
+            className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${
+              STRONG_REASONS.includes(r)
+                ? STRONG_REASON_CLASS
+                : r === "surname"
+                  ? NEUTRAL_REASON_CLASS
+                  : POSSIBLE_REASON_CLASS
+            }`}
+          >
+            {MATCH_REASON_LABELS[r]}
+          </span>
+        ))}
+        {manual ? (
+          <span className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${NEUTRAL_REASON_CLASS}`}>
+            手動選擇
+          </span>
+        ) : null}
+      </span>
+      {detail ? <span className="w-full text-xs text-muted-foreground [overflow-wrap:anywhere]">{detail}</span> : null}
+    </button>
+  );
+}
 
 export interface CustomerIntakeDialogProps {
   open: boolean;
@@ -307,16 +369,32 @@ export function CustomerIntakeDialog({
 
   const formCustomer = useMemo(() => formToCustomer(form), [form]);
   // 修改欄位（例如更正電話）時即時重新比對
-  const matches = useMemo(() => findCustomerMatches(formCustomer, customers), [formCustomer, customers]);
+  const matches = useMemo(() => findCustomerMatches(formCustomer, customers, 8), [formCustomer, customers]);
+  /** 手動搜尋既有客戶（比對結果沒有要找的人時用） */
+  const [searchQuery, setSearchQuery] = useState("");
   const selectedCustomer =
     selectedId === NEW_CUSTOMER ? null : customers.find((c) => c.id === selectedId) ?? null;
   const isNew = selectedCustomer == null;
-  /** 已選的客戶若因改欄位而不再符合，仍留在清單上 */
-  const listedMatches: CustomerMatch<CustomerRow>[] =
-    selectedCustomer && !matches.some((m) => m.customer.id === selectedCustomer.id)
-      ? [{ customer: selectedCustomer, reasons: [], strong: false, score: 0 }, ...matches]
-      : matches;
+  /** 已選的客戶若不在比對結果（改了欄位、或從搜尋選取），仍列在清單最上方 */
+  const listedMatches = useMemo<CustomerMatch<CustomerRow>[]>(
+    () =>
+      selectedCustomer && !matches.some((m) => m.customer.id === selectedCustomer.id)
+        ? [{ customer: selectedCustomer, reasons: [], strong: false, score: 0 }, ...matches]
+        : matches,
+    [selectedCustomer, matches]
+  );
   const hasStrongMatch = matches.some((m) => m.strong);
+  const onlySurnameMatches = matches.length > 0 && matches.every((m) => m.reasons.every((r) => r === "surname"));
+  const searchResults = useMemo(() => {
+    const listed = new Set(listedMatches.map((m) => m.customer.id));
+    return searchCustomers(searchQuery, customers, 30).filter((c) => !listed.has(c.id));
+  }, [searchQuery, customers, listedMatches]);
+
+  function selectCustomer(id: string) {
+    setSelectedId(id);
+    setUpdateOverrides({});
+    setSearchQuery("");
+  }
 
   const updates = useMemo(
     () => (selectedCustomer ? diffCustomerFields(existingFields(selectedCustomer), formCustomer) : []),
@@ -364,6 +442,7 @@ export function CustomerIntakeDialog({
     setOrder(EMPTY_ORDER);
     setSelectedId(NEW_CUSTOMER);
     setUpdateOverrides({});
+    setSearchQuery("");
   }
 
   async function handleParse() {
@@ -406,6 +485,7 @@ export function CustomerIntakeDialog({
       // 電話／統編等確定相同、或恰好一位同名客戶時預設選既有客戶，否則預設建立新客戶
       setSelectedId(pickDefaultMatch(initialMatches, result.customer)?.id ?? NEW_CUSTOMER);
       setUpdateOverrides({});
+      setSearchQuery("");
       setStep("review");
       if (result.customer.tax_id && !result.customer.company) lookupCompanyByTaxId(result.customer.tax_id);
     } catch (err) {
@@ -596,70 +676,68 @@ export function CustomerIntakeDialog({
               {/* 1. 既有客戶比對 */}
               <section className={sectionClass}>
                 <h3 className={sectionTitleClass}>是否已有這位客戶？</h3>
-                {listedMatches.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">找不到相符的既有客戶，將建立新客戶。</p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {hasStrongMatch
+                <p className="text-sm text-muted-foreground">
+                  {listedMatches.length === 0
+                    ? "找不到相符的既有客戶，將建立新客戶；也可以在下方搜尋既有客戶。"
+                    : hasStrongMatch
                       ? "找到電話／統編／帳號相同的客戶，很可能是同一位，請確認："
-                      : "找到名稱或地址相近的客戶，請確認是否為同一位："}
-                  </p>
-                )}
+                      : onlySurnameMatches
+                        ? "找到同姓的客戶，是否為其中一位？"
+                        : "找到名稱或地址相近的客戶，請確認是否為同一位："}
+                </p>
                 <div className="space-y-2" role="radiogroup" aria-label="選擇客戶">
-                  {listedMatches.map((m) => {
-                    const c = m.customer;
-                    const selected = c.id === selectedId;
-                    const detail = [c.phone, c.company, c.delivery_address].filter(Boolean).join("・");
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        onClick={() => {
-                          setSelectedId(c.id);
-                          setUpdateOverrides({});
-                        }}
-                        className={`flex w-full flex-col items-start gap-1 rounded-lg border px-3 py-2 text-left transition ${
-                          selected ? "border-primary bg-primary/5 ring-2 ring-primary/30" : "border-border hover:bg-muted/50"
-                        }`}
-                      >
-                        <span className="flex w-full flex-wrap items-center gap-1.5">
-                          <span className="text-sm font-medium text-foreground">
-                            {c.name}
-                            {c.alias ? <span className="ml-1 text-xs text-muted-foreground">（{c.alias}）</span> : null}
-                          </span>
-                          {m.reasons.map((r) => (
-                            <span
-                              key={r}
-                              className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${
-                                STRONG_REASONS.includes(r) ? STRONG_REASON_CLASS : POSSIBLE_REASON_CLASS
-                              }`}
-                            >
-                              {MATCH_REASON_LABELS[r]}
-                            </span>
-                          ))}
-                        </span>
-                        {detail ? (
-                          <span className="w-full text-xs text-muted-foreground [overflow-wrap:anywhere]">{detail}</span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
+                  {listedMatches.map((m) => (
+                    <CustomerOptionButton
+                      key={m.customer.id}
+                      customer={m.customer}
+                      reasons={m.reasons}
+                      manual={m.reasons.length === 0}
+                      selected={m.customer.id === selectedId}
+                      onSelect={() => selectCustomer(m.customer.id)}
+                    />
+                  ))}
                   <button
                     type="button"
                     role="radio"
                     aria-checked={isNew}
-                    onClick={() => {
-                      setSelectedId(NEW_CUSTOMER);
-                      setUpdateOverrides({});
-                    }}
+                    onClick={() => selectCustomer(NEW_CUSTOMER)}
                     className={`flex w-full items-center rounded-lg border px-3 py-2 text-left text-sm font-medium transition ${
                       isNew ? "border-primary bg-primary/5 ring-2 ring-primary/30" : "border-dashed border-border hover:bg-muted/50"
                     }`}
                   >
                     建立新客戶
                   </button>
+                </div>
+                <div className="space-y-2 border-t border-border/60 pt-3">
+                  <label htmlFor="intake-customer-search" className={labelClass}>
+                    或選擇其他既有客戶
+                  </label>
+                  <input
+                    id="intake-customer-search"
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={inputClass}
+                    placeholder="搜尋姓名、電話、公司、地址…（輸入「曾」列出姓曾的客戶）"
+                    autoComplete="off"
+                  />
+                  {searchQuery.trim() ? (
+                    searchResults.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">找不到符合的客戶</p>
+                    ) : (
+                      <div className="max-h-72 space-y-2 overflow-y-auto" role="radiogroup" aria-label="搜尋結果">
+                        {searchResults.map((c) => (
+                          <CustomerOptionButton
+                            key={c.id}
+                            customer={c}
+                            reasons={[]}
+                            selected={c.id === selectedId}
+                            onSelect={() => selectCustomer(c.id)}
+                          />
+                        ))}
+                      </div>
+                    )
+                  ) : null}
                 </div>
                 {isNew && hasStrongMatch ? (
                   <p className="text-xs text-amber-700" role="alert">

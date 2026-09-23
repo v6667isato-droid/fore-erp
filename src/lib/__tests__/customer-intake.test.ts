@@ -7,6 +7,8 @@ import {
   normalizeNameKey,
   phoneKeys,
   sanitizeIntakeResult,
+  searchCustomers,
+  surnameKey,
   type MatchableCustomer,
 } from "@/lib/customer-intake";
 
@@ -102,8 +104,11 @@ describe("findCustomerMatches", () => {
     expect(res[0].reasons).toEqual(["name"]);
   });
 
-  it("只有姓氏加稱謂不比對名稱，避免配到所有同姓客戶", () => {
-    expect(findCustomerMatches({ name: "陳小姐" }, customers)).toEqual([]);
+  it("只有姓氏加稱謂不算名稱相同，改列為同姓", () => {
+    const res = findCustomerMatches({ name: "陳小姐" }, customers);
+    expect(res.map((m) => m.customer.id)).toEqual(["c3"]);
+    expect(res[0].reasons).toEqual(["surname"]);
+    expect(res[0].strong).toBe(false);
   });
 
   it("地址相同", () => {
@@ -124,6 +129,74 @@ describe("findCustomerMatches", () => {
   it("沒有任何線索時不回傳", () => {
     expect(findCustomerMatches({}, customers)).toEqual([]);
     expect(findCustomerMatches({ name: "完全不相干" }, customers)).toEqual([]);
+  });
+});
+
+describe("同姓比對", () => {
+  const list: MatchableCustomer[] = [
+    { id: "t1", name: "曾建華", phone: "0911-111-111" },
+    { id: "t2", name: "曾小姐" },
+    { id: "t3", name: "王曾", contact_person: "曾美玲" },
+    { id: "t4", name: "木曾設計" },
+    { id: "t5", name: "林大華" },
+  ];
+
+  it("surnameKey：姓＋稱謂或單一字", () => {
+    expect(surnameKey("曾先生")).toBe("曾");
+    expect(surnameKey("歐陽小姐")).toBe("歐陽");
+    expect(surnameKey("曾")).toBe("曾");
+    expect(surnameKey("曾建華")).toBe("");
+    expect(surnameKey("Mr. Tseng")).toBe("");
+    expect(surnameKey(null)).toBe("");
+  });
+
+  it("「曾先生」列出姓曾的客戶（名稱或聯絡人），名稱中間有曾字的不算", () => {
+    const res = findCustomerMatches({ name: "曾先生", contact_person: "曾先生" }, list, 10);
+    expect(res.map((m) => m.customer.id)).toEqual(["t1", "t2", "t3"]);
+    expect(res.every((m) => m.reasons.join() === "surname" && !m.strong)).toBe(true);
+    // 同姓不自動選取
+    expect(pickDefaultMatch(res, {})).toBeNull();
+  });
+
+  it("主檔記「曾小姐」、訊息是完整姓名「曾美華」也列為同姓", () => {
+    const res = findCustomerMatches({ name: "曾美華" }, list, 10);
+    expect(res.map((m) => m.customer.id)).toContain("t2");
+  });
+
+  it("已有電話相同時不再標同姓", () => {
+    const res = findCustomerMatches({ name: "曾先生", phone: "0911111111" }, list, 10);
+    expect(res[0]).toMatchObject({ reasons: ["phone"], strong: true });
+  });
+});
+
+describe("searchCustomers", () => {
+  const list: MatchableCustomer[] = [
+    { id: "s1", name: "曾建華", phone: "0911-222-333", delivery_address: "臺南市東區大學路1號" },
+    { id: "s2", name: "木木設計", company: "木木設計有限公司", tax_id: "12345678", notes: "喜歡胡桃木" },
+    { id: "s3", name: "陳小姐", contact_person: "曾美玲", line_id: "@chen.home" },
+  ];
+
+  it("比對名稱、公司、統編、地址（臺台不分）、備註、LINE", () => {
+    expect(searchCustomers("木木", list).map((c) => c.id)).toEqual(["s2"]);
+    expect(searchCustomers("12345678", list).map((c) => c.id)).toEqual(["s2"]);
+    expect(searchCustomers("台南市東區", list).map((c) => c.id)).toEqual(["s1"]);
+    expect(searchCustomers("胡桃木", list).map((c) => c.id)).toEqual(["s2"]);
+    expect(searchCustomers("chen.home", list).map((c) => c.id)).toEqual(["s3"]);
+  });
+
+  it("電話忽略 - 與空白", () => {
+    expect(searchCustomers("0911222", list).map((c) => c.id)).toEqual(["s1"]);
+    expect(searchCustomers("222 333", list).map((c) => c.id)).toEqual(["s1"]);
+  });
+
+  it("姓＋稱謂列出同姓（含聯絡人）", () => {
+    expect(searchCustomers("曾先生", list).map((c) => c.id)).toEqual(["s1", "s3"]);
+    expect(searchCustomers("曾", list).map((c) => c.id)).toEqual(["s1", "s3"]);
+  });
+
+  it("空白關鍵字不回傳、筆數有上限", () => {
+    expect(searchCustomers("  ", list)).toEqual([]);
+    expect(searchCustomers("曾", list, 1)).toHaveLength(1);
   });
 });
 
@@ -180,6 +253,13 @@ describe("diffCustomerFields", () => {
       },
       { field: "has_elevator", kind: "fill", current: null, next: true },
       { field: "tax_id", kind: "fill", current: null, next: "12345678" },
+    ]);
+  });
+
+  it("聯絡人只有姓＋稱謂時不建議寫回主檔", () => {
+    expect(diffCustomerFields({ contact_person: null }, { contact_person: "曾先生" })).toEqual([]);
+    expect(diffCustomerFields({ contact_person: null }, { contact_person: "曾建華" })).toEqual([
+      { field: "contact_person", kind: "fill", current: null, next: "曾建華" },
     ]);
   });
 
