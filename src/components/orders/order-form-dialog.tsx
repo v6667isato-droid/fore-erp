@@ -2197,13 +2197,16 @@ function OrderFormDialog({
                               <input
                                 id={`item-price-${it.id}`}
                                 type="number"
+                                inputMode="numeric"
                                 min={0}
+                                // 0 顯示為空白（state 仍為 0），可直接輸入數字，不必先刪掉 0
                                 value={
                                   it.variant_id &&
                                   !isCustomOrderVariant(it.variant_id)
                                     ? Number(it.unit_price) ||
-                                      resolveListUnitPrice(it.variant_id)
-                                    : it.unit_price
+                                      resolveListUnitPrice(it.variant_id) ||
+                                      ""
+                                    : Number(it.unit_price) || ""
                                 }
                                 onChange={(e) =>
                                   updateItem(it.id, {
@@ -2211,8 +2214,9 @@ function OrderFormDialog({
                                       Number(e.target.value) || 0,
                                   })
                                 }
+                                placeholder="0"
                                 readOnly={readOnly || isVariantUnitPriceLocked(it)}
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
@@ -2740,15 +2744,18 @@ function OrderFormDialog({
                               <input
                                 id={`item-list-price-custom-${it.id}`}
                                 type="number"
+                                inputMode="numeric"
                                 min={0}
-                                value={it.unit_price}
+                                // 0 顯示為空白（state 仍為 0），可直接輸入數字，不必先刪掉 0
+                                value={Number(it.unit_price) || ""}
                                 onChange={(e) =>
                                   updateItem(it.id, {
                                     unit_price: Number(e.target.value) || 0,
                                   })
                                 }
+                                placeholder="0"
                                 readOnly={readOnly}
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
