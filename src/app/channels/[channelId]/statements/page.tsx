@@ -203,6 +203,85 @@ export default function ChannelStatementsPage() {
     fetchData();
   }
 
+  function renderStatusBadge(row: StatementRow) {
+    return (
+      <span
+        className={cn(
+          "inline-flex rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+          statusBadgeClass(row.status)
+        )}
+      >
+        {row.status}
+      </span>
+    );
+  }
+
+  function paidText(row: StatementRow): string | null {
+    return row.status === "已收款"
+      ? `${ymd(row.paid_date)} 收 ${formatAmount(row.paid_amount ?? 0)}`
+      : null;
+  }
+
+  function renderStatementActions(row: StatementRow, className: string) {
+    return (
+      <div className={cn("flex gap-1", className)}>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-8 px-2.5 text-xs"
+          onClick={() => setViewStatement(row)}
+        >
+          明細
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-8 px-2.5 text-xs"
+          aria-label={`列印 ${formatMonthLabel(row.statement_month)} 對帳單`}
+          onClick={() =>
+            window.open(
+              `/print/channel-statement/${row.id}`,
+              "_blank",
+              "noopener,noreferrer"
+            )
+          }
+        >
+          <Printer className="h-3.5 w-3.5" />
+        </Button>
+        {row.status === "草稿" && (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 px-2.5 text-xs"
+            onClick={() => markInvoiced(row)}
+          >
+            標記已請款
+          </Button>
+        )}
+        {row.status !== "已收款" && (
+          <Button
+            type="button"
+            className="h-8 px-2.5 text-xs"
+            onClick={() => setCollectStatement(row)}
+          >
+            登錄收款
+          </Button>
+        )}
+        {row.status !== "已收款" && (
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 px-2 text-destructive hover:text-destructive"
+            aria-label={`刪除 ${formatMonthLabel(row.statement_month)} 對帳單`}
+            onClick={() => setDeleteStatement(row)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-5xl px-4 py-6 flex flex-col gap-4">
@@ -231,115 +310,85 @@ export default function ChannelStatementsPage() {
         </p>
 
         <div className="rounded-xl border border-border bg-card overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>對帳月份</TableHead>
-                <TableHead>狀態</TableHead>
-                <TableHead className="text-right">筆數</TableHead>
-                <TableHead className="text-right">總額</TableHead>
-                <TableHead>收款</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    載入中…
-                  </TableCell>
-                </TableRow>
-              ) : statements.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    尚無對帳單，請點「產生對帳單」
-                  </TableCell>
-                </TableRow>
-              ) : (
-                statements.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-medium whitespace-nowrap">
-                      {formatMonthLabel(row.statement_month)}
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={cn(
-                          "inline-flex rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap",
-                          statusBadgeClass(row.status)
-                        )}
-                      >
-                        {row.status}
+          {/* 手機／平板（lg 以下）：卡片清單 */}
+          <div className="lg:hidden">
+            {loading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">載入中…</p>
+            ) : statements.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">尚無對帳單，請點「產生對帳單」</p>
+            ) : (
+              <div className="grid grid-cols-1 items-start gap-2 p-3 md:grid-cols-2">
+                {statements.map((row) => (
+                  <div key={row.id} className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-card p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{formatMonthLabel(row.statement_month)}</p>
+                      {renderStatusBadge(row)}
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs tabular-nums text-muted-foreground">{row.line_count} 筆</span>
+                      <span className="text-sm font-semibold tabular-nums text-foreground">
+                        {formatAmount(row.total_amount)}
                       </span>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{row.line_count}</TableCell>
-                    <TableCell className="text-right tabular-nums font-medium whitespace-nowrap">
-                      {formatAmount(row.total_amount)}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {row.status === "已收款"
-                        ? `${ymd(row.paid_date)} 收 ${formatAmount(row.paid_amount ?? 0)}`
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-nowrap justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-8 px-2.5 text-xs"
-                          onClick={() => setViewStatement(row)}
-                        >
-                          明細
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-8 px-2.5 text-xs"
-                          onClick={() =>
-                            window.open(
-                              `/print/channel-statement/${row.id}`,
-                              "_blank",
-                              "noopener,noreferrer"
-                            )
-                          }
-                        >
-                          <Printer className="h-3.5 w-3.5" />
-                        </Button>
-                        {row.status === "草稿" && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-8 px-2.5 text-xs"
-                            onClick={() => markInvoiced(row)}
-                          >
-                            標記已請款
-                          </Button>
-                        )}
-                        {row.status !== "已收款" && (
-                          <Button
-                            type="button"
-                            className="h-8 px-2.5 text-xs"
-                            onClick={() => setCollectStatement(row)}
-                          >
-                            登錄收款
-                          </Button>
-                        )}
-                        {row.status !== "已收款" && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-8 px-2 text-destructive hover:text-destructive"
-                            onClick={() => setDeleteStatement(row)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
+                    </div>
+                    {paidText(row) ? (
+                      <p className="text-xs tabular-nums text-muted-foreground">{paidText(row)}</p>
+                    ) : null}
+                    <div className="border-t border-border/60 pt-2">
+                      {renderStatementActions(row, "flex-wrap")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 電腦（lg 以上）：表格 */}
+          <div className="hidden lg:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>對帳月份</TableHead>
+                  <TableHead>狀態</TableHead>
+                  <TableHead className="text-right">筆數</TableHead>
+                  <TableHead className="text-right">總額</TableHead>
+                  <TableHead>收款</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      載入中…
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : statements.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                      尚無對帳單，請點「產生對帳單」
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  statements.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-medium whitespace-nowrap">
+                        {formatMonthLabel(row.statement_month)}
+                      </TableCell>
+                      <TableCell>{renderStatusBadge(row)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{row.line_count}</TableCell>
+                      <TableCell className="text-right tabular-nums font-medium whitespace-nowrap">
+                        {formatAmount(row.total_amount)}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {paidText(row) ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-right">{renderStatementActions(row, "flex-nowrap justify-end")}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       </div>
 
@@ -643,6 +692,51 @@ function CreateStatementDialog({
     }
   }
 
+  function renderOrderCheckbox(o: CandidateOrder) {
+    return (
+      <input
+        type="checkbox"
+        className="h-4 w-4"
+        checked={!!checkedOrders[o.id]}
+        aria-label={`納入訂單 ${o.order_number}`}
+        onChange={(e) =>
+          setCheckedOrders((prev) => ({ ...prev, [o.id]: e.target.checked }))
+        }
+      />
+    );
+  }
+
+  function renderOrderAmountInput(o: CandidateOrder, widthClassName: string) {
+    return (
+      <NumericInput
+        value={amounts[o.id] ?? ""}
+        onValueChange={(v) =>
+          setAmounts((prev) => ({ ...prev, [o.id]: toNumericText(v) }))
+        }
+        disabled={!checkedOrders[o.id]}
+        aria-label={`${o.order_number} 對帳金額`}
+        className={cn(
+          "h-8 rounded-lg border border-input bg-background px-2 text-right text-sm tabular-nums disabled:opacity-50",
+          widthClassName
+        )}
+      />
+    );
+  }
+
+  function renderReturnCheckbox(r: CandidateReturn) {
+    return (
+      <input
+        type="checkbox"
+        className="h-4 w-4"
+        checked={!!checkedReturns[r.id]}
+        aria-label={`納入 ${r.order_number} 退貨扣款`}
+        onChange={(e) =>
+          setCheckedReturns((prev) => ({ ...prev, [r.id]: e.target.checked }))
+        }
+      />
+    );
+  }
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -686,7 +780,29 @@ function CreateStatementDialog({
             <p className="py-8 text-center text-sm text-muted-foreground">載入未結帳訂單中…</p>
           ) : (
             <div className="space-y-4">
-              <div className="rounded-lg border border-border overflow-x-auto">
+              {/* 手機（sm 以下）：列表，勾選在左、金額在右 */}
+              <div className="divide-y divide-border rounded-lg border border-border sm:hidden">
+                {orders.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">目前沒有待對帳的訂單</p>
+                ) : (
+                  orders.map((o) => (
+                    <div key={o.id} className="flex items-start gap-2.5 px-3 py-2.5">
+                      <div className="pt-0.5">{renderOrderCheckbox(o)}</div>
+                      <div className="min-w-0 flex-1">
+                        <p className="break-all font-mono text-xs text-foreground">{o.order_number}</p>
+                        <p className="break-words text-sm text-foreground">{o.customer_name || "—"}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          出貨 {o.shipped_date ? ymd(o.shipped_date) : "無（舊訂單）"}・{o.status}
+                        </p>
+                      </div>
+                      {renderOrderAmountInput(o, "w-24 shrink-0")}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* 平板以上：表格 */}
+              <div className="hidden rounded-lg border border-border overflow-x-auto sm:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -708,16 +824,7 @@ function CreateStatementDialog({
                     ) : (
                       orders.map((o) => (
                         <TableRow key={o.id}>
-                          <TableCell>
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4"
-                              checked={!!checkedOrders[o.id]}
-                              onChange={(e) =>
-                                setCheckedOrders((prev) => ({ ...prev, [o.id]: e.target.checked }))
-                              }
-                            />
-                          </TableCell>
+                          <TableCell>{renderOrderCheckbox(o)}</TableCell>
                           <TableCell className="font-mono text-xs whitespace-nowrap">
                             {o.order_number}
                           </TableCell>
@@ -726,16 +833,7 @@ function CreateStatementDialog({
                             {o.shipped_date ? ymd(o.shipped_date) : "無（舊訂單）"}
                           </TableCell>
                           <TableCell className="text-xs whitespace-nowrap">{o.status}</TableCell>
-                          <TableCell className="text-right">
-                            <NumericInput
-                              value={amounts[o.id] ?? ""}
-                              onValueChange={(v) =>
-                                setAmounts((prev) => ({ ...prev, [o.id]: toNumericText(v) }))
-                              }
-                              disabled={!checkedOrders[o.id]}
-                              className="h-8 w-28 rounded-lg border border-input bg-background px-2 text-right text-sm tabular-nums disabled:opacity-50"
-                            />
-                          </TableCell>
+                          <TableCell className="text-right">{renderOrderAmountInput(o, "w-28")}</TableCell>
                         </TableRow>
                       ))
                     )}
@@ -744,7 +842,28 @@ function CreateStatementDialog({
               </div>
 
               {returns.length > 0 && (
-                <div className="rounded-lg border border-border overflow-x-auto">
+                <div className="divide-y divide-border rounded-lg border border-border sm:hidden">
+                  <p className="px-3 py-2 text-xs font-medium text-muted-foreground">退貨扣款</p>
+                  {returns.map((r) => (
+                    <div key={r.id} className="flex items-start gap-2.5 px-3 py-2.5">
+                      <div className="pt-0.5">{renderReturnCheckbox(r)}</div>
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words text-sm text-foreground">
+                          {r.order_number} {r.customer_name}
+                        </p>
+                        {r.reason ? <p className="break-words text-xs text-muted-foreground">{r.reason}</p> : null}
+                        <p className="text-[11px] text-muted-foreground">退貨 {ymd(r.return_date)}</p>
+                      </div>
+                      <span className="shrink-0 text-sm tabular-nums text-destructive">
+                        −{formatAmount(r.refund_amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {returns.length > 0 && (
+                <div className="hidden rounded-lg border border-border overflow-x-auto sm:block">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -757,16 +876,7 @@ function CreateStatementDialog({
                     <TableBody>
                       {returns.map((r) => (
                         <TableRow key={r.id}>
-                          <TableCell>
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4"
-                              checked={!!checkedReturns[r.id]}
-                              onChange={(e) =>
-                                setCheckedReturns((prev) => ({ ...prev, [r.id]: e.target.checked }))
-                              }
-                            />
-                          </TableCell>
+                          <TableCell>{renderReturnCheckbox(r)}</TableCell>
                           <TableCell className="text-sm">
                             {r.order_number} {r.customer_name}
                             {r.reason ? (

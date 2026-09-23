@@ -25,6 +25,7 @@ import { Plus, Eye, Pencil, Trash2 } from "lucide-react";
 import { CustomCaseFormDialog } from "@/components/products/custom-case-form-dialog";
 import { ViewCustomCaseDialog } from "@/components/products/view-custom-case-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { MobileSortBar } from "@/components/ui/mobile-sort-bar";
 import { toast } from "sonner";
 
 type SortKey = "case_code" | "name_zh" | "category" | "material" | "completed_year" | "published" | "base_price";
@@ -132,6 +133,77 @@ export function CustomCasesPanel({ kind }: { kind: CustomCaseKind }) {
     void fetchData();
   }
 
+  const mobileSortOptions: { key: SortKey; label: string }[] = [
+    { key: "case_code", label: "編號" },
+    { key: "name_zh", label: "名稱" },
+    { key: "category", label: "類別" },
+    { key: "material", label: "材質" },
+    ...(kind === "processing"
+      ? [{ key: "base_price" as const, label: "定價" }]
+      : [
+          { key: "completed_year" as const, label: "完成年份" },
+          { key: "published" as const, label: "官網" },
+        ]),
+  ];
+
+  function renderThumb(row: CustomCaseRow, sizeClassName: string) {
+    return row.image_url ? (
+      <span className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted ${sizeClassName}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={row.image_url}
+          alt={row.name_zh || "主圖"}
+          className="h-full w-full object-cover"
+        />
+      </span>
+    ) : (
+      <span className={`inline-flex shrink-0 items-center justify-center rounded-md border border-dashed border-muted text-[10px] text-muted-foreground ${sizeClassName}`}>
+        無圖
+      </span>
+    );
+  }
+
+  function renderPublishedToggle(row: CustomCaseRow) {
+    return (
+      <button
+        type="button"
+        onClick={() => void togglePublished(row)}
+        className="focus:outline-none focus:ring-2 focus:ring-ring rounded"
+        aria-label={row.published ? `取消發佈 ${row.name_zh}` : `發佈 ${row.name_zh} 到官網`}
+        title={row.published ? "點擊取消官網發佈" : "點擊發佈到官網"}
+      >
+        {row.published ? (
+          <Badge>發佈中</Badge>
+        ) : (
+          <Badge variant="secondary">未發佈</Badge>
+        )}
+      </button>
+    );
+  }
+
+  function renderRowActions(row: CustomCaseRow) {
+    return (
+      <div className="flex items-center justify-end gap-1">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewRow(row)} aria-label={`檢視 ${row.name_zh}`}>
+          <Eye className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditRow(row)} aria-label={`編輯 ${row.name_zh}`}>
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-destructive hover:text-destructive"
+          onClick={() => setDeleteConfirmRow(row)}
+          aria-label={`刪除 ${row.name_zh}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
   function sortButton(key: SortKey, label: string) {
     return (
       <button
@@ -203,127 +275,145 @@ export function CustomCasesPanel({ kind }: { kind: CustomCaseKind }) {
           </select>
           <span className="text-xs text-muted-foreground ml-auto">共 {filteredRows.length} 筆</span>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent border-b border-border">
-              <TableHead className="text-xs font-semibold p-2 w-16">圖片</TableHead>
-              <TableHead className="text-xs font-semibold p-2">{sortButton("case_code", "編號")}</TableHead>
-              <TableHead className="text-xs font-semibold p-2">{sortButton("name_zh", "名稱")}</TableHead>
-              <TableHead className="text-xs font-semibold p-2">{sortButton("category", "類別")}</TableHead>
-              <TableHead className="text-xs font-semibold p-2">{sortButton("material", "材質")}</TableHead>
-              <TableHead className="text-xs font-semibold p-2">尺寸</TableHead>
-              {kind === "processing" && (
-                <TableHead className="text-xs font-semibold p-2">{sortButton("base_price", "定價")}</TableHead>
-              )}
-              {kind === "custom" && (
-                <TableHead className="text-xs font-semibold p-2">{sortButton("completed_year", "完成年份")}</TableHead>
-              )}
-              {kind === "custom" && (
-                <TableHead className="text-xs font-semibold p-2">{sortButton("published", "官網")}</TableHead>
-              )}
-              <TableHead className="text-xs font-semibold p-2 min-w-[120px] text-right" aria-label="操作">
-                操作
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sortedRows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={colCount + 1} className="h-24 text-center text-muted-foreground">
-                  {rows.length === 0
-                    ? `尚無${kindLabel}資料，請點「新增」建立。`
-                    : "無符合篩選條件的資料。"}
-                </TableCell>
-              </TableRow>
-            ) : (
-              sortedRows.map((row) => (
-                <TableRow key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                  <TableCell className="p-2 align-middle">
-                    {row.image_url ? (
-                      <span className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={row.image_url}
-                          alt={row.name_zh || "主圖"}
-                          className="h-full w-full object-cover"
-                        />
-                      </span>
-                    ) : (
-                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-dashed border-muted text-[10px] text-muted-foreground">
-                        無圖
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm p-2">{row.case_code || "—"}</TableCell>
-                  <TableCell className="text-sm font-medium p-2">
-                    <button
-                      type="button"
-                      onClick={() => setViewRow(row)}
-                      className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
-                    >
-                      <span className="flex flex-col">
-                        <span>{row.name_zh || "—"}</span>
+
+        {/* 手機／平板（lg 以下）：卡片清單 */}
+        <div className="flex flex-col gap-2 p-3 lg:hidden">
+          <MobileSortBar
+            options={mobileSortOptions}
+            sortKey={sort.key}
+            asc={sort.asc}
+            onKeyChange={(key) => setSort({ key, asc: true })}
+            onToggleDir={() => setSort((prev) => ({ ...prev, asc: !prev.asc }))}
+          />
+          {sortedRows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {rows.length === 0 ? `尚無${kindLabel}資料，請點「新增」建立。` : "無符合篩選條件的資料。"}
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+              {sortedRows.map((row) => {
+                const meta = [
+                  row.case_code,
+                  row.category,
+                  row.material,
+                  kind === "custom" && row.completed_year ? `${row.completed_year} 完成` : null,
+                ]
+                  .filter(Boolean)
+                  .join("・");
+                const dims = formatCaseDimensions(row);
+                return (
+                  <div key={row.id} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                    <div className="flex items-start gap-3">
+                      {renderThumb(row, "h-14 w-14")}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setViewRow(row)}
+                            className="min-w-0 break-words text-left text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                          >
+                            {row.name_zh || "—"}
+                          </button>
+                          {kind === "processing" && row.base_price != null ? (
+                            <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+                              ${row.base_price.toLocaleString()}
+                            </span>
+                          ) : null}
+                        </div>
                         {row.name_en?.trim() && (
-                          <span className="mt-0.5 text-[11px] font-normal text-muted-foreground">
-                            {row.name_en}
-                          </span>
+                          <p className="break-words text-[11px] text-muted-foreground">{row.name_en}</p>
                         )}
-                      </span>
-                    </button>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">{row.category || "—"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">{row.material || "—"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">{formatCaseDimensions(row)}</TableCell>
-                  {kind === "processing" && (
-                    <TableCell className="text-sm p-2">
-                      {row.base_price != null ? row.base_price.toLocaleString() : "—"}
-                    </TableCell>
-                  )}
-                  {kind === "custom" && (
-                    <TableCell className="text-sm text-muted-foreground p-2">{row.completed_year || "—"}</TableCell>
-                  )}
-                  {kind === "custom" && (
-                    <TableCell className="p-2">
-                      <button
-                        type="button"
-                        onClick={() => void togglePublished(row)}
-                        className="focus:outline-none focus:ring-2 focus:ring-ring rounded"
-                        aria-label={row.published ? `取消發佈 ${row.name_zh}` : `發佈 ${row.name_zh} 到官網`}
-                        title={row.published ? "點擊取消官網發佈" : "點擊發佈到官網"}
-                      >
-                        {row.published ? (
-                          <Badge>發佈中</Badge>
-                        ) : (
-                          <Badge variant="secondary">未發佈</Badge>
-                        )}
-                      </button>
-                    </TableCell>
-                  )}
-                  <TableCell className="p-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewRow(row)} aria-label={`檢視 ${row.name_zh}`}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditRow(row)} aria-label={`編輯 ${row.name_zh}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => setDeleteConfirmRow(row)}
-                        aria-label={`刪除 ${row.name_zh}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                        {meta ? <p className="mt-0.5 break-words text-xs text-muted-foreground">{meta}</p> : null}
+                        {dims && dims !== "—" ? (
+                          <p className="break-words text-xs text-muted-foreground">{dims}</p>
+                        ) : null}
+                      </div>
                     </div>
+                    <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-1.5">
+                      {kind === "custom" ? renderPublishedToggle(row) : <span />}
+                      {renderRowActions(row)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 電腦（lg 以上）：表格 */}
+        <div className="hidden lg:block">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-b border-border">
+                <TableHead className="text-xs font-semibold p-2 w-16">圖片</TableHead>
+                <TableHead className="text-xs font-semibold p-2">{sortButton("case_code", "編號")}</TableHead>
+                <TableHead className="text-xs font-semibold p-2">{sortButton("name_zh", "名稱")}</TableHead>
+                <TableHead className="text-xs font-semibold p-2">{sortButton("category", "類別")}</TableHead>
+                <TableHead className="text-xs font-semibold p-2">{sortButton("material", "材質")}</TableHead>
+                <TableHead className="text-xs font-semibold p-2">尺寸</TableHead>
+                {kind === "processing" && (
+                  <TableHead className="text-xs font-semibold p-2">{sortButton("base_price", "定價")}</TableHead>
+                )}
+                {kind === "custom" && (
+                  <TableHead className="text-xs font-semibold p-2">{sortButton("completed_year", "完成年份")}</TableHead>
+                )}
+                {kind === "custom" && (
+                  <TableHead className="text-xs font-semibold p-2">{sortButton("published", "官網")}</TableHead>
+                )}
+                <TableHead className="text-xs font-semibold p-2 min-w-[120px] text-right" aria-label="操作">
+                  操作
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={colCount + 1} className="h-24 text-center text-muted-foreground">
+                    {rows.length === 0
+                      ? `尚無${kindLabel}資料，請點「新增」建立。`
+                      : "無符合篩選條件的資料。"}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                sortedRows.map((row) => (
+                  <TableRow key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                    <TableCell className="p-2 align-middle">{renderThumb(row, "h-10 w-10")}</TableCell>
+                    <TableCell className="text-sm p-2">{row.case_code || "—"}</TableCell>
+                    <TableCell className="text-sm font-medium p-2">
+                      <button
+                        type="button"
+                        onClick={() => setViewRow(row)}
+                        className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                      >
+                        <span className="flex flex-col">
+                          <span>{row.name_zh || "—"}</span>
+                          {row.name_en?.trim() && (
+                            <span className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+                              {row.name_en}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">{row.category || "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">{row.material || "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">{formatCaseDimensions(row)}</TableCell>
+                    {kind === "processing" && (
+                      <TableCell className="text-sm p-2">
+                        {row.base_price != null ? row.base_price.toLocaleString() : "—"}
+                      </TableCell>
+                    )}
+                    {kind === "custom" && (
+                      <TableCell className="text-sm text-muted-foreground p-2">{row.completed_year || "—"}</TableCell>
+                    )}
+                    {kind === "custom" && <TableCell className="p-2">{renderPublishedToggle(row)}</TableCell>}
+                    <TableCell className="p-2 text-right">{renderRowActions(row)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <CustomCaseFormDialog

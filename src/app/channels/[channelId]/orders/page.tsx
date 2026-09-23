@@ -14,6 +14,7 @@ import {
 } from "@/lib/planned-end-aggregate";
 import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-payment-status";
 import { useRequireAuth } from "@/lib/use-require-auth";
+import { MobileSortBar } from "@/components/ui/mobile-sort-bar";
 
 interface ChannelInfo {
   id: string;
@@ -47,6 +48,17 @@ type SortKey =
   | "total_amount";
 
 type DateBasis = "order_date" | "expected_delivery";
+
+const MOBILE_SORT_OPTIONS: readonly { key: SortKey; label: string }[] = [
+  { key: "order_date", label: "下單日" },
+  { key: "order_number", label: "訂單編號" },
+  { key: "customer_name", label: "客戶" },
+  { key: "expected_delivery_date", label: "預計交貨" },
+  { key: "planned_end_max", label: "預計完成" },
+  { key: "status", label: "狀態" },
+  { key: "payment_status", label: "付款" },
+  { key: "total_amount", label: "金額" },
+];
 
 function compareNullableDate(a: string | null, b: string | null): number {
   if (!a && !b) return 0;
@@ -581,89 +593,146 @@ export default function ChannelOrdersPage() {
           ) : orders.length === 0 ? (
             <p className="text-sm text-muted-foreground mt-4">尚無訂單紀錄</p>
           ) : (
-            <div className="overflow-x-auto mt-4 rounded-md border border-border/80">
-              <table className="w-full min-w-[52rem] text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
-                      <SortHeader label="訂單編號" sortKey="order_number" />
-                    </th>
-                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
-                      <SortHeader label="下單日" sortKey="order_date" />
-                    </th>
-                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
-                      <SortHeader label="客戶" sortKey="customer_name" />
-                    </th>
-                    <th className="pb-2 px-2 font-medium whitespace-nowrap">聯絡人</th>
-                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
-                      <SortHeader label="預計交貨" sortKey="expected_delivery_date" />
-                    </th>
-                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
-                      <SortHeader label="預計完成" sortKey="planned_end_max" />
-                    </th>
-                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
-                      <SortHeader label="狀態" sortKey="status" />
-                    </th>
-                    <th className="pb-2 px-2 font-medium whitespace-nowrap">
-                      <SortHeader label="付款" sortKey="payment_status" />
-                    </th>
-                    <th className="pb-2 px-2 text-right font-medium whitespace-nowrap">
-                      <SortHeader label="金額" sortKey="total_amount" />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSorted.map((o) => (
-                    <tr key={o.id} className="border-b border-border/60">
-                      <td className="py-2.5 px-2 font-mono text-sm whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => setOverviewOrderId(o.id)}
-                          className="text-left text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded px-0.5 py-0.5"
-                        >
-                          {o.order_number}
-                        </button>
-                      </td>
-                      <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
-                        {o.order_date ? formatDateYyMmDd(o.order_date) : "—"}
-                      </td>
-                      <td className="py-2.5 px-2 text-foreground whitespace-nowrap">
-                        <span className="font-medium">{o.customer_name?.trim() || "—"}</span>
-                        {o.customer_alias?.trim() ? (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            ({o.customer_alias})
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">
-                        {o.contact_person?.trim() || "—"}
-                      </td>
-                      <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
-                        {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}
-                      </td>
-                      <td
-                        className={cn(
-                          "py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap",
-                          plannedVsDeliveryTone(o.planned_end_max, o.expected_delivery_date),
-                        )}
-                      >
-                        {o.planned_end_max ? formatDateYyMmDd(o.planned_end_max) : "—"}
-                      </td>
-                      <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">{o.status}</td>
-                      <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap text-xs">
-                        {o.payment_status}
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-medium text-foreground tabular-nums whitespace-nowrap">
-                        ${o.total_amount.toLocaleString()}
-                      </td>
+            <>
+              {/* 手機／平板（lg 以下）：卡片清單 */}
+              <div className="mt-4 flex flex-col gap-2 lg:hidden">
+                <MobileSortBar
+                  options={MOBILE_SORT_OPTIONS}
+                  sortKey={sortBy}
+                  asc={sortAsc}
+                  onKeyChange={toggleSort}
+                  onToggleDir={() => toggleSort(sortBy)}
+                />
+                {filteredSorted.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">沒有符合條件的訂單</p>
+                ) : (
+                  <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+                    {filteredSorted.map((o) => {
+                      return (
+                        <div key={o.id} className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-card p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setOverviewOrderId(o.id)}
+                              className="min-w-0 break-all text-left font-mono text-sm text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                            >
+                              {o.order_number}
+                            </button>
+                            <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+                              ${o.total_amount.toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="break-words text-sm text-foreground">
+                            <span className="font-medium">{o.customer_name?.trim() || "—"}</span>
+                            {o.customer_alias?.trim() ? (
+                              <span className="ml-1 text-xs text-muted-foreground">({o.customer_alias})</span>
+                            ) : null}
+                            {o.contact_person?.trim() ? (
+                              <span className="text-xs text-muted-foreground">・聯絡人 {o.contact_person.trim()}</span>
+                            ) : null}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {o.status}・{o.payment_status}
+                          </p>
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 border-t border-border/60 pt-1.5 text-[11px] tabular-nums text-muted-foreground">
+                            <span>下單 {o.order_date ? formatDateYyMmDd(o.order_date) : "—"}</span>
+                            <span>交貨 {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}</span>
+                            <span className={plannedVsDeliveryTone(o.planned_end_max, o.expected_delivery_date)}>
+                              完成 {o.planned_end_max ? formatDateYyMmDd(o.planned_end_max) : "—"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 電腦（lg 以上）：表格 */}
+              <div className="hidden overflow-x-auto mt-4 rounded-md border border-border/80 lg:block">
+                <table className="w-full min-w-[52rem] text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-muted-foreground">
+                      <th className="pb-2 px-2 font-medium whitespace-nowrap">
+                        <SortHeader label="訂單編號" sortKey="order_number" />
+                      </th>
+                      <th className="pb-2 px-2 font-medium whitespace-nowrap">
+                        <SortHeader label="下單日" sortKey="order_date" />
+                      </th>
+                      <th className="pb-2 px-2 font-medium whitespace-nowrap">
+                        <SortHeader label="客戶" sortKey="customer_name" />
+                      </th>
+                      <th className="pb-2 px-2 font-medium whitespace-nowrap">聯絡人</th>
+                      <th className="pb-2 px-2 font-medium whitespace-nowrap">
+                        <SortHeader label="預計交貨" sortKey="expected_delivery_date" />
+                      </th>
+                      <th className="pb-2 px-2 font-medium whitespace-nowrap">
+                        <SortHeader label="預計完成" sortKey="planned_end_max" />
+                      </th>
+                      <th className="pb-2 px-2 font-medium whitespace-nowrap">
+                        <SortHeader label="狀態" sortKey="status" />
+                      </th>
+                      <th className="pb-2 px-2 font-medium whitespace-nowrap">
+                        <SortHeader label="付款" sortKey="payment_status" />
+                      </th>
+                      <th className="pb-2 px-2 text-right font-medium whitespace-nowrap">
+                        <SortHeader label="金額" sortKey="total_amount" />
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              {filteredSorted.length === 0 && (
-                <p className="text-sm text-muted-foreground py-6 text-center">沒有符合條件的訂單</p>
-              )}
-            </div>
+                  </thead>
+                  <tbody>
+                    {filteredSorted.map((o) => (
+                      <tr key={o.id} className="border-b border-border/60">
+                        <td className="py-2.5 px-2 font-mono text-sm whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setOverviewOrderId(o.id)}
+                            className="text-left text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded px-0.5 py-0.5"
+                          >
+                            {o.order_number}
+                          </button>
+                        </td>
+                        <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                          {o.order_date ? formatDateYyMmDd(o.order_date) : "—"}
+                        </td>
+                        <td className="py-2.5 px-2 text-foreground whitespace-nowrap">
+                          <span className="font-medium">{o.customer_name?.trim() || "—"}</span>
+                          {o.customer_alias?.trim() ? (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              ({o.customer_alias})
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">
+                          {o.contact_person?.trim() || "—"}
+                        </td>
+                        <td className="py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                          {o.expected_delivery_date ? formatDateYyMmDd(o.expected_delivery_date) : "—"}
+                        </td>
+                        <td
+                          className={cn(
+                            "py-2.5 px-2 text-muted-foreground tabular-nums whitespace-nowrap",
+                            plannedVsDeliveryTone(o.planned_end_max, o.expected_delivery_date),
+                          )}
+                        >
+                          {o.planned_end_max ? formatDateYyMmDd(o.planned_end_max) : "—"}
+                        </td>
+                        <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">{o.status}</td>
+                        <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap text-xs">
+                          {o.payment_status}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-medium text-foreground tabular-nums whitespace-nowrap">
+                          ${o.total_amount.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredSorted.length === 0 && (
+                  <p className="text-sm text-muted-foreground py-6 text-center">沒有符合條件的訂單</p>
+                )}
+              </div>
+            </>
           )}
 
           {!loading && orders.length > 0 && (

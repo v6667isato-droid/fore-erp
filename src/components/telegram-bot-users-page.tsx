@@ -319,6 +319,156 @@ export function TelegramBotUsersPage() {
     </select>
   );
 
+  function renderUserRoleSelect(row: BotUserRow) {
+    return (
+      <select
+        value={row.role === "admin" ? "admin" : "staff"}
+        disabled={actingId === row.chat_id}
+        onChange={(e) =>
+          void updateUser(
+            row.chat_id,
+            { role: e.target.value },
+            `已把 ${row.name} 改為${roleLabel(e.target.value)}`,
+          )
+        }
+        aria-label={`${row.name} 的角色`}
+        className="h-8 rounded-lg border border-input bg-background px-2 text-xs"
+      >
+        <option value="staff">員工</option>
+        <option value="admin">管理者</option>
+      </select>
+    );
+  }
+
+  function renderUserEmployeeSelect(row: BotUserRow, widthClassName: string) {
+    return (
+      <select
+        value={row.employee_id ?? ""}
+        disabled={actingId === row.chat_id}
+        onChange={(e) =>
+          void updateUser(
+            row.chat_id,
+            { employee_id: e.target.value || null },
+            `已更新 ${row.name} 的員工綁定`,
+          )
+        }
+        aria-label={`${row.name} 綁定的員工`}
+        className={cn("h-8 rounded-lg border border-input bg-background px-2 text-xs", widthClassName)}
+      >
+        <option value="">不綁定</option>
+        {employees
+          .filter((e) => e.active || e.id === row.employee_id)
+          .map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.name}
+            </option>
+          ))}
+      </select>
+    );
+  }
+
+  function renderUserActiveToggle(row: BotUserRow) {
+    return (
+      <button
+        type="button"
+        disabled={actingId === row.chat_id}
+        onClick={() =>
+          void updateUser(
+            row.chat_id,
+            { is_active: !row.is_active },
+            row.is_active ? `已停用 ${row.name}` : `已啟用 ${row.name}`,
+          )
+        }
+        className={cn(
+          "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+          row.is_active
+            ? "border-emerald-700/25 bg-emerald-100/80 text-emerald-950 hover:bg-emerald-100 dark:border-emerald-500/25 dark:bg-emerald-950/35 dark:text-emerald-100"
+            : "border-stone-500/25 bg-stone-200/80 text-stone-600 hover:bg-stone-200 dark:border-stone-500/30 dark:bg-stone-800/60 dark:text-stone-300",
+        )}
+        title="點擊切換啟用/停用"
+      >
+        {row.is_active ? "啟用中" : "已停用"}
+      </button>
+    );
+  }
+
+  function renderUserDelete(row: BotUserRow) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        className="h-7 gap-1 border-red-200 bg-red-50/80 px-2 text-xs text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
+        disabled={actingId === row.chat_id}
+        onClick={() => void deleteUser(row)}
+      >
+        <Trash2 className="h-3 w-3" />
+        刪除
+      </Button>
+    );
+  }
+
+  /** 邀請碼的預設名稱，未填則顯示綁定員工 */
+  function inviteTargetName(row: BotInviteRow): string {
+    return (
+      row.name?.trim() ||
+      (row.employee_id ? employeeNameById.get(row.employee_id) ?? "—" : "—")
+    );
+  }
+
+  function renderInviteStatus(row: BotInviteRow, status: ReturnType<typeof inviteStatus>) {
+    return status === "used" ? (
+      <span className="text-emerald-700 dark:text-emerald-400">
+        已使用({formatDateTime(row.used_at)})
+      </span>
+    ) : status === "expired" ? (
+      <span className="text-muted-foreground">已過期</span>
+    ) : (
+      <span className="text-amber-700 dark:text-amber-400">未使用</span>
+    );
+  }
+
+  function renderInviteActions(row: BotInviteRow, status: ReturnType<typeof inviteStatus>) {
+    return (
+      <div className="flex gap-1.5">
+        {status === "unused" && (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 gap-1 px-2 text-xs"
+              onClick={() => void copyCode(row.code)}
+            >
+              <Copy className="h-3 w-3" />
+              複製
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 gap-1 border-red-200 bg-red-50/80 px-2 text-xs text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
+              disabled={actingId === row.id}
+              onClick={() => void revokeInvite(row)}
+            >
+              <Trash2 className="h-3 w-3" />
+              撤銷
+            </Button>
+          </>
+        )}
+        {status !== "unused" && (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-7 gap-1 px-2 text-xs"
+            disabled={actingId === row.id}
+            onClick={() => void revokeInvite(row)}
+          >
+            <Trash2 className="h-3 w-3" />
+            刪除
+          </Button>
+        )}
+      </div>
+    );
+  }
+
   if (!isSupabaseConfigured) {
     return (
       <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
@@ -433,111 +583,78 @@ export function TelegramBotUsersPage() {
               尚無授權帳號。管理員本人首次傳訊息給 bot 後會自動出現在這裡。
             </p>
           ) : (
-            <Table className="min-w-[46rem]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
-                  <TableHead className="text-xs font-semibold">名稱</TableHead>
-                  <TableHead className="text-xs font-semibold">chat_id</TableHead>
-                  <TableHead className="text-xs font-semibold">角色</TableHead>
-                  <TableHead className="text-xs font-semibold">綁定員工</TableHead>
-                  <TableHead className="text-xs font-semibold">狀態</TableHead>
-                  <TableHead className="text-xs font-semibold whitespace-nowrap">加入時間</TableHead>
-                  <TableHead className="text-xs font-semibold">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* 手機／平板（lg 以下）：卡片清單 */}
+              <div className="grid grid-cols-1 items-start gap-2 p-3 md:grid-cols-2 lg:hidden">
                 {users.map((row) => (
-                  <TableRow key={row.chat_id} className="border-b border-border hover:bg-muted/25">
-                    <TableCell className="font-medium text-foreground">
-                      {row.name}
-                      {row.note ? (
-                        <span className="ml-2 text-[11px] text-muted-foreground">{row.note}</span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {row.chat_id}
-                    </TableCell>
-                    <TableCell>
-                      <select
-                        value={row.role === "admin" ? "admin" : "staff"}
-                        disabled={actingId === row.chat_id}
-                        onChange={(e) =>
-                          void updateUser(
-                            row.chat_id,
-                            { role: e.target.value },
-                            `已把 ${row.name} 改為${roleLabel(e.target.value)}`,
-                          )
-                        }
-                        className="h-8 rounded-lg border border-input bg-background px-2 text-xs"
-                      >
-                        <option value="staff">員工</option>
-                        <option value="admin">管理者</option>
-                      </select>
-                    </TableCell>
-                    <TableCell>
-                      <select
-                        value={row.employee_id ?? ""}
-                        disabled={actingId === row.chat_id}
-                        onChange={(e) =>
-                          void updateUser(
-                            row.chat_id,
-                            { employee_id: e.target.value || null },
-                            `已更新 ${row.name} 的員工綁定`,
-                          )
-                        }
-                        className="h-8 max-w-[10rem] rounded-lg border border-input bg-background px-2 text-xs"
-                      >
-                        <option value="">不綁定</option>
-                        {employees
-                          .filter((e) => e.active || e.id === row.employee_id)
-                          .map((e) => (
-                            <option key={e.id} value={e.id}>
-                              {e.name}
-                            </option>
-                          ))}
-                      </select>
-                    </TableCell>
-                    <TableCell>
-                      <button
-                        type="button"
-                        disabled={actingId === row.chat_id}
-                        onClick={() =>
-                          void updateUser(
-                            row.chat_id,
-                            { is_active: !row.is_active },
-                            row.is_active ? `已停用 ${row.name}` : `已啟用 ${row.name}`,
-                          )
-                        }
-                        className={cn(
-                          "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                          row.is_active
-                            ? "border-emerald-700/25 bg-emerald-100/80 text-emerald-950 hover:bg-emerald-100 dark:border-emerald-500/25 dark:bg-emerald-950/35 dark:text-emerald-100"
-                            : "border-stone-500/25 bg-stone-200/80 text-stone-600 hover:bg-stone-200 dark:border-stone-500/30 dark:bg-stone-800/60 dark:text-stone-300",
-                        )}
-                        title="點擊切換啟用/停用"
-                      >
-                        {row.is_active ? "啟用中" : "已停用"}
-                      </button>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                      {formatDateTime(row.created_at)}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-7 gap-1 border-red-200 bg-red-50/80 px-2 text-xs text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
-                        disabled={actingId === row.chat_id}
-                        onClick={() => void deleteUser(row)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                        刪除
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                  <div key={row.chat_id} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-medium text-foreground">
+                          {row.name}
+                          {row.note ? <span className="ml-2 text-[11px] font-normal text-muted-foreground">{row.note}</span> : null}
+                        </p>
+                        <p className="break-all font-mono text-[11px] text-muted-foreground">{row.chat_id}</p>
+                      </div>
+                      <div className="shrink-0">{renderUserActiveToggle(row)}</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex min-w-0 flex-col gap-0.5 text-[11px] text-muted-foreground">
+                        角色
+                        {renderUserRoleSelect(row)}
+                      </label>
+                      <label className="flex min-w-0 flex-col gap-0.5 text-[11px] text-muted-foreground">
+                        綁定員工
+                        {renderUserEmployeeSelect(row, "w-full")}
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-1.5">
+                      <span className="text-[11px] tabular-nums text-muted-foreground">加入 {formatDateTime(row.created_at)}</span>
+                      {renderUserDelete(row)}
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+
+              {/* 電腦（lg 以上）：表格 */}
+              <div className="hidden lg:block">
+                <Table className="min-w-[46rem]">
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
+                      <TableHead className="text-xs font-semibold">名稱</TableHead>
+                      <TableHead className="text-xs font-semibold">chat_id</TableHead>
+                      <TableHead className="text-xs font-semibold">角色</TableHead>
+                      <TableHead className="text-xs font-semibold">綁定員工</TableHead>
+                      <TableHead className="text-xs font-semibold">狀態</TableHead>
+                      <TableHead className="text-xs font-semibold whitespace-nowrap">加入時間</TableHead>
+                      <TableHead className="text-xs font-semibold">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((row) => (
+                      <TableRow key={row.chat_id} className="border-b border-border hover:bg-muted/25">
+                        <TableCell className="font-medium text-foreground">
+                          {row.name}
+                          {row.note ? (
+                            <span className="ml-2 text-[11px] text-muted-foreground">{row.note}</span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {row.chat_id}
+                        </TableCell>
+                        <TableCell>{renderUserRoleSelect(row)}</TableCell>
+                        <TableCell>{renderUserEmployeeSelect(row, "max-w-[10rem]")}</TableCell>
+                        <TableCell>{renderUserActiveToggle(row)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                          {formatDateTime(row.created_at)}
+                        </TableCell>
+                        <TableCell>{renderUserDelete(row)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </div>
       </section>
@@ -612,90 +729,66 @@ export function TelegramBotUsersPage() {
               尚無邀請碼。產生後把「/start 邀請碼」傳給員工即可。
             </p>
           ) : (
-            <Table className="min-w-[42rem]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
-                  <TableHead className="text-xs font-semibold">邀請碼</TableHead>
-                  <TableHead className="text-xs font-semibold">角色</TableHead>
-                  <TableHead className="text-xs font-semibold">預設名稱/員工</TableHead>
-                  <TableHead className="text-xs font-semibold">狀態</TableHead>
-                  <TableHead className="text-xs font-semibold whitespace-nowrap">有效期限</TableHead>
-                  <TableHead className="text-xs font-semibold">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* 手機／平板（lg 以下）：卡片清單 */}
+              <div className="grid grid-cols-1 items-start gap-2 p-3 md:grid-cols-2 lg:hidden">
                 {invites.map((row) => {
                   const status = inviteStatus(row);
                   return (
-                    <TableRow key={row.id} className="border-b border-border hover:bg-muted/25">
-                      <TableCell className="font-mono text-sm font-medium text-foreground">
-                        {row.code}
-                      </TableCell>
-                      <TableCell className="text-sm">{roleLabel(row.role)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {row.name?.trim() ||
-                          (row.employee_id
-                            ? employeeNameById.get(row.employee_id) ?? "—"
-                            : "—")}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {status === "used" ? (
-                          <span className="text-emerald-700 dark:text-emerald-400">
-                            已使用({formatDateTime(row.used_at)})
-                          </span>
-                        ) : status === "expired" ? (
-                          <span className="text-muted-foreground">已過期</span>
-                        ) : (
-                          <span className="text-amber-700 dark:text-amber-400">未使用</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                        {formatDateTime(row.expires_at)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1.5">
-                          {status === "unused" && (
-                            <>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-7 gap-1 px-2 text-xs"
-                                onClick={() => void copyCode(row.code)}
-                              >
-                                <Copy className="h-3 w-3" />
-                                複製
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-7 gap-1 border-red-200 bg-red-50/80 px-2 text-xs text-red-800 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200 dark:hover:bg-red-950/50"
-                                disabled={actingId === row.id}
-                                onClick={() => void revokeInvite(row)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                撤銷
-                              </Button>
-                            </>
-                          )}
-                          {status !== "unused" && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-7 gap-1 px-2 text-xs"
-                              disabled={actingId === row.id}
-                              onClick={() => void revokeInvite(row)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              刪除
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                    <div key={row.id} className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-card p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 break-all font-mono text-sm font-medium text-foreground">{row.code}</p>
+                        <span className="shrink-0 text-xs">{renderInviteStatus(row, status)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {roleLabel(row.role)}・{inviteTargetName(row)}
+                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1.5">
+                        <span className="text-[11px] tabular-nums text-muted-foreground">
+                          有效至 {formatDateTime(row.expires_at)}
+                        </span>
+                        {renderInviteActions(row, status)}
+                      </div>
+                    </div>
                   );
                 })}
-              </TableBody>
-            </Table>
+              </div>
+
+              {/* 電腦（lg 以上）：表格 */}
+              <div className="hidden lg:block">
+                <Table className="min-w-[42rem]">
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
+                      <TableHead className="text-xs font-semibold">邀請碼</TableHead>
+                      <TableHead className="text-xs font-semibold">角色</TableHead>
+                      <TableHead className="text-xs font-semibold">預設名稱/員工</TableHead>
+                      <TableHead className="text-xs font-semibold">狀態</TableHead>
+                      <TableHead className="text-xs font-semibold whitespace-nowrap">有效期限</TableHead>
+                      <TableHead className="text-xs font-semibold">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invites.map((row) => {
+                      const status = inviteStatus(row);
+                      return (
+                        <TableRow key={row.id} className="border-b border-border hover:bg-muted/25">
+                          <TableCell className="font-mono text-sm font-medium text-foreground">
+                            {row.code}
+                          </TableCell>
+                          <TableCell className="text-sm">{roleLabel(row.role)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{inviteTargetName(row)}</TableCell>
+                          <TableCell className="text-sm">{renderInviteStatus(row, status)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                            {formatDateTime(row.expires_at)}
+                          </TableCell>
+                          <TableCell>{renderInviteActions(row, status)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </div>
       </section>

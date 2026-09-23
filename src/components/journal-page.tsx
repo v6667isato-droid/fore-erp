@@ -22,9 +22,18 @@ import {
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { JournalPostFormDialog } from "@/components/journal/journal-post-form-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { MobileSortBar } from "@/components/ui/mobile-sort-bar";
 import { toast } from "sonner";
 
 type SortKey = "post_code" | "title_zh" | "tag" | "post_date" | "published";
+
+const MOBILE_SORT_OPTIONS: readonly { key: SortKey; label: string }[] = [
+  { key: "post_date", label: "日期" },
+  { key: "post_code", label: "編號" },
+  { key: "title_zh", label: "標題" },
+  { key: "tag", label: "分類" },
+  { key: "published", label: "官網" },
+];
 
 /** 官網日誌管理：文章列表、發佈開關、新增與編輯 */
 export function JournalPage() {
@@ -108,6 +117,61 @@ export function JournalPage() {
     void fetchData();
   }
 
+  function renderThumb(row: JournalPostRow, sizeClassName: string) {
+    return row.image_url ? (
+      <span className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted ${sizeClassName}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={row.image_url}
+          alt={row.title_zh || "主圖"}
+          className="h-full w-full object-cover"
+        />
+      </span>
+    ) : (
+      <span className={`inline-flex shrink-0 items-center justify-center rounded-md border border-dashed border-muted text-[10px] text-muted-foreground ${sizeClassName}`}>
+        無圖
+      </span>
+    );
+  }
+
+  function renderPublishedToggle(row: JournalPostRow) {
+    return (
+      <button
+        type="button"
+        onClick={() => void togglePublished(row)}
+        className="focus:outline-none focus:ring-2 focus:ring-ring rounded"
+        aria-label={row.published ? `取消發佈 ${row.title_zh}` : `發佈 ${row.title_zh} 到官網`}
+        title={row.published ? "點擊取消官網發佈" : "點擊發佈到官網"}
+      >
+        {row.published ? (
+          <Badge>發佈中</Badge>
+        ) : (
+          <Badge variant="secondary">未發佈</Badge>
+        )}
+      </button>
+    );
+  }
+
+  function renderRowActions(row: JournalPostRow) {
+    return (
+      <div className="flex items-center justify-end gap-1">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditRow(row)} aria-label={`編輯 ${row.title_zh}`}>
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-destructive hover:text-destructive"
+          onClick={() => setDeleteConfirmRow(row)}
+          aria-label={`刪除 ${row.title_zh}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
   function sortButton(key: SortKey, label: string) {
     return (
       <button
@@ -175,106 +239,110 @@ export function JournalPage() {
           </select>
           <span className="text-xs text-muted-foreground ml-auto">共 {filteredRows.length} 筆</span>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent border-b border-border">
-              <TableHead className="text-xs font-semibold p-2 w-16">主圖</TableHead>
-              <TableHead className="text-xs font-semibold p-2">{sortButton("post_code", "編號")}</TableHead>
-              <TableHead className="text-xs font-semibold p-2">{sortButton("title_zh", "標題")}</TableHead>
-              <TableHead className="text-xs font-semibold p-2">{sortButton("tag", "分類")}</TableHead>
-              <TableHead className="text-xs font-semibold p-2">{sortButton("post_date", "日期")}</TableHead>
-              <TableHead className="text-xs font-semibold p-2">{sortButton("published", "官網")}</TableHead>
-              <TableHead className="text-xs font-semibold p-2 min-w-[90px] text-right" aria-label="操作">
-                操作
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sortedRows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  {rows.length === 0
-                    ? "尚無日誌文章，請點「新增文章」建立。"
-                    : "無符合篩選條件的資料。"}
-                </TableCell>
-              </TableRow>
-            ) : (
-              sortedRows.map((row) => (
-                <TableRow key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                  <TableCell className="p-2 align-middle">
-                    {row.image_url ? (
-                      <span className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={row.image_url}
-                          alt={row.title_zh || "主圖"}
-                          className="h-full w-full object-cover"
-                        />
-                      </span>
-                    ) : (
-                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-dashed border-muted text-[10px] text-muted-foreground">
-                        無圖
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm p-2">{row.post_code}</TableCell>
-                  <TableCell className="text-sm font-medium p-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditRow(row)}
-                      className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
-                    >
-                      <span className="flex flex-col">
-                        <span>{row.title_zh || "—"}</span>
-                        {row.title_en?.trim() && (
-                          <span className="mt-0.5 text-[11px] font-normal text-muted-foreground">
-                            {row.title_en}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {JOURNAL_TAG_LABEL[row.tag]}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">{row.post_date}</TableCell>
-                  <TableCell className="p-2">
-                    <button
-                      type="button"
-                      onClick={() => void togglePublished(row)}
-                      className="focus:outline-none focus:ring-2 focus:ring-ring rounded"
-                      aria-label={row.published ? `取消發佈 ${row.title_zh}` : `發佈 ${row.title_zh} 到官網`}
-                      title={row.published ? "點擊取消官網發佈" : "點擊發佈到官網"}
-                    >
-                      {row.published ? (
-                        <Badge>發佈中</Badge>
-                      ) : (
-                        <Badge variant="secondary">未發佈</Badge>
-                      )}
-                    </button>
-                  </TableCell>
-                  <TableCell className="p-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditRow(row)} aria-label={`編輯 ${row.title_zh}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
+
+        {/* 手機／平板（lg 以下）：卡片清單 */}
+        <div className="flex flex-col gap-2 p-3 lg:hidden">
+          <MobileSortBar
+            options={MOBILE_SORT_OPTIONS}
+            sortKey={sort.key}
+            asc={sort.asc}
+            onKeyChange={(key) => setSort({ key, asc: key !== "post_date" })}
+            onToggleDir={() => setSort((prev) => ({ ...prev, asc: !prev.asc }))}
+          />
+          {sortedRows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {rows.length === 0 ? "尚無日誌文章，請點「新增文章」建立。" : "無符合篩選條件的資料。"}
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+              {sortedRows.map((row) => (
+                <div key={row.id} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                  <div className="flex items-start gap-3">
+                    {renderThumb(row, "h-14 w-14")}
+                    <div className="min-w-0 flex-1">
+                      <button
                         type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => setDeleteConfirmRow(row)}
-                        aria-label={`刪除 ${row.title_zh}`}
+                        onClick={() => setEditRow(row)}
+                        className="break-words text-left text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                        {row.title_zh || "—"}
+                      </button>
+                      {row.title_en?.trim() && (
+                        <p className="break-words text-[11px] text-muted-foreground">{row.title_en}</p>
+                      )}
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {[row.post_code, JOURNAL_TAG_LABEL[row.tag], row.post_date].filter(Boolean).join("・")}
+                      </p>
                     </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-1.5">
+                    {renderPublishedToggle(row)}
+                    {renderRowActions(row)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 電腦（lg 以上）：表格 */}
+        <div className="hidden lg:block">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-b border-border">
+                <TableHead className="text-xs font-semibold p-2 w-16">主圖</TableHead>
+                <TableHead className="text-xs font-semibold p-2">{sortButton("post_code", "編號")}</TableHead>
+                <TableHead className="text-xs font-semibold p-2">{sortButton("title_zh", "標題")}</TableHead>
+                <TableHead className="text-xs font-semibold p-2">{sortButton("tag", "分類")}</TableHead>
+                <TableHead className="text-xs font-semibold p-2">{sortButton("post_date", "日期")}</TableHead>
+                <TableHead className="text-xs font-semibold p-2">{sortButton("published", "官網")}</TableHead>
+                <TableHead className="text-xs font-semibold p-2 min-w-[90px] text-right" aria-label="操作">
+                  操作
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    {rows.length === 0
+                      ? "尚無日誌文章，請點「新增文章」建立。"
+                      : "無符合篩選條件的資料。"}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                sortedRows.map((row) => (
+                  <TableRow key={row.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                    <TableCell className="p-2 align-middle">{renderThumb(row, "h-10 w-10")}</TableCell>
+                    <TableCell className="text-sm p-2">{row.post_code}</TableCell>
+                    <TableCell className="text-sm font-medium p-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditRow(row)}
+                        className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                      >
+                        <span className="flex flex-col">
+                          <span>{row.title_zh || "—"}</span>
+                          {row.title_en?.trim() && (
+                            <span className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+                              {row.title_en}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">
+                      {JOURNAL_TAG_LABEL[row.tag]}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">{row.post_date}</TableCell>
+                    <TableCell className="p-2">{renderPublishedToggle(row)}</TableCell>
+                    <TableCell className="p-2 text-right">{renderRowActions(row)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <JournalPostFormDialog

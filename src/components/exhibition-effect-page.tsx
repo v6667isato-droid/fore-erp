@@ -135,88 +135,174 @@ export function ExhibitionEffectPage() {
           尚未建立展覽場次。按「新增場次」建立第一場（例如 2026 木質生活展），並填入展期與成本。
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border bg-card">
-          <table className="w-full min-w-[860px] text-sm">
-            <thead className="bg-muted/40 text-xs text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium">場次</th>
-                <th className="px-3 py-2 text-right font-medium">現場成交</th>
-                <th className="px-3 py-2 text-right font-medium">展後轉單</th>
-                <th className="px-3 py-2 text-right font-medium">營收合計</th>
-                <th className="px-3 py-2 text-right font-medium">新客</th>
-                <th className="px-3 py-2 text-right font-medium">成本</th>
-                <th className="px-3 py-2 text-right font-medium">營收÷成本</th>
-                <th className="px-3 py-2 text-right font-medium">每位新客成本</th>
-                <th className="px-3 py-2 text-right font-medium">平均客單價</th>
-                <th className="px-3 py-2" aria-label="操作" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {effects.map((f) => {
-                const e = f.exhibition;
-                return (
-                  <tr key={e.id} className="align-top">
-                    <td className="px-3 py-2.5">
-                      <div className="font-medium text-foreground">{exhibitionLabel(e)}</div>
-                      <div className="text-xs text-muted-foreground">
+        <>
+          {/* 手機／平板（lg 以下）：每場次一張卡片 */}
+          <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2 lg:hidden">
+            {effects.map((f) => {
+              const e = f.exhibition;
+              const figures: { label: string; value: React.ReactNode; sub?: string }[] = [
+                {
+                  label: "現場成交",
+                  value: formatMoney(f.onsiteRevenue),
+                  sub: `${f.onsiteOrders} 張${f.onsiteWalkInOrders > 0 ? `（散客 ${f.onsiteWalkInOrders}）` : ""}`,
+                },
+                {
+                  label: "展後轉單",
+                  value: formatMoney(f.postShowRevenue),
+                  sub: `${f.postShowOrders} 張／${f.postShowCustomers} 位`,
+                },
+                { label: "新客", value: f.newCustomers },
+                {
+                  label: "成本",
+                  value: f.cost > 0 ? formatMoney(f.cost) : <span className="text-muted-foreground">未填</span>,
+                  sub: f.purchaseCount > 0 ? `採購 ${f.purchaseCount} 筆` : undefined,
+                },
+                {
+                  label: "每位新客成本",
+                  value: f.costPerNewCustomer != null ? formatMoney(f.costPerNewCustomer) : "—",
+                },
+                {
+                  label: "平均客單價",
+                  value: f.avgOrderValue != null ? formatMoney(f.avgOrderValue) : "—",
+                },
+              ];
+              return (
+                <div key={e.id} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-medium text-foreground">{exhibitionLabel(e)}</p>
+                      <p className="text-xs text-muted-foreground">
                         {formatMd(e.start_date)}–{formatMd(e.end_date)}
                         {e.location ? ` · ${e.location}` : ""}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground/80">
+                      </p>
+                      <p className="text-[11px] text-muted-foreground/80">
                         {e.customer_source
                           ? `統計${f.windowEnd ? `至 ${f.windowEnd.replace(/-/g, "/")} 前` : "至今"}`
                           : "未對應客戶來源，無法統計成交"}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      title="編輯場次與成本"
+                      aria-label={`編輯 ${exhibitionLabel(e)}`}
+                      onClick={() => setEditing(e)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex items-end justify-between gap-2 rounded-md bg-muted/30 px-2.5 py-2">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">營收合計</p>
+                      <p className="text-base font-semibold tabular-nums text-foreground">{formatMoney(f.totalRevenue)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[11px] text-muted-foreground">營收÷成本</p>
+                      <p className="text-sm font-medium tabular-nums text-foreground">
+                        {f.revenuePerCost != null ? `${f.revenuePerCost.toFixed(1)} 倍` : "—"}
+                      </p>
+                    </div>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                    {figures.map((fig) => (
+                      <div key={fig.label} className="min-w-0">
+                        <dt className="text-[11px] text-muted-foreground">{fig.label}</dt>
+                        <dd className="tabular-nums text-foreground">{fig.value}</dd>
+                        {fig.sub ? <dd className="text-[11px] text-muted-foreground">{fig.sub}</dd> : null}
                       </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      <div>{formatMoney(f.onsiteRevenue)}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {f.onsiteOrders} 張{f.onsiteWalkInOrders > 0 ? `（散客 ${f.onsiteWalkInOrders}）` : ""}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      <div>{formatMoney(f.postShowRevenue)}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {f.postShowOrders} 張／{f.postShowCustomers} 位
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">
-                      {formatMoney(f.totalRevenue)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{f.newCustomers}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      {f.cost > 0 ? formatMoney(f.cost) : <span className="text-xs text-muted-foreground">未填</span>}
-                      {f.purchaseCount > 0 ? (
-                        <div className="text-xs text-muted-foreground">採購 {f.purchaseCount} 筆</div>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      {f.revenuePerCost != null ? `${f.revenuePerCost.toFixed(1)} 倍` : "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      {f.costPerNewCustomer != null ? formatMoney(f.costPerNewCustomer) : "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      {f.avgOrderValue != null ? formatMoney(f.avgOrderValue) : "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="h-8 w-8"
-                        title="編輯場次與成本"
-                        onClick={() => setEditing(e)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    ))}
+                  </dl>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 電腦（lg 以上）：表格 */}
+          <div className="hidden overflow-x-auto rounded-lg border border-border bg-card lg:block">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="bg-muted/40 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">場次</th>
+                  <th className="px-3 py-2 text-right font-medium">現場成交</th>
+                  <th className="px-3 py-2 text-right font-medium">展後轉單</th>
+                  <th className="px-3 py-2 text-right font-medium">營收合計</th>
+                  <th className="px-3 py-2 text-right font-medium">新客</th>
+                  <th className="px-3 py-2 text-right font-medium">成本</th>
+                  <th className="px-3 py-2 text-right font-medium">營收÷成本</th>
+                  <th className="px-3 py-2 text-right font-medium">每位新客成本</th>
+                  <th className="px-3 py-2 text-right font-medium">平均客單價</th>
+                  <th className="px-3 py-2" aria-label="操作" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {effects.map((f) => {
+                  const e = f.exhibition;
+                  return (
+                    <tr key={e.id} className="align-top">
+                      <td className="px-3 py-2.5">
+                        <div className="font-medium text-foreground">{exhibitionLabel(e)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatMd(e.start_date)}–{formatMd(e.end_date)}
+                          {e.location ? ` · ${e.location}` : ""}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground/80">
+                          {e.customer_source
+                            ? `統計${f.windowEnd ? `至 ${f.windowEnd.replace(/-/g, "/")} 前` : "至今"}`
+                            : "未對應客戶來源，無法統計成交"}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        <div>{formatMoney(f.onsiteRevenue)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {f.onsiteOrders} 張{f.onsiteWalkInOrders > 0 ? `（散客 ${f.onsiteWalkInOrders}）` : ""}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        <div>{formatMoney(f.postShowRevenue)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {f.postShowOrders} 張／{f.postShowCustomers} 位
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">
+                        {formatMoney(f.totalRevenue)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{f.newCustomers}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {f.cost > 0 ? formatMoney(f.cost) : <span className="text-xs text-muted-foreground">未填</span>}
+                        {f.purchaseCount > 0 ? (
+                          <div className="text-xs text-muted-foreground">採購 {f.purchaseCount} 筆</div>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {f.revenuePerCost != null ? `${f.revenuePerCost.toFixed(1)} 倍` : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {f.costPerNewCustomer != null ? formatMoney(f.costPerNewCustomer) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {f.avgOrderValue != null ? formatMoney(f.avgOrderValue) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="編輯場次與成本"
+                          onClick={() => setEditing(e)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <ExhibitionFormDialog
