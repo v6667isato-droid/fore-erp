@@ -26,7 +26,7 @@ export interface ImageLightboxProps {
 }
 
 const iconBtn =
-  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 disabled:pointer-events-none disabled:opacity-40";
+  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-neutral-700 transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 disabled:pointer-events-none disabled:opacity-40";
 
 /** 全螢幕看圖：可左右切換多張，滾輪／雙指縮放、拖曳平移、雙擊放大或還原 */
 export function ImageLightbox({ images, index, onIndexChange }: ImageLightboxProps) {
@@ -52,11 +52,11 @@ export function ImageLightbox({ images, index, onIndexChange }: ImageLightboxPro
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/90" />
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-white" />
         {current && index != null ? (
           <Dialog.Content
             aria-describedby={undefined}
-            className="fixed inset-0 z-50 flex flex-col bg-neutral-950 text-white focus:outline-none"
+            className="fixed inset-0 z-50 flex flex-col bg-white text-neutral-900 focus:outline-none"
             onKeyDown={(e) => {
               if (e.key === "ArrowLeft") {
                 e.preventDefault();
@@ -67,11 +67,11 @@ export function ImageLightbox({ images, index, onIndexChange }: ImageLightboxPro
               }
             }}
           >
-            <div className="flex shrink-0 items-center gap-2 px-3 py-2 sm:px-4">
+            <div className="flex shrink-0 items-center gap-2 border-b border-neutral-200 px-3 py-2 sm:px-4">
               <div className="min-w-0 flex-1">
                 <Dialog.Title className="truncate text-sm font-medium">{title}</Dialog.Title>
                 {hasMany ? (
-                  <p className="text-xs tabular-nums text-white/60">
+                  <p className="text-xs tabular-nums text-neutral-500">
                     {index + 1} / {total}
                   </p>
                 ) : null}
@@ -103,7 +103,7 @@ export function ImageLightbox({ images, index, onIndexChange }: ImageLightboxPro
                 <>
                   <button
                     type="button"
-                    className={`${iconBtn} absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 sm:left-4`}
+                    className={`${iconBtn} absolute left-2 top-1/2 -translate-y-1/2 border border-neutral-200 bg-white/90 shadow-md sm:left-4`}
                     title="上一張"
                     aria-label="上一張"
                     onClick={() => go(-1)}
@@ -112,7 +112,7 @@ export function ImageLightbox({ images, index, onIndexChange }: ImageLightboxPro
                   </button>
                   <button
                     type="button"
-                    className={`${iconBtn} absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 sm:right-4`}
+                    className={`${iconBtn} absolute right-2 top-1/2 -translate-y-1/2 border border-neutral-200 bg-white/90 shadow-md sm:right-4`}
                     title="下一張"
                     aria-label="下一張"
                     onClick={() => go(1)}
@@ -370,15 +370,15 @@ function ZoomableImage({
         </div>
         {status === "loading" ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-white/70" />
+            <Loader2 className="h-8 w-8 animate-spin text-neutral-400" />
           </div>
         ) : status === "error" ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-white/70">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-neutral-500">
             圖片載入失敗
           </div>
         ) : null}
       </div>
-      <div className="flex shrink-0 flex-col items-center gap-1 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+      <div className="flex shrink-0 flex-col items-center gap-1 border-t border-neutral-200 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
         <div className="flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
@@ -390,7 +390,7 @@ function ZoomableImage({
           >
             <ZoomOut className="h-5 w-5" />
           </button>
-          <span className="min-w-[3.5rem] text-center text-xs tabular-nums text-white/80">
+          <span className="min-w-[3.5rem] text-center text-xs tabular-nums text-neutral-600">
             {Math.round(view.s * 100)}%
           </span>
           <button
@@ -414,7 +414,7 @@ function ZoomableImage({
             <RotateCcw className="h-5 w-5" />
           </button>
         </div>
-        <p className="text-center text-[11px] text-white/50">
+        <p className="text-center text-[11px] text-neutral-500">
           滾輪或雙指縮放・雙擊放大／還原・放大後可拖曳移動
         </p>
       </div>
