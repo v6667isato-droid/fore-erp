@@ -19,6 +19,7 @@ import {
   ArrowUpDown,
   Search,
   Download,
+  ChevronDown,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -191,6 +192,24 @@ type MyOrderSortKey =
   | "payment_status"
   | "list_grand"
   | "total_amount";
+
+/** 手機卡片的排序選單（與電腦版表頭同一組排序鍵） */
+const MY_ORDER_SORT_OPTIONS: { key: MyOrderSortKey; label: string }[] = [
+  { key: "order_date", label: "下單日" },
+  { key: "expected_delivery_date", label: "需求日" },
+  { key: "planned_end_max", label: "製作完成日" },
+  { key: "order_number", label: "訂單號" },
+  { key: "contact_name", label: "聯絡人" },
+  { key: "status", label: "狀態" },
+  { key: "payment_status", label: "付款" },
+  { key: "list_grand", label: "牌價" },
+  { key: "total_amount", label: "通路價" },
+];
+
+/** 切換到新排序欄位時的預設方向：下單日、製作完成日、聯絡人降冪，其餘升冪 */
+function defaultMyOrderSortAsc(key: MyOrderSortKey): boolean {
+  return !(key === "order_date" || key === "planned_end_max" || key === "contact_name");
+}
 
 function compareNullableDate(a: string | null, b: string | null): number {
   if (!a && !b) return 0;
@@ -719,11 +738,7 @@ export default function PortalPage() {
       setMyOrderSortAsc((v) => !v);
     } else {
       setMyOrderSortBy(key);
-      setMyOrderSortAsc(
-        key === "order_date" || key === "planned_end_max" || key === "contact_name"
-          ? false
-          : true
-      );
+      setMyOrderSortAsc(defaultMyOrderSortAsc(key));
     }
   }
 
@@ -919,6 +934,46 @@ export default function PortalPage() {
         setOrderOverviewById((prev) => ({ ...prev, [orderId]: patched }));
       });
     }
+  }
+
+  /** 製作完成日：工單最晚預計完成；無則以預計交貨備援並加 ※ */
+  function renderMyOrderPlannedEnd(o: MyOrderRow) {
+    if (o.planned_end_max) return formatDateYyMmDd(o.planned_end_max);
+    if (!o.expected_delivery_date) return "—";
+    return (
+      <span title={`${formatDateYyMmDd(o.expected_delivery_date)}（預計交貨備援）`}>
+        {formatDateYyMmDd(o.expected_delivery_date)}
+        <span className="text-muted-foreground"> ※</span>
+      </span>
+    );
+  }
+
+  /** 展開後的訂單內容（電腦表格與手機卡片共用） */
+  function renderMyOrderOverview(orderId: string) {
+    const overview = orderOverviewById[orderId];
+    if (overview === undefined || overview === "loading") {
+      return (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          載入訂單內容中…
+        </p>
+      );
+    }
+    if (!overview) {
+      return (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          無法載入訂單內容
+        </p>
+      );
+    }
+    return (
+      <OrderOverviewCard
+        order={overview}
+        variant="dialog"
+        visualTone="warm"
+        detailLevel="full"
+        showEditButton={false}
+      />
+    );
   }
 
   async function performDeleteOrder() {
@@ -1270,6 +1325,15 @@ export default function PortalPage() {
     );
   }
 
+  const myOrdersEmptyText =
+    myOrdersScopeTab === "closed"
+      ? myOrdersScopeCounts.closed === 0
+        ? "尚無已結案訂單"
+        : "沒有符合條件的已結案訂單"
+      : myOrdersScopeCounts.ongoing === 0
+        ? "尚無進行中訂單"
+        : "沒有符合條件的訂單";
+
   return (
     <div className="min-h-screen bg-muted/30 py-8 px-4">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -1557,7 +1621,7 @@ export default function PortalPage() {
           </form>
         </div>
 
-        <div className="rounded-xl border border-border bg-card shadow-sm p-6">
+        <div className="rounded-xl border border-border bg-card shadow-sm p-4 sm:p-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <ClipboardList className="h-4 w-4" />
@@ -1704,31 +1768,27 @@ export default function PortalPage() {
               </div>
 
               <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                <div className="min-w-0 overflow-x-auto text-sm text-foreground">
-                  <div className="flex w-max min-w-full items-baseline gap-x-4 gap-y-1 pr-1 sm:flex-wrap sm:w-auto">
-                    <span className="shrink-0 whitespace-nowrap">
-                      <span className="font-medium tabular-nums">{portalSettlementTotals.count}</span>
-                      <span className="text-muted-foreground"> 筆</span>
-                    </span>
-                    <span className="shrink-0 whitespace-nowrap">
-                      <span className="text-muted-foreground">牌價（含運）</span>{" "}
-                      <span className="font-semibold tabular-nums">
-                        ${portalSettlementTotals.listSum.toLocaleString()}
+                {/* 手機：一行一項、金額靠右；sm 以上併成一行並自動換行，不出現左右捲軸 */}
+                <div className="flex min-w-0 flex-col gap-1 text-sm text-foreground sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-4">
+                  <span className="whitespace-nowrap">
+                    <span className="font-medium tabular-nums">{portalSettlementTotals.count}</span>
+                    <span className="text-muted-foreground"> 筆</span>
+                  </span>
+                  {[
+                    { label: "牌價（含運）", value: portalSettlementTotals.listSum },
+                    { label: "通路價（含運）", value: portalSettlementTotals.sum },
+                    { label: "利潤（牌價−通路價）", value: portalSettlementTotals.profitSum },
+                  ].map((t) => (
+                    <span
+                      key={t.label}
+                      className="flex min-w-0 items-baseline justify-between gap-2 sm:justify-start sm:gap-1"
+                    >
+                      <span className="text-muted-foreground">{t.label}</span>
+                      <span className="whitespace-nowrap font-semibold tabular-nums">
+                        ${t.value.toLocaleString()}
                       </span>
                     </span>
-                    <span className="shrink-0 whitespace-nowrap">
-                      <span className="text-muted-foreground">通路價（含運）</span>{" "}
-                      <span className="font-semibold tabular-nums">
-                        ${portalSettlementTotals.sum.toLocaleString()}
-                      </span>
-                    </span>
-                    <span className="shrink-0 whitespace-nowrap">
-                      <span className="text-muted-foreground">利潤（牌價−通路價）</span>{" "}
-                      <span className="font-semibold tabular-nums">
-                        ${portalSettlementTotals.profitSum.toLocaleString()}
-                      </span>
-                    </span>
-                  </div>
+                  ))}
                 </div>
                 <Button
                   type="button"
@@ -1757,7 +1817,175 @@ export default function PortalPage() {
                   />
                 </div>
               </div>
-              <div className="rounded-md border border-border/80 overflow-x-auto">
+              {/* 手機／平板（lg 以下）：卡片清單，不需左右滑動 */}
+              <div className="flex flex-col gap-2 lg:hidden">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={myOrderSortBy}
+                    onChange={(e) => {
+                      const key = e.target.value as MyOrderSortKey;
+                      setMyOrderSortBy(key);
+                      setMyOrderSortAsc(defaultMyOrderSortAsc(key));
+                    }}
+                    aria-label="排序欄位"
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    {MY_ORDER_SORT_OPTIONS.map((opt) => (
+                      <option key={opt.key} value={opt.key}>
+                        排序：{opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 gap-1 px-2 text-xs"
+                    onClick={() => setMyOrderSortAsc((v) => !v)}
+                    aria-label={myOrderSortAsc ? "目前升冪，切換為降冪" : "目前降冪，切換為升冪"}
+                  >
+                    {myOrderSortAsc ? (
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    )}
+                    {myOrderSortAsc ? "升冪" : "降冪"}
+                  </Button>
+                </div>
+                {myOrdersFilteredSorted.length === 0 ? (
+                  <p className="rounded-md border border-border/80 py-6 text-center text-sm text-muted-foreground">
+                    {myOrdersEmptyText}
+                  </p>
+                ) : (
+                  myOrdersFilteredSorted.map((o) => {
+                    const isExpanded = expandedOrderIds.has(o.id);
+                    const editable = canEditOrDelete(o.status);
+                    return (
+                      <div
+                        key={o.id}
+                        className="flex min-w-0 flex-col gap-2.5 rounded-lg border border-border bg-background p-3"
+                      >
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="break-all font-mono text-sm font-medium text-foreground">
+                              {o.order_number}
+                            </p>
+                            <p className="mt-0.5 truncate text-[13px] text-muted-foreground">
+                              聯絡人：
+                              <span className="text-foreground">
+                                {o.shipping_contact_name?.trim() || "—"}
+                              </span>
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right text-sm leading-snug">
+                            <span className={cn("font-medium", portalStatusColor(o.status))}>
+                              {o.status}
+                            </span>
+                            {o.earliest_stage ? (
+                              <span className="block text-[11px] text-muted-foreground/70">
+                                工序：{o.earliest_stage}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                        <dl className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="min-w-0">
+                            <dt className="text-[11px] text-muted-foreground">下單日</dt>
+                            <dd className="tabular-nums text-foreground">
+                              {o.order_date ? formatDateYyMmDd(o.order_date) : "—"}
+                            </dd>
+                          </div>
+                          <div className="min-w-0">
+                            <dt className="text-[11px] text-muted-foreground">需求日</dt>
+                            <dd className="tabular-nums text-foreground">
+                              {o.expected_delivery_date
+                                ? formatDateYyMmDd(o.expected_delivery_date)
+                                : "—"}
+                            </dd>
+                          </div>
+                          <div className="min-w-0">
+                            <dt className="text-[11px] text-muted-foreground">製作完成日</dt>
+                            <dd
+                              className={cn(
+                                "tabular-nums text-foreground",
+                                plannedVsDeliveryTone(o.planned_end_max, o.expected_delivery_date),
+                              )}
+                            >
+                              {renderMyOrderPlannedEnd(o)}
+                            </dd>
+                          </div>
+                        </dl>
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+                          <span>
+                            付款：
+                            <span className="text-foreground">{o.payment_status || "—"}</span>
+                          </span>
+                          <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                            <span>
+                              牌價{" "}
+                              <span className="tabular-nums text-foreground">
+                                ${o.list_grand.toLocaleString()}
+                              </span>
+                            </span>
+                            <span>
+                              通路價{" "}
+                              <span className="font-semibold tabular-nums text-foreground">
+                                ${o.total_amount.toLocaleString()}
+                              </span>
+                            </span>
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 flex-1 gap-1 px-2 text-xs"
+                            aria-expanded={isExpanded}
+                            onClick={() => toggleOrderExpand(o.id)}
+                          >
+                            <Eye className="h-3.5 w-3.5" aria-hidden />
+                            {isExpanded ? "收合" : "檢視"}
+                            <ChevronDown
+                              className={cn(
+                                "h-3.5 w-3.5 transition-transform",
+                                isExpanded && "rotate-180",
+                              )}
+                              aria-hidden
+                            />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={!editable}
+                            className="h-8 flex-1 gap-1 px-2 text-xs"
+                            onClick={() => setEditingOrderId(o.id)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" aria-hidden />
+                            編輯
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={!editable}
+                            className="h-8 flex-1 gap-1 px-2 text-xs text-destructive hover:text-destructive"
+                            onClick={() => requestDeleteOrder(o)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                            刪除
+                          </Button>
+                        </div>
+                        {!editable ? (
+                          <p className="-mt-1 text-[11px] text-muted-foreground">
+                            已進入生產或後續階段，無法編輯／刪除
+                          </p>
+                        ) : null}
+                        {isExpanded ? renderMyOrderOverview(o.id) : null}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              {/* 電腦（lg 以上）：表格，寬度足夠不會出現左右捲軸 */}
+              <div className="hidden rounded-md border border-border/80 overflow-x-auto lg:block">
                 <table className="w-full min-w-[52rem] border-collapse text-sm leading-snug">
                   <thead>
                     <tr className="border-b border-border bg-muted/30 text-left">
@@ -1796,7 +2024,6 @@ export default function PortalPage() {
                   <tbody>
                     {myOrdersFilteredSorted.map((o) => {
                       const isExpanded = expandedOrderIds.has(o.id);
-                      const overview = orderOverviewById[o.id];
                       return (
                       <Fragment key={o.id}>
                       <tr className="border-b border-border/60">
@@ -1807,7 +2034,7 @@ export default function PortalPage() {
                           {o.order_date ? formatDateYyMmDd(o.order_date) : "—"}
                         </td>
                         <td
-                          className="px-2 py-2 align-middle text-sm text-foreground whitespace-nowrap"
+                          className="min-w-[5rem] px-2 py-2 align-middle text-sm text-foreground break-words"
                           title={o.shipping_contact_name ?? undefined}
                         >
                           {o.shipping_contact_name?.trim() || "—"}
@@ -1821,23 +2048,14 @@ export default function PortalPage() {
                             plannedVsDeliveryTone(o.planned_end_max, o.expected_delivery_date),
                           )}
                         >
-                          {o.planned_end_max ? (
-                            formatDateYyMmDd(o.planned_end_max)
-                          ) : o.expected_delivery_date ? (
-                            <span title={`${formatDateYyMmDd(o.expected_delivery_date)}（預計交貨備援）`}>
-                              {formatDateYyMmDd(o.expected_delivery_date)}
-                              <span className="text-muted-foreground"> ※</span>
-                            </span>
-                          ) : (
-                            "—"
-                          )}
+                          {renderMyOrderPlannedEnd(o)}
                         </td>
                         <td className="px-2 py-2 align-middle whitespace-nowrap">
                           <span className={portalStatusColor(o.status)} title={o.status}>
                             {o.status}
                           </span>
                           {o.earliest_stage ? (
-                            <span className="ml-1 text-xs text-muted-foreground/60" title={`工序：${o.earliest_stage}`}>
+                            <span className="block text-xs text-muted-foreground/60" title={`工序：${o.earliest_stage}`}>
                               ({o.earliest_stage})
                             </span>
                           ) : null}
@@ -1905,23 +2123,7 @@ export default function PortalPage() {
                         <tr className="border-b border-border/60 bg-muted/10">
                           <td colSpan={10} className="p-0">
                             <div className="p-3 sm:p-4">
-                              {overview === undefined || overview === "loading" ? (
-                                <p className="py-6 text-center text-sm text-muted-foreground">
-                                  載入訂單內容中…
-                                </p>
-                              ) : overview ? (
-                                <OrderOverviewCard
-                                  order={overview}
-                                  variant="dialog"
-                                  visualTone="warm"
-                                  detailLevel="full"
-                                  showEditButton={false}
-                                />
-                              ) : (
-                                <p className="py-6 text-center text-sm text-muted-foreground">
-                                  無法載入訂單內容
-                                </p>
-                              )}
+                              {renderMyOrderOverview(o.id)}
                             </div>
                           </td>
                         </tr>
@@ -1933,13 +2135,7 @@ export default function PortalPage() {
                 </table>
                 {myOrdersFilteredSorted.length === 0 && (
                   <p className="text-sm text-muted-foreground py-6 text-center">
-                    {myOrdersScopeTab === "closed"
-                      ? myOrdersScopeCounts.closed === 0
-                        ? "尚無已結案訂單"
-                        : "沒有符合條件的已結案訂單"
-                      : myOrdersScopeCounts.ongoing === 0
-                        ? "尚無進行中訂單"
-                        : "沒有符合條件的訂單"}
+                    {myOrdersEmptyText}
                   </p>
                 )}
               </div>

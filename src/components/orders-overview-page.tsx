@@ -484,6 +484,42 @@ function formatCurrency(n: number): string {
   return `$${Math.round(n).toLocaleString()}`;
 }
 
+/** 明細設計圖優先，否則規格／系列縮圖 */
+function FullDetailLineThumb({ line }: { line: OverviewLine }) {
+  return line.image_url ? (
+    <div className="h-14 w-14 shrink-0 overflow-hidden rounded border border-border bg-muted/40">
+      <img
+        src={line.image_url}
+        alt={line.item_name}
+        className="h-full w-full object-cover"
+      />
+    </div>
+  ) : (
+    <VariantSeriesThumb
+      imageUrl={line.thumbnail_url}
+      sizeClassName="h-14 w-14"
+      compactPlaceholder
+    />
+  );
+}
+
+function FullDetailLineStage({ line }: { line: OverviewLine }) {
+  return line.has_work_order ? (
+    <span
+      className={cn(
+        "inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
+        stageStyleClassName(line.stage)
+      )}
+    >
+      {line.stage}
+    </span>
+  ) : (
+    <span className="inline-flex rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+      尚無工單
+    </span>
+  );
+}
+
 function OrderFullDetailSections({
   order,
 }: {
@@ -533,7 +569,110 @@ function OrderFullDetailSections({
 
       <div>
         <p className="mb-2 text-xs font-semibold text-foreground">訂單明細</p>
-        <div className={cn("overflow-x-auto rounded-lg border", borderCls)}>
+        {/* 手機／平板（lg 以下）：品項改為卡片，不需左右滑動 */}
+        <div className="flex flex-col gap-2 lg:hidden">
+          {order.lines.length === 0 ? (
+            <p
+              className={cn(
+                "rounded-lg border px-3 py-6 text-center text-xs text-muted-foreground",
+                borderCls
+              )}
+            >
+              此訂單尚無品項。
+            </p>
+          ) : (
+            order.lines.map((line) => {
+              const notes = [line.description, line.custom_notes]
+                .map((t) => t?.trim())
+                .filter(Boolean)
+                .join("\n");
+              const lineTotal = line.quantity * line.unit_price;
+              const specs = [
+                { label: "木種", value: line.wood_type, mono: false },
+                { label: "尺寸", value: line.dimension_text, mono: false },
+                { label: "規格", value: line.spec_text, mono: true },
+              ];
+              return (
+                <div
+                  key={line.order_item_id}
+                  className={cn(
+                    "flex min-w-0 flex-col gap-2 rounded-lg border p-2.5 text-xs",
+                    borderCls
+                  )}
+                >
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    <FullDetailLineThumb line={line} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-start justify-between gap-2">
+                        <p className="min-w-0 break-words text-sm font-medium leading-snug text-foreground">
+                          {line.item_name}
+                        </p>
+                        <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">
+                          ×{line.quantity}
+                        </span>
+                      </div>
+                      <dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5">
+                        {specs.map((s) => (
+                          <Fragment key={s.label}>
+                            <dt className="text-muted-foreground">{s.label}</dt>
+                            <dd
+                              className={cn(
+                                "min-w-0 break-words text-foreground",
+                                s.mono && "font-mono"
+                              )}
+                            >
+                              {s.value || "—"}
+                            </dd>
+                          </Fragment>
+                        ))}
+                      </dl>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                    <FullDetailLineStage line={line} />
+                    <span className="inline-flex items-center gap-1">
+                      <User className="h-3 w-3 shrink-0" />
+                      <span className="text-foreground">{line.assignee || "—"}</span>
+                    </span>
+                    <span className="tabular-nums">
+                      預計完成{" "}
+                      <span className="text-foreground">
+                        {order.planned_end_order_max
+                          ? formatDateYyMmDd(order.planned_end_order_max)
+                          : "—"}
+                      </span>
+                    </span>
+                  </div>
+                  <div
+                    className={cn(
+                      "flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-t pt-2 text-muted-foreground",
+                      borderCls
+                    )}
+                  >
+                    <span className="tabular-nums">
+                      單價 {line.unit_price.toLocaleString()} × {line.quantity}
+                    </span>
+                    <span className="tabular-nums">
+                      小計{" "}
+                      <span className="font-medium text-foreground">
+                        {lineTotal.toLocaleString()}
+                      </span>
+                    </span>
+                  </div>
+                  {notes ? (
+                    <div className={cn("rounded-md px-2 py-1.5", mutedBg)}>
+                      <p className="text-[11px] font-semibold text-foreground">備註</p>
+                      <p className="whitespace-pre-line break-words text-muted-foreground">
+                        {notes}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+        <div className={cn("hidden overflow-x-auto rounded-lg border lg:block", borderCls)}>
           <table className="w-full min-w-[860px] text-xs">
             <thead>
               <tr className={cn("border-b text-left", borderCls, mutedBg)}>
@@ -568,21 +707,7 @@ function OrderFullDetailSections({
                       <Fragment key={line.order_item_id}>
                         <tr className="border-b border-border align-top">
                           <td className="p-2">
-                            {line.image_url ? (
-                              <div className="h-14 w-14 overflow-hidden rounded border border-border bg-muted/40">
-                                <img
-                                  src={line.image_url}
-                                  alt={line.item_name}
-                                  className="h-full w-full object-cover"
-                                />
-                              </div>
-                            ) : (
-                              <VariantSeriesThumb
-                                imageUrl={line.thumbnail_url}
-                                sizeClassName="h-14 w-14"
-                                compactPlaceholder
-                              />
-                            )}
+                            <FullDetailLineThumb line={line} />
                           </td>
                           <td className="p-2 font-medium text-foreground break-words">{line.item_name}</td>
                           <td className="p-2 text-muted-foreground break-words">{line.wood_type ?? "—"}</td>
@@ -596,20 +721,7 @@ function OrderFullDetailSections({
                             {lineTotal.toLocaleString()}
                           </td>
                           <td className="p-2 whitespace-nowrap">
-                            {line.has_work_order ? (
-                              <span
-                                className={cn(
-                                  "inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
-                                  stageStyleClassName(line.stage)
-                                )}
-                              >
-                                {line.stage}
-                              </span>
-                            ) : (
-                              <span className="inline-flex rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                                尚無工單
-                              </span>
-                            )}
+                            <FullDetailLineStage line={line} />
                           </td>
                           <td className="p-2 text-muted-foreground whitespace-nowrap">
                             {line.assignee ? (
