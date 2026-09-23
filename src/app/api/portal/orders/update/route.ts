@@ -43,10 +43,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "locked" }, { status: 409 });
     }
 
-    const priced = await pricePortalItems(client, identity.channel_id, body?.items);
+    const { data: prevRows, error: prevErr } = await client
+      .from("order_items")
+      .select("id, variant_id, unit_price, channel_unit_price")
+      .eq("order_id", orderId);
+    if (prevErr) {
+      console.error("portal orders/update prev items:", prevErr);
+      return NextResponse.json({ error: "query" }, { status: 500 });
+    }
+
+    // 訂單原有的規格即使已下架（軟刪除）仍允許沿用；新選的規格不得為已刪除
+    const keepVariantIds = new Set(
+      ((prevRows ?? []) as Array<{ variant_id: string | null }>)
+        .map((r) => (r.variant_id != null ? String(r.variant_id) : ""))
+        .filter(Boolean),
+    );
+    const priced = await pricePortalItems(client, identity.channel_id, body?.items, keepVariantIds);
     if (!priced.ok) {
       console.error("portal orders/update pricing:", priced.error);
-      const status = priced.error === "no_items" || priced.error === "bad_item" ? 400 : 500;
+      const status =
+        priced.error === "no_items" || priced.error === "bad_item" || priced.error === "deleted_variant"
+          ? 400
+          : 500;
       return NextResponse.json({ error: priced.error }, { status });
     }
 
@@ -58,14 +76,6 @@ export async function POST(request: Request) {
       const v = (raw as Record<string, unknown>)?.source_item_id;
       return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
     });
-    const { data: prevRows, error: prevErr } = await client
-      .from("order_items")
-      .select("id, variant_id, unit_price, channel_unit_price")
-      .eq("order_id", orderId);
-    if (prevErr) {
-      console.error("portal orders/update prev items:", prevErr);
-      return NextResponse.json({ error: "query" }, { status: 500 });
-    }
     const prevById = new Map(
       ((prevRows ?? []) as Array<{
         id: string;

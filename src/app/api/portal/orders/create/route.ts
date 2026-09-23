@@ -26,7 +26,10 @@ export async function POST(request: Request) {
   const priced = await pricePortalItems(client, identity.channel_id, body?.items);
   if (!priced.ok) {
     console.error("portal orders/create pricing:", priced.error);
-    const status = priced.error === "no_items" || priced.error === "bad_item" ? 400 : 500;
+    const status =
+      priced.error === "no_items" || priced.error === "bad_item" || priced.error === "deleted_variant"
+        ? 400
+        : 500;
     return NextResponse.json({ error: priced.error }, { status });
   }
 
