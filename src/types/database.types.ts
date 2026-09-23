@@ -1217,6 +1217,47 @@ export type Database = {
         }
         Relationships: []
       }
+      intake_learning_rules: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          rule: string
+          source_excerpt: string | null
+          source_kind: string
+          source_order_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          rule: string
+          source_excerpt?: string | null
+          source_kind?: string
+          source_order_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          rule?: string
+          source_excerpt?: string | null
+          source_kind?: string
+          source_order_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intake_learning_rules_source_order_id_fkey"
+            columns: ["source_order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoice_lottery_draws: {
         Row: {
           first_prizes: string[]

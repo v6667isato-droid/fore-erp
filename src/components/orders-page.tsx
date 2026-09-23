@@ -1930,6 +1930,7 @@ export function OrdersPage({
         open={intakeOpen}
         onOpenChange={setIntakeOpen}
         variants={variants}
+        canManageRules={canViewAuditTrail}
         onCustomerSaved={fetchCustomers}
         onCreateOrder={(draft) => {
           setEditingOrder(null);

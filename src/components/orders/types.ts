@@ -165,6 +165,8 @@ export interface OrderDraft {
   /** 指定訂金金額（優先於比例） */
   deposit_amount: number | null;
   shipping_fee: number | null;
+  /** 貼上的原始訊息：儲存時比對員工修正、讓 AI 學習用（無則不學習） */
+  intake_text?: string | null;
 }
 
 export interface OrderFormProps {

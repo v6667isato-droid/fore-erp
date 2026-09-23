@@ -72,6 +72,13 @@ import {
   resolveMaterialCode,
   specKeyFromSpec1,
 } from "@/lib/part-variants";
+import {
+  diffIntakeOrder,
+  formatDimensions,
+  type IntakeOrderSnapshot,
+  type IntakeSnapshotItem,
+} from "@/lib/intake-learning";
+import { submitIntakeLearning } from "@/lib/intake-learning-client";
 
 const IMAGE_BUCKET = "product-images";
 const ORDER_EXPLANATION_BUCKET = "order-explanations";
@@ -189,6 +196,16 @@ const WOOD_TYPE_DATALIST_ID = "order-form-wood-type-list";
 
 /** 訂金比例下拉選項（%）；不在清單內的比例顯示為「自訂」 */
 const DEPOSIT_PERCENT_OPTIONS = ["30", "40", "50"];
+
+/** 實際折扣 %（不論用折扣 % 或直接改折扣後金額），貼上建立學習時比對用 */
+function effectiveDiscountPercent(total: number, discounted: number): number | null {
+  return total > 0 && discounted < total ? Math.round((1 - discounted / total) * 1000) / 10 : null;
+}
+
+/** 訂金占折扣後金額的比例（%） */
+function depositPercentOf(deposit: number, discounted: number): number | null {
+  return deposit > 0 && discounted > 0 ? Math.round((deposit / discounted) * 100) : null;
+}
 
 function WoodTypeComboboxInput({
   id,
@@ -453,6 +470,8 @@ function OrderFormDialog({
   const prevTotalAmountRef = useRef<number | null>(null);
   /** 貼上建立：等這組品項寫入 state 後，再依草稿補通路價、套用折扣與訂金 */
   const pendingDraftPricingRef = useRef<{ draft: OrderDraft; items: OrderItemInput[] } | null>(null);
+  /** 貼上建立：自動帶入當下的內容快照，儲存時比對員工修正、送去學習 */
+  const intakeSnapshotRef = useRef<{ text: string; snapshot: IntakeOrderSnapshot } | null>(null);
   const [items, setItems] = useState<OrderItemInput[]>(
     initialItems && initialItems.length
       ? initialItems
@@ -661,6 +680,7 @@ function OrderFormDialog({
     setItems(blankItems);
     prevTotalAmountRef.current = null;
     pendingDraftPricingRef.current = null;
+    intakeSnapshotRef.current = null;
 
     // 貼上建立：客戶、寄送／發票資料與品項預先帶入（不走選客戶的自動帶入，保留這次訊息中的新地址等）
     if (initialDraft) {
@@ -1002,6 +1022,33 @@ function OrderFormDialog({
     [resolveListUnitPrice, isCustomOrderVariant]
   );
 
+  /** 貼上建立學習用的品項快照（沒有規格、系列或品名的空白列不列入） */
+  const snapshotItems = useCallback(
+    (list: OrderItemInput[]): IntakeSnapshotItem[] =>
+      list.flatMap((it) => {
+        let product: string | null;
+        if (it.kind === "variant") {
+          const v = it.variant_id ? variants.find((x) => x.id === it.variant_id) : undefined;
+          const seriesName = it.series_id ? variants.find((x) => x.series_id === it.series_id)?.series_name : null;
+          product = v ? v.product_code || v.label : seriesName ? `系列：${seriesName}（未選規格）` : null;
+        } else {
+          product = it.custom_name?.trim() || null;
+        }
+        if (!product) return [];
+        return [
+          {
+            ref: it.id,
+            product,
+            quantity: Number(it.quantity) || 0,
+            unit_price: resolveItemSettlementPrice(it) || null,
+            wood_type: it.wood_type?.trim() || null,
+            dimensions: formatDimensions(it.custom_dimension_w, it.custom_dimension_d, it.custom_dimension_h),
+            notes: it.custom_notes?.trim() || null,
+          },
+        ];
+      }),
+    [variants, resolveItemSettlementPrice]
+  );
 
   function itemLedgerSummary(it: OrderItemInput): {
     code: string;
@@ -1138,15 +1185,35 @@ function OrderFormDialog({
     }
 
     // 訂金：指定金額優先；否則依比例以折扣後金額試算（等同按「帶入訂金」）
+    let depositValue = 0;
     if (draft.deposit_amount != null) {
       setDepositPercent("");
       setDeposit(String(draft.deposit_amount));
+      depositValue = draft.deposit_amount;
     } else if (draft.deposit_percent != null) {
       const p = draft.deposit_percent;
       setDepositPercent(DEPOSIT_PERCENT_OPTIONS.includes(String(p)) ? String(p) : "");
-      if (base > 0) setDeposit(String(Math.round((base * p) / 100)));
+      if (base > 0) {
+        depositValue = Math.round((base * p) / 100);
+        setDeposit(String(depositValue));
+      }
     }
-  }, [items, resolveChannelUnitPriceFor, resolveItemSettlementPrice]);
+
+    // 記下自動帶入的內容，儲存時比對員工改了什麼
+    if (draft.intake_text) {
+      intakeSnapshotRef.current = {
+        text: draft.intake_text,
+        snapshot: {
+          items: snapshotItems(priced),
+          expected_delivery_date: draft.expected_delivery_date,
+          discount_percent: effectiveDiscountPercent(total, base),
+          deposit_percent: depositPercentOf(depositValue, base),
+          shipping_fee: draft.shipping_fee != null && draft.shipping_fee > 0 ? draft.shipping_fee : null,
+          notes: draft.internal_notes?.trim() || null,
+        },
+      };
+    }
+  }, [items, resolveChannelUnitPriceFor, resolveItemSettlementPrice, snapshotItems]);
 
   /** 折扣 % 變更：立即以品項總計換算折扣後總金額；清空則回歸品項總計 */
   function handleDiscountPctChange(raw: string) {
@@ -1516,6 +1583,27 @@ function OrderFormDialog({
       }
 
       toast.success(isEdit ? "已更新訂單" : "已建立訂單");
+
+      // 貼上建立：比對自動帶入 vs 儲存內容，AI 解析錯的地方送去學習（不等待、不擋儲存）
+      const intake = intakeSnapshotRef.current;
+      if (intake && !isEdit) {
+        intakeSnapshotRef.current = null;
+        const finalSnapshot: IntakeOrderSnapshot = {
+          items: snapshotItems(validItems),
+          expected_delivery_date: expectedDate || null,
+          discount_percent: effectiveDiscountPercent(totalAmount, discountBase),
+          deposit_percent: depositPercentOf(Number(deposit) || 0, discountBase),
+          shipping_fee: shippingFeeAmount > 0 ? shippingFeeAmount : null,
+          notes: internalNotes.trim() || null,
+        };
+        submitIntakeLearning({
+          kind: "order",
+          text: intake.text,
+          diffs: diffIntakeOrder(intake.text, intake.snapshot, finalSnapshot),
+          orderId,
+        });
+      }
+
       onSaved();
       onOpenChange(false);
     } finally {
