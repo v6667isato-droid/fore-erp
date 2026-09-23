@@ -83,6 +83,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
   const [vendorCategory, setVendorCategory] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([emptyLine()]);
+  const [poNotes, setPoNotes] = useState("");
   /** true=單價欄為已稅；false=未稅（營業稅 5% 固定） */
   const [priceInputIsTaxInclusive, setPriceInputIsTaxInclusive] = useState(false);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
@@ -179,6 +180,7 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
       setVendorCategory("");
       setVendorName("");
       setLines([emptyLine()]);
+      setPoNotes("");
       setPriceInputIsTaxInclusive(false);
       setError(null);
       supabase.from("vendors").select("id, name, main_category").then(({ data }) => {
@@ -243,7 +245,12 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
       const candidate = generatePoNumber();
       const poRes = await supabase
         .from("purchase_orders")
-        .insert({ po_number: candidate, purchase_date: purchaseDate.trim(), vendor_name: vendor })
+        .insert({
+          po_number: candidate,
+          purchase_date: purchaseDate.trim(),
+          vendor_name: vendor,
+          notes: poNotes.trim() || null,
+        })
         .select("id, po_number")
         .single();
       if (!poRes.error && poRes.data) {
@@ -430,6 +437,18 @@ export function AddPurchaseDialog({ onSuccess, onNavigateToVendors }: AddPurchas
                 找不到廠商？前往廠商資料新增
               </button>
             )}
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="add-purchase-po-notes" className="text-xs text-muted-foreground">採購單備註</label>
+              <textarea
+                id="add-purchase-po-notes"
+                value={poNotes}
+                onChange={(e) => setPoNotes(e.target.value)}
+                rows={2}
+                className="rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="整張採購單的備註（選填），例如：2026 木質生活展攤位費"
+              />
+            </div>
 
             <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/15 px-3 py-2.5">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">

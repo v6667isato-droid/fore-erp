@@ -136,9 +136,15 @@ describe("採購連結", () => {
     expect(purchaseCandidateRange("2026-07-02", "2026-07-05")).toEqual({ from: "2026-01-03", to: "2026-09-03" });
   });
 
-  it("品名或廠商含展覽／攤位／佈置才排前面；廠商「展鋮」不算", () => {
+  it("品名、廠商或採購單備註含展覽／攤位／佈置才排前面；廠商「展鋮」不算", () => {
     expect(isLikelyExhibitionPurchase({ item_name: "展覽費用", vendor_name: "佶士達", item_category: "其他" })).toBe(true);
     expect(isLikelyExhibitionPurchase({ item_name: "胡桃木", vendor_name: "展鋮", item_category: "木料_實木" })).toBe(false);
+    expect(
+      isLikelyExhibitionPurchase({ item_name: "木箱", vendor_name: "大榮", item_category: "物流", po_notes: "木質生活展運輸" }),
+    ).toBe(true);
+    expect(
+      isLikelyExhibitionPurchase({ item_name: "木箱", vendor_name: "大榮", item_category: "物流", po_notes: "客戶出貨" }),
+    ).toBe(false);
   });
 
   it("成本合計＝連結採購＋其他成本", () => {

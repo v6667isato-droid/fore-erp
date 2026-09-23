@@ -309,7 +309,7 @@ function ExhibitionFormDialog({
     const q = pickerSearch.trim().toLowerCase();
     if (!q) return candidates;
     return candidates.filter((p) =>
-      [p.item_name, p.vendor_name, p.item_category, p.po_number]
+      [p.item_name, p.vendor_name, p.item_category, p.po_number, p.po_notes]
         .filter(Boolean)
         .some((t) => String(t).toLowerCase().includes(q)),
     );
@@ -513,6 +513,9 @@ function ExhibitionFormDialog({
                             {p.purchase_date.replace(/-/g, "/")}
                             {p.po_number ? ` · ${p.po_number}` : ""}
                           </div>
+                          {p.po_notes ? (
+                            <div className="truncate text-xs text-muted-foreground">備註：{p.po_notes}</div>
+                          ) : null}
                         </div>
                         <span className="shrink-0 text-sm tabular-nums">{formatMoney(purchaseCostAmount(p))}</span>
                         <button
@@ -537,11 +540,11 @@ function ExhibitionFormDialog({
                         value={pickerSearch}
                         onChange={(e) => setPickerSearch(e.target.value)}
                         className={`${inputClass} min-w-0 flex-1`}
-                        placeholder="搜尋品名、廠商、類別、採購單號"
+                        placeholder="搜尋品名、廠商、類別、單號、備註"
                       />
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      列出展前 180 天～展後 60 天、尚未連結其他展覽的採購；品名或廠商含「展覽／攤位／佈置」的排在前面。勾選後按「連結所選」，儲存才會生效。
+                      列出展前 180 天～展後 60 天、尚未連結其他展覽的採購；品名、廠商或備註含「展覽／攤位／佈置」的排在前面。勾選後按「連結所選」，儲存才會生效。
                     </p>
                     {pickerLoading ? (
                       <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
@@ -578,6 +581,9 @@ function ExhibitionFormDialog({
                                   {p.item_category ? ` · ${p.item_category}` : ""}
                                   {p.po_number ? ` · ${p.po_number}` : ""}
                                 </div>
+                                {p.po_notes ? (
+                                  <div className="truncate text-xs text-muted-foreground">備註：{p.po_notes}</div>
+                                ) : null}
                               </div>
                               <span className="shrink-0 text-sm tabular-nums">{formatMoney(purchaseCostAmount(p))}</span>
                             </label>
