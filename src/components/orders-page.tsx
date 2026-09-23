@@ -28,8 +28,9 @@ import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { CustomerIntakeDialog } from "@/components/crm/customer-intake-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CustomerRow } from "@/types/crm";
-import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2, History, Sparkles } from "lucide-react";
+import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2, History, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import {
   SalesInvoiceDialog,
@@ -97,6 +98,27 @@ const STATUS_FILTER_CARD_META: Partial<
 
 /** 可自列表發起退貨的狀態（出貨後；已退貨可再開啟檢視／刪除紀錄） */
 const RETURNABLE_STATUSES: OrderStatus[] = ["已完工", "已出貨", "結案", "已退貨"];
+
+type OrderSortKey =
+  | "customer_name"
+  | "shipping_contact_name"
+  | "order_date"
+  | "expected_delivery_date"
+  | "status"
+  | "payment_status"
+  | "deposit_amount"
+  | "total_amount";
+
+/** 手機卡片的排序選單（與電腦版表頭同一組排序鍵） */
+const ORDER_SORT_OPTIONS: { key: OrderSortKey; label: string }[] = [
+  { key: "order_date", label: "下單日" },
+  { key: "expected_delivery_date", label: "交期" },
+  { key: "customer_name", label: "客戶" },
+  { key: "status", label: "訂單狀態" },
+  { key: "payment_status", label: "付款" },
+  { key: "deposit_amount", label: "訂金" },
+  { key: "total_amount", label: "總金額" },
+];
 
 /** 訂單狀態是否符合狀態篩選（表格列與客戶下拉共用同一套判斷；「已退貨」歸入已結案卡） */
 function matchesStatusFilter(status: OrderStatus, filter: StatusFilterValue): boolean {
@@ -655,15 +677,14 @@ export function OrdersPage({
     [filtered]
   );
 
-  type OrderSortKey =
-    | "customer_name"
-    | "shipping_contact_name"
-    | "order_date"
-    | "expected_delivery_date"
-    | "status"
-    | "payment_status"
-    | "deposit_amount"
-    | "total_amount";
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((o) => selectedPrintIds.has(o.id));
+
+  /** 全選／取消全選目前篩選結果（地址條列印） */
+  function toggleSelectAllFiltered(checked: boolean) {
+    setSelectedPrintIds(checked ? new Set(filtered.map((o) => o.id)) : new Set());
+  }
+
   const [orderSort, setOrderSort] = useState<{ key: OrderSortKey; dir: "asc" | "desc" }>({
     key: "order_date",
     dir: "desc",
@@ -736,57 +757,6 @@ export function OrdersPage({
         )}
       </span>
     );
-  }
-
-  function exportFilteredCsv() {
-    if (!filtered.length) {
-      toast.info("目前沒有可匯出的訂單資料");
-      return;
-    }
-    const header = [
-      "訂單編號",
-      "客戶姓名",
-      "聯絡人",
-      "下單日",
-      "預計交貨日",
-      "訂單狀態",
-      "付款狀態",
-      "訂金",
-      "總金額",
-    ];
-    const rows = filtered.map((o) => [
-      o.order_number,
-      o.customer_name,
-      o.shipping_contact_name ?? "",
-      o.order_date ?? "",
-      o.expected_delivery_date ?? "",
-      o.status,
-      o.payment_status,
-      String(o.deposit_amount ?? 0),
-      String(o.total_amount ?? 0),
-    ]);
-    const csv = [header, ...rows]
-      .map((cols) =>
-        cols
-          .map((v) => {
-            const s = String(v ?? "");
-            if (/[",\n]/.test(s)) {
-              return `"${s.replace(/"/g, '""')}"`;
-            }
-            return s;
-          })
-          .join(",")
-      )
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const fileLabel = `orders_${monthFilter || "all"}_${statusFilter}`;
-    a.href = url;
-    a.download = `${fileLabel}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("已匯出訂單 CSV");
   }
 
   /** 勾選多筆後一次開啟地址條列印（依目前列表排序，同一張 A4 連續排版） */
@@ -1062,6 +1032,341 @@ export function OrdersPage({
     );
   }
 
+  /* 以下欄位控制項與操作鈕由電腦版表格與手機卡片共用；
+     stopPropagation 是為了不觸發表格列點擊開啟編輯 */
+  function renderDeliveryControl(order: OrderRow, readOnly: boolean, className?: string) {
+    if (readOnly) {
+      return (
+        <span className="text-muted-foreground tabular-nums">
+          {order.expected_delivery_date
+            ? order.expected_delivery_date.replace(/-/g, "/")
+            : "—"}
+        </span>
+      );
+    }
+    return (
+      <input
+        type="date"
+        value={order.expected_delivery_date ?? ""}
+        onChange={(e) => {
+          e.stopPropagation();
+          updateOrderInline(order.id, {
+            expected_delivery_date: e.target.value || null,
+          });
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        className={cn(
+          "h-7 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring",
+          className
+        )}
+        aria-label="預計交貨日"
+      />
+    );
+  }
+
+  /** full：手機卡片撐滿欄寬並加高，方便點選 */
+  function renderStatusControl(order: OrderRow, readOnly: boolean, full = false) {
+    if (readOnly || isOrderStatusLockedForManualEdit(order.status)) {
+      return <StatusBadge status={order.status} />;
+    }
+    return (
+      <div
+        className={cn(
+          "items-center rounded-md border px-1 py-0.5 text-xs",
+          full ? "flex h-8 w-full" : "inline-flex",
+          statusStyles[order.status]
+        )}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <select
+          value={order.status}
+          onChange={(e) => {
+            e.stopPropagation();
+            updateOrderInline(order.id, {
+              status: e.target.value as OrderStatus,
+            });
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          aria-label="訂單狀態"
+          className={cn(
+            "bg-transparent border-none focus:outline-none focus:ring-0 text-inherit",
+            full && "w-full"
+          )}
+        >
+          {manualOrderStatusOptions(order.status).map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  function renderPaymentControl(order: OrderRow, readOnly: boolean, full = false) {
+    if (readOnly) {
+      return (
+        <Badge
+          variant="outline"
+          className={paymentStatusStyles[order.payment_status] ?? ""}
+        >
+          {order.payment_status}
+        </Badge>
+      );
+    }
+    return (
+      <div
+        className={cn(
+          "items-center rounded-md border px-1 py-0.5 text-xs",
+          full ? "flex h-8 w-full" : "inline-flex",
+          paymentStatusStyles[order.payment_status]
+        )}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <select
+          value={order.payment_status}
+          onChange={(e) => {
+            e.stopPropagation();
+            updateOrderInline(order.id, {
+              payment_status: e.target.value as PaymentStatus,
+            });
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          aria-label="付款狀態"
+          className={cn(
+            "bg-transparent border-none focus:outline-none focus:ring-0 text-inherit",
+            full && "w-full"
+          )}
+        >
+          {PAYMENT_STATUS_OPTIONS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  function openOrderPrintPath(path: string) {
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  /** 列印／地址條／發票／退貨／紀錄／編輯／刪除；touch＝手機卡片用較大的按鈕 */
+  function renderOrderActions(
+    order: OrderRow,
+    { readOnly, deleteLocked, touch = false }: { readOnly: boolean; deleteLocked: boolean; touch?: boolean }
+  ) {
+    const btn = touch ? "h-8 w-8" : "h-6 w-6";
+    const icon = touch ? "h-4 w-4" : "h-3 w-3";
+    const invoiceCount = invoiceCounts[order.id] ?? 0;
+    return (
+      <>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(btn, "text-muted-foreground hover:text-foreground")}
+          title={order.status === "報價中" ? "報價列印" : "訂單列印"}
+          aria-label={order.status === "報價中" ? "報價列印" : "訂單列印"}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = encodeURIComponent(order.id);
+            openOrderPrintPath(
+              order.status === "報價中" ? `/print/quotation/${id}` : `/print/order/${id}`
+            );
+          }}
+        >
+          <Printer className={icon} />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            btn,
+            order.address_label_printed_at
+              ? "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          title={
+            order.address_label_printed_at
+              ? `地址條（已於 ${new Date(order.address_label_printed_at).toLocaleString("zh-TW", { hour12: false })} 列印）`
+              : "地址條"
+          }
+          aria-label="地址條"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openOrderPrintPath(`/print/address-label/${encodeURIComponent(order.id)}`);
+          }}
+        >
+          <span className={cn("leading-none", touch ? "text-xs" : "text-[10px]")}>標</span>
+        </Button>
+        {canIssueInvoice && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              btn,
+              invoiceCount > 0
+                ? "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            title={
+              invoiceCount > 0
+                ? `檢視發票（此訂單已開 ${invoiceCount} 張）`
+                : "開立發票"
+            }
+            aria-label={invoiceCount > 0 ? "檢視發票" : "開立發票"}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const ctx = {
+                id: order.id,
+                order_number: order.order_number,
+                customer_id: order.customer_id,
+              };
+              if (invoiceCount > 0) setInvoiceListOrder(ctx);
+              else setInvoiceOrder(ctx);
+            }}
+          >
+            <Receipt className={icon} />
+          </Button>
+        )}
+        {isAdmin && RETURNABLE_STATUSES.includes(order.status) && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              btn,
+              order.status === "已退貨"
+                ? "text-rose-600 hover:text-rose-700 dark:text-rose-400"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            title={order.status === "已退貨" ? "退貨紀錄" : "退貨"}
+            aria-label={order.status === "已退貨" ? "退貨紀錄" : "退貨"}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setReturnOrder(order);
+            }}
+          >
+            <Undo2 className={icon} />
+          </Button>
+        )}
+        {canViewAuditTrail && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(btn, "text-muted-foreground hover:text-foreground")}
+            title="修改紀錄"
+            aria-label="修改紀錄"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setHistoryOrder(order);
+            }}
+          >
+            <History className={icon} />
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(btn, "text-muted-foreground hover:text-foreground")}
+          title={readOnly ? "檢視" : "編輯"}
+          aria-label={readOnly ? "檢視" : "編輯"}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleEdit(order);
+          }}
+        >
+          <Pencil className={icon} />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(btn, "text-muted-foreground hover:text-destructive disabled:opacity-40")}
+          title={deleteLocked ? "已結案/已退貨無法刪除" : "刪除"}
+          aria-label="刪除"
+          disabled={deleteLocked}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(order); }}
+        >
+          <Trash2 className={icon} />
+        </Button>
+      </>
+    );
+  }
+
+  /** 展開後的訂單內容（電腦表格與手機卡片共用） */
+  function renderOrderOverview(orderId: string) {
+    const overview = overviewById[orderId];
+    if (overview === undefined || overview === "loading") {
+      return (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          載入訂單內容中…
+        </p>
+      );
+    }
+    if (!overview) {
+      return (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          無法載入訂單內容
+        </p>
+      );
+    }
+    return (
+      <OrderOverviewCard
+        order={overview}
+        variant="dialog"
+        detailLevel="full"
+        showEditButton={false}
+      />
+    );
+  }
+
+  function renderCustomerCell(order: OrderRow) {
+    return (
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void openCustomerOverview(order);
+          }}
+          className="text-left font-medium text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+          title="客戶總覽"
+        >
+          {order.customer_name || "—"}
+          {order.customer_alias && order.customer_alias.trim() && (
+            <span className="ml-1 text-xs text-muted-foreground">
+              ({order.customer_alias})
+            </span>
+          )}
+        </button>
+        {order.shipping_contact_name?.trim() ? (
+          <span className="text-xs text-muted-foreground">
+            ／{order.shipping_contact_name.trim()}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col gap-4">
@@ -1205,17 +1510,6 @@ export function OrdersPage({
                 <Printer className="h-3.5 w-3.5 shrink-0" />
                 物流警示標
               </Link>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 px-3 text-xs"
-                onClick={exportFilteredCsv}
-                disabled={!filtered.length}
-                aria-label="匯出篩選後訂單為 CSV"
-              >
-                <Download className="h-3.5 w-3.5 mr-1" />
-                匯出 CSV
-              </Button>
             </>
           )}
           <Button
@@ -1244,7 +1538,145 @@ export function OrdersPage({
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-x-auto">
+      {/* 手機／平板／小筆電（xl 以下，含側欄後放不下表格）：卡片清單，不需左右滑動 */}
+      <div className="flex flex-col gap-2 xl:hidden">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2 text-xs text-foreground">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5"
+              checked={allFilteredSelected}
+              onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
+            />
+            全選（地址條）
+          </label>
+          <select
+            value={sortKey}
+            onChange={(e) =>
+              setOrderSort({ key: e.target.value as OrderSortKey, dir: "asc" })
+            }
+            aria-label="排序欄位"
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {ORDER_SORT_OPTIONS.map((opt) => (
+              <option key={opt.key} value={opt.key}>
+                排序：{opt.label}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 gap-1 px-2 text-xs"
+            onClick={() =>
+              setOrderSort((prev) => ({
+                ...prev,
+                dir: prev.dir === "asc" ? "desc" : "asc",
+              }))
+            }
+            aria-label={sortDir === "asc" ? "目前升冪，切換為降冪" : "目前降冪，切換為升冪"}
+          >
+            {sortDir === "asc" ? (
+              <ArrowUp className="h-3.5 w-3.5" />
+            ) : (
+              <ArrowDown className="h-3.5 w-3.5" />
+            )}
+            {sortDir === "asc" ? "升冪" : "降冪"}
+          </Button>
+        </div>
+        {filtered.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+            查無符合條件的訂單
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+            {sortedOrders.map((order) => {
+              const rowReadOnly = isOrderAdminReadOnly(order, canEditClosedOrders);
+              // 刪除不隨結案編輯權開放：結案／已退貨一律不可刪
+              const rowDeleteLocked = isOrderAdminReadOnly(order);
+              const isExpanded = expandedIds.has(order.id);
+              return (
+                <div
+                  key={order.id}
+                  className={cn(
+                    "flex min-w-0 flex-col gap-2.5 rounded-xl border border-border bg-card p-3",
+                    isExpanded && "md:col-span-2"
+                  )}
+                >
+                  <div className="flex min-w-0 items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 shrink-0"
+                      aria-label={`勾選訂單 ${order.order_number || order.id}（地址條列印）`}
+                      checked={selectedPrintIds.has(order.id)}
+                      onChange={() => togglePrintSelect(order.id)}
+                    />
+                    <div className="min-w-0 flex-1 text-sm leading-snug">
+                      {renderCustomerCell(order)}
+                    </div>
+                    <div className="shrink-0 text-right leading-snug">
+                      <p className="text-sm font-semibold tabular-nums text-foreground">
+                        {order.total_amount.toLocaleString()}
+                      </p>
+                      <p className="text-[11px] tabular-nums text-muted-foreground">
+                        訂金 {order.deposit_amount ? order.deposit_amount.toLocaleString() : "—"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[11px] text-muted-foreground">訂單狀態</span>
+                      {renderStatusControl(order, rowReadOnly, true)}
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[11px] text-muted-foreground">付款</span>
+                      {renderPaymentControl(order, rowReadOnly, true)}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[11px] text-muted-foreground">下單日</span>
+                      <span className="flex h-8 items-center text-sm tabular-nums text-muted-foreground">
+                        {order.order_date ? order.order_date.replace(/-/g, "/") : "—"}
+                      </span>
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[11px] text-muted-foreground">交期</span>
+                      <div className="flex h-8 items-center text-sm">
+                        {renderDeliveryControl(order, rowReadOnly, "h-8 min-w-0 text-sm")}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mr-auto h-8 gap-1 px-2 text-xs"
+                      aria-expanded={isExpanded}
+                      onClick={() => toggleOrderExpand(order.id)}
+                    >
+                      {isExpanded ? "收合明細" : "明細"}
+                      <ChevronDown
+                        className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-180")}
+                        aria-hidden
+                      />
+                    </Button>
+                    {renderOrderActions(order, {
+                      readOnly: rowReadOnly,
+                      deleteLocked: rowDeleteLocked,
+                      touch: true,
+                    })}
+                  </div>
+                  {isExpanded ? renderOrderOverview(order.id) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 電腦（xl 以上）：表格 */}
+      <div className="hidden rounded-xl border border-border bg-card overflow-x-auto xl:block">
         <Table className="min-w-[56rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -1254,17 +1686,8 @@ export function OrdersPage({
                   className="h-3.5 w-3.5 align-middle"
                   aria-label="全選（地址條列印）"
                   title="全選／取消全選（地址條列印）"
-                  checked={
-                    filtered.length > 0 &&
-                    filtered.every((o) => selectedPrintIds.has(o.id))
-                  }
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedPrintIds(new Set(filtered.map((o) => o.id)));
-                    } else {
-                      setSelectedPrintIds(new Set());
-                    }
-                  }}
+                  checked={allFilteredSelected}
+                  onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
                 />
               </TableHead>
               <TableHead
@@ -1340,7 +1763,6 @@ export function OrdersPage({
                 // 刪除不隨結案編輯權開放：結案／已退貨一律不可刪
                 const rowDeleteLocked = isOrderAdminReadOnly(order);
                 const isExpanded = expandedIds.has(order.id);
-                const overview = overviewById[order.id];
                 return (
                 <Fragment key={order.id}>
                 <TableRow
@@ -1361,122 +1783,19 @@ export function OrdersPage({
                     />
                   </TableCell>
                   <TableCell className="px-1.5 text-sm whitespace-normal">
-                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-1">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void openCustomerOverview(order);
-                        }}
-                        className="text-left font-medium text-primary underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                        title="客戶總覽"
-                      >
-                        {order.customer_name || "—"}
-                        {order.customer_alias && order.customer_alias.trim() && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            ({order.customer_alias})
-                          </span>
-                        )}
-                      </button>
-                      {order.shipping_contact_name?.trim() ? (
-                        <span className="text-xs text-muted-foreground">
-                          ／{order.shipping_contact_name.trim()}
-                        </span>
-                      ) : null}
-                    </div>
+                    {renderCustomerCell(order)}
                   </TableCell>
                   <TableCell className="px-1.5 text-sm text-muted-foreground tabular-nums whitespace-nowrap">
                     {order.order_date ? order.order_date.replace(/-/g, "/") : "—"}
                   </TableCell>
                   <TableCell className="px-1.5 text-sm whitespace-nowrap">
-                    {rowReadOnly ? (
-                      <span className="text-muted-foreground tabular-nums">
-                        {order.expected_delivery_date
-                          ? order.expected_delivery_date.replace(/-/g, "/")
-                          : "—"}
-                      </span>
-                    ) : (
-                      <input
-                        type="date"
-                        value={order.expected_delivery_date ?? ""}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          updateOrderInline(order.id, {
-                            expected_delivery_date: e.target.value || null,
-                          });
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        className="h-7 w-full rounded-md border border-input bg-background px-1 text-xs text-foreground tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-                        aria-label="預計交貨日"
-                      />
-                    )}
+                    {renderDeliveryControl(order, rowReadOnly)}
                   </TableCell>
                   <TableCell className="px-1.5 text-sm">
-                    {rowReadOnly ||
-                    isOrderStatusLockedForManualEdit(order.status) ? (
-                      <StatusBadge status={order.status} />
-                    ) : (
-                      <div
-                        className={`inline-flex items-center rounded-md border px-1 py-0.5 text-xs ${statusStyles[order.status] ?? ""}`}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                      >
-                        <select
-                          value={order.status}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            updateOrderInline(order.id, {
-                              status: e.target.value as OrderStatus,
-                            });
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
-                        >
-                          {manualOrderStatusOptions(order.status).map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                    {renderStatusControl(order, rowReadOnly)}
                   </TableCell>
                   <TableCell className="px-1.5 text-sm">
-                    {rowReadOnly ? (
-                      <Badge
-                        variant="outline"
-                        className={paymentStatusStyles[order.payment_status] ?? ""}
-                      >
-                        {order.payment_status}
-                      </Badge>
-                    ) : (
-                      <div
-                        className={`inline-flex items-center rounded-md border px-1 py-0.5 text-xs ${paymentStatusStyles[order.payment_status] ?? ""}`}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                      >
-                        <select
-                          value={order.payment_status}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            updateOrderInline(order.id, {
-                              payment_status: e.target.value as PaymentStatus,
-                            });
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          className="bg-transparent border-none focus:outline-none focus:ring-0 text-inherit"
-                        >
-                          {PAYMENT_STATUS_OPTIONS.map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                    {renderPaymentControl(order, rowReadOnly)}
                   </TableCell>
                   <TableCell className="px-1.5 text-right text-sm tabular-nums whitespace-nowrap">
                     {order.deposit_amount
@@ -1507,142 +1826,10 @@ export function OrdersPage({
                           <ChevronRight className="h-3 w-3" />
                         )}
                       </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                        title={order.status === "報價中" ? "報價列印" : "訂單列印"}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          const id = encodeURIComponent(order.id);
-                          const path =
-                            order.status === "報價中"
-                              ? `/print/quotation/${id}`
-                              : `/print/order/${id}`;
-                          const url = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
-                          window.open(url, "_blank", "noopener,noreferrer");
-                        }}
-                      >
-                        <Printer className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className={`h-6 w-6 ${
-                          order.address_label_printed_at
-                            ? "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                        title={
-                          order.address_label_printed_at
-                            ? `地址條（已於 ${new Date(order.address_label_printed_at).toLocaleString("zh-TW", { hour12: false })} 列印）`
-                            : "地址條"
-                        }
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          const id = encodeURIComponent(order.id);
-                          const path = `/print/address-label/${id}`;
-                          const url = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
-                          window.open(url, "_blank", "noopener,noreferrer");
-                        }}
-                      >
-                        <span className="text-[10px] leading-none">標</span>
-                      </Button>
-                      {canIssueInvoice && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className={`h-6 w-6 ${
-                            (invoiceCounts[order.id] ?? 0) > 0
-                              ? "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
-                              : "text-muted-foreground hover:text-foreground"
-                          }`}
-                          title={
-                            (invoiceCounts[order.id] ?? 0) > 0
-                              ? `檢視發票（此訂單已開 ${invoiceCounts[order.id]} 張）`
-                              : "開立發票"
-                          }
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const ctx = {
-                              id: order.id,
-                              order_number: order.order_number,
-                              customer_id: order.customer_id,
-                            };
-                            if ((invoiceCounts[order.id] ?? 0) > 0) setInvoiceListOrder(ctx);
-                            else setInvoiceOrder(ctx);
-                          }}
-                        >
-                          <Receipt className="h-3 w-3" />
-                        </Button>
-                      )}
-                      {isAdmin && RETURNABLE_STATUSES.includes(order.status) && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className={`h-6 w-6 ${
-                            order.status === "已退貨"
-                              ? "text-rose-600 hover:text-rose-700 dark:text-rose-400"
-                              : "text-muted-foreground hover:text-foreground"
-                          }`}
-                          title={order.status === "已退貨" ? "退貨紀錄" : "退貨"}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setReturnOrder(order);
-                          }}
-                        >
-                          <Undo2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                      {canViewAuditTrail && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                          title="修改紀錄"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setHistoryOrder(order);
-                          }}
-                        >
-                          <History className="h-3 w-3" />
-                        </Button>
-                      )}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                        title={rowReadOnly ? "檢視" : "編輯"}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleEdit(order);
-                        }}
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-muted-foreground hover:text-destructive disabled:opacity-40"
-                        title={rowDeleteLocked ? "已結案/已退貨無法刪除" : "刪除"}
-                        disabled={rowDeleteLocked}
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(order); }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                      {renderOrderActions(order, {
+                        readOnly: rowReadOnly,
+                        deleteLocked: rowDeleteLocked,
+                      })}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1650,22 +1837,7 @@ export function OrdersPage({
                   <TableRow className="hover:bg-transparent">
                     <TableCell colSpan={9} className="p-0">
                       <div className="border-t border-border bg-muted/20 p-3 sm:p-4">
-                        {overview === undefined || overview === "loading" ? (
-                          <p className="py-6 text-center text-sm text-muted-foreground">
-                            載入訂單內容中…
-                          </p>
-                        ) : overview ? (
-                          <OrderOverviewCard
-                            order={overview}
-                            variant="dialog"
-                            detailLevel="full"
-                            showEditButton={false}
-                          />
-                        ) : (
-                          <p className="py-6 text-center text-sm text-muted-foreground">
-                            無法載入訂單內容
-                          </p>
-                        )}
+                        {renderOrderOverview(order.id)}
                       </div>
                     </TableCell>
                   </TableRow>
