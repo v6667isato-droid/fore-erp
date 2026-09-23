@@ -581,6 +581,50 @@ export function PayslipPaidHistoryPanel() {
     });
   }
 
+  /** 出勤備註／刪除；labeled＝手機卡片用（附文字、較大觸控範圍），否則為表格內圖示鈕 */
+  function renderRowActions(row: PaidSlipRow, labeled: boolean) {
+    const btn = labeled ? "h-8 gap-1 px-2 text-xs" : "h-7 w-7 p-0 text-xs";
+    return (
+      <div className="flex items-center justify-center gap-1">
+        {row.notes ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className={cn(btn, "text-muted-foreground")}
+            aria-label={`查看 ${row.employee_name} 出勤備註`}
+            title="查看出勤備註"
+            onClick={() =>
+              setRemarkDialog({
+                open: true,
+                name: row.employee_name,
+                text: row.notes ?? "",
+              })
+            }
+          >
+            <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            {labeled && "備註"}
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          className={cn(btn, "text-destructive hover:bg-destructive/10 hover:text-destructive")}
+          disabled={deletingId === row.id}
+          aria-label={`刪除 ${row.employee_name} ${row.month_label || row.period_key} 已發放薪資`}
+          title="刪除已發放紀錄"
+          onClick={() => void handleDeletePaid(row)}
+        >
+          {deletingId === row.id ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          )}
+          {labeled && "刪除"}
+        </Button>
+      </div>
+    );
+  }
+
   if (!isSupabaseConfigured) {
     return (
       <div className="rounded-xl border border-border bg-secondary/40 px-4 py-3 text-sm text-muted-foreground">
@@ -670,7 +714,7 @@ export function PayslipPaidHistoryPanel() {
         </p>
       )}
 
-      <div className="px-2 pb-3 pt-2 max-md:overflow-x-auto md:overflow-visible sm:px-4 sm:pb-4">
+      <div className="px-2 pb-3 pt-2 sm:px-4 sm:pb-4">
         {loading ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
             載入中…
@@ -693,98 +737,9 @@ export function PayslipPaidHistoryPanel() {
             </p>
           </div>
         ) : (
-          <Table className="max-md:min-w-[1120px] md:min-w-0 md:table-fixed md:w-full">
-            <colgroup className="hidden md:table-column-group">
-              <col className="w-[4rem]" />
-              <col className="w-[2.25rem]" />
-              <col className="w-[3rem]" />
-              <col className="w-[2.75rem]" />
-              <col className="w-[2.75rem]" />
-              <col className="w-[2.75rem]" />
-              <col className="w-[3.5rem]" />
-              <col className="w-[4rem]" />
-              <col className="w-[3.75rem]" />
-              <col className="w-[3rem]" />
-              <col className="w-[3.25rem]" />
-              <col className="w-[3.5rem]" />
-              <col className="w-[3.5rem]" />
-              <col className="w-[3rem]" />
-            </colgroup>
-            <TableHeader>
-              <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30 md:[&_th]:px-1.5 md:[&_th]:py-1.5 md:[&_th]:whitespace-normal">
-                <TableHead
-                  title="員工"
-                  className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-muted/30 max-md:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.08)] text-xs font-semibold"
-                >
-                  員工
-                </TableHead>
-                <TableHead title="薪資月份" className="text-xs font-semibold">
-                  <span className="md:hidden">薪資月份</span>
-                  <span className="hidden md:inline">月份</span>
-                </TableHead>
-                <TableHead title="本月薪資" className="text-right text-xs font-semibold">
-                  <span className="md:hidden">本月薪資</span>
-                  <span className="hidden md:inline">底薪</span>
-                </TableHead>
-                <TableHead title="勞保自付" className="text-right text-xs font-semibold">
-                  <span className="md:hidden">勞保自付</span>
-                  <span className="hidden md:inline">勞保</span>
-                </TableHead>
-                <TableHead title="健保自付" className="text-right text-xs font-semibold">
-                  <span className="md:hidden">健保自付</span>
-                  <span className="hidden md:inline">健保</span>
-                </TableHead>
-                <TableHead title="請假扣款（事假＋病假）" className="text-right text-xs font-semibold">
-                  <span className="md:hidden">
-                    <span className="block">請假扣款</span>
-                    <span className="text-[10px] font-normal text-muted-foreground/90">
-                      （事+病）
-                    </span>
-                  </span>
-                  <span className="hidden md:inline">請假</span>
-                </TableHead>
-                <TableHead title="本月特休（假單建立於結算月）" className="text-right text-xs font-semibold">
-                  <span className="md:hidden">
-                    <span className="block">本月特休</span>
-                    <span className="text-[10px] font-normal text-muted-foreground/90">
-                      建立日於本月
-                    </span>
-                  </span>
-                  <span className="hidden md:inline">特休</span>
-                </TableHead>
-                <TableHead
-                  title="剩餘特休（該月結算後餘額）"
-                  className="text-right text-xs font-semibold"
-                >
-                  剩餘特休
-                </TableHead>
-                <TableHead
-                  title="加班天數／加班費／轉補休"
-                  className="text-right text-xs font-semibold"
-                >
-                  加班
-                </TableHead>
-                <TableHead title="考績／分潤／股份獎金" className="text-right text-xs font-semibold">
-                  獎金
-                </TableHead>
-                <TableHead title="其他調整" className="text-right text-xs font-semibold">
-                  <span className="md:hidden">其他調整</span>
-                  <span className="hidden md:inline">調整</span>
-                </TableHead>
-                <TableHead title="實發總額" className="text-right text-xs font-semibold">
-                  <span className="md:hidden">實發總額</span>
-                  <span className="hidden md:inline">實發</span>
-                </TableHead>
-                <TableHead title="入帳時間" className="text-xs font-semibold">
-                  <span className="md:hidden">入帳時間</span>
-                  <span className="hidden md:inline">入帳</span>
-                </TableHead>
-                <TableHead title="查看出勤備註／刪除紀錄" className="text-center text-xs font-semibold">
-                  操作
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody className="md:[&_td]:px-1.5 md:[&_td]:py-2 md:[&_td]:whitespace-normal">
+          <>
+            {/* 手機（md 以下）：每張薪資單一張卡片，不需左右滑動 */}
+            <div className="grid grid-cols-1 gap-2 pt-1 md:hidden">
               {displayRows.map((row) => {
                 const healthPerPerson =
                   row.health_insured_persons != null &&
@@ -794,197 +749,274 @@ export function PayslipPaidHistoryPanel() {
                           row.health_insured_persons,
                       )
                     : null;
-                const healthTitle =
-                  healthPerPerson != null
-                    ? `每人 ${healthPerPerson.toLocaleString("zh-TW")} × ${row.health_insured_persons} 人`
-                    : undefined;
-                const leaveTitle =
-                  row.leave_days > 0
-                    ? `計薪 ${row.leave_days.toLocaleString("zh-TW")} 天`
-                    : undefined;
-                const overtimeMobile = formatOvertimeCell(row, false);
-                const overtimeDesktop = formatOvertimeCell(row, true);
+                const overtime = formatOvertimeCell(row, false);
+                const figures: {
+                  label: string;
+                  value: string;
+                  sub?: string;
+                  title?: string;
+                  className?: string;
+                }[] = [
+                  { label: "本月薪資", value: formatMoney(row.base_salary, false) },
+                  { label: "勞保自付", value: formatDeduction(row.labor_insurance_employee, false) },
+                  {
+                    label: "健保自付",
+                    value:
+                      row.health_insurance_employee === 0
+                        ? "—"
+                        : formatDeduction(row.health_insurance_employee, false),
+                    sub:
+                      healthPerPerson != null
+                        ? `每人 NT$ ${healthPerPerson.toLocaleString("zh-TW")} × ${row.health_insured_persons} 人`
+                        : undefined,
+                  },
+                  {
+                    label: "請假扣款（事+病）",
+                    value: formatDeduction(row.leave_deduction, false),
+                    sub:
+                      row.leave_days > 0
+                        ? `計薪 ${row.leave_days.toLocaleString("zh-TW")} 天`
+                        : undefined,
+                    className: "text-red-600 dark:text-red-400",
+                  },
+                  {
+                    label: "本月特休",
+                    value:
+                      row.special_leave_days_settled > 0
+                        ? formatDayDecimalAsDayHour(row.special_leave_days_settled)
+                        : "—",
+                  },
+                  {
+                    label: "剩餘特休",
+                    value:
+                      row.special_leave_remaining_after != null
+                        ? formatSignedDayDecimalAsDayHour(row.special_leave_remaining_after)
+                        : "—",
+                  },
+                  { label: "加班", value: overtime.text, title: overtime.title },
+                  { label: "獎金", value: formatBonus(row.payroll_bonus, false) },
+                  { label: "其他調整", value: formatOtherAdjust(row.other_adjust, false) },
+                ];
 
                 return (
-                  <TableRow
+                  <div
                     key={row.id}
-                    className="border-b border-border hover:bg-muted/20"
+                    className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3"
                   >
-                    <TableCell
-                      title={row.employee_name}
-                      className="max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card max-md:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.06)] max-w-[5.5rem] truncate text-sm font-medium text-foreground md:max-w-none"
-                    >
-                      {row.employee_name}
-                    </TableCell>
-                    <TableCell
-                      title={row.month_label || row.period_key}
-                      className="text-sm text-muted-foreground max-md:whitespace-nowrap"
-                    >
-                      <span className="md:hidden">
-                        {row.month_label || row.period_key}
-                      </span>
-                      <span className="hidden md:inline">
-                        {compactMonthLabel(row.period_key, row.month_label)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums">
-                      <span className="md:hidden">
-                        {formatMoney(row.base_salary, false)}
-                      </span>
-                      <span className="hidden md:inline">
-                        {formatMoney(row.base_salary, true)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                      <span className="md:hidden">
-                        {formatDeduction(row.labor_insurance_employee, false)}
-                      </span>
-                      <span className="hidden md:inline">
-                        {formatDeduction(row.labor_insurance_employee, true)}
-                      </span>
-                    </TableCell>
-                    <TableCell
-                      title={healthTitle}
-                      className="text-right text-sm tabular-nums text-muted-foreground"
-                    >
-                      {row.health_insurance_employee === 0 ? (
-                        "—"
-                      ) : (
-                        <>
-                          <span className="md:hidden">
-                            {formatDeduction(row.health_insurance_employee, false)}
-                          </span>
-                          <span className="hidden md:inline">
-                            {formatDeduction(row.health_insurance_employee, true)}
-                          </span>
-                          {healthPerPerson != null ? (
-                            <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground md:hidden">
-                              每人 NT$ {healthPerPerson.toLocaleString("zh-TW")}{" "}
-                              × {row.health_insured_persons} 人
-                            </span>
-                          ) : null}
-                        </>
-                      )}
-                    </TableCell>
-                    <TableCell
-                      title={leaveTitle}
-                      className="text-right text-sm tabular-nums text-red-600 dark:text-red-400"
-                    >
-                      <span className="md:hidden">
-                        {formatDeduction(row.leave_deduction, false)}
-                      </span>
-                      <span className="hidden md:inline">
-                        {formatDeduction(row.leave_deduction, true)}
-                      </span>
-                      {row.leave_days > 0 ? (
-                        <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground md:hidden">
-                          計薪 {row.leave_days.toLocaleString("zh-TW")} 天
-                        </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap! text-right text-sm tabular-nums">
-                      {row.special_leave_days_settled > 0
-                        ? compactDayHour(
-                            formatDayDecimalAsDayHour(row.special_leave_days_settled),
-                          )
-                        : "—"}
-                    </TableCell>
-                    <TableCell
-                      title="該月結算後剩餘特休"
-                      className="whitespace-nowrap! text-right text-sm tabular-nums text-muted-foreground"
-                    >
-                      {row.special_leave_remaining_after != null
-                        ? compactDayHour(
-                            formatSignedDayDecimalAsDayHour(row.special_leave_remaining_after),
-                          )
-                        : "—"}
-                    </TableCell>
-                    <TableCell
-                      title={overtimeMobile.title}
-                      className="text-right text-sm tabular-nums"
-                    >
-                      <span className="md:hidden">{overtimeMobile.text}</span>
-                      <span className="hidden md:inline">{overtimeDesktop.text}</span>
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums">
-                      <span className="md:hidden">
-                        {formatBonus(row.payroll_bonus, false)}
-                      </span>
-                      <span className="hidden md:inline">
-                        {formatBonus(row.payroll_bonus, true)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums">
-                      <span className="md:hidden">
-                        {formatOtherAdjust(row.other_adjust, false)}
-                      </span>
-                      <span className="hidden md:inline">
-                        {formatOtherAdjust(row.other_adjust, true)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right text-sm font-semibold tabular-nums text-primary">
-                      <span className="md:hidden">
-                        {formatMoney(row.net_pay, false)}
-                      </span>
-                      <span className="hidden md:inline">
-                        {formatMoney(row.net_pay, true)}
-                      </span>
-                    </TableCell>
-                    <TableCell
-                      title={formatDateTime(row.created_at, false)}
-                      className="text-sm text-muted-foreground max-md:whitespace-nowrap"
-                    >
-                      <span className="md:hidden">
-                        {formatDateTime(row.created_at, false)}
-                      </span>
-                      <span className="hidden md:inline">
-                        {formatDateTime(row.created_at, true)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <div className="flex items-center justify-center gap-1 max-md:flex-wrap">
-                        {row.notes ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-8 gap-1 px-2 text-xs text-muted-foreground md:h-7 md:w-7 md:gap-0 md:p-0"
-                            aria-label={`查看 ${row.employee_name} 出勤備註`}
-                            title="查看出勤備註"
-                            onClick={() =>
-                              setRemarkDialog({
-                                open: true,
-                                name: row.employee_name,
-                                text: row.notes ?? "",
-                              })
-                            }
-                          >
-                            <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                            <span className="md:hidden">備註</span>
-                          </Button>
-                        ) : null}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="h-8 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive md:h-7 md:w-7 md:gap-0 md:p-0"
-                          disabled={deletingId === row.id}
-                          aria-label={`刪除 ${row.employee_name} ${row.month_label || row.period_key} 已發放薪資`}
-                          title="刪除已發放紀錄"
-                          onClick={() => void handleDeletePaid(row)}
-                        >
-                          {deletingId === row.id ? (
-                            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                          )}
-                          <span className="md:hidden">刪除</span>
-                        </Button>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-medium text-foreground">
+                          {row.employee_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {row.month_label || row.period_key}
+                        </p>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                      <div className="shrink-0 text-right">
+                        <p className="text-sm font-semibold tabular-nums text-primary">
+                          {formatMoney(row.net_pay, false)}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">實發總額</p>
+                      </div>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-md bg-muted/30 px-2.5 py-2 text-xs">
+                      {figures.map((f) => (
+                        <div key={f.label} className="min-w-0" title={f.title}>
+                          <dt className="text-[11px] text-muted-foreground">{f.label}</dt>
+                          <dd className={cn("tabular-nums text-foreground", f.className)}>
+                            {f.value}
+                          </dd>
+                          {f.sub ? (
+                            <dd className="text-[10px] text-muted-foreground">{f.sub}</dd>
+                          ) : null}
+                        </div>
+                      ))}
+                    </dl>
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1.5">
+                      <span className="text-[11px] tabular-nums text-muted-foreground">
+                        入帳 {formatDateTime(row.created_at, false)}
+                      </span>
+                      {renderRowActions(row, true)}
+                    </div>
+                  </div>
                 );
               })}
-            </TableBody>
-          </Table>
+            </div>
+
+            {/* 平板以上（md 起）：精簡欄寬表格，不出現左右捲軸 */}
+            <div className="hidden md:block">
+              <Table className="min-w-0 table-fixed w-full">
+                <colgroup>
+                  <col className="w-[4rem]" />
+                  <col className="w-[2.25rem]" />
+                  <col className="w-[3rem]" />
+                  <col className="w-[2.75rem]" />
+                  <col className="w-[2.75rem]" />
+                  <col className="w-[2.75rem]" />
+                  <col className="w-[3.5rem]" />
+                  <col className="w-[4rem]" />
+                  <col className="w-[3.75rem]" />
+                  <col className="w-[3rem]" />
+                  <col className="w-[3.25rem]" />
+                  <col className="w-[3.5rem]" />
+                  <col className="w-[3.5rem]" />
+                  <col className="w-[3rem]" />
+                </colgroup>
+                <TableHeader>
+                  <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30 [&_th]:px-1.5 [&_th]:py-1.5 [&_th]:whitespace-normal">
+                    <TableHead title="員工" className="text-xs font-semibold">
+                      員工
+                    </TableHead>
+                    <TableHead title="薪資月份" className="text-xs font-semibold">
+                      月份
+                    </TableHead>
+                    <TableHead title="本月薪資" className="text-right text-xs font-semibold">
+                      底薪
+                    </TableHead>
+                    <TableHead title="勞保自付" className="text-right text-xs font-semibold">
+                      勞保
+                    </TableHead>
+                    <TableHead title="健保自付" className="text-right text-xs font-semibold">
+                      健保
+                    </TableHead>
+                    <TableHead title="請假扣款（事假＋病假）" className="text-right text-xs font-semibold">
+                      請假
+                    </TableHead>
+                    <TableHead title="本月特休（假單建立於結算月）" className="text-right text-xs font-semibold">
+                      特休
+                    </TableHead>
+                    <TableHead
+                      title="剩餘特休（該月結算後餘額）"
+                      className="text-right text-xs font-semibold"
+                    >
+                      剩餘特休
+                    </TableHead>
+                    <TableHead
+                      title="加班天數／加班費／轉補休"
+                      className="text-right text-xs font-semibold"
+                    >
+                      加班
+                    </TableHead>
+                    <TableHead title="考績／分潤／股份獎金" className="text-right text-xs font-semibold">
+                      獎金
+                    </TableHead>
+                    <TableHead title="其他調整" className="text-right text-xs font-semibold">
+                      調整
+                    </TableHead>
+                    <TableHead title="實發總額" className="text-right text-xs font-semibold">
+                      實發
+                    </TableHead>
+                    <TableHead title="入帳時間" className="text-xs font-semibold">
+                      入帳
+                    </TableHead>
+                    <TableHead title="查看出勤備註／刪除紀錄" className="text-center text-xs font-semibold">
+                      操作
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="[&_td]:px-1.5 [&_td]:py-2 [&_td]:whitespace-normal">
+                  {displayRows.map((row) => {
+                    const healthPerPerson =
+                      row.health_insured_persons != null &&
+                      row.health_insured_persons > 1
+                        ? Math.round(
+                            row.health_insurance_employee /
+                              row.health_insured_persons,
+                          )
+                        : null;
+                    const healthTitle =
+                      healthPerPerson != null
+                        ? `每人 ${healthPerPerson.toLocaleString("zh-TW")} × ${row.health_insured_persons} 人`
+                        : undefined;
+                    const leaveTitle =
+                      row.leave_days > 0
+                        ? `計薪 ${row.leave_days.toLocaleString("zh-TW")} 天`
+                        : undefined;
+                    const overtime = formatOvertimeCell(row, true);
+
+                    return (
+                      <TableRow
+                        key={row.id}
+                        className="border-b border-border hover:bg-muted/20"
+                      >
+                        <TableCell
+                          title={row.employee_name}
+                          className="truncate text-sm font-medium text-foreground"
+                        >
+                          {row.employee_name}
+                        </TableCell>
+                        <TableCell
+                          title={row.month_label || row.period_key}
+                          className="text-sm text-muted-foreground"
+                        >
+                          {compactMonthLabel(row.period_key, row.month_label)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">
+                          {formatMoney(row.base_salary, true)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                          {formatDeduction(row.labor_insurance_employee, true)}
+                        </TableCell>
+                        <TableCell
+                          title={healthTitle}
+                          className="text-right text-sm tabular-nums text-muted-foreground"
+                        >
+                          {row.health_insurance_employee === 0
+                            ? "—"
+                            : formatDeduction(row.health_insurance_employee, true)}
+                        </TableCell>
+                        <TableCell
+                          title={leaveTitle}
+                          className="text-right text-sm tabular-nums text-red-600 dark:text-red-400"
+                        >
+                          {formatDeduction(row.leave_deduction, true)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap! text-right text-sm tabular-nums">
+                          {row.special_leave_days_settled > 0
+                            ? compactDayHour(
+                                formatDayDecimalAsDayHour(row.special_leave_days_settled),
+                              )
+                            : "—"}
+                        </TableCell>
+                        <TableCell
+                          title="該月結算後剩餘特休"
+                          className="whitespace-nowrap! text-right text-sm tabular-nums text-muted-foreground"
+                        >
+                          {row.special_leave_remaining_after != null
+                            ? compactDayHour(
+                                formatSignedDayDecimalAsDayHour(row.special_leave_remaining_after),
+                              )
+                            : "—"}
+                        </TableCell>
+                        <TableCell
+                          title={overtime.title}
+                          className="text-right text-sm tabular-nums"
+                        >
+                          {overtime.text}
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">
+                          {formatBonus(row.payroll_bonus, true)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">
+                          {formatOtherAdjust(row.other_adjust, true)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm font-semibold tabular-nums text-primary">
+                          {formatMoney(row.net_pay, true)}
+                        </TableCell>
+                        <TableCell
+                          title={formatDateTime(row.created_at, false)}
+                          className="text-sm text-muted-foreground"
+                        >
+                          {formatDateTime(row.created_at, true)}
+                        </TableCell>
+                        <TableCell className="text-center">{renderRowActions(row, false)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </div>
 

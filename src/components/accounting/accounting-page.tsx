@@ -359,6 +359,74 @@ function InputInvoicesTab() {
     return latest ? latest.slice(0, 10) : null;
   }, [draws]);
 
+  function openEdit(r: AccountingInvoiceRow) {
+    setEditRow(r);
+    setEditOpen(true);
+  }
+
+  function renderExportBadge(r: AccountingInvoiceRow) {
+    return r.exported_at ? (
+      <span
+        className="rounded border border-emerald-500/50 px-1.5 py-px text-xs font-medium text-emerald-700 dark:text-emerald-400"
+        title={`媒體檔匯出於 ${r.exported_at.slice(0, 10)}`}
+      >
+        已匯出
+      </span>
+    ) : (
+      <span className="text-xs text-muted-foreground">未匯出</span>
+    );
+  }
+
+  function renderSourceBadge(r: AccountingInvoiceRow) {
+    return (
+      <span
+        className="rounded border border-border px-1.5 py-px text-xs text-muted-foreground"
+        title={
+          r.source === "gmail"
+            ? [r.gmail_subject, r.gmail_from, r.gmail_account && `信箱：${r.gmail_account}`]
+                .filter(Boolean)
+                .join("\n") || undefined
+            : undefined
+        }
+      >
+        {SOURCE_LABELS[r.source] ?? r.source}
+      </span>
+    );
+  }
+
+  function renderRowActions(r: AccountingInvoiceRow) {
+    return (
+      <div className="flex items-center justify-end gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          title="檢視／編輯"
+          aria-label={`檢視或編輯發票 ${r.invoice_number ?? ""}`}
+          onClick={() => openEdit(r)}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-destructive hover:text-destructive"
+          title="刪除"
+          aria-label={`刪除發票 ${r.invoice_number ?? ""}`}
+          onClick={() => setDeleteTarget(r)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
+  function formatMoney(v: number | null | undefined) {
+    return v != null ? `$${v.toLocaleString()}` : "—";
+  }
+
   async function performDelete() {
     const row = deleteTarget;
     setDeleteTarget(null);
@@ -397,7 +465,7 @@ function InputInvoicesTab() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               variant="outline"
@@ -483,7 +551,7 @@ function InputInvoicesTab() {
               <option value="none">無對應</option>
             </select>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -508,132 +576,122 @@ function InputInvoicesTab() {
             {invoices.length === 0 ? "尚無已存檔的發票；從上方佇列上傳並審核後會列在這裡。" : "沒有符合篩選條件的發票。"}
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            {/* 除賣方外一律單行（whitespace-nowrap）；賣方限寬並可折兩行 */}
-            <table className={`w-full text-sm ${ownerFilter === "company" ? "min-w-[900px]" : "min-w-[760px]"}`}>
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground [&>th]:whitespace-nowrap">
-                  <th className="px-4 py-2 font-medium">發票日期</th>
-                  <th className="px-3 py-2 font-medium">發票號碼</th>
-                  <th className="px-3 py-2 font-medium">賣方</th>
-                  <th className="px-3 py-2 text-right font-medium">未稅</th>
-                  <th className="px-3 py-2 text-right font-medium">稅額</th>
-                  <th className="px-3 py-2 text-right font-medium">含稅金額</th>
-                  {ownerFilter === "company" && <th className="px-3 py-2 font-medium">格式</th>}
-                  {ownerFilter === "company" && <th className="px-3 py-2 font-medium">申報</th>}
-                  <th className="px-3 py-2 font-medium">來源</th>
-                  {ownerFilter === "company" ? (
-                    <th className="px-3 py-2 font-medium">對應採購單</th>
-                  ) : (
-                    <th className="px-3 py-2 font-medium">兌獎</th>
-                  )}
-                  <th className="px-4 py-2 text-right font-medium">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((r) => (
-                  <tr key={r.id} className="hover:bg-muted/20 [&>td]:whitespace-nowrap">
-                    <td className="px-4 py-2 tabular-nums text-foreground">{r.invoice_date ?? "—"}</td>
-                    <td className="px-3 py-2 font-medium tabular-nums text-foreground">{r.invoice_number ?? "—"}</td>
-                    <td className="px-3 py-2 text-foreground">
-                      <span
-                        className="line-clamp-2 block max-w-[13rem] break-words whitespace-normal"
-                        title={[r.seller_name, r.seller_tax_id].filter(Boolean).join(" ") || undefined}
-                      >
-                        {r.seller_name ?? "—"}
-                        {r.seller_tax_id && (
-                          <span className="ml-1 text-xs text-muted-foreground tabular-nums">({r.seller_tax_id})</span>
-                        )}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {r.amount_ex_tax != null ? `$${r.amount_ex_tax.toLocaleString()}` : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {r.tax_amount != null ? `$${r.tax_amount.toLocaleString()}` : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right font-medium tabular-nums text-foreground">
-                      {r.amount_inc_tax != null ? `$${r.amount_inc_tax.toLocaleString()}` : "—"}
-                    </td>
-                    {ownerFilter === "company" && (
-                      <td
-                        className="px-3 py-2 tabular-nums text-muted-foreground"
-                        title={`格式代號 ${r.format_code}／課稅別 ${r.tax_type}／扣抵 ${r.deduction_code}`}
-                      >
-                        {r.format_code}
-                      </td>
-                    )}
-                    {ownerFilter === "company" && (
-                      <td className="px-3 py-2">
-                        {r.exported_at ? (
-                          <span
-                            className="rounded border border-emerald-500/50 px-1.5 py-px text-xs font-medium text-emerald-700 dark:text-emerald-400"
-                            title={`媒體檔匯出於 ${r.exported_at.slice(0, 10)}`}
-                          >
-                            已匯出
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">未匯出</span>
-                        )}
-                      </td>
-                    )}
-                    <td className="px-3 py-2">
-                      <span
-                        className="rounded border border-border px-1.5 py-px text-xs text-muted-foreground"
-                        title={
-                          r.source === "gmail"
-                            ? [r.gmail_subject, r.gmail_from, r.gmail_account && `信箱：${r.gmail_account}`]
-                                .filter(Boolean)
-                                .join("\n") || undefined
-                            : undefined
-                        }
-                      >
-                        {SOURCE_LABELS[r.source] ?? r.source}
-                      </span>
-                    </td>
+          <>
+            {/* 手機／平板（lg 以下）：卡片清單 */}
+            <div className="grid grid-cols-1 items-start gap-2 p-3 md:grid-cols-2 lg:hidden">
+              {filtered.map((r) => (
+                <div key={r.id} className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-card p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(r)}
+                      className="rounded text-sm font-medium tabular-nums text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {r.invoice_number ?? "（無號碼）"}
+                    </button>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{r.invoice_date ?? "—"}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="min-w-0 break-words text-sm text-foreground">
+                      {r.seller_name ?? "—"}
+                      {r.seller_tax_id && (
+                        <span className="ml-1 text-xs text-muted-foreground tabular-nums">({r.seller_tax_id})</span>
+                      )}
+                    </p>
+                    <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+                      {formatMoney(r.amount_inc_tax)}
+                    </span>
+                  </div>
+                  <p className="text-xs tabular-nums text-muted-foreground">
+                    未稅 {formatMoney(r.amount_ex_tax)}・稅額 {formatMoney(r.tax_amount)}
+                    {ownerFilter === "company" ? `・格式 ${r.format_code}` : ""}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2">
                     {ownerFilter === "company" ? (
-                      <td className="px-3 py-2">
+                      <>
                         <PoMatchBadge match={poMatches.get(r.id)} />
-                      </td>
+                        {renderExportBadge(r)}
+                      </>
                     ) : (
-                      <td className="px-3 py-2">
-                        <LotteryBadge outcome={lotteryResults.get(r.id)} />
-                      </td>
+                      <LotteryBadge outcome={lotteryResults.get(r.id)} />
                     )}
-                    <td className="px-4 py-2">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          title="檢視／編輯"
-                          aria-label={`檢視或編輯發票 ${r.invoice_number ?? ""}`}
-                          onClick={() => {
-                            setEditRow(r);
-                            setEditOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          title="刪除"
-                          aria-label={`刪除發票 ${r.invoice_number ?? ""}`}
-                          onClick={() => setDeleteTarget(r)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </td>
+                    {renderSourceBadge(r)}
+                    <div className="ml-auto">{renderRowActions(r)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 電腦（lg 以上）：表格 */}
+            <div className="hidden overflow-x-auto lg:block">
+              {/* 除賣方外一律單行（whitespace-nowrap）；賣方限寬並可折兩行 */}
+              <table className={`w-full text-sm ${ownerFilter === "company" ? "min-w-[900px]" : "min-w-[760px]"}`}>
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground [&>th]:whitespace-nowrap">
+                    <th className="px-4 py-2 font-medium">發票日期</th>
+                    <th className="px-3 py-2 font-medium">發票號碼</th>
+                    <th className="px-3 py-2 font-medium">賣方</th>
+                    <th className="px-3 py-2 text-right font-medium">未稅</th>
+                    <th className="px-3 py-2 text-right font-medium">稅額</th>
+                    <th className="px-3 py-2 text-right font-medium">含稅金額</th>
+                    {ownerFilter === "company" && <th className="px-3 py-2 font-medium">格式</th>}
+                    {ownerFilter === "company" && <th className="px-3 py-2 font-medium">申報</th>}
+                    <th className="px-3 py-2 font-medium">來源</th>
+                    {ownerFilter === "company" ? (
+                      <th className="px-3 py-2 font-medium">對應採購單</th>
+                    ) : (
+                      <th className="px-3 py-2 font-medium">兌獎</th>
+                    )}
+                    <th className="px-4 py-2 text-right font-medium">操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.map((r) => (
+                    <tr key={r.id} className="hover:bg-muted/20 [&>td]:whitespace-nowrap">
+                      <td className="px-4 py-2 tabular-nums text-foreground">{r.invoice_date ?? "—"}</td>
+                      <td className="px-3 py-2 font-medium tabular-nums text-foreground">{r.invoice_number ?? "—"}</td>
+                      <td className="px-3 py-2 text-foreground">
+                        <span
+                          className="line-clamp-2 block max-w-[13rem] break-words whitespace-normal"
+                          title={[r.seller_name, r.seller_tax_id].filter(Boolean).join(" ") || undefined}
+                        >
+                          {r.seller_name ?? "—"}
+                          {r.seller_tax_id && (
+                            <span className="ml-1 text-xs text-muted-foreground tabular-nums">({r.seller_tax_id})</span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatMoney(r.amount_ex_tax)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatMoney(r.tax_amount)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums text-foreground">
+                        {formatMoney(r.amount_inc_tax)}
+                      </td>
+                      {ownerFilter === "company" && (
+                        <td
+                          className="px-3 py-2 tabular-nums text-muted-foreground"
+                          title={`格式代號 ${r.format_code}／課稅別 ${r.tax_type}／扣抵 ${r.deduction_code}`}
+                        >
+                          {r.format_code}
+                        </td>
+                      )}
+                      {ownerFilter === "company" && <td className="px-3 py-2">{renderExportBadge(r)}</td>}
+                      <td className="px-3 py-2">{renderSourceBadge(r)}</td>
+                      {ownerFilter === "company" ? (
+                        <td className="px-3 py-2">
+                          <PoMatchBadge match={poMatches.get(r.id)} />
+                        </td>
+                      ) : (
+                        <td className="px-3 py-2">
+                          <LotteryBadge outcome={lotteryResults.get(r.id)} />
+                        </td>
+                      )}
+                      <td className="px-4 py-2">{renderRowActions(r)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

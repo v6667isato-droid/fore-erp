@@ -1981,6 +1981,80 @@ export function EmployeesPage() {
     setDeleteConfirmRow(row);
   }
 
+  function renderDuties(row: EmployeeRow) {
+    const duties = dutiesByEmployee[row.id] ?? [];
+    if (duties.length === 0) return null;
+    return (
+      <div className="flex max-w-[18rem] flex-wrap gap-1">
+        {duties.map((d) => (
+          <span
+            key={dutyKey(d)}
+            className={cn(
+              "inline-flex whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px]",
+              dutyBadgeClassName(d.kind),
+            )}
+          >
+            {dutyText(d, seriesNameById)}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  /** 月薪與假別餘額（admin 才顯示） */
+  function adminFigures(row: EmployeeRow): { label: string; value: string }[] {
+    const days = (v: number | null) =>
+      v != null ? v.toLocaleString("zh-TW", { maximumFractionDigits: 1 }) : "—";
+    return [
+      { label: "月薪", value: row.monthly_wage != null ? row.monthly_wage.toLocaleString() : "—" },
+      {
+        label: "特休",
+        value: row.annual_leave_remaining != null ? formatDayDecimalAsDayHour(row.annual_leave_remaining) : "—",
+      },
+      {
+        label: "補休",
+        value: row.comp_leave_remaining != null ? formatHoursAsDayHour(row.comp_leave_remaining) : "—",
+      },
+      { label: "事假天數", value: days(row.personal_leave_days) },
+      { label: "病假天數", value: days(row.sick_leave_days) },
+    ];
+  }
+
+  function renderRowActions(row: EmployeeRow) {
+    return (
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setViewRow(row)}
+          aria-label={`總覽 ${row.name}`}
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setEditRow(row)}
+          aria-label={`編輯 ${row.name}`}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-destructive hover:text-destructive"
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(row); }}
+          aria-label={`刪除 ${row.name}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
   async function performDelete() {
     if (!deleteConfirmRow) return;
     const row = deleteConfirmRow;
@@ -2084,206 +2158,199 @@ export function EmployeesPage() {
             共 {filtered.length} 筆{filterStatus ? "（已篩選）" : ""}
           </span>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent border-b border-border">
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                姓名
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                主要角色
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                次要角色
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle min-w-[10rem]">
-                工坊負責項目
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                信箱
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                手機
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                到職日
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle whitespace-nowrap">
-                年資
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                在職狀態
-              </TableHead>
-              {isAdmin && (
-                <>
-                  <TableHead className="text-xs font-semibold p-2 align-middle text-right">
-                    月薪
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
-                    特休
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
-                    補休
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
-                    事假天數
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
-                    病假天數
-                  </TableHead>
-                </>
-              )}
-              <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">
-                操作
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={isAdmin ? 15 : 10}
-                  className="h-24 text-center text-muted-foreground"
-                >
-                  {rows.length === 0
-                    ? "尚無員工資料，請點「新增員工」建立第一筆。"
-                    : "無符合篩選條件的員工。"}
-                </TableCell>
-              </TableRow>
-            ) : (
-              filtered.map((row) => (
-                <TableRow
-                  key={row.id}
-                  className="border-b border-border hover:bg-muted/30"
-                >
-                  <TableCell className="text-sm font-medium p-2">
+
+        {/* 手機／平板（lg 以下）：卡片清單 */}
+        {filtered.length === 0 ? (
+          <p className="p-8 text-center text-sm text-muted-foreground lg:hidden">
+            {rows.length === 0
+              ? "尚無員工資料，請點「新增員工」建立第一筆。"
+              : "無符合篩選條件的員工。"}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 items-start gap-2 p-3 md:grid-cols-2 lg:hidden">
+            {filtered.map((row) => {
+              const roles = [row.primary_role, row.secondary_role].filter(Boolean).join("／");
+              const contact = [row.phone, row.email].filter(Boolean).join("・");
+              return (
+                <div key={row.id} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                  <div className="flex items-start justify-between gap-2">
                     <button
                       type="button"
                       onClick={() => setViewRow(row)}
-                      className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                      className="min-w-0 break-words text-left text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
                     >
                       {row.name || "—"}
                       {row.english_name && (
-                        <span className="block text-xs font-normal text-muted-foreground">
-                          {row.english_name}
-                        </span>
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">{row.english_name}</span>
                       )}
                     </button>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {row.primary_role ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {row.secondary_role ?? "—"}
-                  </TableCell>
-                  <TableCell className="p-2">
-                    {(dutiesByEmployee[row.id]?.length ?? 0) > 0 ? (
-                      <div className="flex max-w-[18rem] flex-wrap gap-1">
-                        {dutiesByEmployee[row.id].map((d) => (
-                          <span
-                            key={dutyKey(d)}
-                            className={cn(
-                              "inline-flex whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px]",
-                              dutyBadgeClassName(d.kind),
-                            )}
-                          >
-                            {dutyText(d, seriesNameById)}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {row.email ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {row.phone ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap">
-                    {row.start_date ? formatDate(row.start_date) : "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap tabular-nums">
-                    {seniorityFromHire(
-                      row.start_date,
-                      new Date(),
-                      row.unpaid_leave_months,
-                    ).label}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {row.employment_status ?? "—"}
-                  </TableCell>
+                    {row.employment_status ? (
+                      <span className="shrink-0 rounded border border-border px-1.5 py-px text-[11px] text-muted-foreground">
+                        {row.employment_status}
+                      </span>
+                    ) : null}
+                  </div>
+                  {roles ? <p className="text-xs text-muted-foreground">{roles}</p> : null}
+                  {renderDuties(row)}
+                  <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                    {contact ? <p className="break-all tabular-nums">{contact}</p> : null}
+                    <p className="tabular-nums">
+                      到職 {row.start_date ? formatDate(row.start_date) : "—"}・年資{" "}
+                      {seniorityFromHire(row.start_date, new Date(), row.unpaid_leave_months).label}
+                    </p>
+                  </div>
                   {isAdmin && (
-                    <>
-                      <TableCell className="text-sm text-right p-2 tabular-nums">
-                        {row.monthly_wage != null
-                          ? row.monthly_wage.toLocaleString()
-                          : "—"}
-                      </TableCell>
-                      <TableCell className="text-sm text-right p-2 tabular-nums text-muted-foreground whitespace-nowrap">
-                        {row.annual_leave_remaining != null
-                          ? formatDayDecimalAsDayHour(row.annual_leave_remaining)
-                          : "—"}
-                      </TableCell>
-                      <TableCell className="text-sm text-right p-2 tabular-nums text-muted-foreground whitespace-nowrap">
-                        {row.comp_leave_remaining != null
-                          ? formatHoursAsDayHour(row.comp_leave_remaining)
-                          : "—"}
-                      </TableCell>
-                      <TableCell className="text-sm text-right p-2 tabular-nums text-muted-foreground">
-                        {row.personal_leave_days != null
-                          ? row.personal_leave_days.toLocaleString("zh-TW", {
-                              maximumFractionDigits: 1,
-                            })
-                          : "—"}
-                      </TableCell>
-                      <TableCell className="text-sm text-right p-2 tabular-nums text-muted-foreground">
-                        {row.sick_leave_days != null
-                          ? row.sick_leave_days.toLocaleString("zh-TW", {
-                              maximumFractionDigits: 1,
-                            })
-                          : "—"}
-                      </TableCell>
-                    </>
+                    <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 rounded-md bg-muted/30 px-2.5 py-2 text-xs">
+                      {adminFigures(row).map((f) => (
+                        <div key={f.label} className="min-w-0">
+                          <dt className="text-[11px] text-muted-foreground">{f.label}</dt>
+                          <dd className="tabular-nums text-foreground">{f.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
                   )}
-                  <TableCell className="p-2">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setViewRow(row)}
-                        aria-label={`總覽 ${row.name}`}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setEditRow(row)}
-                        aria-label={`編輯 ${row.name}`}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(row); }}
-                        aria-label={`刪除 ${row.name}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                  <div className="flex justify-end border-t border-border/60 pt-1.5">{renderRowActions(row)}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 電腦（lg 以上）：表格 */}
+        <div className="hidden lg:block">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-b border-border">
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  姓名
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  主要角色
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  次要角色
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle min-w-[10rem]">
+                  工坊負責項目
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  信箱
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  手機
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  到職日
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle whitespace-nowrap">
+                  年資
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  在職狀態
+                </TableHead>
+                {isAdmin && (
+                  <>
+                    <TableHead className="text-xs font-semibold p-2 align-middle text-right">
+                      月薪
+                    </TableHead>
+                    <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
+                      特休
+                    </TableHead>
+                    <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
+                      補休
+                    </TableHead>
+                    <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
+                      事假天數
+                    </TableHead>
+                    <TableHead className="text-xs font-semibold p-2 align-middle text-right whitespace-nowrap">
+                      病假天數
+                    </TableHead>
+                  </>
+                )}
+                <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">
+                  操作
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={isAdmin ? 15 : 10}
+                    className="h-24 text-center text-muted-foreground"
+                  >
+                    {rows.length === 0
+                      ? "尚無員工資料，請點「新增員工」建立第一筆。"
+                      : "無符合篩選條件的員工。"}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                filtered.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    className="border-b border-border hover:bg-muted/30"
+                  >
+                    <TableCell className="text-sm font-medium p-2">
+                      <button
+                        type="button"
+                        onClick={() => setViewRow(row)}
+                        className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                      >
+                        {row.name || "—"}
+                        {row.english_name && (
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            {row.english_name}
+                          </span>
+                        )}
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">
+                      {row.primary_role ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">
+                      {row.secondary_role ?? "—"}
+                    </TableCell>
+                    <TableCell className="p-2">
+                      {renderDuties(row) ?? <span className="text-sm text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">
+                      {row.email ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">
+                      {row.phone ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap">
+                      {row.start_date ? formatDate(row.start_date) : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap tabular-nums">
+                      {seniorityFromHire(
+                        row.start_date,
+                        new Date(),
+                        row.unpaid_leave_months,
+                      ).label}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">
+                      {row.employment_status ?? "—"}
+                    </TableCell>
+                    {isAdmin &&
+                      adminFigures(row).map((f, i) => (
+                        <TableCell
+                          key={f.label}
+                          className={cn(
+                            "text-sm text-right p-2 tabular-nums whitespace-nowrap",
+                            i > 0 && "text-muted-foreground",
+                          )}
+                        >
+                          {f.value}
+                        </TableCell>
+                      ))}
+                    <TableCell className="p-2">{renderRowActions(row)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <EditEmployeeDialog
