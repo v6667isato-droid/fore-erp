@@ -222,6 +222,7 @@ export function ExhibitionEffectPage() {
       <ExhibitionFormDialog
         key={editing === null ? "closed" : editing === "new" ? "new" : editing.id}
         target={editing}
+        exhibitions={exhibitions}
         costs={editing && editing !== "new" ? costs.filter((c) => c.exhibition_id === editing.id) : []}
         linkedPurchases={
           editing && editing !== "new" ? purchases.filter((p) => p.exhibition_id === editing.id) : []
@@ -240,12 +241,15 @@ type CostDraft = { key: string; item: string; amount: number };
 
 function ExhibitionFormDialog({
   target,
+  exhibitions,
   costs,
   linkedPurchases,
   onClose,
   onSaved,
 }: {
   target: ExhibitionRow | "new" | null;
+  /** 全部場次（標示「已連結：2026 木質生活展」用） */
+  exhibitions: ExhibitionRow[];
   costs: ExhibitionCostRow[];
   linkedPurchases: ExhibitionPurchaseRow[];
   onClose: () => void;
@@ -282,7 +286,7 @@ function ExhibitionFormDialog({
     setPicked(new Set());
     setPickerSearch("");
     const { from, to } = purchaseCandidateRange(startDate, endDate);
-    let query = supabase
+    const { data, error } = await supabase
       .from("purchases")
       .select(EXHIBITION_PURCHASE_SELECT)
       .is("deleted_at", null)
@@ -290,19 +294,27 @@ function ExhibitionFormDialog({
       .lte("purchase_date", to)
       .order("purchase_date", { ascending: false })
       .limit(500);
-    query = existing
-      ? query.or(`exhibition_id.is.null,exhibition_id.eq.${existing.id}`)
-      : query.is("exhibition_id", null);
-    const { data, error } = await query;
     setPickerLoading(false);
     if (error) return void toast.error(`採購讀取失敗：${error.message}`);
     const linkedIds = new Set(linked.map((p) => p.id));
     const rows = ((data ?? []) as Record<string, unknown>[])
       .map(mapExhibitionPurchase)
       .filter((p) => !linkedIds.has(p.id));
-    // 看起來像展覽支出的排前面，其餘依日期新到舊
-    rows.sort((a, b) => Number(isLikelyExhibitionPurchase(b)) - Number(isLikelyExhibitionPurchase(a)));
+    // 可連結的在前（其中看起來像展覽支出的再往前），已連結其他場次的放最後；同組內依日期新到舊
+    const rank = (p: ExhibitionPurchaseRow) =>
+      (linkedElsewhere(p) ? 2 : 0) + (isLikelyExhibitionPurchase(p) ? 0 : 1);
+    rows.sort((a, b) => rank(a) - rank(b));
     setCandidates(rows);
+  }
+
+  /** 已連結到其他場次的採購：灰色顯示、不能勾選（要改連結須先到該場次解除） */
+  function linkedElsewhere(p: ExhibitionPurchaseRow): boolean {
+    return p.exhibition_id != null && p.exhibition_id !== existing?.id;
+  }
+
+  function exhibitionLabelById(id: string | null): string {
+    const e = exhibitions.find((x) => x.id === id);
+    return e ? exhibitionLabel(e) : "其他場次";
   }
 
   const visibleCandidates = useMemo(() => {
@@ -544,7 +556,7 @@ function ExhibitionFormDialog({
                       />
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      列出展前 180 天～展後 60 天、尚未連結其他展覽的採購；品名、廠商或備註含「展覽／攤位／佈置」的排在前面。勾選後按「連結所選」，儲存才會生效。
+                      列出展前 180 天～展後 60 天的採購；品名、廠商或備註含「展覽／攤位／佈置」的排在前面。已連結其他場次的以灰色顯示，要改連結請先到該場次解除。勾選後按「連結所選」，儲存才會生效。
                     </p>
                     {pickerLoading ? (
                       <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
@@ -555,40 +567,55 @@ function ExhibitionFormDialog({
                       <p className="py-3 text-center text-xs text-muted-foreground">這段期間沒有可連結的採購</p>
                     ) : (
                       <ul className="max-h-64 divide-y divide-border overflow-y-auto rounded-md border border-border bg-background">
-                        {visibleCandidates.map((p) => (
-                          <li key={p.id}>
-                            <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 hover:bg-muted/40">
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 shrink-0"
-                                checked={picked.has(p.id)}
-                                onChange={(e) =>
-                                  setPicked((prev) => {
-                                    const next = new Set(prev);
-                                    if (e.target.checked) next.add(p.id);
-                                    else next.delete(p.id);
-                                    return next;
-                                  })
+                        {visibleCandidates.map((p) => {
+                          const elsewhere = linkedElsewhere(p);
+                          return (
+                            <li key={p.id}>
+                              <label
+                                className={
+                                  elsewhere
+                                    ? "flex cursor-not-allowed items-center gap-2 px-2 py-1.5 opacity-50"
+                                    : "flex cursor-pointer items-center gap-2 px-2 py-1.5 hover:bg-muted/40"
                                 }
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm text-foreground">
-                                  {p.item_name}
-                                  {p.vendor_name ? <span className="text-muted-foreground"> · {p.vendor_name}</span> : null}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 shrink-0"
+                                  disabled={elsewhere}
+                                  checked={picked.has(p.id)}
+                                  onChange={(e) =>
+                                    setPicked((prev) => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(p.id);
+                                      else next.delete(p.id);
+                                      return next;
+                                    })
+                                  }
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-sm text-foreground">
+                                    {p.item_name}
+                                    {p.vendor_name ? <span className="text-muted-foreground"> · {p.vendor_name}</span> : null}
+                                  </div>
+                                  <div className="truncate text-xs text-muted-foreground">
+                                    {p.purchase_date.replace(/-/g, "/")}
+                                    {p.item_category ? ` · ${p.item_category}` : ""}
+                                    {p.po_number ? ` · ${p.po_number}` : ""}
+                                  </div>
+                                  {p.po_notes ? (
+                                    <div className="truncate text-xs text-muted-foreground">備註：{p.po_notes}</div>
+                                  ) : null}
+                                  {elsewhere ? (
+                                    <div className="truncate text-xs font-medium text-muted-foreground">
+                                      已連結：{exhibitionLabelById(p.exhibition_id)}
+                                    </div>
+                                  ) : null}
                                 </div>
-                                <div className="truncate text-xs text-muted-foreground">
-                                  {p.purchase_date.replace(/-/g, "/")}
-                                  {p.item_category ? ` · ${p.item_category}` : ""}
-                                  {p.po_number ? ` · ${p.po_number}` : ""}
-                                </div>
-                                {p.po_notes ? (
-                                  <div className="truncate text-xs text-muted-foreground">備註：{p.po_notes}</div>
-                                ) : null}
-                              </div>
-                              <span className="shrink-0 text-sm tabular-nums">{formatMoney(purchaseCostAmount(p))}</span>
-                            </label>
-                          </li>
-                        ))}
+                                <span className="shrink-0 text-sm tabular-nums">{formatMoney(purchaseCostAmount(p))}</span>
+                              </label>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                     <div className="flex flex-wrap justify-end gap-2">
