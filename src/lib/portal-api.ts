@@ -68,11 +68,14 @@ export type PortalPricedItem = {
 /**
  * 驗證通路送來的品項並以 DB 價格重新計價（不信任前端金額）。
  * 計價邏輯與 portal 前端 portalListUnitPrice / portalSettlementUnitPrice 一致。
+ * 已軟刪除的規格（或所屬系列已刪除）回 deleted_variant；
+ * keepVariantIds 為編輯中訂單原有的規格，允許沿用（舊明細不因下架而無法重存）。
  */
 export async function pricePortalItems(
   client: SupabaseClient,
   channelId: string,
   rawItems: unknown,
+  keepVariantIds: ReadonlySet<string> = new Set(),
 ): Promise<
   | { ok: true; items: PortalPricedItem[]; totalAmount: number }
   | { ok: false; error: string }
@@ -107,25 +110,32 @@ export async function pricePortalItems(
   const variantIds = Array.from(new Set(parsed.map((p) => p.variant_id)));
   const { data: variantRows, error: variantErr } = await client
     .from("product_variants")
-    .select("id, base_price, series_id, product_series(category)")
+    .select("id, base_price, series_id, deleted_at, product_series(category, deleted_at)")
     .in("id", variantIds);
   if (variantErr) {
     return { ok: false, error: variantErr.message };
   }
+  type SeriesRel = { category: string | null; deleted_at: string | null };
   type VariantRow = {
     id: string;
     base_price: number | null;
     series_id: string | null;
-    product_series:
-      | { category: string | null }
-      | Array<{ category: string | null }>
-      | null;
+    deleted_at: string | null;
+    product_series: SeriesRel | Array<SeriesRel> | null;
   };
   const variantById = new Map(
     ((variantRows ?? []) as VariantRow[]).map((v) => [String(v.id), v]),
   );
   if (variantIds.some((id) => !variantById.has(id))) {
     return { ok: false, error: "bad_variant" };
+  }
+  const seriesOf = (v: VariantRow) =>
+    Array.isArray(v.product_series) ? v.product_series[0] : v.product_series;
+  const isDeleted = (v: VariantRow) => v.deleted_at != null || seriesOf(v)?.deleted_at != null;
+  if (
+    variantIds.some((id) => !keepVariantIds.has(id) && isDeleted(variantById.get(id)!))
+  ) {
+    return { ok: false, error: "deleted_variant" };
   }
 
   const { data: discountRows, error: discountErr } = await client
@@ -147,10 +157,7 @@ export async function pricePortalItems(
     const list = base ?? 0;
     const pct = v.series_id != null ? (pctBySeries.get(String(v.series_id)) ?? 0) : 0;
     const settlement = base != null && pct > 0 ? Math.round(base * (1 - pct / 100)) : list;
-    const seriesRel = Array.isArray(v.product_series)
-      ? v.product_series[0]
-      : v.product_series;
-    const seriesCategory = seriesRel?.category?.trim() || null;
+    const seriesCategory = seriesOf(v)?.category?.trim() || null;
     return {
       ...p,
       list_unit_price: list,
