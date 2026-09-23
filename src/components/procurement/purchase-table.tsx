@@ -14,6 +14,7 @@ import { formatAmortizationLabel } from "@/lib/purchase-amortization";
 import type { PurchaseRow } from "@/types/procurement";
 import { displayPoNumber, type PurchaseOrderGroup } from "@/lib/purchase-order";
 import { PO_INVOICE_MATCH_LABELS, type PoInvoiceMatch } from "@/lib/po-invoice-match";
+import { MobileSortBar } from "@/components/procurement/mobile-sort-bar";
 import {
   Pencil,
   Trash2,
@@ -74,6 +75,19 @@ export function InvoiceMatchBadge({
 }
 
 type GroupSortKey = "po_number" | "purchase_date" | "vendor_name" | "total_inc_tax";
+
+const MOBILE_SORT_OPTIONS: readonly { key: GroupSortKey; label: string }[] = [
+  { key: "purchase_date", label: "日期" },
+  { key: "po_number", label: "單號" },
+  { key: "vendor_name", label: "廠商" },
+  { key: "total_inc_tax", label: "含稅總計" },
+];
+
+function openInvoiceFiles(group: PurchaseOrderGroup) {
+  for (const f of group.invoice_files) {
+    window.open(f.url, "_blank", "noopener,noreferrer");
+  }
+}
 
 export interface PurchaseTableProps {
   groups: PurchaseOrderGroup[];
@@ -189,284 +203,327 @@ export function PurchaseTable({
   const hasActions = Boolean(onEdit || onDelete || onEditGroup || onDeleteGroup || onUploadInvoice);
   const emptyColSpan = COL_SPAN_BASE + (invoiceMatches ? 1 : 0) + (hasActions ? 1 : 0);
 
+  const emptyMessage = totalUnfilteredCount === 0 ? "尚無採購紀錄" : "無符合篩選條件的紀錄";
+
   return (
     <>
-      <Table className="min-w-[56rem]">
-        <TableHeader>
-          <TableRow className="hover:bg-transparent border-b border-border">
-            <TableHead className="p-2 align-middle">
-              <SortHeader label="單號" sortKey="po_number" />
-            </TableHead>
-            <TableHead className="p-2 align-middle">
-              <SortHeader label="日期" sortKey="purchase_date" />
-            </TableHead>
-            <TableHead className="p-2 align-middle">
-              <SortHeader label="廠商" sortKey="vendor_name" />
-            </TableHead>
-            <TableHead className="text-xs font-semibold p-2 align-middle">品項</TableHead>
-            <TableHead className="text-xs font-semibold p-2 align-middle text-center">附件</TableHead>
-            {invoiceMatches && (
-              <TableHead className="text-xs font-semibold p-2 align-middle">對應發票</TableHead>
-            )}
-            <TableHead className="p-2 text-right align-middle">
-              <SortHeader label="含稅總計" sortKey="total_inc_tax" align="right" />
-            </TableHead>
-            <TableHead className="text-xs font-semibold p-2 align-middle" aria-label="展開" />
-            {hasActions && (
-              <TableHead className="text-xs font-semibold p-2" aria-label="操作">操作</TableHead>
-            )}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {pageGroups.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={emptyColSpan} className="h-24 text-center text-muted-foreground text-sm">
-                {totalUnfilteredCount === 0 ? "尚無採購紀錄" : "無符合篩選條件的紀錄"}
-              </TableCell>
+      {/* 手機／平板（lg 以下）：卡片清單，不需左右滑動 */}
+      <div className="flex flex-col gap-2 p-3 lg:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <MobileSortBar
+            options={MOBILE_SORT_OPTIONS}
+            sortKey={sort.key}
+            asc={sort.dir === "asc"}
+            onKeyChange={(key) => {
+              setPage(0);
+              // 日期、金額預設由新到舊／由大到小，其餘由小到大
+              setSort({ key, dir: key === "purchase_date" || key === "total_inc_tax" ? "desc" : "asc" });
+            }}
+            onToggleDir={() => toggleSort(sort.key)}
+          />
+          <span className="text-xs text-muted-foreground">共 {groups.length} 張採購單</span>
+        </div>
+        {pageGroups.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">{emptyMessage}</p>
+        ) : (
+          <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+            {pageGroups.map((group) => (
+              <PurchaseGroupCard
+                key={group.key}
+                group={group}
+                expanded={expandedKeys.has(group.key)}
+                onToggle={() => toggleExpand(group.key)}
+                showInvoiceMatch={Boolean(invoiceMatches)}
+                invoiceMatch={invoiceMatches?.get(group.key)}
+                onOpenInvoice={onOpenInvoice}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onEditGroup={onEditGroup}
+                onDeleteGroup={onDeleteGroup}
+                onUploadInvoice={onUploadInvoice}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 電腦（lg 以上）：表格 */}
+      <div className="hidden lg:block">
+        <Table className="min-w-[56rem]">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent border-b border-border">
+              <TableHead className="p-2 align-middle">
+                <SortHeader label="單號" sortKey="po_number" />
+              </TableHead>
+              <TableHead className="p-2 align-middle">
+                <SortHeader label="日期" sortKey="purchase_date" />
+              </TableHead>
+              <TableHead className="p-2 align-middle">
+                <SortHeader label="廠商" sortKey="vendor_name" />
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle">品項</TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle text-center">附件</TableHead>
+              {invoiceMatches && (
+                <TableHead className="text-xs font-semibold p-2 align-middle">對應發票</TableHead>
+              )}
+              <TableHead className="p-2 text-right align-middle">
+                <SortHeader label="含稅總計" sortKey="total_inc_tax" align="right" />
+              </TableHead>
+              <TableHead className="text-xs font-semibold p-2 align-middle" aria-label="展開" />
+              {hasActions && (
+                <TableHead className="text-xs font-semibold p-2" aria-label="操作">操作</TableHead>
+              )}
             </TableRow>
-          ) : (
-            pageGroups.map((group) => {
-              const isExpanded = expandedKeys.has(group.key);
-              const firstLine = group.lines[0];
-              return (
-                <Fragment key={group.key}>
-                  <TableRow
-                    className="border-b border-border hover:bg-muted/30 cursor-pointer"
-                    onClick={() => toggleExpand(group.key)}
-                  >
-                    <TableCell className="text-sm p-2 font-mono text-primary whitespace-nowrap">
-                      {displayPoNumber(group.po_number)}
-                    </TableCell>
-                    <TableCell className="text-sm p-2 whitespace-nowrap">{group.purchase_date}</TableCell>
-                    <TableCell className="text-sm p-2">
-                      <span className="inline-flex flex-wrap items-baseline gap-x-0">
-                        <span>{group.vendor_name}</span>
-                        {group.vendor_notes?.trim() ? (
-                          <span className="text-muted-foreground">&nbsp;（{group.vendor_notes.trim()}）</span>
-                        ) : null}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm p-2">
-                      {group.lines.length === 1 ? (
-                        <span>{firstLine?.item_name ?? "—"}</span>
-                      ) : (
-                        <span>
-                          {firstLine?.item_name ?? "—"}
-                          <span className="text-muted-foreground"> 等 {group.lines.length} 項</span>
+          </TableHeader>
+          <TableBody>
+            {pageGroups.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={emptyColSpan} className="h-24 text-center text-muted-foreground text-sm">
+                  {emptyMessage}
+                </TableCell>
+              </TableRow>
+            ) : (
+              pageGroups.map((group) => {
+                const isExpanded = expandedKeys.has(group.key);
+                const firstLine = group.lines[0];
+                return (
+                  <Fragment key={group.key}>
+                    <TableRow
+                      className="border-b border-border hover:bg-muted/30 cursor-pointer"
+                      onClick={() => toggleExpand(group.key)}
+                    >
+                      <TableCell className="text-sm p-2 font-mono text-primary whitespace-nowrap">
+                        {displayPoNumber(group.po_number)}
+                      </TableCell>
+                      <TableCell className="text-sm p-2 whitespace-nowrap">{group.purchase_date}</TableCell>
+                      <TableCell className="text-sm p-2">
+                        <span className="inline-flex flex-wrap items-baseline gap-x-0">
+                          <span>{group.vendor_name}</span>
+                          {group.vendor_notes?.trim() ? (
+                            <span className="text-muted-foreground">&nbsp;（{group.vendor_notes.trim()}）</span>
+                          ) : null}
                         </span>
+                      </TableCell>
+                      <TableCell className="text-sm p-2">
+                        {group.lines.length === 1 ? (
+                          <span>{firstLine?.item_name ?? "—"}</span>
+                        ) : (
+                          <span>
+                            {firstLine?.item_name ?? "—"}
+                            <span className="text-muted-foreground"> 等 {group.lines.length} 項</span>
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm p-2 text-center">
+                        {group.invoice_files.length > 0 ? (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-0.5 text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
+                            title={`檢視請款單附件：${group.invoice_files.map((f) => f.name).join("、")}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openInvoiceFiles(group);
+                            }}
+                          >
+                            <Paperclip className="h-3.5 w-3.5" />
+                            <span className="text-xs tabular-nums">{group.invoice_files.length}</span>
+                          </button>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </TableCell>
+                      {invoiceMatches && (
+                        <TableCell className="text-sm p-2">
+                          <InvoiceMatchBadge match={invoiceMatches.get(group.key)} onOpenInvoice={onOpenInvoice} />
+                        </TableCell>
                       )}
-                    </TableCell>
-                    <TableCell className="text-sm p-2 text-center">
-                      {group.invoice_files.length > 0 ? (
-                        <button
+                      <TableCell className="text-sm text-right p-2 font-medium tabular-nums">
+                        {group.total_inc_tax.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="p-1 text-right">
+                        <Button
                           type="button"
-                          className="inline-flex items-center gap-0.5 text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded px-1"
-                          title={`檢視請款單附件：${group.invoice_files.map((f) => f.name).join("、")}`}
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          title={isExpanded ? "收合採購單內容" : "展開採購單內容（品項明細）"}
+                          aria-expanded={isExpanded}
                           onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
-                            for (const f of group.invoice_files) {
-                              window.open(f.url, "_blank", "noopener,noreferrer");
-                            }
+                            toggleExpand(group.key);
                           }}
                         >
-                          <Paperclip className="h-3.5 w-3.5" />
-                          <span className="text-xs tabular-nums">{group.invoice_files.length}</span>
-                        </button>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
+                          {isExpanded ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </TableCell>
+                      {hasActions && (
+                        <TableCell className="p-2">
+                          <div className="flex items-center gap-1">
+                            {onEditGroup && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="編輯整張採購單"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  onEditGroup(group);
+                                }}
+                                aria-label={`編輯採購單 ${group.po_number ?? ""}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {onUploadInvoice && group.purchase_order_id && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="上傳請款單附件"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onUploadInvoice(group);
+                                }}
+                                aria-label={`上傳請款單附件到 ${group.po_number ?? "採購單"}`}
+                              >
+                                <FileUp className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {onDeleteGroup && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                title="刪除整張採購單"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  onDeleteGroup(group);
+                                }}
+                                aria-label={`刪除採購單 ${group.po_number ?? ""}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
                       )}
-                    </TableCell>
-                    {invoiceMatches && (
-                      <TableCell className="text-sm p-2">
-                        <InvoiceMatchBadge match={invoiceMatches.get(group.key)} onOpenInvoice={onOpenInvoice} />
-                      </TableCell>
-                    )}
-                    <TableCell className="text-sm text-right p-2 font-medium tabular-nums">
-                      {group.total_inc_tax.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="p-1 text-right">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                        title={isExpanded ? "收合採購單內容" : "展開採購單內容（品項明細）"}
-                        aria-expanded={isExpanded}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          toggleExpand(group.key);
-                        }}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="h-3 w-3" />
-                        ) : (
-                          <ChevronRight className="h-3 w-3" />
-                        )}
-                      </Button>
-                    </TableCell>
-                    {hasActions && (
-                      <TableCell className="p-2">
-                        <div className="flex items-center gap-1">
-                          {onEditGroup && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              title="編輯整張採購單"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onEditGroup(group);
-                              }}
-                              aria-label={`編輯採購單 ${group.po_number ?? ""}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {onUploadInvoice && group.purchase_order_id && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              title="上傳請款單附件"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onUploadInvoice(group);
-                              }}
-                              aria-label={`上傳請款單附件到 ${group.po_number ?? "採購單"}`}
-                            >
-                              <FileUp className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {onDeleteGroup && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
-                              title="刪除整張採購單"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onDeleteGroup(group);
-                              }}
-                              aria-label={`刪除採購單 ${group.po_number ?? ""}`}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                  {isExpanded && (
-                    <TableRow className="border-b border-border bg-muted/20 hover:bg-muted/20">
-                      <TableCell colSpan={emptyColSpan} className="p-0">
-                        <div className="px-4 py-2">
-                          {group.po_notes?.trim() ? (
-                            <p className="mb-1.5 text-xs text-muted-foreground">備註：{group.po_notes.trim()}</p>
-                          ) : null}
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="text-left text-[11px] text-muted-foreground">
-                                <th className="py-1 pr-2 font-medium">品名</th>
-                                <th className="py-1 pr-2 font-medium">類別</th>
-                                <th className="py-1 pr-2 font-medium">規格</th>
-                                <th className="py-1 pr-2 font-medium">規格2</th>
-                                <th className="py-1 pr-2 font-medium text-right">數量</th>
-                                <th className="py-1 pr-2 font-medium">單位</th>
-                                <th className="py-1 pr-2 font-medium text-right">已稅單價</th>
-                                <th className="py-1 pr-2 font-medium text-right">含稅總價</th>
-                                <th className="py-1 pr-2 font-medium">攤提</th>
-                                {(onEdit || onDelete) && <th className="py-1 font-medium" aria-label="操作" />}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {group.lines.map((record) => (
-                                <tr key={record.id} className="border-t border-border/60">
-                                  <td className="py-1.5 pr-2">
-                                    <span className="inline-flex flex-wrap items-center gap-1.5">
-                                      <span>{record.item_name}</span>
-                                      {record.material_id ? (
-                                        <span
-                                          className="rounded border border-border px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
-                                          title="已對應採購物料主檔"
-                                        >
-                                          主檔
-                                        </span>
-                                      ) : null}
-                                    </span>
-                                  </td>
-                                  <td className="py-1.5 pr-2 text-muted-foreground">{record.item_category || "—"}</td>
-                                  <td className="py-1.5 pr-2 text-muted-foreground">
-                                    {record.spec_primary.trim() ? record.spec_primary : "—"}
-                                  </td>
-                                  <td className="py-1.5 pr-2 text-muted-foreground">
-                                    {record.spec_secondary.trim() ? record.spec_secondary : "—"}
-                                  </td>
-                                  <td className="py-1.5 pr-2 text-right tabular-nums">{record.quantity}</td>
-                                  <td className="py-1.5 pr-2">{record.unit || "—"}</td>
-                                  <td className="py-1.5 pr-2 text-right tabular-nums">
-                                    {record.unit_price_inc_tax.toLocaleString()}
-                                  </td>
-                                  <td className="py-1.5 pr-2 text-right font-medium tabular-nums">
-                                    {record.tax_included_amount.toLocaleString()}
-                                  </td>
-                                  <td className="py-1.5 pr-2 text-muted-foreground whitespace-nowrap">
-                                    {formatAmortizationLabel(record.amortization_months)}
-                                  </td>
-                                  {(onEdit || onDelete) && (
-                                    <td className="py-1">
-                                      <div className="flex items-center gap-1">
-                                        {onEdit && (
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7"
-                                            onClick={() => onEdit(record)}
-                                            aria-label={`編輯 ${record.item_name}`}
-                                          >
-                                            <Pencil className="h-3.5 w-3.5" />
-                                          </Button>
-                                        )}
-                                        {onDelete && (
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-destructive hover:text-destructive"
-                                            onClick={(e) => {
-                                              e.preventDefault();
-                                              e.stopPropagation();
-                                              onDelete(record);
-                                            }}
-                                            aria-label={`刪除 ${record.item_name}`}
-                                          >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                          </Button>
-                                        )}
-                                      </div>
-                                    </td>
-                                  )}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </TableCell>
                     </TableRow>
-                  )}
-                </Fragment>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
+                    {isExpanded && (
+                      <TableRow className="border-b border-border bg-muted/20 hover:bg-muted/20">
+                        <TableCell colSpan={emptyColSpan} className="p-0">
+                          <div className="px-4 py-2">
+                            {group.po_notes?.trim() ? (
+                              <p className="mb-1.5 text-xs text-muted-foreground">備註：{group.po_notes.trim()}</p>
+                            ) : null}
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="text-left text-[11px] text-muted-foreground">
+                                  <th className="py-1 pr-2 font-medium">品名</th>
+                                  <th className="py-1 pr-2 font-medium">類別</th>
+                                  <th className="py-1 pr-2 font-medium">規格</th>
+                                  <th className="py-1 pr-2 font-medium">規格2</th>
+                                  <th className="py-1 pr-2 font-medium text-right">數量</th>
+                                  <th className="py-1 pr-2 font-medium">單位</th>
+                                  <th className="py-1 pr-2 font-medium text-right">已稅單價</th>
+                                  <th className="py-1 pr-2 font-medium text-right">含稅總價</th>
+                                  <th className="py-1 pr-2 font-medium">攤提</th>
+                                  {(onEdit || onDelete) && <th className="py-1 font-medium" aria-label="操作" />}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {group.lines.map((record) => (
+                                  <tr key={record.id} className="border-t border-border/60">
+                                    <td className="py-1.5 pr-2">
+                                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                                        <span>{record.item_name}</span>
+                                        {record.material_id ? (
+                                          <span
+                                            className="rounded border border-border px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                                            title="已對應採購物料主檔"
+                                          >
+                                            主檔
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                    </td>
+                                    <td className="py-1.5 pr-2 text-muted-foreground">{record.item_category || "—"}</td>
+                                    <td className="py-1.5 pr-2 text-muted-foreground">
+                                      {record.spec_primary.trim() ? record.spec_primary : "—"}
+                                    </td>
+                                    <td className="py-1.5 pr-2 text-muted-foreground">
+                                      {record.spec_secondary.trim() ? record.spec_secondary : "—"}
+                                    </td>
+                                    <td className="py-1.5 pr-2 text-right tabular-nums">{record.quantity}</td>
+                                    <td className="py-1.5 pr-2">{record.unit || "—"}</td>
+                                    <td className="py-1.5 pr-2 text-right tabular-nums">
+                                      {record.unit_price_inc_tax.toLocaleString()}
+                                    </td>
+                                    <td className="py-1.5 pr-2 text-right font-medium tabular-nums">
+                                      {record.tax_included_amount.toLocaleString()}
+                                    </td>
+                                    <td className="py-1.5 pr-2 text-muted-foreground whitespace-nowrap">
+                                      {formatAmortizationLabel(record.amortization_months)}
+                                    </td>
+                                    {(onEdit || onDelete) && (
+                                      <td className="py-1">
+                                        <div className="flex items-center gap-1">
+                                          {onEdit && (
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-7 w-7"
+                                              onClick={() => onEdit(record)}
+                                              aria-label={`編輯 ${record.item_name}`}
+                                            >
+                                              <Pencil className="h-3.5 w-3.5" />
+                                            </Button>
+                                          )}
+                                          {onDelete && (
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-7 w-7 text-destructive hover:text-destructive"
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                onDelete(record);
+                                              }}
+                                              aria-label={`刪除 ${record.item_name}`}
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
       {groups.length > PAGE_SIZE && (
-        <div className="flex items-center justify-between border-t border-border px-4 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2">
           <span className="text-xs text-muted-foreground">
             第 {page + 1} / {totalPages} 頁，共 {groups.length} 張採購單
           </span>
@@ -491,5 +548,201 @@ export function PurchaseTable({
         </div>
       )}
     </>
+  );
+}
+
+interface PurchaseGroupCardProps
+  extends Pick<
+    PurchaseTableProps,
+    "onOpenInvoice" | "onEdit" | "onDelete" | "onEditGroup" | "onDeleteGroup" | "onUploadInvoice"
+  > {
+  group: PurchaseOrderGroup;
+  expanded: boolean;
+  onToggle: () => void;
+  showInvoiceMatch: boolean;
+  invoiceMatch?: PoInvoiceMatch;
+}
+
+/** 手機／平板的採購單卡片：點卡片或「明細」展開品項，底部為附件與整單操作 */
+function PurchaseGroupCard({
+  group,
+  expanded,
+  onToggle,
+  showInvoiceMatch,
+  invoiceMatch,
+  onOpenInvoice,
+  onEdit,
+  onDelete,
+  onEditGroup,
+  onDeleteGroup,
+  onUploadInvoice,
+}: PurchaseGroupCardProps) {
+  const firstLine = group.lines[0];
+  const vendorNotes = group.vendor_notes?.trim();
+  const poNotes = group.po_notes?.trim();
+  return (
+    <div className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+      <div className="flex min-w-0 cursor-pointer flex-col gap-1" onClick={onToggle}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="font-mono text-xs text-primary">{displayPoNumber(group.po_number)}</span>
+            {showInvoiceMatch && <InvoiceMatchBadge match={invoiceMatch} onOpenInvoice={onOpenInvoice} />}
+          </div>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{group.purchase_date}</span>
+        </div>
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 break-words text-sm font-medium text-foreground">
+            {group.vendor_name}
+            {vendorNotes ? <span className="font-normal text-muted-foreground">（{vendorNotes}）</span> : null}
+          </p>
+          <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+            ${group.total_inc_tax.toLocaleString()}
+          </span>
+        </div>
+        {!expanded && (
+          <p className="truncate text-xs text-muted-foreground">
+            {firstLine?.item_name ?? "—"}
+            {group.lines.length > 1 ? ` 等 ${group.lines.length} 項` : ""}
+          </p>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="flex flex-col gap-1.5 rounded-md bg-muted/30 px-2.5 py-2">
+          {poNotes ? <p className="text-xs text-muted-foreground">備註：{poNotes}</p> : null}
+          <div className="divide-y divide-border/60">
+            {group.lines.map((record) => {
+              const specText = [record.item_category, record.spec_primary, record.spec_secondary]
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .join("｜");
+              const amortization = formatAmortizationLabel(record.amortization_months);
+              return (
+                <div key={record.id} className="flex flex-col gap-0.5 py-2 text-xs first:pt-0 last:pb-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5 text-sm text-foreground">
+                      <span className="break-words">{record.item_name}</span>
+                      {record.material_id ? (
+                        <span
+                          className="rounded border border-border px-1 py-px text-[10px] font-medium text-muted-foreground"
+                          title="已對應採購物料主檔"
+                        >
+                          主檔
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 text-sm font-medium tabular-nums">
+                      ${record.tax_included_amount.toLocaleString()}
+                    </span>
+                  </div>
+                  {specText ? <p className="break-words text-muted-foreground">{specText}</p> : null}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground tabular-nums">
+                      數量 {record.quantity}
+                      {record.unit ? ` ${record.unit}` : ""}・單價 {record.unit_price_inc_tax.toLocaleString()}
+                      {amortization !== "—" ? `・攤提 ${amortization}` : ""}
+                    </span>
+                    {(onEdit || onDelete) && (
+                      <div className="flex shrink-0 items-center gap-1">
+                        {onEdit && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => onEdit(record)}
+                            aria-label={`編輯 ${record.item_name}`}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {onDelete && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => onDelete(record)}
+                            aria-label={`刪除 ${record.item_name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-8 gap-1 px-2 text-xs"
+          aria-expanded={expanded}
+          onClick={onToggle}
+        >
+          {expanded ? "收合明細" : `明細（${group.lines.length}）`}
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} aria-hidden />
+        </Button>
+        {group.invoice_files.length > 0 && (
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 gap-1 px-2 text-xs text-primary"
+            title={`檢視請款單附件：${group.invoice_files.map((f) => f.name).join("、")}`}
+            onClick={() => openInvoiceFiles(group)}
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+            附件 {group.invoice_files.length}
+          </Button>
+        )}
+        <div className="ml-auto flex items-center gap-1">
+          {onEditGroup && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="編輯整張採購單"
+              onClick={() => onEditGroup(group)}
+              aria-label={`編輯採購單 ${group.po_number ?? ""}`}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
+          {onUploadInvoice && group.purchase_order_id && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="上傳請款單附件"
+              onClick={() => onUploadInvoice(group)}
+              aria-label={`上傳請款單附件到 ${group.po_number ?? "採購單"}`}
+            >
+              <FileUp className="h-4 w-4" />
+            </Button>
+          )}
+          {onDeleteGroup && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-destructive hover:text-destructive"
+              title="刪除整張採購單"
+              onClick={() => onDeleteGroup(group)}
+              aria-label={`刪除採購單 ${group.po_number ?? ""}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

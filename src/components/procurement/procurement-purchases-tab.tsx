@@ -21,7 +21,6 @@ import {
   type InvoiceForPoMatch,
   type PoInvoiceMatchState,
 } from "@/lib/po-invoice-match";
-import { InvoiceMatchBadge } from "@/components/procurement/purchase-table";
 import { ProcurementSummaryCard } from "@/components/procurement/procurement-summary-card";
 import { ProcurementFilters } from "@/components/procurement/procurement-filters";
 import { PurchaseTable } from "@/components/procurement/purchase-table";
@@ -776,54 +775,6 @@ export function ProcurementPurchasesTab({ onNavigateToVendors, isAdmin = false }
         onConfirm={performDeleteGroup}
         destructive
       />
-
-      <div className="flex flex-col gap-3 sm:hidden">
-        <p className="text-xs font-semibold text-muted-foreground">採購單</p>
-        {filteredGroups.length === 0 ? (
-          <p className="rounded-lg border border-border bg-card p-4 text-center text-sm text-muted-foreground">
-            {records.length === 0 ? "尚無採購紀錄" : "無符合篩選條件的紀錄"}
-          </p>
-        ) : (
-          filteredGroups.map((group) => (
-            <div key={group.key} className="rounded-lg border border-border bg-card p-4">
-              <div className="flex flex-wrap items-center justify-between gap-1">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="font-mono text-xs text-primary">{displayPoNumber(group.po_number)}</span>
-                  <InvoiceMatchBadge match={invoiceMatches.get(group.key)} onOpenInvoice={openInvoicePage} />
-                </span>
-                <span className="text-xs text-muted-foreground">{group.purchase_date}</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between">
-                <span className="text-sm font-medium text-foreground">
-                  {group.vendor_name}
-                  {group.vendor_notes?.trim() ? (
-                    <span className="text-muted-foreground font-normal">&nbsp;（{group.vendor_notes.trim()}）</span>
-                  ) : null}
-                </span>
-                <span className="text-sm font-semibold text-foreground">
-                  ${group.total_inc_tax.toLocaleString()}
-                </span>
-              </div>
-              <div className="mt-2 flex flex-col gap-1.5 border-t border-border/60 pt-2">
-                {group.lines.map((record) => (
-                  <div key={record.id} className="text-xs text-muted-foreground">
-                    <p className="text-foreground">{record.item_name}</p>
-                    <p>
-                      {[
-                        record.spec_primary.trim() ? `規格 ${record.spec_primary}` : null,
-                        record.quantity !== "—" ? `數量 ${record.quantity} ${record.unit || ""}`.trim() : null,
-                        `含稅 $${record.tax_included_amount.toLocaleString()}`,
-                      ]
-                        .filter(Boolean)
-                        .join("｜")}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }

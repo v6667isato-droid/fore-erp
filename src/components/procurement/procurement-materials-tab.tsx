@@ -25,6 +25,7 @@ import {
   type MaterialCategoryGroup,
 } from "@/lib/material-category-groups";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { MobileSortBar } from "@/components/procurement/mobile-sort-bar";
 import { Package, Plus, Pencil, Trash2, Copy, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { formatAmortizationLabel, resolveDefaultAmortizationMonths } from "@/lib/purchase-amortization";
 import { formatDate } from "@/lib/utils";
@@ -35,6 +36,16 @@ const FILTER_UNCATEGORIZED = "__uncategorized__";
 const PAGE_SIZE = 20;
 
 type MaterialSortKey = "name" | "item_category" | "spec" | "spec2" | "unit" | "amortization_months" | "created_at";
+
+const MOBILE_SORT_OPTIONS: readonly { key: MaterialSortKey; label: string }[] = [
+  { key: "name", label: "標準品名" },
+  { key: "item_category", label: "類別" },
+  { key: "spec", label: "規格" },
+  { key: "spec2", label: "規格2" },
+  { key: "unit", label: "預設單位" },
+  { key: "amortization_months", label: "預設攤提" },
+  { key: "created_at", label: "建立" },
+];
 
 export function ProcurementMaterialsTab() {
   const [records, setRecords] = useState<ProcurementMaterialRow[]>([]);
@@ -247,6 +258,36 @@ export function ProcurementMaterialsTab() {
       ? "尚無物料主檔，請點「新增物料」建立第一筆。"
       : "無符合篩選或搜尋的物料。";
 
+  function renderCategory(r: ProcurementMaterialRow) {
+    const category = (r.item_category || "").trim();
+    const groupName = findGroupName(category, categoryGroups);
+    return groupName ? (
+      <>
+        <span className="font-medium text-foreground">{groupName}</span>
+        <span className="mx-1 text-muted-foreground/60">/</span>
+        {category}
+      </>
+    ) : (
+      category || "—"
+    );
+  }
+
+  function renderRowActions(r: ProcurementMaterialRow) {
+    return (
+      <div className="flex items-center gap-1">
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCopyRow(r)} aria-label={`複製 ${r.name}`}>
+          <Copy className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditRow(r)} aria-label={`編輯 ${r.name}`}>
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteRow(r)} aria-label={`刪除 ${r.name}`}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 rounded-xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -338,88 +379,115 @@ export function ProcurementMaterialsTab() {
             共 {sortedRows.length} 筆{filterCategory || search.trim() ? "（已篩選）" : ""}
           </span>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent border-b border-border">
-              <TableHead className="p-2 align-middle">
-                <SortHeader label="標準品名" colKey="name" />
-              </TableHead>
-              <TableHead className="p-2 align-middle">
-                <SortHeader label="類別" colKey="item_category" />
-              </TableHead>
-              <TableHead className="p-2 align-middle">
-                <SortHeader label="規格" colKey="spec" />
-              </TableHead>
-              <TableHead className="p-2 align-middle">
-                <SortHeader label="規格2" colKey="spec2" />
-              </TableHead>
-              <TableHead className="p-2 align-middle">
-                <SortHeader label="預設單位" colKey="unit" />
-              </TableHead>
-              <TableHead className="p-2 align-middle">
-                <SortHeader label="預設攤提" colKey="amortization_months" />
-              </TableHead>
-              <TableHead className="p-2 align-middle">
-                <SortHeader label="建立" colKey="created_at" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 w-[132px]" aria-label="操作">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sortedRows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground text-sm">
-                  {emptyMessage}
-                </TableCell>
-              </TableRow>
-            ) : (
-              pageRows.map((r) => (
-                <TableRow key={r.id} className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="text-sm p-2 font-medium">{r.name}</TableCell>
-                  <TableCell className="text-sm p-2 text-muted-foreground">
-                    {(() => {
-                      const category = (r.item_category || "").trim();
-                      const groupName = findGroupName(category, categoryGroups);
-                      return groupName ? (
-                        <>
-                          <span className="font-medium text-foreground">{groupName}</span>
-                          <span className="mx-1 text-muted-foreground/60">/</span>
-                          {category}
-                        </>
-                      ) : (
-                        category || "—"
-                      );
-                    })()}
-                  </TableCell>
-                  <TableCell className="text-sm p-2 text-muted-foreground">{r.spec || "—"}</TableCell>
-                  <TableCell className="text-sm p-2 text-muted-foreground">{r.spec2 || "—"}</TableCell>
-                  <TableCell className="text-sm p-2">{r.unit || "—"}</TableCell>
-                  <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap">
-                    {formatAmortizationLabel(resolveDefaultAmortizationMonths(r))}
-                  </TableCell>
-                  <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap">
-                    {r.created_at ? formatDate(r.created_at) : "—"}
-                  </TableCell>
-                  <TableCell className="p-2">
-                    <div className="flex items-center gap-1">
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCopyRow(r)} aria-label={`複製 ${r.name}`}>
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditRow(r)} aria-label={`編輯 ${r.name}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteRow(r)} aria-label={`刪除 ${r.name}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+
+        {/* 手機／平板（lg 以下）：卡片清單 */}
+        <div className="flex flex-col gap-2 p-3 lg:hidden">
+          <MobileSortBar
+            options={MOBILE_SORT_OPTIONS}
+            sortKey={sort.key}
+            asc={sort.dir === "asc"}
+            onKeyChange={(key) => setSort({ key, dir: key === "created_at" ? "desc" : "asc" })}
+            onToggleDir={() => toggleSort(sort.key)}
+          />
+          {sortedRows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">{emptyMessage}</p>
+          ) : (
+            <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+              {pageRows.map((r) => (
+                <div key={r.id} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-medium text-foreground">{r.name}</p>
+                    <p className="break-words text-xs text-muted-foreground">{renderCategory(r)}</p>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-muted-foreground">規格</dt>
+                      <dd className="break-words text-foreground">{r.spec || "—"}</dd>
                     </div>
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-muted-foreground">規格2</dt>
+                      <dd className="break-words text-foreground">{r.spec2 || "—"}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-muted-foreground">預設單位</dt>
+                      <dd className="text-foreground">{r.unit || "—"}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-muted-foreground">預設攤提</dt>
+                      <dd className="text-foreground">{formatAmortizationLabel(resolveDefaultAmortizationMonths(r))}</dd>
+                    </div>
+                  </dl>
+                  <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-1.5">
+                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                      建立 {r.created_at ? formatDate(r.created_at) : "—"}
+                    </span>
+                    {renderRowActions(r)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 電腦（lg 以上）：表格 */}
+        <div className="hidden lg:block">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-b border-border">
+                <TableHead className="p-2 align-middle">
+                  <SortHeader label="標準品名" colKey="name" />
+                </TableHead>
+                <TableHead className="p-2 align-middle">
+                  <SortHeader label="類別" colKey="item_category" />
+                </TableHead>
+                <TableHead className="p-2 align-middle">
+                  <SortHeader label="規格" colKey="spec" />
+                </TableHead>
+                <TableHead className="p-2 align-middle">
+                  <SortHeader label="規格2" colKey="spec2" />
+                </TableHead>
+                <TableHead className="p-2 align-middle">
+                  <SortHeader label="預設單位" colKey="unit" />
+                </TableHead>
+                <TableHead className="p-2 align-middle">
+                  <SortHeader label="預設攤提" colKey="amortization_months" />
+                </TableHead>
+                <TableHead className="p-2 align-middle">
+                  <SortHeader label="建立" colKey="created_at" />
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 w-[132px]" aria-label="操作">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground text-sm">
+                    {emptyMessage}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                pageRows.map((r) => (
+                  <TableRow key={r.id} className="border-b border-border hover:bg-muted/30">
+                    <TableCell className="text-sm p-2 font-medium">{r.name}</TableCell>
+                    <TableCell className="text-sm p-2 text-muted-foreground">{renderCategory(r)}</TableCell>
+                    <TableCell className="text-sm p-2 text-muted-foreground">{r.spec || "—"}</TableCell>
+                    <TableCell className="text-sm p-2 text-muted-foreground">{r.spec2 || "—"}</TableCell>
+                    <TableCell className="text-sm p-2">{r.unit || "—"}</TableCell>
+                    <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap">
+                      {formatAmortizationLabel(resolveDefaultAmortizationMonths(r))}
+                    </TableCell>
+                    <TableCell className="text-sm p-2 text-muted-foreground whitespace-nowrap">
+                      {r.created_at ? formatDate(r.created_at) : "—"}
+                    </TableCell>
+                    <TableCell className="p-2">{renderRowActions(r)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
         {sortedRows.length > PAGE_SIZE && (
-          <div className="flex items-center justify-between border-t border-border px-4 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2">
             <span className="text-xs text-muted-foreground">
               第 {page + 1} / {totalPages} 頁，共 {sortedRows.length} 筆
             </span>

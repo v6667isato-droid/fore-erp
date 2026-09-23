@@ -29,11 +29,22 @@ import {
   type VendorCategoryGroup,
 } from "@/lib/vendor-category-groups";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { MobileSortBar } from "@/components/procurement/mobile-sort-bar";
 import { toast } from "sonner";
 
 const VENDOR_SELECT = "id, name, main_category, contact_person, phone, email, fax, tax_id, notes, created_at";
 const VENDOR_SELECT_NO_WEBSITE = "id, name, main_category, contact_person, phone, email, fax, tax_id, notes, created_at";
 const PAGE_SIZE = 20;
+
+type SortKey = "created_at" | "name" | "main_category" | "contact_person" | "phone";
+
+const MOBILE_SORT_OPTIONS: readonly { key: SortKey; label: string }[] = [
+  { key: "created_at", label: "新增日期" },
+  { key: "name", label: "廠商名稱" },
+  { key: "main_category", label: "類別" },
+  { key: "contact_person", label: "聯絡人" },
+  { key: "phone", label: "電話" },
+];
 
 function mapVendorRow(r: Record<string, unknown>): VendorRow {
   return {
@@ -60,7 +71,6 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [editRow, setEditRow] = useState<VendorRow | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<VendorRow | null>(null);
   const [page, setPage] = useState(0);
-  type SortKey = "created_at" | "name" | "main_category" | "contact_person" | "phone";
   const [sortBy, setSortBy] = useState<SortKey>("created_at");
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -186,6 +196,35 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     setEditRow(null);
   }
 
+  function renderCategory(row: VendorRow) {
+    const groupName = findGroupName(row.main_category, categoryGroups);
+    return groupName ? (
+      <>
+        <span className="font-medium text-foreground">{groupName}</span>
+        <span className="mx-1 text-muted-foreground/60">/</span>
+        {row.main_category}
+      </>
+    ) : (
+      row.main_category || "—"
+    );
+  }
+
+  function renderRowActions(row: VendorRow) {
+    return (
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewRow(row)} aria-label={`總覽 ${row.name}`}>
+          <Eye className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditRow(row)} aria-label={`編輯 ${row.name}`}>
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(row); }} aria-label={`刪除 ${row.name}`}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
   function handleExport() {
     const list = filteredRecords ?? [];
     if (list.length === 0) {
@@ -225,7 +264,7 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
             <p className="text-xl font-semibold text-foreground">{records.length}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <AddVendorDialog onSuccess={() => { fetchVendors(); refreshCategoryGroups(); }} categoryOptions={categories} categoryGroups={categoryGroups} />
           <ManageVendorCategoriesDialog categories={categories} groups={categoryGroups} onSuccess={() => { fetchVendors(); refreshCategoryGroups(); }} />
           {isAdmin && (
@@ -290,86 +329,117 @@ export function VendorsPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
           )}
           <span className="text-xs text-muted-foreground ml-auto">共 {(filteredRecords?.length ?? 0)} 筆{filterCategory || searchQuery.trim() ? "（已篩選）" : ""}</span>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent border-b border-border">
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <SortHeader label="新增日期" sortKey="created_at" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <SortHeader label="廠商名稱" sortKey="name" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <SortHeader label="類別" sortKey="main_category" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <SortHeader label="聯絡人" sortKey="contact_person" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <SortHeader label="電話" sortKey="phone" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(filteredRecords?.length ?? 0) === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                  {records.length === 0 ? "尚無廠商資料，請點「新增廠商」建立第一筆。" : "無符合篩選條件的廠商。"}
-                </TableCell>
-              </TableRow>
-            ) : (
-              pageRecords.map((row) => (
-                <TableRow key={row.id} className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap">{formatDate(row.created_at ?? "")}</TableCell>
-                  <TableCell className="text-sm font-medium p-2">
+
+        {/* 手機／平板（lg 以下）：卡片清單 */}
+        <div className="flex flex-col gap-2 p-3 lg:hidden">
+          <MobileSortBar
+            options={MOBILE_SORT_OPTIONS}
+            sortKey={sortBy}
+            asc={sortAsc}
+            onKeyChange={toggleSort}
+            onToggleDir={() => toggleSort(sortBy)}
+          />
+          {(filteredRecords?.length ?? 0) === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {records.length === 0 ? "尚無廠商資料，請點「新增廠商」建立第一筆。" : "無符合篩選條件的廠商。"}
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+              {pageRecords.map((row) => (
+                <div key={row.id} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                  <div className="min-w-0">
                     <button
                       type="button"
                       onClick={() => setViewRow(row)}
-                      className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                      className="break-words text-left text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
                     >
                       <span>{row.name || "—"}</span>
                       {row.notes?.trim() ? (
-                        <span className="text-muted-foreground font-normal whitespace-pre-wrap">&nbsp;（{row.notes.trim()}）</span>
+                        <span className="text-muted-foreground font-normal whitespace-pre-wrap">（{row.notes.trim()}）</span>
                       ) : null}
                     </button>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {(() => {
-                      const groupName = findGroupName(row.main_category, categoryGroups);
-                      return groupName ? (
-                        <>
-                          <span className="font-medium text-foreground">{groupName}</span>
-                          <span className="mx-1 text-muted-foreground/60">/</span>
-                          {row.main_category}
-                        </>
-                      ) : (
-                        row.main_category || "—"
-                      );
-                    })()}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">{row.contact_person ?? "—"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">{row.phone ?? "—"}</TableCell>
-                  <TableCell className="p-2">
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewRow(row)} aria-label={`總覽 ${row.name}`}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditRow(row)} aria-label={`編輯 ${row.name}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(row); }} aria-label={`刪除 ${row.name}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    <p className="break-words text-xs text-muted-foreground">{renderCategory(row)}</p>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-muted-foreground">聯絡人</dt>
+                      <dd className="break-words text-foreground">{row.contact_person || "—"}</dd>
                     </div>
+                    <div className="min-w-0">
+                      <dt className="text-[11px] text-muted-foreground">電話</dt>
+                      <dd className="break-words tabular-nums text-foreground">{row.phone || "—"}</dd>
+                    </div>
+                  </dl>
+                  <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-1.5">
+                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                      新增 {row.created_at ? formatDate(row.created_at) : "—"}
+                    </span>
+                    {renderRowActions(row)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 電腦（lg 以上）：表格 */}
+        <div className="hidden lg:block">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-b border-border">
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <SortHeader label="新增日期" sortKey="created_at" />
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <SortHeader label="廠商名稱" sortKey="name" />
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <SortHeader label="類別" sortKey="main_category" />
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <SortHeader label="聯絡人" sortKey="contact_person" />
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <SortHeader label="電話" sortKey="phone" />
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(filteredRecords?.length ?? 0) === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    {records.length === 0 ? "尚無廠商資料，請點「新增廠商」建立第一筆。" : "無符合篩選條件的廠商。"}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                pageRecords.map((row) => (
+                  <TableRow key={row.id} className="border-b border-border hover:bg-muted/30">
+                    <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap">{formatDate(row.created_at ?? "")}</TableCell>
+                    <TableCell className="text-sm font-medium p-2">
+                      <button
+                        type="button"
+                        onClick={() => setViewRow(row)}
+                        className="text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                      >
+                        <span>{row.name || "—"}</span>
+                        {row.notes?.trim() ? (
+                          <span className="text-muted-foreground font-normal whitespace-pre-wrap">&nbsp;（{row.notes.trim()}）</span>
+                        ) : null}
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">{renderCategory(row)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">{row.contact_person ?? "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">{row.phone ?? "—"}</TableCell>
+                    <TableCell className="p-2">{renderRowActions(row)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
         {(filteredRecords?.length ?? 0) > PAGE_SIZE && (
-          <div className="flex items-center justify-between border-t border-border px-4 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2">
             <span className="text-xs text-muted-foreground">
               第 {page + 1} / {totalPages} 頁，共 {filteredRecords?.length ?? 0} 筆
             </span>
