@@ -92,6 +92,7 @@ const FIELD_LABELS: Record<string, string> = {
   explanation_image_url: "說明圖",
   source: "來源",
   address_label_printed_at: "地址條列印",
+  exhibition_id: "展覽場次",
   deleted_at: "刪除時間",
   variant_id: "規格",
   custom_name: "品名",
@@ -219,6 +220,7 @@ export function formatFieldValue(key: string, v: unknown, lk: TrailLookups): str
   if (key === "customer_id") return lk.customers[s] ?? `（客戶 ${s.slice(0, 8)}）`;
   if (key === "image_url" || key === "explanation_image_url") return "有圖片";
   if (key === "custom_case_id") return "已連結";
+  if (key === "exhibition_id") return "已標記";
   if (typeof v === "boolean") return v ? "是" : "否";
   if (MONEY_KEYS.has(key)) {
     const n = Number(v);

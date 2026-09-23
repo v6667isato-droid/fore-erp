@@ -1116,6 +1116,77 @@ export type Database = {
           },
         ]
       }
+      exhibition_costs: {
+        Row: {
+          amount: number
+          created_at: string
+          exhibition_id: string
+          id: string
+          item: string
+          notes: string | null
+          sort_order: number
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          exhibition_id: string
+          id?: string
+          item: string
+          notes?: string | null
+          sort_order?: number
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          exhibition_id?: string
+          id?: string
+          item?: string
+          notes?: string | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exhibition_costs_exhibition_id_fkey"
+            columns: ["exhibition_id"]
+            isOneToOne: false
+            referencedRelation: "exhibitions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exhibitions: {
+        Row: {
+          created_at: string
+          customer_source: string | null
+          end_date: string
+          id: string
+          location: string | null
+          name: string
+          notes: string | null
+          start_date: string
+        }
+        Insert: {
+          created_at?: string
+          customer_source?: string | null
+          end_date: string
+          id?: string
+          location?: string | null
+          name: string
+          notes?: string | null
+          start_date: string
+        }
+        Update: {
+          created_at?: string
+          customer_source?: string | null
+          end_date?: string
+          id?: string
+          location?: string | null
+          name?: string
+          notes?: string | null
+          start_date?: string
+        }
+        Relationships: []
+      }
       inquiries: {
         Row: {
           contact: string
@@ -1813,6 +1884,7 @@ export type Database = {
           deposit_amount: number | null
           deposit_date: string | null
           expected_delivery_date: string | null
+          exhibition_id: string | null
           explanation_image_url: string | null
           final_payment_amount: number | null
           final_payment_date: string | null
@@ -1844,6 +1916,7 @@ export type Database = {
           deposit_amount?: number | null
           deposit_date?: string | null
           expected_delivery_date?: string | null
+          exhibition_id?: string | null
           explanation_image_url?: string | null
           final_payment_amount?: number | null
           final_payment_date?: string | null
@@ -1875,6 +1948,7 @@ export type Database = {
           deposit_amount?: number | null
           deposit_date?: string | null
           expected_delivery_date?: string | null
+          exhibition_id?: string | null
           explanation_image_url?: string | null
           final_payment_amount?: number | null
           final_payment_date?: string | null
@@ -1899,6 +1973,13 @@ export type Database = {
           total_amount?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "orders_exhibition_id_fkey"
+            columns: ["exhibition_id"]
+            isOneToOne: false
+            referencedRelation: "exhibitions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "orders_customer_id_fkey"
             columns: ["customer_id"]
