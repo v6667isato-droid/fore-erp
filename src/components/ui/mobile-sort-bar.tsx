@@ -10,6 +10,8 @@ export interface MobileSortBarProps<K extends string> {
   /** 選了另一個排序欄位（升降冪由呼叫端決定預設值） */
   onKeyChange: (key: K) => void;
   onToggleDir: () => void;
+  /** 預設排序等無升降冪可言的選項時隱藏切換鈕 */
+  showDirection?: boolean;
 }
 
 /** 卡片模式的排序列：取代表格欄頭的點擊排序（欄位下拉＋升降冪切換） */
@@ -19,6 +21,7 @@ export function MobileSortBar<K extends string>({
   asc,
   onKeyChange,
   onToggleDir,
+  showDirection = true,
 }: MobileSortBarProps<K>) {
   return (
     <div className="flex items-center gap-2">
@@ -34,16 +37,18 @@ export function MobileSortBar<K extends string>({
           </option>
         ))}
       </select>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-8 gap-1 px-2 text-xs"
-        onClick={onToggleDir}
-        aria-label={asc ? "目前升冪，切換為降冪" : "目前降冪，切換為升冪"}
-      >
-        {asc ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
-        {asc ? "升冪" : "降冪"}
-      </Button>
+      {showDirection && (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-8 gap-1 px-2 text-xs"
+          onClick={onToggleDir}
+          aria-label={asc ? "目前升冪，切換為降冪" : "目前降冪，切換為升冪"}
+        >
+          {asc ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
+          {asc ? "升冪" : "降冪"}
+        </Button>
+      )}
     </div>
   );
 }

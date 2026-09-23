@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { MobileSortBar } from "@/components/ui/mobile-sort-bar";
 import { MessageSquare, Plus, X, ArrowUpDown, ArrowUp, ArrowDown, CalendarPlus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -84,6 +85,17 @@ interface FeedbackRow {
   created_at: string;
   updated_at: string;
 }
+
+const MOBILE_SORT_OPTIONS: readonly { key: keyof FeedbackRow | ""; label: string }[] = [
+  { key: "", label: "預設（狀態＋優先級）" },
+  { key: "created_at", label: "建立日期" },
+  { key: "title", label: "主旨" },
+  { key: "category", label: "類別" },
+  { key: "status", label: "狀態" },
+  { key: "priority", label: "優先級" },
+  { key: "reporter", label: "回報人" },
+  { key: "completed_at", label: "完成日期" },
+];
 
 export function FeedbackPage() {
   const [rows, setRows] = useState<FeedbackRow[]>([]);
@@ -305,6 +317,96 @@ export function FeedbackPage() {
       details,
     });
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  }
+
+  function renderCompletedCheckbox(r: FeedbackRow, className = "h-4 w-4") {
+    return (
+      <input
+        type="checkbox"
+        className={`${className} cursor-pointer rounded border-input`}
+        checked={r.completed_at != null}
+        aria-label="標記完成"
+        title={
+          r.completed_at != null
+            ? `完成於 ${formatDate(r.completed_at)}`
+            : "打勾即完成並記錄時間"
+        }
+        onChange={(e) => void handleInlineCompletedToggle(r, e.target.checked)}
+      />
+    );
+  }
+
+  function renderStatusSelect(r: FeedbackRow) {
+    return (
+      <select
+        value={r.status}
+        onChange={(e) => handleInlineStatusChange(r, e.target.value)}
+        aria-label={`「${r.title}」狀態`}
+        className={`h-8 rounded-full border px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${getStatusClasses(
+          r.status
+        )}`}
+      >
+        {STATUSES.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  function renderPriorityBadge(r: FeedbackRow) {
+    const displayPriority = isNearDue(r) ? "高" : r.priority;
+    if (!displayPriority) return null;
+    return (
+      <span
+        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${getPriorityClasses(
+          displayPriority
+        )}`}
+      >
+        {displayPriority}
+      </span>
+    );
+  }
+
+  function renderRowActions(r: FeedbackRow) {
+    const calendarUrl = buildGoogleCalendarUrl(r);
+    return (
+      <div className="flex items-center gap-0.5 flex-nowrap">
+        {calendarUrl && (
+          <a
+            href={calendarUrl}
+            target="_blank"
+            rel="noreferrer"
+            title="加到 Google 行事曆"
+            aria-label="加到 Google 行事曆"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground"
+          >
+            <CalendarPlus className="h-4 w-4" />
+          </a>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 w-8 p-0"
+          title="編輯"
+          aria-label="編輯"
+          onClick={() => openEdit(r)}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+          title="刪除"
+          aria-label="刪除"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(r); }}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
   }
 
   function openCreate() {
@@ -638,187 +740,163 @@ export function FeedbackPage() {
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-x-auto">
-        {/* 桌面版不出現橫向捲動（操作欄縮為圖示）；視窗縮小（md 以下）時才以 min-w 觸發整表橫向捲動 */}
-        <Table className="w-full max-md:min-w-[48rem]">
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
-                onClick={() => toggleSort("created_at")}
-              >
-                建立日期 <SortIcon columnKey="created_at" />
-              </TableHead>
-              <TableHead
-                className="w-10 text-center text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
-                onClick={() => toggleSort("completed_at")}
-                title="打勾即完成並記錄時間"
-              >
-                ✓
-              </TableHead>
-              <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
-                onClick={() => toggleSort("title")}
-              >
-                主旨 <SortIcon columnKey="title" />
-              </TableHead>
-              <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
-                onClick={() => toggleSort("category")}
-              >
-                類別 <SortIcon columnKey="category" />
-              </TableHead>
-              <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
-                onClick={() => toggleSort("status")}
-              >
-                狀態 <SortIcon columnKey="status" />
-              </TableHead>
-              <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
-                onClick={() => toggleSort("priority")}
-              >
-                優先級 <SortIcon columnKey="priority" />
-              </TableHead>
-              <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
-                onClick={() => toggleSort("reporter")}
-              >
-                回報人 <SortIcon columnKey="reporter" />
-              </TableHead>
-              <TableHead
-                className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
-                onClick={() => toggleSort("completed_at")}
-              >
-                完成 <SortIcon columnKey="completed_at" />
-              </TableHead>
-              <TableHead className="text-xs font-semibold w-28 whitespace-nowrap">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                  尚無回饋，或不符合篩選條件。
-                </TableCell>
-              </TableRow>
-            ) : (
-              sortedRows.map((r) => {
-                const calendarUrl = buildGoogleCalendarUrl(r);
-                return (
-                <TableRow key={r.id} className="border-b border-border">
-                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">
-                    {formatCreatedDateSlash(r.created_at)}
-                  </TableCell>
-                  <TableCell className="text-center align-middle">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer rounded border-input"
-                      checked={r.completed_at != null}
-                      aria-label="標記完成"
-                      title={
-                        r.completed_at != null
-                          ? `完成於 ${formatDate(r.completed_at)}`
-                          : "打勾即完成並記錄時間"
-                      }
-                      onChange={(e) => void handleInlineCompletedToggle(r, e.target.checked)}
-                    />
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    <button
-                      type="button"
-                      onClick={() => openEdit(r)}
-                      className="font-medium text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
-                    >
-                      {r.title}
-                    </button>
-                    {r.description && (
-                      <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                        {linkifyDescription(r.description)}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {r.category || "—"}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    <select
-                      value={r.status}
-                      onChange={(e) => handleInlineStatusChange(r, e.target.value)}
-                      className={`h-8 rounded-full border px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${getStatusClasses(
-                        r.status
-                      )}`}
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {(() => {
-                      const nearDue = isNearDue(r);
-                      const displayPriority = nearDue ? "高" : r.priority;
-                      if (!displayPriority) return "—";
-                      return (
-                        <span
-                          className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${getPriorityClasses(
-                            displayPriority
-                          )}`}
-                        >
-                          {displayPriority}
-                        </span>
-                      );
-                    })()}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {r.reporter || "—"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                    {formatDate(r.completed_at ?? "") || "—"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-0.5 flex-nowrap">
-                      {calendarUrl && (
-                        <a
-                          href={calendarUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="加到 Google 行事曆"
-                          aria-label="加到 Google 行事曆"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground"
-                        >
-                          <CalendarPlus className="h-4 w-4" />
-                        </a>
-                      )}
-                      <Button
+        {/* 手機／平板（lg 以下）：卡片清單 */}
+        <div className="flex flex-col gap-2 p-3 lg:hidden">
+          <MobileSortBar
+            options={MOBILE_SORT_OPTIONS}
+            sortKey={sortKey}
+            asc={sortOrder === "asc"}
+            showDirection={sortKey !== ""}
+            onKeyChange={(key) => (key === "" ? setSortKey("") : toggleSort(key))}
+            onToggleDir={() => sortKey && toggleSort(sortKey)}
+          />
+          {filtered.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">尚無回饋，或不符合篩選條件。</p>
+          ) : (
+            <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+              {sortedRows.map((r) => (
+                <div key={r.id} className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                  <div className="flex items-start gap-2.5">
+                    <div className="pt-0.5">{renderCompletedCheckbox(r, "h-5 w-5")}</div>
+                    <div className="min-w-0 flex-1">
+                      <button
                         type="button"
-                        variant="ghost"
-                        className="h-8 w-8 p-0"
-                        title="編輯"
-                        aria-label="編輯"
                         onClick={() => openEdit(r)}
+                        className="break-words text-left text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
                       >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                        title="刪除"
-                        aria-label="刪除"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(r); }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                        {r.title}
+                      </button>
+                      {r.description && (
+                        <div className="mt-0.5 line-clamp-3 break-words text-xs text-muted-foreground">
+                          {linkifyDescription(r.description)}
+                        </div>
+                      )}
                     </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    {renderStatusSelect(r)}
+                    {renderPriorityBadge(r)}
+                    {r.category ? <span>{r.category}</span> : null}
+                    {r.reporter ? <span>・{r.reporter}</span> : null}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-1.5">
+                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                      建立 {formatCreatedDateSlash(r.created_at)}
+                      {r.completed_at ? `・完成 ${formatDate(r.completed_at)}` : ""}
+                    </span>
+                    {renderRowActions(r)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 電腦（lg 以上）：表格，不出現橫向捲動（操作欄縮為圖示） */}
+        <div className="hidden lg:block">
+          <Table className="w-full">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead
+                  className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                  onClick={() => toggleSort("created_at")}
+                >
+                  建立日期 <SortIcon columnKey="created_at" />
+                </TableHead>
+                <TableHead
+                  className="w-10 text-center text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                  onClick={() => toggleSort("completed_at")}
+                  title="打勾即完成並記錄時間"
+                >
+                  ✓
+                </TableHead>
+                <TableHead
+                  className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                  onClick={() => toggleSort("title")}
+                >
+                  主旨 <SortIcon columnKey="title" />
+                </TableHead>
+                <TableHead
+                  className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                  onClick={() => toggleSort("category")}
+                >
+                  類別 <SortIcon columnKey="category" />
+                </TableHead>
+                <TableHead
+                  className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                  onClick={() => toggleSort("status")}
+                >
+                  狀態 <SortIcon columnKey="status" />
+                </TableHead>
+                <TableHead
+                  className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                  onClick={() => toggleSort("priority")}
+                >
+                  優先級 <SortIcon columnKey="priority" />
+                </TableHead>
+                <TableHead
+                  className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                  onClick={() => toggleSort("reporter")}
+                >
+                  回報人 <SortIcon columnKey="reporter" />
+                </TableHead>
+                <TableHead
+                  className="text-xs font-semibold cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap"
+                  onClick={() => toggleSort("completed_at")}
+                >
+                  完成 <SortIcon columnKey="completed_at" />
+                </TableHead>
+                <TableHead className="text-xs font-semibold w-28 whitespace-nowrap">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                    尚無回饋，或不符合篩選條件。
                   </TableCell>
                 </TableRow>
-              );
-              })
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                sortedRows.map((r) => {
+                  return (
+                  <TableRow key={r.id} className="border-b border-border">
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">
+                      {formatCreatedDateSlash(r.created_at)}
+                    </TableCell>
+                    <TableCell className="text-center align-middle">{renderCompletedCheckbox(r)}</TableCell>
+                    <TableCell className="text-sm">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(r)}
+                        className="font-medium text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                      >
+                        {r.title}
+                      </button>
+                      {r.description && (
+                        <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                          {linkifyDescription(r.description)}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {r.category || "—"}
+                    </TableCell>
+                    <TableCell className="text-sm">{renderStatusSelect(r)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{renderPriorityBadge(r) ?? "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {r.reporter || "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDate(r.completed_at ?? "") || "—"}
+                    </TableCell>
+                    <TableCell>{renderRowActions(r)}</TableCell>
+                  </TableRow>
+                );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <p className="text-xs text-muted-foreground">

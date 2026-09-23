@@ -14,7 +14,7 @@ import { formatAmortizationLabel } from "@/lib/purchase-amortization";
 import type { PurchaseRow } from "@/types/procurement";
 import { displayPoNumber, type PurchaseOrderGroup } from "@/lib/purchase-order";
 import { PO_INVOICE_MATCH_LABELS, type PoInvoiceMatch } from "@/lib/po-invoice-match";
-import { MobileSortBar } from "@/components/procurement/mobile-sort-bar";
+import { MobileSortBar } from "@/components/ui/mobile-sort-bar";
 import {
   Pencil,
   Trash2,

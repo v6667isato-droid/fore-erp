@@ -20,6 +20,7 @@ import { CustomerIntakeDialog } from "@/components/crm/customer-intake-dialog";
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { EditCustomerDialog } from "@/components/crm/edit-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { MobileSortBar } from "@/components/ui/mobile-sort-bar";
 import { toast } from "sonner";
 import { exportCustomersCsv } from "@/components/crm/export-customers-csv";
 import { ChannelsPage } from "@/components/channels-page";
@@ -99,6 +100,15 @@ export interface ChannelOption {
 }
 
 type CustomerSortKey = "name" | "contact_method" | "source" | "customer_type" | "city" | "created_at";
+
+const MOBILE_SORT_OPTIONS: readonly { key: CustomerSortKey; label: string }[] = [
+  { key: "name", label: "客戶姓名" },
+  { key: "contact_method", label: "聯絡方式" },
+  { key: "source", label: "客戶來源" },
+  { key: "customer_type", label: "客戶種類" },
+  { key: "city", label: "聯絡區域" },
+  { key: "created_at", label: "建立日期" },
+];
 
 export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const router = useRouter();
@@ -319,6 +329,32 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
     setEditRow(null);
   }
 
+  function renderRowActions(row: CustomerRow) {
+    return (
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setEditRow(row)}
+          aria-label={`編輯 ${row.name}`}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-destructive hover:text-destructive"
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(row); }}
+          aria-label={`刪除 ${row.name}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
   function handleExport() {
     const list = filteredCustomers;
     if (!list.length) {
@@ -480,158 +516,199 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
               清除篩選
             </button>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex w-full items-center gap-2 sm:w-auto">
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="搜尋客戶姓名 / 別名 / 聯絡人 / 電話"
-              className="h-8 w-52 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-52 sm:flex-none"
             />
             <span className="text-xs text-muted-foreground">
               共 {filteredCustomers.length} 筆{filterSource || filterCustomerType || searchTerm ? "（已篩選）" : ""}
             </span>
           </div>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent border-b border-border">
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
-                  onClick={() => toggleSort("name")}
-                  aria-label="依客戶姓名排序"
-                >
-                  客戶姓名
-                  <SortIcon columnKey="name" />
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
-                  onClick={() => toggleSort("contact_method")}
-                  aria-label="依聯絡方式排序"
-                >
-                  聯絡方式
-                  <SortIcon columnKey="contact_method" />
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
-                  onClick={() => toggleSort("source")}
-                  aria-label="依客戶來源排序"
-                >
-                  客戶來源
-                  <SortIcon columnKey="source" />
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
-                  onClick={() => toggleSort("customer_type")}
-                  aria-label="依客戶種類排序"
-                >
-                  客戶種類
-                  <SortIcon columnKey="customer_type" />
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
-                  onClick={() => toggleSort("city")}
-                  aria-label="依聯絡區域排序"
-                >
-                  聯絡區域
-                  <SortIcon columnKey="city" />
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
-                  onClick={() => toggleSort("created_at")}
-                  aria-label="依建立日期排序"
-                >
-                  建立日期
-                  <SortIcon columnKey="created_at" />
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredCustomers.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  {customers.length === 0
-                    ? "尚無客戶資料，請點「新增客戶」建立第一筆。"
-                    : "無符合篩選條件的客戶。"}
-                </TableCell>
-              </TableRow>
-            ) : (
-              sortedCustomers.map((row) => (
-                <TableRow key={row.id} className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="align-middle whitespace-nowrap text-sm font-medium p-2">
-                    <button
-                      type="button"
-                      onClick={() => setViewRow(row)}
-                      className="flex flex-col items-start gap-0.5 text-left underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
-                    >
-                      <span>{row.name || "—"}</span>
-                      {row.alias && row.alias.trim() && (
-                        <span className="text-xs text-muted-foreground">({row.alias.trim()})</span>
-                      )}
-                    </button>
-                  </TableCell>
-                      <TableCell className="text-sm text-muted-foreground p-2">
-                        <ContactCell row={row} />
-                      </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {row.source ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {row.customer_type ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground p-2">
-                    {shippingCity(row.delivery_address) ?? "—"}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground p-2">
-                    {row.created_at ? String(row.created_at).slice(0, 10) : "—"}
-                  </TableCell>
-                  <TableCell className="p-2">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setEditRow(row)}
-                        aria-label={`編輯 ${row.name}`}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
+
+        {/* 手機／平板（lg 以下）：卡片清單 */}
+        <div className="flex flex-col gap-2 p-3 lg:hidden">
+          <MobileSortBar
+            options={MOBILE_SORT_OPTIONS}
+            sortKey={sortKey}
+            asc={sortDirection === "asc"}
+            onKeyChange={(key) => {
+              setSortKey(key);
+              setSortDirection(key === "created_at" ? "desc" : "asc");
+            }}
+            onToggleDir={() => toggleSort(sortKey)}
+          />
+          {filteredCustomers.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {customers.length === 0
+                ? "尚無客戶資料，請點「新增客戶」建立第一筆。"
+                : "無符合篩選條件的客戶。"}
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+              {sortedCustomers.map((row) => {
+                const contactLabel = contactMethodLabel(row.contact_method);
+                const meta = [row.source, row.customer_type, shippingCity(row.delivery_address)]
+                  .map((v) => v?.trim())
+                  .filter(Boolean)
+                  .join("・");
+                return (
+                  <div key={row.id} className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-card p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <button
                         type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDelete(row); }}
-                        aria-label={`刪除 ${row.name}`}
+                        onClick={() => setViewRow(row)}
+                        className="min-w-0 break-words text-left text-sm font-medium text-foreground underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                        {row.name || "—"}
+                        {row.alias?.trim() ? (
+                          <span className="font-normal text-muted-foreground">（{row.alias.trim()}）</span>
+                        ) : null}
+                      </button>
+                      {contactLabel ? (
+                        <span className="shrink-0 rounded border border-border px-1.5 py-px text-[11px] font-medium text-muted-foreground">
+                          {contactLabel}
+                        </span>
+                      ) : null}
                     </div>
+                    {meta ? <p className="break-words text-xs text-muted-foreground">{meta}</p> : null}
+                    <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-1.5">
+                      <span className="text-[11px] tabular-nums text-muted-foreground">
+                        建立 {row.created_at ? String(row.created_at).slice(0, 10) : "—"}
+                      </span>
+                      {renderRowActions(row)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 電腦（lg 以上）：表格 */}
+        <div className="hidden lg:block">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-b border-border">
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                    onClick={() => toggleSort("name")}
+                    aria-label="依客戶姓名排序"
+                  >
+                    客戶姓名
+                    <SortIcon columnKey="name" />
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                    onClick={() => toggleSort("contact_method")}
+                    aria-label="依聯絡方式排序"
+                  >
+                    聯絡方式
+                    <SortIcon columnKey="contact_method" />
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                    onClick={() => toggleSort("source")}
+                    aria-label="依客戶來源排序"
+                  >
+                    客戶來源
+                    <SortIcon columnKey="source" />
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                    onClick={() => toggleSort("customer_type")}
+                    aria-label="依客戶種類排序"
+                  >
+                    客戶種類
+                    <SortIcon columnKey="customer_type" />
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                    onClick={() => toggleSort("city")}
+                    aria-label="依聯絡區域排序"
+                  >
+                    聯絡區域
+                    <SortIcon columnKey="city" />
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 select-none hover:text-foreground/90"
+                    onClick={() => toggleSort("created_at")}
+                    aria-label="依建立日期排序"
+                  >
+                    建立日期
+                    <SortIcon columnKey="created_at" />
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 align-middle min-w-[140px]" aria-label="操作">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredCustomers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    {customers.length === 0
+                      ? "尚無客戶資料，請點「新增客戶」建立第一筆。"
+                      : "無符合篩選條件的客戶。"}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                sortedCustomers.map((row) => (
+                  <TableRow key={row.id} className="border-b border-border hover:bg-muted/30">
+                    <TableCell className="align-middle whitespace-nowrap text-sm font-medium p-2">
+                      <button
+                        type="button"
+                        onClick={() => setViewRow(row)}
+                        className="flex flex-col items-start gap-0.5 text-left underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded-sm"
+                      >
+                        <span>{row.name || "—"}</span>
+                        {row.alias && row.alias.trim() && (
+                          <span className="text-xs text-muted-foreground">({row.alias.trim()})</span>
+                        )}
+                      </button>
+                    </TableCell>
+                        <TableCell className="text-sm text-muted-foreground p-2">
+                          <ContactCell row={row} />
+                        </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">
+                      {row.source ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">
+                      {row.customer_type ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground p-2">
+                      {shippingCity(row.delivery_address) ?? "—"}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground p-2">
+                      {row.created_at ? String(row.created_at).slice(0, 10) : "—"}
+                    </TableCell>
+                    <TableCell className="p-2">{renderRowActions(row)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <ViewCustomerDialog

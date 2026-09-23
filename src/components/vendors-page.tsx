@@ -29,7 +29,7 @@ import {
   type VendorCategoryGroup,
 } from "@/lib/vendor-category-groups";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { MobileSortBar } from "@/components/procurement/mobile-sort-bar";
+import { MobileSortBar } from "@/components/ui/mobile-sort-bar";
 import { toast } from "sonner";
 
 const VENDOR_SELECT = "id, name, main_category, contact_person, phone, email, fax, tax_id, notes, created_at";

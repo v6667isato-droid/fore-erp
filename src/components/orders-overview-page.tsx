@@ -42,7 +42,7 @@ import {
 } from "@/lib/chair-product-code";
 import { parseExplanationImages, type ExplanationImage } from "@/lib/explanation-images";
 import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
-import { orderNoteSections } from "@/lib/order-notes";
+import { orderNoteSections, type OrderNoteSection } from "@/lib/order-notes";
 import { ORDER_OVERVIEW_SELECT } from "@/lib/order-overview-select";
 import { appendArmHeight } from "@/lib/product-arm-height";
 
@@ -505,7 +505,7 @@ function FullDetailLineThumb({ line }: { line: OverviewLine }) {
   );
 }
 
-function FullDetailLineStage({ line }: { line: OverviewLine }) {
+function LineStageBadge({ line }: { line: OverviewLine }) {
   return line.has_work_order ? (
     <span
       className={cn(
@@ -637,7 +637,7 @@ function OrderFullDetailSections({
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-                    <FullDetailLineStage line={line} />
+                    <LineStageBadge line={line} />
                     <span className="inline-flex items-center gap-1">
                       <User className="h-3 w-3 shrink-0" />
                       <span className="text-foreground">{line.assignee || "—"}</span>
@@ -729,7 +729,7 @@ function OrderFullDetailSections({
                             {lineTotal.toLocaleString()}
                           </td>
                           <td className="p-2 whitespace-nowrap">
-                            <FullDetailLineStage line={line} />
+                            <LineStageBadge line={line} />
                           </td>
                           <td className="p-2 text-muted-foreground whitespace-nowrap">
                             {line.assignee ? (
@@ -861,6 +861,46 @@ export function OrderOverviewCard({
     });
   }
 
+  function renderNoteToggle(line: OverviewLine, noteExpanded: boolean) {
+    return (
+      <button
+        type="button"
+        onClick={() => toggleNote(line.order_item_id)}
+        aria-expanded={noteExpanded}
+        aria-label={`${noteExpanded ? "收合" : "展開"}備註`}
+        title={noteExpanded ? "收合備註" : "查看備註"}
+        className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-secondary/60 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        <MessageSquare className="h-3 w-3 shrink-0" aria-hidden />
+        備註
+        <ChevronDown
+          className={cn(
+            "h-3 w-3 shrink-0 transition-transform",
+            noteExpanded && "rotate-180"
+          )}
+          aria-hidden
+        />
+      </button>
+    );
+  }
+
+  function renderNoteSections(noteSections: OrderNoteSection[]) {
+    return (
+      <div className="flex flex-col gap-2">
+        {noteSections.map((sec) => (
+          <div key={sec.label} className="flex flex-col gap-0.5">
+            <span className="text-[11px] font-semibold text-foreground">
+              {sec.label}
+            </span>
+            <p className="whitespace-pre-line break-words text-xs leading-relaxed text-muted-foreground">
+              {sec.text}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
       <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-4 py-3 sm:p-4">
@@ -958,183 +998,201 @@ export function OrderOverviewCard({
 
       {/* 精簡檢視：品項負責人與工序進度表（完整檢視已併入訂單明細） */}
       {!full ? (
-      <>
-      {/* 手機：固定最小寬度＋整表橫向捲動。電腦（lg 以上）：解除 Table 預設的
-          min-w-max，讓表格縮到容器（含彈窗）寬度、文字欄改為可換行，不出現左右捲軸。 */}
-      <Table className="min-w-[48rem] w-full text-xs lg:min-w-0">
-        <TableHeader>
-          <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
-            <TableHead className="px-2 text-xs font-semibold whitespace-nowrap lg:w-[30%]">
-              品項
-            </TableHead>
-            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
-              木種
-            </TableHead>
-            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
-              尺寸
-            </TableHead>
-            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
-              規格
-            </TableHead>
-            <TableHead className="px-1 text-right text-xs font-semibold whitespace-nowrap">
-              數量
-            </TableHead>
-            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
-              <span className="inline-flex items-center gap-1">
-                <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                {variant === "dialog" ? "負責" : "負責窗口"}
-              </span>
-            </TableHead>
-            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
-              {variant === "dialog" ? "工序" : "工序／進度"}
-            </TableHead>
-            <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
-              <span
-                className="inline-flex items-start gap-1 lg:whitespace-normal"
-                title="同訂單各品項工單中之最晚預計完成日"
+      <div className="@container">
+      {/* 依容器寬度（非螢幕寬度）切換：放得下表格（約 48rem，如桌機彈窗）才用表格，
+          否則（手機）改為品項卡片，不出現左右捲軸 */}
+      <div className="flex flex-col gap-2 p-3 @min-[48rem]:hidden">
+        {order.lines.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">此訂單尚無品項。</p>
+        ) : (
+          order.lines.map((line) => {
+            const itemDisplay = line.product_code
+              ? `${line.product_code} ${line.item_name}`
+              : line.item_name;
+            const noteSections = orderNoteSections({
+              itemNotes: line.custom_notes,
+              itemDescription: line.description,
+            });
+            const noteExpanded = expandedNoteIds.has(line.order_item_id);
+            const specText = [line.wood_type, line.dimension_text, line.spec_text]
+              .map((t) => t?.trim())
+              .filter(Boolean)
+              .join("・");
+            return (
+              <div
+                key={line.order_item_id}
+                className="flex min-w-0 flex-col gap-2 rounded-lg border border-border p-2.5 text-xs"
               >
-                <CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                預計完成（全單最晚）
-              </span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {order.lines.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={8} className="text-sm text-muted-foreground py-6 text-center whitespace-normal">
-                此訂單尚無品項。
-              </TableCell>
-            </TableRow>
-          ) : (
-            order.lines.map((line) => {
-              const stage = line.stage;
-              const itemDisplay = line.product_code
-                ? `${line.product_code} ${line.item_name}`
-                : line.item_name;
-              // 訂單備註已顯示在卡片抬頭，這裡只列該品項自己的備註
-              const noteSections = orderNoteSections({
-                itemNotes: line.custom_notes,
-                itemDescription: line.description,
-              });
-              const noteExpanded = expandedNoteIds.has(line.order_item_id);
-              return (
-                <Fragment key={line.order_item_id}>
-                <TableRow className="border-b border-border">
-                  <TableCell className="p-2 align-middle text-xs whitespace-nowrap lg:whitespace-normal">
-                    <div className="flex min-w-0 items-center gap-2">
-                      {full && line.image_url ? (
-                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border bg-muted/40">
-                          <img
-                            src={line.image_url}
-                            alt={line.item_name}
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                      ) : (
-                      <VariantSeriesThumb
-                        imageUrl={line.thumbnail_url}
-                        sizeClassName="h-10 w-10"
-                        compactPlaceholder
-                      />
-                      )}
-                      <div className="flex min-w-0 flex-wrap items-center gap-1">
-                        <span className="break-words text-foreground">{itemDisplay}</span>
-                        {noteSections.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => toggleNote(line.order_item_id)}
-                          aria-expanded={noteExpanded}
-                          aria-label={`${noteExpanded ? "收合" : "展開"}備註`}
-                          title={noteExpanded ? "收合備註" : "查看備註"}
-                          className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-secondary/60 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        >
-                          <MessageSquare className="h-3 w-3 shrink-0" aria-hidden />
-                          備註
-                          <ChevronDown
-                            className={cn(
-                              "h-3 w-3 shrink-0 transition-transform",
-                              noteExpanded && "rotate-180"
-                            )}
-                            aria-hidden
-                          />
-                        </button>
-                        )}
-                      </div>
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <VariantSeriesThumb
+                    imageUrl={line.thumbnail_url}
+                    sizeClassName="h-12 w-12"
+                    compactPlaceholder
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-start justify-between gap-2">
+                      <p className="min-w-0 break-words text-sm font-medium leading-snug text-foreground">
+                        {itemDisplay}
+                      </p>
+                      {Number.isFinite(line.quantity) && line.quantity > 0 ? (
+                        <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">
+                          ×{line.quantity}
+                        </span>
+                      ) : null}
                     </div>
-                  </TableCell>
-                  <TableCell className="p-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
-                    {line.wood_type || "—"}
-                  </TableCell>
-                  <TableCell className="p-2 align-middle text-xs tabular-nums text-muted-foreground whitespace-nowrap lg:whitespace-normal">
-                    {line.dimension_text || "—"}
-                  </TableCell>
-                  <TableCell className="p-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
-                    {line.spec_text || "—"}
-                  </TableCell>
-                  <TableCell className="p-2 align-middle text-right text-xs tabular-nums text-muted-foreground whitespace-nowrap">
-                    {Number.isFinite(line.quantity) && line.quantity > 0 ? line.quantity : "—"}
-                  </TableCell>
-                  <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
-                    {line.assignee ? (
-                      <span className="inline-flex items-center gap-1 text-foreground">
-                        <User className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        {line.assignee}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
-                    {line.has_work_order ? (
-                      <span
-                        className={cn(
-                          "inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-tight",
-                          stageStyleClassName(stage)
-                        )}
-                      >
-                        {stage}
-                      </span>
-                    ) : (
-                      <span className="inline-flex rounded-md border border-dashed border-muted-foreground/40 bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                        尚無工單
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="p-2 align-middle text-[11px] tabular-nums text-muted-foreground whitespace-nowrap">
-                    {order.planned_end_order_max
-                      ? formatDateYyMmDd(order.planned_end_order_max)
-                      : "—"}
-                  </TableCell>
-                </TableRow>
+                    <p className="mt-0.5 break-words text-muted-foreground">{specText || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                  <LineStageBadge line={line} />
+                  <span className="inline-flex items-center gap-1">
+                    <User className="h-3 w-3 shrink-0" />
+                    <span className="text-foreground">{line.assignee || "—"}</span>
+                  </span>
+                  {noteSections.length > 0 && (
+                    <span className="ml-auto">{renderNoteToggle(line, noteExpanded)}</span>
+                  )}
+                </div>
                 {noteExpanded && noteSections.length > 0 && (
-                  <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30">
-                    <TableCell colSpan={8} className="p-0">
-                      {/* 表格可橫向捲動：備註面板貼齊左側並限寬，窄畫面不必左右滑才讀得到 */}
-                      <div className="sticky left-0 max-w-[calc(100vw-4rem)] px-3 py-2.5 lg:max-w-[44rem]">
-                        <div className="flex flex-col gap-2">
-                          {noteSections.map((sec) => (
-                            <div key={sec.label} className="flex flex-col gap-0.5">
-                              <span className="text-[11px] font-semibold text-foreground">
-                                {sec.label}
-                              </span>
-                              <p className="whitespace-pre-line break-words text-xs leading-relaxed text-muted-foreground">
-                                {sec.text}
-                              </p>
-                            </div>
-                          ))}
+                  <div className="rounded-md bg-muted/30 px-2 py-1.5">{renderNoteSections(noteSections)}</div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+      <div className="hidden @min-[48rem]:block">
+        <Table className="min-w-[48rem] w-full text-xs lg:min-w-0">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
+              <TableHead className="px-2 text-xs font-semibold whitespace-nowrap lg:w-[30%]">
+                品項
+              </TableHead>
+              <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
+                木種
+              </TableHead>
+              <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
+                尺寸
+              </TableHead>
+              <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
+                規格
+              </TableHead>
+              <TableHead className="px-1 text-right text-xs font-semibold whitespace-nowrap">
+                數量
+              </TableHead>
+              <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
+                <span className="inline-flex items-center gap-1">
+                  <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  {variant === "dialog" ? "負責" : "負責窗口"}
+                </span>
+              </TableHead>
+              <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
+                {variant === "dialog" ? "工序" : "工序／進度"}
+              </TableHead>
+              <TableHead className="px-1 text-xs font-semibold whitespace-nowrap">
+                <span
+                  className="inline-flex items-start gap-1 lg:whitespace-normal"
+                  title="同訂單各品項工單中之最晚預計完成日"
+                >
+                  <CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  預計完成（全單最晚）
+                </span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {order.lines.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="text-sm text-muted-foreground py-6 text-center whitespace-normal">
+                  此訂單尚無品項。
+                </TableCell>
+              </TableRow>
+            ) : (
+              order.lines.map((line) => {
+                const itemDisplay = line.product_code
+                  ? `${line.product_code} ${line.item_name}`
+                  : line.item_name;
+                // 訂單備註已顯示在卡片抬頭，這裡只列該品項自己的備註
+                const noteSections = orderNoteSections({
+                  itemNotes: line.custom_notes,
+                  itemDescription: line.description,
+                });
+                const noteExpanded = expandedNoteIds.has(line.order_item_id);
+                return (
+                  <Fragment key={line.order_item_id}>
+                  <TableRow className="border-b border-border">
+                    <TableCell className="p-2 align-middle text-xs whitespace-nowrap lg:whitespace-normal">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {full && line.image_url ? (
+                          <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border bg-muted/40">
+                            <img
+                              src={line.image_url}
+                              alt={line.item_name}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                        <VariantSeriesThumb
+                          imageUrl={line.thumbnail_url}
+                          sizeClassName="h-10 w-10"
+                          compactPlaceholder
+                        />
+                        )}
+                        <div className="flex min-w-0 flex-wrap items-center gap-1">
+                          <span className="break-words text-foreground">{itemDisplay}</span>
+                          {noteSections.length > 0 && renderNoteToggle(line, noteExpanded)}
                         </div>
                       </div>
                     </TableCell>
+                    <TableCell className="p-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                      {line.wood_type || "—"}
+                    </TableCell>
+                    <TableCell className="p-2 align-middle text-xs tabular-nums text-muted-foreground whitespace-nowrap lg:whitespace-normal">
+                      {line.dimension_text || "—"}
+                    </TableCell>
+                    <TableCell className="p-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                      {line.spec_text || "—"}
+                    </TableCell>
+                    <TableCell className="p-2 align-middle text-right text-xs tabular-nums text-muted-foreground whitespace-nowrap">
+                      {Number.isFinite(line.quantity) && line.quantity > 0 ? line.quantity : "—"}
+                    </TableCell>
+                    <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
+                      {line.assignee ? (
+                        <span className="inline-flex items-center gap-1 text-foreground">
+                          <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          {line.assignee}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="p-2 align-middle text-xs whitespace-nowrap">
+                      <LineStageBadge line={line} />
+                    </TableCell>
+                    <TableCell className="p-2 align-middle text-[11px] tabular-nums text-muted-foreground whitespace-nowrap">
+                      {order.planned_end_order_max
+                        ? formatDateYyMmDd(order.planned_end_order_max)
+                        : "—"}
+                    </TableCell>
                   </TableRow>
-                )}
-                </Fragment>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
-      </>
+                  {noteExpanded && noteSections.length > 0 && (
+                    <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30">
+                      <TableCell colSpan={8} className="p-0">
+                        {/* 表格可橫向捲動：備註面板貼齊左側並限寬，窄畫面不必左右滑才讀得到 */}
+                        <div className="sticky left-0 max-w-[calc(100vw-4rem)] px-3 py-2.5 lg:max-w-[44rem]">
+                          {renderNoteSections(noteSections)}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </Fragment>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      </div>
       ) : null}
     </div>
   );

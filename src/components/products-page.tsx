@@ -41,6 +41,7 @@ import { EditSeriesChannelDiscountDialog } from "@/components/products/edit-seri
 import { SeriesOptionsDialog } from "@/components/products/series-options-dialog";
 import type { ChannelOption } from "@/components/products/edit-series-channel-discount-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { MobileSortBar } from "@/components/ui/mobile-sort-bar";
 import { toast } from "sonner";
 import { exportProductsCsv } from "@/components/products/export-products-csv";
 import { PriceListExportDialog } from "@/components/products/price-list-export-dialog";
@@ -143,6 +144,22 @@ function formatDim(v: VariantRow): string {
 
 type SeriesSortKey = "name" | "category" | "leadTime" | "variantCount" | "bomCount";
 type VariantSortKey = "product_code" | "wood_type" | "spec1" | "dimension" | "base_price";
+
+const SERIES_SORT_OPTIONS: readonly { key: SeriesSortKey; label: string }[] = [
+  { key: "name", label: "系列名稱" },
+  { key: "category", label: "類別" },
+  { key: "leadTime", label: "交期" },
+  { key: "variantCount", label: "規格數" },
+  { key: "bomCount", label: "用料表" },
+];
+
+const VARIANT_SORT_OPTIONS: readonly { key: VariantSortKey; label: string }[] = [
+  { key: "product_code", label: "代碼" },
+  { key: "wood_type", label: "木種" },
+  { key: "spec1", label: "規格" },
+  { key: "dimension", label: "尺寸" },
+  { key: "base_price", label: "定價" },
+];
 
 function ProductSeriesPanel({
   isAdmin = false,
@@ -443,6 +460,218 @@ function ProductSeriesPanel({
     setDeleteConfirmVariant(v);
   }
 
+  function sortVariants(variants: VariantRow[]): VariantRow[] {
+    const ascFactor = variantSort.asc ? 1 : -1;
+    return [...variants].sort((a, b) => {
+      switch (variantSort.key) {
+        case "wood_type": {
+          const aVal = a.wood_type || "";
+          const bVal = b.wood_type || "";
+          return ascFactor * aVal.localeCompare(bVal);
+        }
+        case "spec1": {
+          const aVal = a.spec1 || "";
+          const bVal = b.spec1 || "";
+          return ascFactor * aVal.localeCompare(bVal);
+        }
+        case "dimension": {
+          const aDims = [a.dimension_w ?? 0, a.dimension_d ?? 0, a.dimension_h ?? 0];
+          const bDims = [b.dimension_w ?? 0, b.dimension_d ?? 0, b.dimension_h ?? 0];
+          const aKey = aDims[0] * 1_000_000 + aDims[1] * 1_000 + aDims[2];
+          const bKey = bDims[0] * 1_000_000 + bDims[1] * 1_000 + bDims[2];
+          return ascFactor * (aKey - bKey);
+        }
+        case "base_price": {
+          const aVal = a.base_price ?? Number.POSITIVE_INFINITY;
+          const bVal = b.base_price ?? Number.POSITIVE_INFINITY;
+          return ascFactor * (aVal - bVal);
+        }
+        case "product_code":
+        default: {
+          const aVal = a.product_code || "";
+          const bVal = b.product_code || "";
+          return ascFactor * aVal.localeCompare(bVal);
+        }
+      }
+    });
+  }
+
+  /** 各通路價（依系列折扣現算）；未填定價回傳 null，未設定折扣回傳空陣列 */
+  function channelPriceLines(v: VariantRow): string[] | null {
+    if (v.base_price == null) return null;
+    const discounts = seriesDiscounts[v.series_id] ?? [];
+    return discounts
+      .map((d) => {
+        const name = channelNameMap[d.channel_id];
+        if (!name) return null;
+        const price = Math.round(v.base_price! * (1 - d.discount_percent / 100));
+        const pct = d.discount_percent;
+        const pctText = Number.isFinite(pct) && pct !== 0 ? ` (${pct}%)` : "";
+        return `${name}: ${price.toLocaleString()}${pctText}`;
+      })
+      .filter(Boolean) as string[];
+  }
+
+  function renderSeriesThumb(series: SeriesRow, sizeClassName: string) {
+    if (!series.image_url) return null;
+    return (
+      <span className={cn("inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted", sizeClassName)}>
+        <img src={series.image_url} alt={series.name || "系列主圖"} className="h-full w-full object-cover" />
+      </span>
+    );
+  }
+
+  function renderVariantImage(v: VariantRow, series: SeriesRow) {
+    const displayImageUrl = v.image_url ?? series.image_url ?? null;
+    return displayImageUrl ? (
+      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
+        <img src={displayImageUrl} alt={v.product_code || "規格圖片"} className="h-full w-full object-cover" />
+      </span>
+    ) : (
+      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-dashed border-muted text-[10px] text-muted-foreground">
+        無圖
+      </span>
+    );
+  }
+
+  function renderFlagCheckbox(v: VariantRow, field: "show_on_sheet" | "show_on_price_list" | "has_photo") {
+    const meta = {
+      show_on_sheet: { aria: "顯示於介紹表", title: "顯示於產品介紹表" },
+      show_on_price_list: { aria: "顯示於價目表", title: "顯示於價目表" },
+      has_photo: { aria: "已有實拍照片", title: "已有實拍照片" },
+    }[field];
+    return (
+      <input
+        type="checkbox"
+        checked={v[field] === true}
+        onChange={() => toggleVariantFlag(v, field)}
+        className="h-4 w-4 rounded border-input accent-primary"
+        aria-label={`${v.product_code} ${meta.aria}`}
+        title={meta.title}
+      />
+    );
+  }
+
+  function renderWarnBadge(text: string) {
+    return (
+      <span className="rounded-full border border-accent-warn/60 px-1.5 py-0.5 text-[10px] leading-none text-accent-warn whitespace-nowrap">
+        {text}
+      </span>
+    );
+  }
+
+  function renderSeriesActions(series: SeriesRow) {
+    return (
+      <div className="flex items-center justify-end gap-1">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewSeries(series)} aria-label={`總覽 ${series.name}`}>
+          <Eye className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditSeries(series)} aria-label={`編輯系列 ${series.name}`}>
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => window.open(`/print/series/${series.id}`, "_blank", "noopener,noreferrer")}
+          aria-label={`產品介紹表 PDF ${series.name}`}
+          title="產品介紹表 / PDF"
+        >
+          <FileText className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-destructive hover:text-destructive"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteSeries(series); }}
+          aria-label={`刪除系列 ${series.name}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
+  /** 展開系列後的工具列：用料表／選項設定／新增規格 */
+  function renderSeriesToolbar(series: SeriesRow) {
+    return (
+      <>
+        <Button
+          variant="outline"
+          className="h-8 px-3 gap-1.5 text-xs"
+          onClick={() => setBomSeries(series)}
+        >
+          <ClipboardList className="h-3.5 w-3.5" />
+          用料表{(bomCountBySeries[series.id] ?? 0) > 0 ? `（${bomCountBySeries[series.id]}）` : ""}
+        </Button>
+        {isAdmin && (
+          <Button
+            variant="outline"
+            className="h-8 px-3 gap-1.5 text-xs"
+            onClick={() => setOptionsSeries(series)}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            選項設定
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          className="h-8 px-3 gap-1.5 text-xs"
+          onClick={() => setAddVariantSeries(series)}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          新增規格
+        </Button>
+      </>
+    );
+  }
+
+  function renderVariantActions(v: VariantRow, size: "sm" | "md" = "sm") {
+    const btn = size === "sm" ? "h-7 w-7" : "h-8 w-8";
+    const icon = size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4";
+    return (
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" className={btn} onClick={() => setViewVariant(v)} aria-label={`檢視 ${v.product_code}`}>
+          <Eye className={icon} />
+        </Button>
+        <Button variant="ghost" size="icon" className={btn} onClick={() => setEditVariant(v)} aria-label={`修改 ${v.product_code}`}>
+          <Pencil className={icon} />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={btn}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setCopyConfirmVariant(v);
+          }}
+          aria-label={`複製 ${v.product_code}`}
+        >
+          <Copy className={icon} />
+        </Button>
+        <Button type="button" variant="ghost" size="icon" className={`${btn} text-destructive hover:text-destructive`} onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteVariant(v); }} aria-label={`刪除 ${v.product_code}`}>
+          <Trash2 className={icon} />
+        </Button>
+      </div>
+    );
+  }
+
+  function renderLegacyBadge(v: VariantRow) {
+    if (!isLegacyVariant(v)) return null;
+    return (
+      <span
+        className="ml-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400 align-middle"
+        title="非勾選生成的舊規格（未連結選項軸）"
+      >
+        舊
+      </span>
+    );
+  }
+
   /** 介紹表／價目表／實拍照勾選快速切換（不開編輯視窗），本地同步不重抓全表 */
   async function toggleVariantFlag(
     v: VariantRow,
@@ -607,7 +836,7 @@ function ProductSeriesPanel({
             <p className="text-xl font-semibold text-foreground">{seriesList.length} 種系列 · {variantsList.length} 種規格</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <AddSeriesDialog onSuccess={fetchData} defaultCategory={smallWood ? SMALLWOOD_CATEGORY : undefined} />
           {isAdmin && (
             <>
@@ -651,550 +880,499 @@ function ProductSeriesPanel({
           )}
           <span className="text-xs text-muted-foreground ml-auto">共 {filteredSeries.length} 個系列</span>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent border-b border-border">
-              <TableHead className="w-10 p-2" aria-label="展開/收合" />
-              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 hover:text-primary"
-                  onClick={() =>
-                    setSeriesSort((prev) => ({
-                      key: "name",
-                      asc: prev.key === "name" ? !prev.asc : true,
-                    }))
-                  }
-                  aria-label={`依系列名稱排序（目前為${seriesSort.key === "name" && !seriesSort.asc ? "降冪" : "升冪"}）`}
-                >
-                  <span>系列名稱</span>
-                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                    {seriesSort.key === "name" ? (seriesSort.asc ? "↑" : "↓") : "–"}
-                  </span>
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 hover:text-primary"
-                  onClick={() =>
-                    setSeriesSort((prev) => ({
-                      key: "category",
-                      asc: prev.key === "category" ? !prev.asc : true,
-                    }))
-                  }
-                  aria-label={`依類別排序（目前為${
-                    seriesSort.key === "category" && !seriesSort.asc ? "降冪" : "升冪"
-                  }）`}
-                >
-                  <span>類別</span>
-                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                    {seriesSort.key === "category" ? (seriesSort.asc ? "↑" : "↓") : "–"}
-                  </span>
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 hover:text-primary"
-                  onClick={() =>
-                    setSeriesSort((prev) => ({
-                      key: "leadTime",
-                      asc: prev.key === "leadTime" ? !prev.asc : true,
-                    }))
-                  }
-                  aria-label={`依交期排序（目前為${
-                    seriesSort.key === "leadTime" && !seriesSort.asc ? "降冪" : "升冪"
-                  }）`}
-                >
-                  <span>交期</span>
-                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                    {seriesSort.key === "leadTime" ? (seriesSort.asc ? "↑" : "↓") : "–"}
-                  </span>
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 hover:text-primary"
-                  onClick={() =>
-                    setSeriesSort((prev) => ({
-                      key: "variantCount",
-                      asc: prev.key === "variantCount" ? !prev.asc : true,
-                    }))
-                  }
-                  aria-label={`依規格數排序（目前為${
-                    seriesSort.key === "variantCount" && !seriesSort.asc ? "降冪" : "升冪"
-                  }）`}
-                >
-                  <span>規格數</span>
-                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                    {seriesSort.key === "variantCount" ? (seriesSort.asc ? "↑" : "↓") : "–"}
-                  </span>
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 hover:text-primary"
-                  onClick={() =>
-                    setSeriesSort((prev) => ({
-                      key: "bomCount",
-                      asc: prev.key === "bomCount" ? !prev.asc : true,
-                    }))
-                  }
-                  aria-label={`依用料表線數排序（目前為${
-                    seriesSort.key === "bomCount" && !seriesSort.asc ? "降冪" : "升冪"
-                  }）`}
-                >
-                  <span>用料表</span>
-                  <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                    {seriesSort.key === "bomCount" ? (seriesSort.asc ? "↑" : "↓") : "–"}
-                  </span>
-                </button>
-              </TableHead>
-              <TableHead className="text-xs font-semibold p-2 min-w-[200px] text-right" aria-label="操作">
-                操作
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredSeries.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  <span>{seriesList.length === 0 ? "尚無產品系列，請點「新增系列」建立。" : "無符合篩選條件的系列。"}</span>
-                </TableCell>
-              </TableRow>
-            ) : (
-              sortedSeries.map((series) => {
+
+        {/* 手機／平板（lg 以下）：系列卡片，展開後規格也以卡片呈現 */}
+        <div className="flex flex-col gap-2 p-3 lg:hidden">
+          <MobileSortBar
+            options={SERIES_SORT_OPTIONS}
+            sortKey={seriesSort.key}
+            asc={seriesSort.asc}
+            onKeyChange={(key) => setSeriesSort({ key, asc: true })}
+            onToggleDir={() => setSeriesSort((prev) => ({ ...prev, asc: !prev.asc }))}
+          />
+          {filteredSeries.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {seriesList.length === 0 ? "尚無產品系列，請點「新增系列」建立。" : "無符合篩選條件的系列。"}
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+              {sortedSeries.map((series) => {
                 const isExpanded = expandedIds.has(series.id);
                 const variants = variantsBySeries[series.id] ?? [];
                 const bomCount = bomCountBySeries[series.id] ?? 0;
                 return (
-                  <Fragment key={series.id}>
-                    <TableRow className="border-b border-border hover:bg-muted/30">
-                      <TableCell className="w-10 p-2 align-middle">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpanded(series.id)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
-                          aria-label={isExpanded ? "收合" : "展開"}
-                        >
-                          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </button>
-                      </TableCell>
-                      <TableCell className="text-sm font-medium p-2">
-                        <button
-                          type="button"
-                          onClick={() => setViewSeries(series)}
-                          className="flex items-center gap-2 text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
-                        >
-                          {series.image_url && (
-                            <span className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
-                              <img
-                                src={series.image_url}
-                                alt={series.name || "系列主圖"}
-                                className="h-full w-full object-cover"
-                              />
-                            </span>
-                          )}
-                          <span className="flex flex-col">
-                            <span>{series.name || "—"}</span>
-                            {series.notes?.trim() && (
-                              <span className="mt-0.5 text-[11px] text-muted-foreground">
-                                {series.notes}
-                              </span>
-                            )}
-                          </span>
-                        </button>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground p-2">{series.category || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap">{formatLeadTime(series.production_time)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground p-2">{variants.length}</TableCell>
-                      <TableCell className="text-sm p-2">
-                        {bomCount > 0 ? (
-                          <span className="text-muted-foreground">{bomCount}</span>
-                        ) : (
-                          <span className="text-accent-warn">未建</span>
+                  <div
+                    key={series.id}
+                    className={cn(
+                      "flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3",
+                      isExpanded && "md:col-span-2"
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setViewSeries(series)}
+                      className="flex min-w-0 items-start gap-3 rounded text-left focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {renderSeriesThumb(series, "h-12 w-12")}
+                      <span className="flex min-w-0 flex-col">
+                        <span className="break-words text-sm font-medium text-primary">{series.name || "—"}</span>
+                        {series.notes?.trim() && (
+                          <span className="mt-0.5 break-words text-[11px] text-muted-foreground">{series.notes}</span>
                         )}
-                      </TableCell>
-                      <TableCell className="p-2 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewSeries(series)} aria-label={`總覽 ${series.name}`}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditSeries(series)} aria-label={`編輯系列 ${series.name}`}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => window.open(`/print/series/${series.id}`, "_blank", "noopener,noreferrer")}
-                            aria-label={`產品介紹表 PDF ${series.name}`}
-                            title="產品介紹表 / PDF"
-                          >
-                            <FileText className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteSeries(series); }}
-                            aria-label={`刪除系列 ${series.name}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    <TableRow className="border-b border-border bg-muted/10 hover:bg-muted/10">
-                      <TableCell colSpan={7} className="p-0 align-top">
-                        <div
-                          className="w-0 min-w-full overflow-hidden transition-[max-height] duration-300 ease-out"
-                          style={{ maxHeight: isExpanded ? "80vh" : 0 }}
-                        >
-                          <div className="bg-muted/20 px-4 pb-4 pt-2 max-h-[70vh] overflow-y-auto">
-                            <div className="flex flex-wrap items-center justify-end gap-2 mb-2">
-                              <Button
-                                variant="outline"
-                                className="h-8 px-3 gap-1.5 text-xs"
-                                onClick={() => setBomSeries(series)}
-                              >
-                                <ClipboardList className="h-3.5 w-3.5" />
-                                用料表{(bomCountBySeries[series.id] ?? 0) > 0 ? `（${bomCountBySeries[series.id]}）` : ""}
-                              </Button>
-                              {isAdmin && (
-                                <Button
-                                  variant="outline"
-                                  className="h-8 px-3 gap-1.5 text-xs"
-                                  onClick={() => setOptionsSeries(series)}
-                                >
-                                  <Settings2 className="h-3.5 w-3.5" />
-                                  選項設定
-                                </Button>
-                              )}
-                              <Button
-                                variant="outline"
-                                className="h-8 px-3 gap-1.5 text-xs"
-                                onClick={() => setAddVariantSeries(series)}
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                                新增規格
-                              </Button>
-                            </div>
-                            <div className="rounded-lg border border-border bg-card overflow-x-auto">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow className="hover:bg-transparent border-b border-border">
-                                    <TableHead className="text-xs font-semibold p-2 w-16">
-                                      圖片
-                                    </TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1.5 hover:text-primary"
-                                        onClick={() =>
-                                          setVariantSort((prev) => ({
-                                            key: "product_code",
-                                            asc: prev.key === "product_code" ? !prev.asc : true,
-                                          }))
-                                        }
-                                        aria-label={`依代碼排序（目前為${
-                                          variantSort.key === "product_code" && !variantSort.asc ? "降冪" : "升冪"
-                                        }）`}
-                                      >
-                                        <span>代碼</span>
-                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                                          {variantSort.key === "product_code" ? (variantSort.asc ? "↑" : "↓") : "–"}
-                                        </span>
-                                      </button>
-                                    </TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1.5 hover:text-primary"
-                                        onClick={() =>
-                                          setVariantSort((prev) => ({
-                                            key: "wood_type",
-                                            asc: prev.key === "wood_type" ? !prev.asc : true,
-                                          }))
-                                        }
-                                        aria-label={`依木種排序（目前為${
-                                          variantSort.key === "wood_type" && !variantSort.asc ? "降冪" : "升冪"
-                                        }）`}
-                                      >
-                                        <span>木種</span>
-                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                                          {variantSort.key === "wood_type" ? (variantSort.asc ? "↑" : "↓") : "–"}
-                                        </span>
-                                      </button>
-                                    </TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1.5 hover:text-primary"
-                                        onClick={() =>
-                                          setVariantSort((prev) => ({
-                                            key: "spec1",
-                                            asc: prev.key === "spec1" ? !prev.asc : true,
-                                          }))
-                                        }
-                                        aria-label={`依規格排序（目前為${
-                                          variantSort.key === "spec1" && !variantSort.asc ? "降冪" : "升冪"
-                                        }）`}
-                                      >
-                                        <span>規格</span>
-                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                                          {variantSort.key === "spec1" ? (variantSort.asc ? "↑" : "↓") : "–"}
-                                        </span>
-                                      </button>
-                                    </TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1.5 hover:text-primary"
-                                        onClick={() =>
-                                          setVariantSort((prev) => ({
-                                            key: "dimension",
-                                            asc: prev.key === "dimension" ? !prev.asc : true,
-                                          }))
-                                        }
-                                        aria-label={`依尺寸排序（目前為${
-                                          variantSort.key === "dimension" && !variantSort.asc ? "降冪" : "升冪"
-                                        }）`}
-                                      >
-                                        <span>尺寸</span>
-                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                                          {variantSort.key === "dimension" ? (variantSort.asc ? "↑" : "↓") : "–"}
-                                        </span>
-                                      </button>
-                                    </TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1.5 hover:text-primary"
-                                        onClick={() =>
-                                          setVariantSort((prev) => ({
-                                            key: "base_price",
-                                            asc: prev.key === "base_price" ? !prev.asc : true,
-                                          }))
-                                        }
-                                        aria-label={`依定價排序（目前為${
-                                          variantSort.key === "base_price" && !variantSort.asc ? "降冪" : "升冪"
-                                        }）`}
-                                      >
-                                        <span>定價</span>
-                                        <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
-                                          {variantSort.key === "base_price" ? (variantSort.asc ? "↑" : "↓") : "–"}
-                                        </span>
-                                      </button>
-                                    </TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 whitespace-nowrap">介紹表</TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 whitespace-nowrap">價目表</TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 whitespace-nowrap" title="已有實拍照片（人工標記，盤點缺實拍照的規格）">實拍照</TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 min-w-[180px]">通路價格</TableHead>
-                                    <TableHead className="text-xs font-semibold p-2 min-w-[120px]">操作</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {variants.length === 0 ? (
-                                    <TableRow>
-                                      <TableCell colSpan={11} className="h-16 text-center text-sm text-muted-foreground">
-                                        尚無規格，請點「新增規格」建立。
-                                      </TableCell>
-                                    </TableRow>
-                                  ) : (
-                                    [...variants]
-                                      .sort((a, b) => {
-                                        const ascFactor = variantSort.asc ? 1 : -1;
-                                        switch (variantSort.key) {
-                                          case "wood_type": {
-                                            const aVal = a.wood_type || "";
-                                            const bVal = b.wood_type || "";
-                                            return ascFactor * aVal.localeCompare(bVal);
-                                          }
-                                          case "spec1": {
-                                            const aVal = a.spec1 || "";
-                                            const bVal = b.spec1 || "";
-                                            return ascFactor * aVal.localeCompare(bVal);
-                                          }
-                                          case "dimension": {
-                                            const aDims = [a.dimension_w ?? 0, a.dimension_d ?? 0, a.dimension_h ?? 0];
-                                            const bDims = [b.dimension_w ?? 0, b.dimension_d ?? 0, b.dimension_h ?? 0];
-                                            const aKey = aDims[0] * 1_000_000 + aDims[1] * 1_000 + aDims[2];
-                                            const bKey = bDims[0] * 1_000_000 + bDims[1] * 1_000 + bDims[2];
-                                            return ascFactor * (aKey - bKey);
-                                          }
-                                          case "base_price": {
-                                            const aVal = a.base_price ?? Number.POSITIVE_INFINITY;
-                                            const bVal = b.base_price ?? Number.POSITIVE_INFINITY;
-                                            return ascFactor * (aVal - bVal);
-                                          }
-                                          case "product_code":
-                                          default: {
-                                            const aVal = a.product_code || "";
-                                            const bVal = b.product_code || "";
-                                            return ascFactor * aVal.localeCompare(bVal);
-                                          }
-                                        }
-                                      })
-                                      .map((v) => {
-                                        const displayImageUrl = v.image_url ?? series.image_url ?? null;
-                                        return (
-                                      <TableRow key={v.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                                        <TableCell className="p-2 align-middle">
-                                          {displayImageUrl ? (
-                                            <span className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
-                                              <img
-                                                src={displayImageUrl}
-                                                alt={v.product_code || "規格圖片"}
-                                                className="h-full w-full object-cover"
-                                              />
-                                            </span>
-                                          ) : (
-                                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-dashed border-muted text-[10px] text-muted-foreground">
-                                              無圖
-                                            </span>
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-sm p-2">
+                      </span>
+                    </button>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      {series.category ? <span>{series.category}</span> : null}
+                      <span>交期 {formatLeadTime(series.production_time)}</span>
+                      <span>規格 {variants.length}</span>
+                      <span>
+                        用料表 {bomCount > 0 ? bomCount : <span className="text-accent-warn">未建</span>}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 gap-1 px-2 text-xs"
+                        aria-expanded={isExpanded}
+                        onClick={() => toggleExpanded(series.id)}
+                      >
+                        {isExpanded ? "收合規格" : `規格（${variants.length}）`}
+                        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-180")} aria-hidden />
+                      </Button>
+                      <div className="ml-auto">{renderSeriesActions(series)}</div>
+                    </div>
+                    {isExpanded && (
+                      <div className="flex flex-col gap-2 rounded-md bg-muted/30 p-2">
+                        <div className="flex flex-wrap items-center gap-2">{renderSeriesToolbar(series)}</div>
+                        {variants.length > 1 && (
+                          <MobileSortBar
+                            options={VARIANT_SORT_OPTIONS}
+                            sortKey={variantSort.key}
+                            asc={variantSort.asc}
+                            onKeyChange={(key) => setVariantSort({ key, asc: true })}
+                            onToggleDir={() => setVariantSort((prev) => ({ ...prev, asc: !prev.asc }))}
+                          />
+                        )}
+                        {variants.length === 0 ? (
+                          <p className="py-4 text-center text-sm text-muted-foreground">尚無規格，請點「新增規格」建立。</p>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                            {sortVariants(variants).map((v) => {
+                              const priceLines = channelPriceLines(v);
+                              return (
+                                <div key={v.id} className="flex min-w-0 flex-col gap-2 rounded-md border border-border bg-card p-2.5">
+                                  <div className="flex items-start gap-2.5">
+                                    {renderVariantImage(v, series)}
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <p className="min-w-0 break-words text-sm font-medium text-foreground">
                                           {v.product_code || "—"}
-                                          {isLegacyVariant(v) && (
-                                            <span
-                                              className="ml-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400 align-middle"
-                                              title="非勾選生成的舊規格（未連結選項軸）"
-                                            >
-                                              舊
-                                            </span>
-                                          )}
+                                          {renderLegacyBadge(v)}
+                                        </p>
+                                        <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+                                          {v.base_price != null ? `$${v.base_price.toLocaleString()}` : "—"}
+                                        </span>
+                                      </div>
+                                      <p className="break-words text-xs text-muted-foreground">
+                                        {[v.wood_type, v.spec1].filter(Boolean).join("・") || "—"}
+                                      </p>
+                                      <p className="break-words text-xs text-muted-foreground">{formatDim(v)}</p>
+                                    </div>
+                                  </div>
+                                  {priceLines != null && (
+                                    <p className="break-words text-[11px] text-muted-foreground">
+                                      通路價：{priceLines.length ? priceLines.join("、") : "尚未設定"}
+                                    </p>
+                                  )}
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/60 pt-2 text-xs text-foreground">
+                                    <span className="inline-flex items-center gap-1">
+                                      <label className="inline-flex items-center gap-1.5">
+                                        {renderFlagCheckbox(v, "show_on_sheet")}
+                                        介紹表
+                                      </label>
+                                      {v.show_on_sheet === true && !v.dimension_drawing_url?.trim() && renderWarnBadge("缺線圖")}
+                                    </span>
+                                    <label className="inline-flex items-center gap-1.5">
+                                      {renderFlagCheckbox(v, "show_on_price_list")}
+                                      價目表
+                                    </label>
+                                    <span className="inline-flex items-center gap-1">
+                                      <label className="inline-flex items-center gap-1.5">
+                                        {renderFlagCheckbox(v, "has_photo")}
+                                        實拍照
+                                      </label>
+                                      {v.has_photo !== true && !v.is_custom_order && renderWarnBadge("缺實拍")}
+                                    </span>
+                                    <div className="ml-auto">{renderVariantActions(v, "md")}</div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 電腦（lg 以上）：表格 */}
+        <div className="hidden lg:block">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-b border-border">
+                <TableHead className="w-10 p-2" aria-label="展開/收合" />
+                <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 hover:text-primary"
+                    onClick={() =>
+                      setSeriesSort((prev) => ({
+                        key: "name",
+                        asc: prev.key === "name" ? !prev.asc : true,
+                      }))
+                    }
+                    aria-label={`依系列名稱排序（目前為${seriesSort.key === "name" && !seriesSort.asc ? "降冪" : "升冪"}）`}
+                  >
+                    <span>系列名稱</span>
+                    <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                      {seriesSort.key === "name" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                    </span>
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 hover:text-primary"
+                    onClick={() =>
+                      setSeriesSort((prev) => ({
+                        key: "category",
+                        asc: prev.key === "category" ? !prev.asc : true,
+                      }))
+                    }
+                    aria-label={`依類別排序（目前為${
+                      seriesSort.key === "category" && !seriesSort.asc ? "降冪" : "升冪"
+                    }）`}
+                  >
+                    <span>類別</span>
+                    <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                      {seriesSort.key === "category" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                    </span>
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none whitespace-nowrap">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 hover:text-primary"
+                    onClick={() =>
+                      setSeriesSort((prev) => ({
+                        key: "leadTime",
+                        asc: prev.key === "leadTime" ? !prev.asc : true,
+                      }))
+                    }
+                    aria-label={`依交期排序（目前為${
+                      seriesSort.key === "leadTime" && !seriesSort.asc ? "降冪" : "升冪"
+                    }）`}
+                  >
+                    <span>交期</span>
+                    <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                      {seriesSort.key === "leadTime" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                    </span>
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 hover:text-primary"
+                    onClick={() =>
+                      setSeriesSort((prev) => ({
+                        key: "variantCount",
+                        asc: prev.key === "variantCount" ? !prev.asc : true,
+                      }))
+                    }
+                    aria-label={`依規格數排序（目前為${
+                      seriesSort.key === "variantCount" && !seriesSort.asc ? "降冪" : "升冪"
+                    }）`}
+                  >
+                    <span>規格數</span>
+                    <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                      {seriesSort.key === "variantCount" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                    </span>
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 hover:text-primary"
+                    onClick={() =>
+                      setSeriesSort((prev) => ({
+                        key: "bomCount",
+                        asc: prev.key === "bomCount" ? !prev.asc : true,
+                      }))
+                    }
+                    aria-label={`依用料表線數排序（目前為${
+                      seriesSort.key === "bomCount" && !seriesSort.asc ? "降冪" : "升冪"
+                    }）`}
+                  >
+                    <span>用料表</span>
+                    <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                      {seriesSort.key === "bomCount" ? (seriesSort.asc ? "↑" : "↓") : "–"}
+                    </span>
+                  </button>
+                </TableHead>
+                <TableHead className="text-xs font-semibold p-2 min-w-[200px] text-right" aria-label="操作">
+                  操作
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredSeries.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <span>{seriesList.length === 0 ? "尚無產品系列，請點「新增系列」建立。" : "無符合篩選條件的系列。"}</span>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                sortedSeries.map((series) => {
+                  const isExpanded = expandedIds.has(series.id);
+                  const variants = variantsBySeries[series.id] ?? [];
+                  const bomCount = bomCountBySeries[series.id] ?? 0;
+                  return (
+                    <Fragment key={series.id}>
+                      <TableRow className="border-b border-border hover:bg-muted/30">
+                        <TableCell className="w-10 p-2 align-middle">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(series.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+                            aria-label={isExpanded ? "收合" : "展開"}
+                          >
+                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          </button>
+                        </TableCell>
+                        <TableCell className="text-sm font-medium p-2">
+                          <button
+                            type="button"
+                            onClick={() => setViewSeries(series)}
+                            className="flex items-center gap-2 text-left text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring rounded"
+                          >
+                            {renderSeriesThumb(series, "h-9 w-9")}
+                            <span className="flex flex-col">
+                              <span>{series.name || "—"}</span>
+                              {series.notes?.trim() && (
+                                <span className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {series.notes}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground p-2">{series.category || "—"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground p-2 whitespace-nowrap">{formatLeadTime(series.production_time)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground p-2">{variants.length}</TableCell>
+                        <TableCell className="text-sm p-2">
+                          {bomCount > 0 ? (
+                            <span className="text-muted-foreground">{bomCount}</span>
+                          ) : (
+                            <span className="text-accent-warn">未建</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="p-2 text-right">{renderSeriesActions(series)}</TableCell>
+                      </TableRow>
+                      <TableRow className="border-b border-border bg-muted/10 hover:bg-muted/10">
+                        <TableCell colSpan={7} className="p-0 align-top">
+                          <div
+                            className="w-0 min-w-full overflow-hidden transition-[max-height] duration-300 ease-out"
+                            style={{ maxHeight: isExpanded ? "80vh" : 0 }}
+                          >
+                            <div className="bg-muted/20 px-4 pb-4 pt-2 max-h-[70vh] overflow-y-auto">
+                              <div className="flex flex-wrap items-center justify-end gap-2 mb-2">
+                                {renderSeriesToolbar(series)}
+                              </div>
+                              <div className="rounded-lg border border-border bg-card overflow-x-auto">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow className="hover:bg-transparent border-b border-border">
+                                      <TableHead className="text-xs font-semibold p-2 w-16">
+                                        圖片
+                                      </TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1.5 hover:text-primary"
+                                          onClick={() =>
+                                            setVariantSort((prev) => ({
+                                              key: "product_code",
+                                              asc: prev.key === "product_code" ? !prev.asc : true,
+                                            }))
+                                          }
+                                          aria-label={`依代碼排序（目前為${
+                                            variantSort.key === "product_code" && !variantSort.asc ? "降冪" : "升冪"
+                                          }）`}
+                                        >
+                                          <span>代碼</span>
+                                          <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                            {variantSort.key === "product_code" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                          </span>
+                                        </button>
+                                      </TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1.5 hover:text-primary"
+                                          onClick={() =>
+                                            setVariantSort((prev) => ({
+                                              key: "wood_type",
+                                              asc: prev.key === "wood_type" ? !prev.asc : true,
+                                            }))
+                                          }
+                                          aria-label={`依木種排序（目前為${
+                                            variantSort.key === "wood_type" && !variantSort.asc ? "降冪" : "升冪"
+                                          }）`}
+                                        >
+                                          <span>木種</span>
+                                          <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                            {variantSort.key === "wood_type" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                          </span>
+                                        </button>
+                                      </TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1.5 hover:text-primary"
+                                          onClick={() =>
+                                            setVariantSort((prev) => ({
+                                              key: "spec1",
+                                              asc: prev.key === "spec1" ? !prev.asc : true,
+                                            }))
+                                          }
+                                          aria-label={`依規格排序（目前為${
+                                            variantSort.key === "spec1" && !variantSort.asc ? "降冪" : "升冪"
+                                          }）`}
+                                        >
+                                          <span>規格</span>
+                                          <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                            {variantSort.key === "spec1" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                          </span>
+                                        </button>
+                                      </TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1.5 hover:text-primary"
+                                          onClick={() =>
+                                            setVariantSort((prev) => ({
+                                              key: "dimension",
+                                              asc: prev.key === "dimension" ? !prev.asc : true,
+                                            }))
+                                          }
+                                          aria-label={`依尺寸排序（目前為${
+                                            variantSort.key === "dimension" && !variantSort.asc ? "降冪" : "升冪"
+                                          }）`}
+                                        >
+                                          <span>尺寸</span>
+                                          <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                            {variantSort.key === "dimension" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                          </span>
+                                        </button>
+                                      </TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 cursor-pointer hover:bg-accent/50 select-none">
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1.5 hover:text-primary"
+                                          onClick={() =>
+                                            setVariantSort((prev) => ({
+                                              key: "base_price",
+                                              asc: prev.key === "base_price" ? !prev.asc : true,
+                                            }))
+                                          }
+                                          aria-label={`依定價排序（目前為${
+                                            variantSort.key === "base_price" && !variantSort.asc ? "降冪" : "升冪"
+                                          }）`}
+                                        >
+                                          <span>定價</span>
+                                          <span className="inline-flex items-center justify-center h-4 w-4 text-sm leading-none text-muted-foreground">
+                                            {variantSort.key === "base_price" ? (variantSort.asc ? "↑" : "↓") : "–"}
+                                          </span>
+                                        </button>
+                                      </TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 whitespace-nowrap">介紹表</TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 whitespace-nowrap">價目表</TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 whitespace-nowrap" title="已有實拍照片（人工標記，盤點缺實拍照的規格）">實拍照</TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 min-w-[180px]">通路價格</TableHead>
+                                      <TableHead className="text-xs font-semibold p-2 min-w-[120px]">操作</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {variants.length === 0 ? (
+                                      <TableRow>
+                                        <TableCell colSpan={11} className="h-16 text-center text-sm text-muted-foreground">
+                                          尚無規格，請點「新增規格」建立。
                                         </TableCell>
-                                        <TableCell className="text-sm p-2">{v.wood_type || "—"}</TableCell>
-                                        <TableCell className="text-sm p-2">{v.spec1 || "—"}</TableCell>
-                                        <TableCell className="text-sm p-2">{formatDim(v)}</TableCell>
-                                        <TableCell className="text-sm p-2">{v.base_price != null ? v.base_price.toLocaleString() : "—"}</TableCell>
-                                        <TableCell className="p-2">
-                                          <div className="flex flex-col items-start gap-1">
-                                            <input
-                                              type="checkbox"
-                                              checked={v.show_on_sheet === true}
-                                              onChange={() => toggleVariantFlag(v, "show_on_sheet")}
-                                              className="h-4 w-4 rounded border-input accent-primary"
-                                              aria-label={`${v.product_code} 顯示於介紹表`}
-                                              title="顯示於產品介紹表"
-                                            />
-                                            {v.show_on_sheet === true && !v.dimension_drawing_url?.trim() && (
-                                              <span className="rounded-full border border-accent-warn/60 px-1.5 py-0.5 text-[10px] leading-none text-accent-warn whitespace-nowrap">
-                                                缺線圖
-                                              </span>
-                                            )}
-                                          </div>
-                                        </TableCell>
-                                        <TableCell className="p-2">
-                                          <input
-                                            type="checkbox"
-                                            checked={v.show_on_price_list === true}
-                                            onChange={() => toggleVariantFlag(v, "show_on_price_list")}
-                                            className="h-4 w-4 rounded border-input accent-primary"
-                                            aria-label={`${v.product_code} 顯示於價目表`}
-                                            title="顯示於價目表"
-                                          />
-                                        </TableCell>
-                                        <TableCell className="p-2">
-                                          <div className="flex flex-col items-start gap-1">
-                                            <input
-                                              type="checkbox"
-                                              checked={v.has_photo === true}
-                                              onChange={() => toggleVariantFlag(v, "has_photo")}
-                                              className="h-4 w-4 rounded border-input accent-primary"
-                                              aria-label={`${v.product_code} 已有實拍照片`}
-                                              title="已有實拍照片"
-                                            />
-                                            {v.has_photo !== true && !v.is_custom_order && (
-                                              <span className="rounded-full border border-accent-warn/60 px-1.5 py-0.5 text-[10px] leading-none text-accent-warn whitespace-nowrap">
-                                                缺實拍
-                                              </span>
-                                            )}
-                                          </div>
-                                        </TableCell>
-                                        <TableCell className="text-xs p-2 text-muted-foreground">
-                                          {v.base_price == null ? (
-                                            "—"
-                                          ) : (
-                                            (() => {
-                                              const discounts = seriesDiscounts[v.series_id] ?? [];
-                                              const rows = discounts
-                                                .map((d) => {
-                                                  const name = channelNameMap[d.channel_id];
-                                                  if (!name) return null;
-                                                  const price = Math.round(
-                                                    v.base_price! * (1 - d.discount_percent / 100)
-                                                  );
-                                                  const pct = d.discount_percent;
-                                                  const pctText =
-                                                    Number.isFinite(pct) && pct !== 0
-                                                      ? ` (${pct}%)`
-                                                      : "";
-                                                  return `${name}: ${price.toLocaleString()}${pctText}`;
-                                                })
-                                                .filter(Boolean) as string[];
-                                              if (!rows.length) return "尚未設定";
+                                      </TableRow>
+                                    ) : (
+                                      sortVariants(variants).map((v) => {
+                                          return (
+                                        <TableRow key={v.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                                          <TableCell className="p-2 align-middle">{renderVariantImage(v, series)}</TableCell>
+                                          <TableCell className="text-sm p-2">
+                                            {v.product_code || "—"}
+                                            {renderLegacyBadge(v)}
+                                          </TableCell>
+                                          <TableCell className="text-sm p-2">{v.wood_type || "—"}</TableCell>
+                                          <TableCell className="text-sm p-2">{v.spec1 || "—"}</TableCell>
+                                          <TableCell className="text-sm p-2">{formatDim(v)}</TableCell>
+                                          <TableCell className="text-sm p-2">{v.base_price != null ? v.base_price.toLocaleString() : "—"}</TableCell>
+                                          <TableCell className="p-2">
+                                            <div className="flex flex-col items-start gap-1">
+                                              {renderFlagCheckbox(v, "show_on_sheet")}
+                                              {v.show_on_sheet === true && !v.dimension_drawing_url?.trim() && renderWarnBadge("缺線圖")}
+                                            </div>
+                                          </TableCell>
+                                          <TableCell className="p-2">{renderFlagCheckbox(v, "show_on_price_list")}</TableCell>
+                                          <TableCell className="p-2">
+                                            <div className="flex flex-col items-start gap-1">
+                                              {renderFlagCheckbox(v, "has_photo")}
+                                              {v.has_photo !== true && !v.is_custom_order && renderWarnBadge("缺實拍")}
+                                            </div>
+                                          </TableCell>
+                                          <TableCell className="text-xs p-2 text-muted-foreground">
+                                            {(() => {
+                                              const lines = channelPriceLines(v);
+                                              if (lines == null) return "—";
+                                              if (!lines.length) return "尚未設定";
                                               return (
                                                 <div className="space-y-0.5">
-                                                  {rows.map((text) => (
+                                                  {lines.map((text) => (
                                                     <div key={text}>{text}</div>
                                                   ))}
                                                 </div>
                                               );
-                                            })()
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="p-2">
-                                          <div className="flex items-center gap-1">
-                                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewVariant(v)} aria-label={`檢視 ${v.product_code}`}>
-                                              <Eye className="h-3.5 w-3.5" />
-                                            </Button>
-                                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditVariant(v)} aria-label={`修改 ${v.product_code}`}>
-                                              <Pencil className="h-3.5 w-3.5" />
-                                            </Button>
-                                            <Button
-                                              type="button"
-                                              variant="ghost"
-                                              size="icon"
-                                              className="h-7 w-7"
-                                              onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                setCopyConfirmVariant(v);
-                                              }}
-                                              aria-label={`複製 ${v.product_code}`}
-                                            >
-                                              <Copy className="h-3.5 w-3.5" />
-                                            </Button>
-                                            <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestDeleteVariant(v); }} aria-label={`刪除 ${v.product_code}`}>
-                                              <Trash2 className="h-3.5 w-3.5" />
-                                            </Button>
-                                          </div>
-                                        </TableCell>
-                                      </TableRow>
-                                        );
-                                      })
-                                  )}
-                                </TableBody>
-                              </Table>
+                                            })()}
+                                          </TableCell>
+                                          <TableCell className="p-2">{renderVariantActions(v)}</TableCell>
+                                        </TableRow>
+                                          );
+                                        })
+                                    )}
+                                  </TableBody>
+                                </Table>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  </Fragment>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <ViewSeriesDialog open={viewSeries != null} onOpenChange={(open) => !open && setViewSeries(null)} row={viewSeries} variants={viewSeries ? (variantsBySeries[viewSeries.id] ?? []) : []} />

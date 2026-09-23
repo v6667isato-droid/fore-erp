@@ -25,7 +25,7 @@ import {
   type MaterialCategoryGroup,
 } from "@/lib/material-category-groups";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { MobileSortBar } from "@/components/procurement/mobile-sort-bar";
+import { MobileSortBar } from "@/components/ui/mobile-sort-bar";
 import { Package, Plus, Pencil, Trash2, Copy, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { formatAmortizationLabel, resolveDefaultAmortizationMonths } from "@/lib/purchase-amortization";
 import { formatDate } from "@/lib/utils";
