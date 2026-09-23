@@ -54,6 +54,7 @@ export function isOrderAdminReadOnly(
 export const QUOTE_STATUSES: OrderStatus[] = ["報價中"];
 export const PRODUCTION_STATUSES: OrderStatus[] = [
   "繪圖中",
+  "客戶圖面確認",
   "排程中",
   "繪製製作圖",
   "生產中",
@@ -72,6 +73,7 @@ export function isPaymentUnsettled(paymentStatus: string | null | undefined): bo
 const ORDER_STATUS_OPTIONS: OrderStatus[] = [
   "報價中",
   "繪圖中",
+  "客戶圖面確認",
   "排程中",
   "繪製製作圖",
   "生產中",
@@ -84,6 +86,7 @@ const ORDER_STATUS_OPTIONS: OrderStatus[] = [
 const ORDER_STATUS_SORT_ORDER: OrderStatus[] = [
   "報價中",
   "繪圖中",
+  "客戶圖面確認",
   "排程中",
   "繪製製作圖",
   "生產中",
@@ -133,6 +136,7 @@ export const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = [
 export const statusStyles: Record<OrderStatus, string> = {
   報價中: "bg-amber-100 text-amber-800 border-amber-200",
   繪圖中: "bg-violet-100 text-violet-800 border-violet-200",
+  客戶圖面確認: "bg-sky-100 text-sky-800 border-sky-200",
   排程中: "bg-amber-100 text-amber-800 border-amber-200",
   繪製製作圖: "bg-violet-100 text-violet-800 border-violet-200",
   生產中: "bg-blue-100 text-blue-800 border-blue-200",

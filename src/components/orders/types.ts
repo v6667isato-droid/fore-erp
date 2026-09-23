@@ -3,6 +3,7 @@ import type { WorkOrderStage } from "@/lib/work-order-stages";
 export type OrderStatus =
   | "報價中"
   | "繪圖中"
+  | "客戶圖面確認"
   | "排程中"
   | "繪製製作圖"
   | "生產中"

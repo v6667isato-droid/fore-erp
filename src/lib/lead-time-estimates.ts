@@ -19,6 +19,7 @@ import { normalizeWorkOrderStage, workOrderStageSortIndex } from "@/lib/work-ord
 /** 已確認生產、尚未完工的訂單狀態（報價中之前、已完工之後皆不計入） */
 export const LEAD_TIME_BACKLOG_STATUSES = [
   "繪圖中",
+  "客戶圖面確認",
   "排程中",
   "繪製製作圖",
   "生產中",

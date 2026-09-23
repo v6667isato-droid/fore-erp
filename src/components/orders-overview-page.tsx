@@ -48,6 +48,7 @@ import { appendArmHeight } from "@/lib/product-arm-height";
 const ORDER_STATUS_SEQUENCE = [
   "報價中",
   "繪圖中",
+  "客戶圖面確認",
   "排程中",
   "繪製製作圖",
   "生產中",
@@ -67,6 +68,7 @@ function orderStatusSortIndex(status: string | null | undefined): number {
 const orderStatusBadgeClass: Record<string, string> = {
   報價中: "bg-amber-100 text-amber-800 border-amber-200",
   繪圖中: "bg-violet-100 text-violet-800 border-violet-200",
+  客戶圖面確認: "bg-sky-100 text-sky-800 border-sky-200",
   排程中: "bg-amber-100 text-amber-800 border-amber-200",
   繪製製作圖: "bg-violet-100 text-violet-800 border-violet-200",
   生產中: "bg-blue-100 text-blue-800 border-blue-200",
