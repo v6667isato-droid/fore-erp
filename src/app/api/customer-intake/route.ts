@@ -51,14 +51,24 @@ function buildPrompt(text: string): string {
 - contact_method 只能是：${CONTACT_METHOD_OPTIONS.filter((o) => o.value !== "bingxueLine").map((o) => o.value).join("、")}。依訊息來源判斷，無法判斷填 null。
 - customer.notes：客情備註，簡短記下偏好、預算、特殊需求等之後值得記得的事；已放進其他欄位的資料不要重複；沒有就 null。
 - order.items：客戶想訂購或詢價的家具，每種一筆；沒提到任何品項就回傳空陣列。
-  - name：簡短品名，例如「胡桃木餐桌」「餐椅」。
+  - name：簡短品名，保留產品編號，例如「CB05 訂製款」「胡桃木餐桌」「餐椅」。
+  - product_code：訊息中的產品編號（英文字母＋數字，例如 CB05、CH03-A、TB01-W-W180D85），原樣照抄；沒有就 null。
+  - custom_made：明確說「訂製款」「訂製」「客製尺寸」時 true，否則 false。
   - category 只能是：${INTAKE_ITEM_CATEGORIES.join("、")}。
   - quantity：數量，沒提到填 1。
-  - dimension_w（寬／長）、dimension_d（深）、dimension_h（高）：一律換算成公分；沒提到填 null。
+  - unit_price：單價（折扣前），例如「價格52000」→ 52000；只寫總價且數量為 1 時等於總價；沒提到填 null。
+  - dimension_w（寬／長）、dimension_d（深）、dimension_h（高）：一律換算成公分，例如「W90 D45 H90」；沒提到填 null。
+  - seat_height_cm：椅凳座高（公分），沒提到填 null。
   - wood_type：木種，例如胡桃木、白橡木、柚木。
-  - notes：其他規格，例如顏色、塗裝、座高、造型。
+  - notes：其他規格，例如顏色、塗裝、造型、藤編／布墊。
 - order.expected_delivery_date：客戶希望的交期，格式 YYYY-MM-DD。今天是 ${taiwanToday()}，相對日期據此換算，「月底」取該月最後一天；沒提到填 null。
-- order.notes：訂單其他備註，例如指定送貨時段、需搬運上樓、付款方式；沒有就 null。
+- order.discount_percent：整張訂單的折扣百分比。「折扣5%」→ 5、「打95折」→ 5、「9折」→ 10；沒提到填 null。
+- order.discount_amount：整張訂單直接折抵的金額，例如「折2000」「便宜2000元」→ 2000；沒提到填 null。
+- order.deposit_requested：提到要收訂金、帶入訂金、付訂金時 true，否則 false。
+- order.deposit_percent：訂金比例，例如「訂金三成」→ 30、「付一半」→ 50；沒寫比例填 null。
+- order.deposit_amount：訂金金額，例如「訂金1萬」→ 10000；沒寫金額填 null。
+- order.shipping_fee：運費金額，沒提到填 null。
+- order.notes：訂單其他備註，例如指定送貨時段、需搬運上樓、付款方式；已放進其他欄位的不要重複；沒有就 null。
 
 <message>
 ${text}
@@ -112,7 +122,17 @@ const CLAUDE_OUTPUT_SCHEMA = {
     order: {
       type: "object",
       additionalProperties: false,
-      required: ["items", "expected_delivery_date", "notes"],
+      required: [
+        "items",
+        "expected_delivery_date",
+        "notes",
+        "discount_percent",
+        "discount_amount",
+        "deposit_requested",
+        "deposit_percent",
+        "deposit_amount",
+        "shipping_fee",
+      ],
       properties: {
         items: {
           type: "array",
@@ -121,28 +141,42 @@ const CLAUDE_OUTPUT_SCHEMA = {
             additionalProperties: false,
             required: [
               "name",
+              "product_code",
+              "custom_made",
               "category",
               "quantity",
+              "unit_price",
               "wood_type",
               "dimension_w",
               "dimension_d",
               "dimension_h",
+              "seat_height_cm",
               "notes",
             ],
             properties: {
               name: { type: "string", description: "品名" },
+              product_code: nullableString("產品編號"),
+              custom_made: { type: "boolean", description: "是否訂製款" },
               category: nullableString("類別（限指定選項）"),
               quantity: { type: "integer", description: "數量" },
+              unit_price: nullableNumber("單價（折扣前）"),
               wood_type: nullableString("木種"),
               dimension_w: nullableNumber("寬／長（cm）"),
               dimension_d: nullableNumber("深（cm）"),
               dimension_h: nullableNumber("高（cm）"),
+              seat_height_cm: nullableNumber("座高（cm）"),
               notes: nullableString("其他規格"),
             },
           },
         },
         expected_delivery_date: nullableString("希望交期 YYYY-MM-DD"),
         notes: nullableString("訂單備註"),
+        discount_percent: nullableNumber("折扣百分比"),
+        discount_amount: nullableNumber("折抵金額"),
+        deposit_requested: { type: "boolean", description: "是否要帶入訂金" },
+        deposit_percent: nullableNumber("訂金比例 %"),
+        deposit_amount: nullableNumber("訂金金額"),
+        shipping_fee: nullableNumber("運費"),
       },
     },
   },
@@ -185,18 +219,28 @@ const GEMINI_OUTPUT_SCHEMA = {
             required: ["name"],
             properties: {
               name: { type: "STRING" },
+              product_code: geminiString,
+              custom_made: { type: "BOOLEAN" },
               category: geminiString,
               quantity: { type: "INTEGER" },
+              unit_price: geminiNumber,
               wood_type: geminiString,
               dimension_w: geminiNumber,
               dimension_d: geminiNumber,
               dimension_h: geminiNumber,
+              seat_height_cm: geminiNumber,
               notes: geminiString,
             },
           },
         },
         expected_delivery_date: geminiString,
         notes: geminiString,
+        discount_percent: geminiNumber,
+        discount_amount: geminiNumber,
+        deposit_requested: { type: "BOOLEAN" },
+        deposit_percent: geminiNumber,
+        deposit_amount: geminiNumber,
+        shipping_fee: geminiNumber,
       },
     },
   },

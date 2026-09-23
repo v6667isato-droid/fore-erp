@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { amegoBanQuery } from "@/lib/sales-invoice";
 import { DEFAULT_WORK_ORDER_STAGE } from "@/lib/work-order-stages";
+import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
 import {
   CONTACT_METHOD_OPTIONS,
   CUSTOMER_SOURCE_OPTIONS,
@@ -18,18 +19,21 @@ import {
   MATCH_REASON_LABELS,
   diffCustomerFields,
   findCustomerMatches,
+  pickDefaultMatch,
   sanitizeIntakeResult,
   type CustomerMatch,
   type ExistingCustomerFields,
   type FieldUpdate,
   type IntakeCustomer,
   type IntakeOrder,
+  type IntakeOrderItem,
   type MatchReason,
 } from "@/lib/customer-intake";
+import { matchIntakeItem, type IntakeVariantMatch } from "@/lib/intake-variant-match";
 import { Button } from "@/components/ui/button";
 import { AddressZipcodeHint } from "@/components/crm/address-zipcode-hint";
 import { CUSTOMER_VIEW_SELECT, mapCustomerViewRow } from "@/components/orders/order-helpers";
-import type { OrderDraft, OrderItemInput } from "@/components/orders/types";
+import type { OrderDraft, OrderItemInput, VariantOption } from "@/components/orders/types";
 import type { CustomerRow } from "@/types/crm";
 import type { Database } from "@/types/database.types";
 
@@ -58,7 +62,132 @@ const TEXT_FIELDS: TextField[] = [
 
 const NEW_CUSTOMER = "__new__";
 
-const EMPTY_ORDER: IntakeOrder = { items: [], expected_delivery_date: null, notes: null };
+const EMPTY_ORDER: IntakeOrder = {
+  items: [],
+  expected_delivery_date: null,
+  notes: null,
+  discount_percent: null,
+  discount_amount: null,
+  deposit_requested: false,
+  deposit_percent: null,
+  deposit_amount: null,
+  shipping_fee: null,
+};
+
+/** 沒寫訂金比例／金額但要求帶入訂金時，用訂單表單預設的比例 */
+const DEFAULT_DEPOSIT_PERCENT = 50;
+
+type ItemMatch = IntakeVariantMatch<VariantOption> | null;
+
+function formatDims(it: Pick<IntakeOrderItem, "dimension_w" | "dimension_d" | "dimension_h">): string | null {
+  const dims = [it.dimension_w, it.dimension_d, it.dimension_h];
+  return dims.some((d) => d != null) ? `${dims.map((d) => d ?? "—").join("×")} cm` : null;
+}
+
+/** 訊息裡對這個品項的描述（只確定系列時寫進備註，讓使用者挑規格時參考） */
+function describeItem(it: IntakeOrderItem): string {
+  return [
+    it.name,
+    it.wood_type,
+    formatDims(it),
+    it.unit_price != null ? `單價 ${it.unit_price.toLocaleString()}` : null,
+    it.notes,
+  ]
+    .filter(Boolean)
+    .join("・");
+}
+
+/** 預估單價（與訂單表單結算相同邏輯：訂製款／客製用訊息價格，現成規格用牌價，訊息另有指定價格時優先） */
+function estimateUnitPrice(it: IntakeOrderItem, match: ItemMatch): number {
+  if (match?.kind === "variant" && !match.customOrder) return it.unit_price ?? match.variant.base_price ?? 0;
+  return it.unit_price ?? 0;
+}
+
+/** 解析品項 → 訂單表單品項：對到規格庫就帶規格（與手動選規格相同的欄位），否則用客製家具 */
+function buildDraftItem(it: IntakeOrderItem, index: number, match: ItemMatch): OrderItemInput {
+  const common = {
+    id: `item-intake-${index}`,
+    quantity: it.quantity,
+    work_order_stage: DEFAULT_WORK_ORDER_STAGE,
+    work_order_assignee_id: null,
+    work_order_planned_end_date: null,
+  };
+  if (match?.kind === "variant") {
+    const v = match.variant;
+    const seatDefault = v.seat_height_cm ?? (hasSeatSpecs(v.series_category) ? DEFAULT_SEAT_HEIGHT_CM : null);
+    if (match.customOrder) {
+      // 訂製款：沒有牌價，價格、木種、尺寸都以訊息為準
+      return {
+        ...common,
+        kind: "variant",
+        variant_id: v.id,
+        series_id: v.series_id,
+        unit_price: it.unit_price ?? 0,
+        channel_unit_price: null,
+        custom_notes: it.notes ?? "",
+        wood_type: it.wood_type,
+        custom_dimension_w: it.dimension_w,
+        custom_dimension_d: it.dimension_d,
+        custom_dimension_h: it.dimension_h,
+        seat_height_cm: it.seat_height_cm ?? seatDefault,
+      };
+    }
+    const listPrice = v.base_price ?? 0;
+    return {
+      ...common,
+      kind: "variant",
+      variant_id: v.id,
+      series_id: v.series_id,
+      unit_price: listPrice,
+      // 現成規格牌價鎖定；訊息指定的價格與牌價不同時，放進「通路價格／折扣價格」當個別折扣
+      channel_unit_price: it.unit_price != null && it.unit_price !== listPrice ? it.unit_price : null,
+      custom_notes: it.notes ?? "",
+      wood_type: v.wood_type ?? it.wood_type,
+      custom_dimension_w: v.dimension_w ?? null,
+      custom_dimension_d: v.dimension_d ?? null,
+      custom_dimension_h: v.dimension_h ?? null,
+      seat_height_cm: it.seat_height_cm ?? seatDefault,
+    };
+  }
+  if (match?.kind === "series") {
+    // 系列確定、規格待選：選規格時會帶入規格的牌價與尺寸，訊息內容留在備註
+    return {
+      ...common,
+      kind: "variant",
+      variant_id: "",
+      series_id: match.series_id,
+      unit_price: 0,
+      channel_unit_price: null,
+      custom_notes: `客戶需求：${describeItem(it)}`,
+      wood_type: it.wood_type,
+      seat_height_cm: it.seat_height_cm,
+    };
+  }
+  return {
+    ...common,
+    kind: "custom",
+    variant_id: "",
+    unit_price: it.unit_price ?? 0,
+    channel_unit_price: null,
+    custom_notes: it.notes ?? "",
+    custom_category: it.category,
+    custom_name: it.name,
+    custom_description: null,
+    custom_dimension_w: it.dimension_w,
+    custom_dimension_d: it.dimension_d,
+    custom_dimension_h: it.dimension_h,
+    seat_height_cm: it.seat_height_cm,
+    wood_type: it.wood_type,
+  };
+}
+
+function matchLabel(match: ItemMatch): string {
+  if (match?.kind === "variant") {
+    return `規格庫：${match.variant.series_name} · ${match.variant.label}${match.customOrder ? "（訂製款）" : ""}`;
+  }
+  if (match?.kind === "series") return `規格庫：${match.series_name}（規格請在訂單中選擇）`;
+  return "客製家具";
+}
 
 function toForm(c: IntakeCustomer): IntakeForm {
   const form = { has_elevator: c.has_elevator } as IntakeForm;
@@ -144,6 +273,8 @@ const PLACEHOLDER = `例：
 export interface CustomerIntakeDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** 規格庫（開訂單時用來對應品項；不傳則品項一律以客製家具帶入） */
+  variants?: VariantOption[];
   /** 客戶建立／更新後呼叫（呼叫端重新載入客戶清單；開訂單前會先等它完成） */
   onCustomerSaved?: () => void | Promise<void>;
   /** 有提供時顯示「開訂單」按鈕：傳回預先帶入的訂單內容，由呼叫端開啟訂單表單 */
@@ -158,6 +289,7 @@ export interface CustomerIntakeDialogProps {
 export function CustomerIntakeDialog({
   open,
   onOpenChange,
+  variants = [],
   onCustomerSaved,
   onCreateOrder,
 }: CustomerIntakeDialogProps) {
@@ -192,6 +324,25 @@ export function CustomerIntakeDialog({
   );
   const isChecked = (u: FieldUpdate) => updateOverrides[u.field] ?? u.kind === "fill";
   const checkedUpdates = updates.filter(isChecked);
+
+  const itemMatches = useMemo(() => order.items.map((it) => matchIntakeItem(it, variants)), [order.items, variants]);
+  const depositPercent =
+    order.deposit_amount != null
+      ? null
+      : order.deposit_percent ?? (order.deposit_requested ? DEFAULT_DEPOSIT_PERCENT : null);
+  /** 確認畫面的金額預估（通路折扣等以訂單表單計算為準） */
+  const estimate = useMemo(() => {
+    const subtotal = order.items.reduce(
+      (sum, it, i) => sum + it.quantity * estimateUnitPrice(it, itemMatches[i] ?? null),
+      0
+    );
+    let discounted = subtotal;
+    if (order.discount_percent != null) discounted = Math.round(subtotal * (1 - order.discount_percent / 100));
+    else if (order.discount_amount != null) discounted = Math.max(0, subtotal - order.discount_amount);
+    const deposit =
+      order.deposit_amount ?? (depositPercent != null ? Math.round((discounted * depositPercent) / 100) : null);
+    return { subtotal, discounted, deposit };
+  }, [order, itemMatches, depositPercent]);
 
   function setField<K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -252,8 +403,8 @@ export function CustomerIntakeDialog({
       setCustomers(allCustomers);
       setForm(toForm(result.customer));
       setOrder(result.order);
-      // 電話／統編等確定相同時預設選既有客戶，否則預設建立新客戶
-      setSelectedId(initialMatches[0]?.strong ? initialMatches[0].customer.id : NEW_CUSTOMER);
+      // 電話／統編等確定相同、或恰好一位同名客戶時預設選既有客戶，否則預設建立新客戶
+      setSelectedId(pickDefaultMatch(initialMatches, result.customer)?.id ?? NEW_CUSTOMER);
       setUpdateOverrides({});
       setStep("review");
       if (result.customer.tax_id && !result.customer.company) lookupCompanyByTaxId(result.customer.tax_id);
@@ -332,26 +483,7 @@ export function CustomerIntakeDialog({
   /** 訂單寄送／發票資料：這次訊息有寫的優先（可能是新地址），沒寫的沿用客戶主檔 */
   function buildOrderDraft(customer: CustomerRow): OrderDraft {
     const c = formCustomer;
-    const items: OrderItemInput[] = order.items.map((it, i) => ({
-      id: `item-intake-${i}`,
-      variant_id: "",
-      quantity: it.quantity,
-      unit_price: 0,
-      channel_unit_price: null,
-      custom_notes: it.notes ?? "",
-      kind: "custom",
-      custom_category: it.category,
-      custom_name: it.name,
-      custom_description: null,
-      custom_dimension_w: it.dimension_w,
-      custom_dimension_d: it.dimension_d,
-      custom_dimension_h: it.dimension_h,
-      seat_height_cm: null,
-      wood_type: it.wood_type,
-      work_order_stage: DEFAULT_WORK_ORDER_STAGE,
-      work_order_assignee_id: null,
-      work_order_planned_end_date: null,
-    }));
+    const items = order.items.map((it, i) => buildDraftItem(it, i, itemMatches[i] ?? null));
     return {
       customer_id: customer.id,
       shipping_contact_name: c.contact_person ?? customer.contact_person ?? null,
@@ -364,6 +496,11 @@ export function CustomerIntakeDialog({
       expected_delivery_date: order.expected_delivery_date,
       internal_notes: order.notes,
       items,
+      discount_percent: order.discount_percent,
+      discount_amount: order.discount_amount,
+      deposit_percent: depositPercent,
+      deposit_amount: order.deposit_amount,
+      shipping_fee: order.shipping_fee,
     };
   }
 
@@ -531,7 +668,76 @@ export function CustomerIntakeDialog({
                 ) : null}
               </section>
 
-              {/* 2. 解析結果（可修改） */}
+              {/* 2. 訂購內容（帶入訂單表單）：放在客戶欄位前，手機上不用捲到底才看得到 */}
+              {onCreateOrder ? (
+                <section className={sectionClass}>
+                  <h3 className={sectionTitleClass}>訂購內容</h3>
+                  {order.items.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">沒有解析到品項，開訂單後請自行新增。</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {order.items.map((it, i) => {
+                        const match = itemMatches[i] ?? null;
+                        const detail = [
+                          it.wood_type,
+                          formatDims(it),
+                          it.seat_height_cm != null ? `座高 ${it.seat_height_cm} cm` : null,
+                          it.notes,
+                        ]
+                          .filter(Boolean)
+                          .join("・");
+                        const unitPrice = estimateUnitPrice(it, match);
+                        return (
+                          <li key={i} className="text-sm [overflow-wrap:anywhere]">
+                            <span className="font-medium text-foreground">
+                              {it.name} × {it.quantity}
+                            </span>
+                            {unitPrice > 0 ? (
+                              <span className="ml-1.5 tabular-nums text-foreground">
+                                單價 {unitPrice.toLocaleString()}
+                              </span>
+                            ) : null}
+                            {detail ? <span className="ml-1.5 text-xs text-muted-foreground">{detail}</span> : null}
+                            <span
+                              className={`mt-0.5 block text-xs ${
+                                match?.kind === "variant" ? "text-emerald-700" : "text-amber-700"
+                              }`}
+                            >
+                              → {matchLabel(match)}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  <div className="space-y-0.5 text-xs text-muted-foreground">
+                    {order.discount_percent != null ? <p>折扣：{order.discount_percent}%</p> : null}
+                    {order.discount_percent == null && order.discount_amount != null ? (
+                      <p>折抵：{order.discount_amount.toLocaleString()}</p>
+                    ) : null}
+                    {order.deposit_amount != null ? (
+                      <p>訂金：{order.deposit_amount.toLocaleString()}</p>
+                    ) : depositPercent != null ? (
+                      <p>帶入訂金：{depositPercent}%</p>
+                    ) : null}
+                    {order.shipping_fee != null ? <p>運費：{order.shipping_fee.toLocaleString()}</p> : null}
+                    {order.expected_delivery_date ? <p>希望交期：{order.expected_delivery_date}</p> : null}
+                    {order.notes ? <p className="[overflow-wrap:anywhere]">訂單備註：{order.notes}</p> : null}
+                  </div>
+                  {estimate.subtotal > 0 ? (
+                    <p className="text-sm tabular-nums text-foreground">
+                      預估：小計 {estimate.subtotal.toLocaleString()}
+                      {estimate.discounted !== estimate.subtotal ? ` → 折扣後 ${estimate.discounted.toLocaleString()}` : ""}
+                      {estimate.deposit != null ? `，訂金 ${estimate.deposit.toLocaleString()}` : ""}
+                    </p>
+                  ) : null}
+                  <p className="text-xs text-muted-foreground">
+                    對到規格庫的品項以規格帶入，其餘以「客製家具」帶入；通路折扣與金額以訂單表單計算為準，確認後再儲存。
+                  </p>
+                </section>
+              ) : null}
+
+              {/* 3. 解析結果（可修改） */}
               <section className={sectionClass}>
                 <div>
                   <h3 className={sectionTitleClass}>客戶資料（可修改）</h3>
@@ -750,7 +956,7 @@ export function CustomerIntakeDialog({
                 </div>
               </section>
 
-              {/* 3. 既有客戶：要寫回主檔的欄位 */}
+              {/* 4. 既有客戶：要寫回主檔的欄位 */}
               {selectedCustomer ? (
                 <section className={sectionClass}>
                   <h3 className={sectionTitleClass}>更新「{selectedCustomer.name}」的客戶主檔</h3>
@@ -796,47 +1002,6 @@ export function CustomerIntakeDialog({
                       不勾選地址時，新地址只會帶入這張訂單的寄送地址，不改客戶主檔。
                     </p>
                   ) : null}
-                </section>
-              ) : null}
-
-              {/* 4. 訂購內容（帶入訂單表單） */}
-              {onCreateOrder ? (
-                <section className={sectionClass}>
-                  <h3 className={sectionTitleClass}>訂購內容</h3>
-                  {order.items.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">沒有解析到品項，開訂單後請自行新增。</p>
-                  ) : (
-                    <ul className="space-y-1.5">
-                      {order.items.map((it, i) => {
-                        const dims = [it.dimension_w, it.dimension_d, it.dimension_h];
-                        const detail = [
-                          it.category,
-                          it.wood_type,
-                          dims.some((d) => d != null) ? `${dims.map((d) => d ?? "—").join("×")} cm` : null,
-                          it.notes,
-                        ]
-                          .filter(Boolean)
-                          .join("・");
-                        return (
-                          <li key={i} className="text-sm [overflow-wrap:anywhere]">
-                            <span className="font-medium text-foreground">
-                              {it.name} × {it.quantity}
-                            </span>
-                            {detail ? <span className="ml-1.5 text-xs text-muted-foreground">{detail}</span> : null}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                  {order.expected_delivery_date || order.notes ? (
-                    <div className="space-y-0.5 text-xs text-muted-foreground">
-                      {order.expected_delivery_date ? <p>希望交期：{order.expected_delivery_date}</p> : null}
-                      {order.notes ? <p className="[overflow-wrap:anywhere]">訂單備註：{order.notes}</p> : null}
-                    </div>
-                  ) : null}
-                  <p className="text-xs text-muted-foreground">
-                    品項會以「客製家具」帶入訂單表單，價格與規格請在訂單中確認後再儲存。
-                  </p>
                 </section>
               ) : null}
 

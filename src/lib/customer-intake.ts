@@ -30,11 +30,17 @@ export interface IntakeCustomer {
 /** 客製品項類別（與訂單表單「客製家具」下拉一致） */
 export const INTAKE_ITEM_CATEGORIES = ["桌", "椅", "凳", "櫃", "層架", "其他"] as const;
 
-/** AI 解析出的訂購品項（帶入訂單時為「客製家具」品項） */
+/** AI 解析出的訂購品項（帶入訂單時先比對規格庫，比對不到才用「客製家具」品項） */
 export interface IntakeOrderItem {
   name: string;
+  /** 訊息中的產品編號（如 CB05、CB05-W-150H90），比對規格庫用 */
+  product_code: string | null;
+  /** 客戶明確要訂製款／客製尺寸 */
+  custom_made: boolean;
   category: string | null;
   quantity: number;
+  /** 單價（折扣前） */
+  unit_price: number | null;
   wood_type: string | null;
   /** 寬／長（cm） */
   dimension_w: number | null;
@@ -42,6 +48,8 @@ export interface IntakeOrderItem {
   dimension_d: number | null;
   /** 高（cm） */
   dimension_h: number | null;
+  /** 座高（cm） */
+  seat_height_cm: number | null;
   notes: string | null;
 }
 
@@ -50,6 +58,17 @@ export interface IntakeOrder {
   /** 希望交期 YYYY-MM-DD */
   expected_delivery_date: string | null;
   notes: string | null;
+  /** 整張訂單折扣 %（打 95 折＝5） */
+  discount_percent: number | null;
+  /** 整張訂單折抵金額（折 2000 元） */
+  discount_amount: number | null;
+  /** 訊息要求帶入訂金（沒寫比例／金額時用訂單表單預設的 50%） */
+  deposit_requested: boolean;
+  /** 訂金比例 %（訂金三成＝30） */
+  deposit_percent: number | null;
+  /** 訂金金額 */
+  deposit_amount: number | null;
+  shipping_fee: number | null;
 }
 
 export interface IntakeResult {
@@ -74,6 +93,12 @@ function cleanString(v: unknown): string | null {
 function cleanPositiveNumber(v: unknown): number | null {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.trim()) : Number.NaN;
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** 0 < 值 ≤ 100 的百分比（折扣、訂金比例） */
+function cleanPercent(v: unknown): number | null {
+  const n = cleanPositiveNumber(v);
+  return n != null && n <= 100 ? n : null;
 }
 
 function cleanDate(v: unknown): string | null {
@@ -136,18 +161,31 @@ export function sanitizeIntakeResult(raw: unknown): IntakeResult {
     const name = cleanString(it.name);
     if (!name) continue;
     const qty = cleanPositiveNumber(it.quantity);
+    const price = cleanPositiveNumber(it.unit_price);
     items.push({
       name,
+      product_code: cleanString(it.product_code),
+      custom_made: it.custom_made === true,
       category: cleanOption(it.category, INTAKE_ITEM_CATEGORIES),
       quantity: qty != null ? Math.max(1, Math.round(qty)) : 1,
+      // 台幣金額取整數
+      unit_price: price != null ? Math.round(price) : null,
       wood_type: cleanString(it.wood_type),
       dimension_w: cleanPositiveNumber(it.dimension_w),
       dimension_d: cleanPositiveNumber(it.dimension_d),
       dimension_h: cleanPositiveNumber(it.dimension_h),
+      seat_height_cm: cleanPositiveNumber(it.seat_height_cm),
       notes: cleanString(it.notes),
     });
     if (items.length >= MAX_ITEMS) break;
   }
+
+  const roundAmount = (v: unknown) => {
+    const n = cleanPositiveNumber(v);
+    return n != null ? Math.round(n) : null;
+  };
+  const depositPercent = cleanPercent(o.deposit_percent);
+  const depositAmount = roundAmount(o.deposit_amount);
 
   return {
     customer,
@@ -155,6 +193,13 @@ export function sanitizeIntakeResult(raw: unknown): IntakeResult {
       items,
       expected_delivery_date: cleanDate(o.expected_delivery_date),
       notes: cleanString(o.notes),
+      discount_percent: cleanPercent(o.discount_percent),
+      discount_amount: roundAmount(o.discount_amount),
+      // 有寫比例或金額也算要求帶入訂金
+      deposit_requested: o.deposit_requested === true || depositPercent != null || depositAmount != null,
+      deposit_percent: depositPercent,
+      deposit_amount: depositAmount,
+      shipping_fee: roundAmount(o.shipping_fee),
     },
   };
 }
@@ -358,6 +403,28 @@ export function findCustomerMatches<T extends MatchableCustomer>(
   }
 
   return matches.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/**
+ * 解析完預設選哪位既有客戶（null＝建立新客戶）：
+ * - 電話／統編／LINE／IG 相同 → 分數最高的那位
+ * - 只有名稱：恰好一位客戶名稱完全相同，且訊息裡的電話沒跟他主檔電話衝突 → 選他
+ *   （員工常只打「蕭雅文要開新訂單」，名稱相同幾乎就是同一人；同名兩位以上則讓使用者自己選）
+ */
+export function pickDefaultMatch<T extends MatchableCustomer>(
+  matches: CustomerMatch<T>[],
+  input: Partial<Pick<IntakeCustomer, "phone">>
+): T | null {
+  const top = matches[0];
+  if (!top) return null;
+  if (top.strong) return top.customer;
+  const exactName = matches.filter((m) => m.reasons.includes("name"));
+  if (exactName.length !== 1) return null;
+  const candidate = exactName[0].customer;
+  const inPhones = phoneKeys(input.phone);
+  const theirPhones = new Set(phoneKeys(candidate.phone));
+  if (inPhones.length > 0 && theirPhones.size > 0 && !inPhones.some((k) => theirPhones.has(k))) return null;
+  return candidate;
 }
 
 // ---------------------------------------------------------------------------
