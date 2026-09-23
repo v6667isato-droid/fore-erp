@@ -27,7 +27,7 @@ import {
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CustomerRow } from "@/types/crm";
-import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2 } from "lucide-react";
+import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2, History } from "lucide-react";
 import { toast } from "sonner";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import {
@@ -38,6 +38,7 @@ import { fetchOrderInvoiceCounts } from "@/lib/sales-invoice";
 import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
 import { OrderInvoicesDialog } from "@/components/orders/order-invoices-dialog";
 import { OrderReturnDialog } from "@/components/orders/order-return-dialog";
+import { OrderAuditTrailDialog } from "@/components/order-audit-trail";
 import type {
   OrderRow,
   CustomerOption,
@@ -103,6 +104,19 @@ function matchesStatusFilter(status: OrderStatus, filter: StatusFilterValue): bo
   return status === filter;
 }
 
+/** 搜尋字串正規化：小寫並去除空白、連字號與括號，讓「0912-345-678」與「0912345678」互相搜得到 */
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[ \t\u3000\-()（）]/g, "");
+}
+
+/** 多個欄位串成一段搜尋用文字（換行分隔避免跨欄位誤配） */
+function joinSearchText(values: unknown[]): string {
+  return values
+    .filter((v) => v != null && String(v).trim() !== "")
+    .map((v) => normalizeSearchText(String(v)))
+    .join("\n");
+}
+
 /** 總覽三卡點擊 → /?page=orders&ordersStatus=<key>；集合定義與卡片計數共用 order-helpers */
 const ORDERS_STATUS_PARAM_TO_FILTER: Record<string, StatusFilterValue> = {
   quote: "報價中",
@@ -114,6 +128,7 @@ export function OrdersPage({
   isAdmin = false,
   canIssueInvoice = false,
   canEditClosedOrders = false,
+  canViewAuditTrail = false,
   initialOpenOrderId,
 }: {
   isAdmin?: boolean;
@@ -121,6 +136,8 @@ export function OrdersPage({
   canIssueInvoice?: boolean;
   /** 修改「結案」訂單僅限 admin（已退貨、刪除仍一律鎖定） */
   canEditClosedOrders?: boolean;
+  /** 訂單修改紀錄僅限 admin（audit_logs RLS 僅 admin 可讀） */
+  canViewAuditTrail?: boolean;
   /** 若提供，會在載入後自動開啟該筆訂單的編輯窗格 */
   initialOpenOrderId?: string;
 } = {}) {
@@ -142,6 +159,10 @@ export function OrdersPage({
     if (lifecycleFilter) setStatusFilter(lifecycleFilter);
   }, [lifecycleFilter]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  /** 客戶 id → 主檔所有欄位串成的搜尋文字（訂單搜尋可比對客戶全部資料） */
+  const [customerSearchText, setCustomerSearchText] = useState<Map<string, string>>(
+    () => new Map()
+  );
   const [variants, setVariants] = useState<VariantOption[]>([]);
   const [editingOrder, setEditingOrder] = useState<OrderRow | null>(null);
   const [editingItems, setEditingItems] = useState<OrderItemInput[] | undefined>(
@@ -161,6 +182,7 @@ export function OrdersPage({
   const [invoiceCounts, setInvoiceCounts] = useState<Record<string, number>>({});
   /** 退貨對話框（已完工／已出貨／結案後可操作；已退貨訂單可檢視、刪除紀錄） */
   const [returnOrder, setReturnOrder] = useState<OrderRow | null>(null);
+  const [historyOrder, setHistoryOrder] = useState<OrderRow | null>(null);
   /** 地址條多選列印：勾選的訂單 id（一次列印多筆省 A4） */
   const [selectedPrintIds, setSelectedPrintIds] = useState<Set<string>>(
     () => new Set()
@@ -192,7 +214,7 @@ export function OrdersPage({
   async function fetchCustomers() {
     const { data: customerData, error: customerError } = await supabase
       .from("customers")
-      .select("id, name, alias, company, contact_person, phone, delivery_address, has_elevator, tax_id, channel_id, customer_type, created_at")
+      .select("id, name, alias, company, brand_name, contact_person, phone, line_id, ig_account, delivery_address, has_elevator, tax_id, notes, source, channel_id, customer_type, created_at")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (!customerError && customerData) {
@@ -221,8 +243,31 @@ export function OrdersPage({
           channel_id: c.channel_id != null ? String(c.channel_id) : null,
         }))
       );
+      setCustomerSearchText(
+        new Map(
+          rows.map((c) => [
+            String(c.id),
+            joinSearchText([
+              c.name,
+              c.alias,
+              c.company,
+              c.brand_name,
+              c.contact_person,
+              c.phone,
+              c.tax_id,
+              c.line_id,
+              c.ig_account,
+              c.delivery_address,
+              c.notes,
+              c.source,
+              c.customer_type,
+            ]),
+          ])
+        )
+      );
     } else {
       setCustomers([]);
+      setCustomerSearchText(new Map());
     }
   }
 
@@ -517,15 +562,33 @@ export function OrdersPage({
     }
   }, [customerFilter, customerFilterOptions]);
 
+  /** 每筆訂單的搜尋文字：訂單編號＋訂單上的收件／發票資料＋客戶主檔所有欄位 */
+  const orderSearchText = useMemo(() => {
+    const map = new Map<string, string>();
+    orders.forEach((o) => {
+      map.set(
+        o.id,
+        joinSearchText([
+          o.order_number,
+          o.customer_name,
+          o.customer_alias,
+          o.shipping_contact_name,
+          o.shipping_contact_phone,
+          o.shipping_address,
+          o.invoice_title,
+          o.invoice_tax_id,
+          o.customer_id ? customerSearchText.get(o.customer_id) : null,
+        ])
+      );
+    });
+    return map;
+  }, [orders, customerSearchText]);
+
   /** 搜尋＋客戶＋月份先過濾（不含狀態）；狀態卡片計數與表格列共用，卡片數字＝點下去看到的筆數 */
   const preStatusFiltered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = normalizeSearchText(search.trim());
     return orders.filter((o) => {
-      const matchSearch =
-        !q ||
-        o.order_number.toLowerCase().includes(q) ||
-        o.customer_name.toLowerCase().includes(q) ||
-        (o.shipping_contact_name ?? "").toLowerCase().includes(q);
+      const matchSearch = !q || (orderSearchText.get(o.id) ?? "").includes(q);
       const matchCustomer =
         !customerFilter || o.customer_id === customerFilter;
       const matchMonth =
@@ -534,7 +597,7 @@ export function OrdersPage({
           : o.order_date.slice(0, 7) === monthFilter;
       return matchSearch && matchCustomer && matchMonth;
     });
-  }, [orders, search, customerFilter, monthFilter]);
+  }, [orders, orderSearchText, search, customerFilter, monthFilter]);
 
   const filtered = useMemo(
     () => preStatusFiltered.filter((o) => matchesStatusFilter(o.status, statusFilter)),
@@ -1063,7 +1126,8 @@ export function OrdersPage({
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="搜尋訂單編號、客戶或聯絡人..."
+              placeholder="搜尋訂單編號或任一客戶資料..."
+              title="可搜尋訂單編號，以及客戶名稱、別名、公司抬頭、品牌、聯絡人、電話、統編、LINE、IG、地址、備註、來源、客戶種類"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-8 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1520,6 +1584,22 @@ export function OrdersPage({
                           <Undo2 className="h-3 w-3" />
                         </Button>
                       )}
+                      {canViewAuditTrail && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          title="修改紀錄"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setHistoryOrder(order);
+                          }}
+                        >
+                          <History className="h-3 w-3" />
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
@@ -1617,6 +1697,14 @@ export function OrdersPage({
           if (!open) setReturnOrder(null);
         }}
         onSaved={reloadOrders}
+      />
+
+      <OrderAuditTrailDialog
+        order={historyOrder}
+        open={historyOrder != null}
+        onOpenChange={(open) => {
+          if (!open) setHistoryOrder(null);
+        }}
       />
 
       <OrderFormDialog

@@ -5,7 +5,10 @@ import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { CustomerRow } from "@/types/crm";
 import { supabase } from "@/lib/supabase";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { paymentStatusStyles, statusStyles } from "@/components/orders/order-helpers";
+import type { OrderStatus, PaymentStatus } from "@/components/orders/types";
 
 interface CustomerOrderRow {
   id: string;
@@ -14,6 +17,8 @@ interface CustomerOrderRow {
   total_amount: number;
   status: string;
   payment_status: string;
+  /** 訂單的送貨聯絡人 */
+  shipping_contact_name: string | null;
 }
 
 interface CustomerOrderItemRow {
@@ -66,6 +71,17 @@ function shippingCity(address: string | null | undefined): string | null {
   return null;
 }
 
+/** 單一欄位：未填寫顯示「—」，讓每個欄位都看得到 */
+function Field({ label, value }: { label: string; value: string | null | undefined }) {
+  const v = value?.trim();
+  return (
+    <div>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="break-words">{v || "—"}</dd>
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
@@ -82,6 +98,28 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [orderItems, setOrderItems] = useState<Record<string, CustomerOrderItemRow[]>>({});
   const [loadingOrders, setLoadingOrders] = useState(false);
+  /** 所屬通路名稱（依 channel_id 查 channels；記下查詢的 id，切換客戶時不顯示上一位的通路） */
+  const [channel, setChannel] = useState<{ id: string; name: string | null } | null>(null);
+
+  const channelId = row?.channel_id?.trim() || null;
+  const channelName = channel && channel.id === channelId ? channel.name : null;
+  useEffect(() => {
+    if (!open || !channelId) return;
+    let cancelled = false;
+    void supabase
+      .from("channels")
+      .select("name")
+      .eq("id", channelId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) {
+          setChannel({ id: channelId, name: data?.name != null ? String(data.name) : null });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, channelId]);
 
   useEffect(() => {
     if (!open || !row) return;
@@ -89,8 +127,9 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
     (async () => {
       const { data, error } = await supabase
         .from("orders")
-        .select("id, order_number, order_date, total_amount, status, payment_status")
+        .select("id, order_number, order_date, total_amount, status, payment_status, shipping_contact_name")
         .eq("customer_id", row.id)
+        .is("deleted_at", null)
         .order("order_date", { ascending: false });
       if (error) {
         setOrders([]);
@@ -104,6 +143,7 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
         total_amount: Number(o.total_amount ?? 0),
         status: String(o.status ?? ""),
         payment_status: String(o.payment_status ?? ""),
+        shipping_contact_name: o.shipping_contact_name ?? null,
       }));
       setOrders(list);
       setLoadingOrders(false);
@@ -203,48 +243,17 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                     )}
                   </dd>
                 </div>
-                {(row as any).contact_person?.trim() && (
-                  <div>
-                    <dt className="text-muted-foreground">聯絡人</dt>
-                    <dd>{(row as any).contact_person}</dd>
-                  </div>
-                )}
-                {row.brand_name?.trim() && (
-                  <div>
-                    <dt className="text-muted-foreground">品牌名稱</dt>
-                    <dd>{row.brand_name.trim()}</dd>
-                  </div>
-                )}
-                {row.tax_id?.trim() && (
-                  <div>
-                    <dt className="text-muted-foreground">統一編號</dt>
-                    <dd>{row.tax_id.trim()}</dd>
-                  </div>
-                )}
-                {row.company?.trim() && (
-                  <div>
-                    <dt className="text-muted-foreground">公司抬頭</dt>
-                    <dd>{row.company.trim()}</dd>
-                  </div>
-                )}
-                {row.source?.trim() && (
-                  <div>
-                    <dt className="text-muted-foreground">客戶來源</dt>
-                    <dd>{row.source.trim()}</dd>
-                  </div>
-                )}
-                {row.customer_type?.trim() && (
-                  <div>
-                    <dt className="text-muted-foreground">客戶種類</dt>
-                    <dd>{row.customer_type.trim()}</dd>
-                  </div>
-                )}
-                {row.created_at && (
-                  <div>
-                    <dt className="text-muted-foreground">建立日期</dt>
-                    <dd>{String(row.created_at).slice(0, 10)}</dd>
-                  </div>
-                )}
+                <Field label="聯絡人" value={row.contact_person} />
+                <Field label="品牌名稱" value={row.brand_name} />
+                <Field label="公司抬頭" value={row.company} />
+                <Field label="統一編號" value={row.tax_id} />
+                <Field label="所屬通路" value={channelName} />
+                <Field label="客戶來源" value={row.source} />
+                <Field label="客戶種類" value={row.customer_type} />
+                <Field
+                  label="建立日期"
+                  value={row.created_at ? String(row.created_at).slice(0, 10) : null}
+                />
               </Section>
 
               <Section title="聯絡方式">
@@ -349,21 +358,37 @@ export function ViewCustomerDialog({ open, onOpenChange, row }: ViewCustomerDial
                         key={o.id}
                         className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="space-y-0.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 space-y-1">
                             <div className="font-medium">
                               {o.order_number || "未命名訂單"}
                             </div>
                             <div className="text-xs text-muted-foreground">
                               日期：{o.order_date ? String(o.order_date).slice(0, 10) : "—"} · 金額：
-                              {o.total_amount.toLocaleString()} · 狀態：{o.status || "—"} · 付款：
-                              {o.payment_status || "—"}
+                              {o.total_amount.toLocaleString()} · 聯絡人：
+                              {o.shipping_contact_name?.trim() || "—"}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                              <span className="text-muted-foreground">狀態</span>
+                              <Badge
+                                variant="outline"
+                                className={statusStyles[o.status as OrderStatus] ?? ""}
+                              >
+                                {o.status || "—"}
+                              </Badge>
+                              <span className="ml-1 text-muted-foreground">付款</span>
+                              <Badge
+                                variant="outline"
+                                className={paymentStatusStyles[o.payment_status as PaymentStatus] ?? ""}
+                              >
+                                {o.payment_status || "—"}
+                              </Badge>
                             </div>
                           </div>
                           <Button
                             type="button"
                             variant="outline"
-                            className="h-7 px-2 text-xs"
+                            className="h-7 shrink-0 px-2 text-xs"
                             onClick={() => toggleOrder(o.id)}
                           >
                             {isExpanded ? "收合明細" : "查看明細"}
