@@ -108,6 +108,10 @@ export function CostStatisticsPage() {
     3: false,
     4: false,
   });
+  /** 窄螢幕（lg 以下）月表是否顯示全部欄位；預設只看總成本、訂單營收、毛利率 */
+  const [showAllMonthCols, setShowAllMonthCols] = useState(false);
+  /** 月表的明細欄（材料、薪資、租金利息、營業稅、毛利）：窄螢幕預設隱藏 */
+  const detailCol = showAllMonthCols ? "" : "hidden lg:table-cell";
 
   const year = useMemo(() => yearForPreset(preset), [preset]);
 
@@ -650,6 +654,15 @@ export function CostStatisticsPage() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 text-xs lg:hidden"
+                  aria-pressed={showAllMonthCols}
+                  onClick={() => setShowAllMonthCols((v) => !v)}
+                >
+                  {showAllMonthCols ? "只看關鍵欄位" : "顯示全部欄位"}
+                </Button>
                 <label className="sr-only" htmlFor="cost-export-year">
                   匯出年份
                 </label>
@@ -680,19 +693,19 @@ export function CostStatisticsPage() {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-sm">
+              <table className={`w-full text-sm ${showAllMonthCols ? "min-w-[760px]" : "lg:min-w-[760px]"}`}>
                 <thead>
                   <tr className="whitespace-nowrap border-b border-border bg-muted/30 text-left text-muted-foreground">
                     <th className={`${STICKY_FIRST_COL} bg-linear-to-r from-muted/30 to-muted/30 px-4 py-2 font-medium`}>
                       月份
                     </th>
-                    <th className="px-4 py-2 text-right font-medium">材料與攤提</th>
-                    <th className="px-4 py-2 text-right font-medium">薪資</th>
-                    <th className="px-4 py-2 text-right font-medium">租金與利息</th>
-                    <th className="px-4 py-2 text-right font-medium">營業稅</th>
+                    <th className={`${detailCol} px-4 py-2 text-right font-medium`}>材料與攤提</th>
+                    <th className={`${detailCol} px-4 py-2 text-right font-medium`}>薪資</th>
+                    <th className={`${detailCol} px-4 py-2 text-right font-medium`}>租金與利息</th>
+                    <th className={`${detailCol} px-4 py-2 text-right font-medium`}>營業稅</th>
                     <th className="px-4 py-2 text-right font-medium">總成本</th>
                     <th className="px-4 py-2 text-right font-medium">訂單營收</th>
-                    <th className="px-4 py-2 text-right font-medium">毛利</th>
+                    <th className={`${detailCol} px-4 py-2 text-right font-medium`}>毛利</th>
                     <th className="px-4 py-2 text-right font-medium">毛利率</th>
                   </tr>
                 </thead>
@@ -712,7 +725,7 @@ export function CostStatisticsPage() {
                             key={item.row.key}
                             className={`border-b border-border/70 ${item.row.isProjected ? "text-muted-foreground" : ""}`}
                           >
-                            <td className={`${STICKY_FIRST_COL} whitespace-nowrap px-4 py-2 pl-10`}>
+                            <td className={`${STICKY_FIRST_COL} whitespace-nowrap px-4 py-2 pl-7 lg:pl-10`}>
                               <span className="inline-flex items-center gap-1.5">
                                 {monthLabel(item.row.key)}
                                 {item.row.isProjected ? (
@@ -724,16 +737,16 @@ export function CostStatisticsPage() {
                                 ) : null}
                               </span>
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums">
+                            <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                               {formatMoney(item.row.purchaseCost)}
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums">
+                            <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                               {formatMoney(item.row.salaryCost)}
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums">
+                            <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                               {formatMoney(item.row.rentCost + item.row.loanCost)}
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums">
+                            <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                               {formatMoney(item.row.taxCost)}
                             </td>
                             <td className="px-4 py-2 text-right tabular-nums">
@@ -743,7 +756,7 @@ export function CostStatisticsPage() {
                               {formatMoney(item.row.revenue)}
                             </td>
                             <td
-                              className={`px-4 py-2 text-right tabular-nums ${item.row.grossProfit < 0 ? "text-destructive" : ""}`}
+                              className={`${detailCol} px-4 py-2 text-right tabular-nums ${item.row.grossProfit < 0 ? "text-destructive" : ""}`}
                             >
                               {formatMoney(item.row.grossProfit)}
                             </td>
@@ -788,18 +801,18 @@ export function CostStatisticsPage() {
                                 {item.hasProjected && <EstimateBadge>含預估</EstimateBadge>}
                               </button>
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums">
+                            <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                               {formatMoney(
                                 item.purchaseNonWood + item.purchaseWood + item.purchaseAmortized,
                               )}
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums">
+                            <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                               {formatMoney(item.salaryCost)}
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums">
+                            <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                               {formatMoney(item.rentCost + item.loanCost)}
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums">
+                            <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                               {formatMoney(item.taxCost)}
                             </td>
                             <td className="px-4 py-2 text-right tabular-nums">
@@ -809,7 +822,7 @@ export function CostStatisticsPage() {
                               {formatMoney(item.revenue)}
                             </td>
                             <td
-                              className={`px-4 py-2 text-right tabular-nums ${item.grossProfit < 0 ? "text-destructive" : ""}`}
+                              className={`${detailCol} px-4 py-2 text-right tabular-nums ${item.grossProfit < 0 ? "text-destructive" : ""}`}
                             >
                               {formatMoney(item.grossProfit)}
                             </td>
@@ -830,16 +843,16 @@ export function CostStatisticsPage() {
                       >
                         年初至今合計
                       </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
+                      <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                         {formatMoney(computed.totalPurchaseCost)}
                       </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
+                      <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                         {formatMoney(computed.totalSalaryCost)}
                       </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
+                      <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                         {formatMoney(computed.totalRentCost + computed.totalCompanyLoanCost)}
                       </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
+                      <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
                         {formatMoney(computed.totalTaxCost)}
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums">{formatMoney(totalCost)}</td>
@@ -847,7 +860,7 @@ export function CostStatisticsPage() {
                         {formatMoney(computed.totalRevenue)}
                       </td>
                       <td
-                        className={`px-4 py-2 text-right tabular-nums ${computed.grossProfit < 0 ? "text-destructive" : ""}`}
+                        className={`${detailCol} px-4 py-2 text-right tabular-nums ${computed.grossProfit < 0 ? "text-destructive" : ""}`}
                       >
                         {formatMoney(computed.grossProfit)}
                       </td>
