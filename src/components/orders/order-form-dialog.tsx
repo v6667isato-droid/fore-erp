@@ -16,6 +16,7 @@ import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height"
 import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { Button } from "@/components/ui/button";
 import { NumericInput } from "@/components/ui/numeric-input";
+import { ImageLightbox, type LightboxImage } from "@/components/ui/image-lightbox";
 import { toNumericText } from "@/lib/numeric-input";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
@@ -32,6 +33,7 @@ import {
   ArrowLeft,
   ArrowRight,
   MoreVertical,
+  ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
@@ -446,6 +448,9 @@ function OrderFormDialog({
     parseExplanationImages(initialOrder?.explanation_image_url)
   );
   const [uploadingImageItemId, setUploadingImageItemId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; index: number } | null>(
+    null
+  );
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [editCustomerOpen, setEditCustomerOpen] = useState(false);
   const [seriesDiscounts, setSeriesDiscounts] = useState<
@@ -1263,6 +1268,16 @@ function OrderFormDialog({
     );
   }
 
+  function openOrderImageLightbox(index: number) {
+    setLightbox({
+      images: orderExplanationImages.map((img, i) => ({
+        url: img.url,
+        title: img.title?.trim() || `訂單說明圖 ${i + 1}`,
+      })),
+      index,
+    });
+  }
+
   function updateItem(id: string, patch: Partial<OrderItemInput>) {
     setItems((prev) =>
       prev.map((it) => (it.id === id ? { ...it, ...patch } : it))
@@ -1978,11 +1993,22 @@ function OrderFormDialog({
                       {orderExplanationImages.length > 0 ? (
                         orderExplanationImages.map((img, idx) => (
                           <div key={idx} className="flex items-start gap-2">
-                            <img
-                              src={img.url}
-                              alt={`訂單說明圖 ${idx + 1}`}
-                              className="h-32 w-32 rounded-md border border-border object-cover"
-                            />
+                            <button
+                              type="button"
+                              onClick={() => openOrderImageLightbox(idx)}
+                              className="relative h-32 w-32 shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              title="點擊放大"
+                              aria-label={`放大檢視訂單說明圖 ${idx + 1}`}
+                            >
+                              <img
+                                src={img.url}
+                                alt={`訂單說明圖 ${idx + 1}`}
+                                className="h-full w-full object-cover"
+                              />
+                              <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-black/60 p-1 text-white">
+                                <ZoomIn className="h-3.5 w-3.5" />
+                              </span>
+                            </button>
                             <div className="flex flex-col gap-2">
                               <div className="flex items-center gap-1">
                                 <Button
@@ -2497,11 +2523,27 @@ function OrderFormDialog({
                             <div className="flex items-center gap-3">
                               {it.image_url ? (
                                 <div className="flex items-center gap-2">
-                                  <img
-                                    src={it.image_url}
-                                    alt="品項圖片預覽"
-                                    className="h-12 w-12 rounded-md border border-border object-cover"
-                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLightbox({
+                                        images: [{ url: it.image_url!, title: summary.title }],
+                                        index: 0,
+                                      })
+                                    }
+                                    className="relative h-12 w-12 shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    title="點擊放大"
+                                    aria-label="放大檢視品項圖片"
+                                  >
+                                    <img
+                                      src={it.image_url}
+                                      alt="品項圖片預覽"
+                                      className="h-full w-full object-cover"
+                                    />
+                                    <span className="pointer-events-none absolute bottom-0.5 right-0.5 rounded bg-black/60 p-0.5 text-white">
+                                      <ZoomIn className="h-3 w-3" />
+                                    </span>
+                                  </button>
                                   {!readOnly ? (
                                     <Button
                                       type="button"
@@ -2877,11 +2919,27 @@ function OrderFormDialog({
                             <div className="flex items-center gap-3">
                               {it.image_url ? (
                                 <div className="flex items-center gap-2">
-                                  <img
-                                    src={it.image_url}
-                                    alt="品項圖片預覽"
-                                    className="h-12 w-12 rounded-md border border-border object-cover"
-                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLightbox({
+                                        images: [{ url: it.image_url!, title: summary.title }],
+                                        index: 0,
+                                      })
+                                    }
+                                    className="relative h-12 w-12 shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    title="點擊放大"
+                                    aria-label="放大檢視品項圖片"
+                                  >
+                                    <img
+                                      src={it.image_url}
+                                      alt="品項圖片預覽"
+                                      className="h-full w-full object-cover"
+                                    />
+                                    <span className="pointer-events-none absolute bottom-0.5 right-0.5 rounded bg-black/60 p-0.5 text-white">
+                                      <ZoomIn className="h-3 w-3" />
+                                    </span>
+                                  </button>
                                   {!readOnly ? (
                                     <Button
                                       type="button"
@@ -3291,6 +3349,13 @@ function OrderFormDialog({
               </div>
             </div>
           </form>
+          <ImageLightbox
+            images={lightbox?.images ?? []}
+            index={lightbox?.index ?? null}
+            onIndexChange={(index) =>
+              setLightbox((prev) => (prev && index != null ? { ...prev, index } : null))
+            }
+          />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
