@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   computeExhibitionEffects,
   defaultCustomerSourceFor,
+  isLikelyExhibitionPurchase,
+  purchaseCandidateRange,
+  purchaseCostAmount,
   type EffectOrderInput,
   type ExhibitionRow,
 } from "@/lib/exhibitions";
@@ -120,5 +123,39 @@ describe("computeExhibitionEffects：依客戶來源與下單日推算", () => {
   it("未對應客戶來源的場次不統計成交", () => {
     const [noSource] = computeExhibitionEffects([ex("x", "其他展", "2026-09-12", "2026-09-15", null)], [], orders, customers);
     expect(noSource.totalRevenue).toBe(0);
+  });
+});
+
+describe("採購連結", () => {
+  it("採購成本取未稅金額，舊資料沒有未稅時用 total_amount", () => {
+    expect(purchaseCostAmount({ amount_ex_tax: 38095, total_amount: 40000 })).toBe(38095);
+    expect(purchaseCostAmount({ amount_ex_tax: null, total_amount: 40000 })).toBe(40000);
+  });
+
+  it("候選期間＝展前 180 天～展後 60 天", () => {
+    expect(purchaseCandidateRange("2026-07-02", "2026-07-05")).toEqual({ from: "2026-01-03", to: "2026-09-03" });
+  });
+
+  it("品名或廠商含展覽／攤位／佈置才排前面；廠商「展鋮」不算", () => {
+    expect(isLikelyExhibitionPurchase({ item_name: "展覽費用", vendor_name: "佶士達", item_category: "其他" })).toBe(true);
+    expect(isLikelyExhibitionPurchase({ item_name: "胡桃木", vendor_name: "展鋮", item_category: "木料_實木" })).toBe(false);
+  });
+
+  it("成本合計＝連結採購＋其他成本", () => {
+    const [f] = computeExhibitionEffects(
+      [good26],
+      [{ exhibition_id: "g26", amount: 5000 }],
+      [],
+      [],
+      [
+        { exhibition_id: "g26", amount_ex_tax: 30000, total_amount: 30000 },
+        { exhibition_id: "g26", amount_ex_tax: null, total_amount: 40000 },
+        { exhibition_id: "w26", amount_ex_tax: 99999, total_amount: 99999 },
+      ],
+    );
+    expect(f.purchaseCost).toBe(70000);
+    expect(f.purchaseCount).toBe(2);
+    expect(f.otherCost).toBe(5000);
+    expect(f.cost).toBe(75000);
   });
 });

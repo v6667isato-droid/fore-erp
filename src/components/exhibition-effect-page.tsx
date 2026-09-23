@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Link2, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
@@ -15,11 +15,17 @@ import {
   EXHIBITION_COST_ITEM_PRESETS,
   EXHIBITION_CUSTOMER_SOURCES,
   EXHIBITION_NAME_PRESETS,
+  EXHIBITION_PURCHASE_SELECT,
   EXHIBITION_SELECT,
   exhibitionLabel,
+  isLikelyExhibitionPurchase,
+  mapExhibitionPurchase,
+  purchaseCandidateRange,
+  purchaseCostAmount,
   type EffectCustomerInput,
   type EffectOrderInput,
   type ExhibitionCostRow,
+  type ExhibitionPurchaseRow,
   type ExhibitionRow,
 } from "@/lib/exhibitions";
 
@@ -47,6 +53,8 @@ export function ExhibitionEffectPage() {
   const [costs, setCosts] = useState<ExhibitionCostRow[]>([]);
   const [orders, setOrders] = useState<EffectOrderInput[]>([]);
   const [customers, setCustomers] = useState<EffectCustomerInput[]>([]);
+  /** 已連結到展覽的採購品項 */
+  const [purchases, setPurchases] = useState<ExhibitionPurchaseRow[]>([]);
   const [editing, setEditing] = useState<ExhibitionRow | "new" | null>(null);
 
   /** 儲存場次後 +1 觸發重新讀取 */
@@ -55,7 +63,7 @@ export function ExhibitionEffectPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const [exRes, costRes, orderRes, customerRes] = await Promise.all([
+      const [exRes, costRes, orderRes, customerRes, purchaseRes] = await Promise.all([
         supabase.from("exhibitions").select(EXHIBITION_SELECT).order("start_date", { ascending: false }),
         supabase
           .from("exhibition_costs")
@@ -66,9 +74,20 @@ export function ExhibitionEffectPage() {
           "id, order_date, customer_id, status, total_amount, shipping_fee, tax_extra_amount, deleted_at",
         ),
         fetchAllRows<EffectCustomerInput>("customers", "id, source, customer_type"),
+        supabase
+          .from("purchases")
+          .select(EXHIBITION_PURCHASE_SELECT)
+          .not("exhibition_id", "is", null)
+          .is("deleted_at", null)
+          .order("purchase_date", { ascending: true }),
       ]);
       if (cancelled) return;
-      const error = exRes.error?.message ?? costRes.error?.message ?? orderRes.error ?? customerRes.error;
+      const error =
+        exRes.error?.message ??
+        costRes.error?.message ??
+        orderRes.error ??
+        customerRes.error ??
+        purchaseRes.error?.message;
       if (error) toast.error(`展覽效益讀取失敗：${error}`);
       setExhibitions((exRes.data ?? []) as ExhibitionRow[]);
       setCosts(
@@ -76,6 +95,7 @@ export function ExhibitionEffectPage() {
       );
       setOrders(orderRes.rows.filter((o) => o.deleted_at == null));
       setCustomers(customerRes.rows);
+      setPurchases(((purchaseRes.data ?? []) as Record<string, unknown>[]).map(mapExhibitionPurchase));
       setLoading(false);
     }
     void load();
@@ -85,8 +105,8 @@ export function ExhibitionEffectPage() {
   }, [reloadKey]);
 
   const effects = useMemo(
-    () => computeExhibitionEffects(exhibitions, costs, orders, customers),
-    [exhibitions, costs, orders, customers],
+    () => computeExhibitionEffects(exhibitions, costs, orders, customers, purchases),
+    [exhibitions, costs, orders, customers, purchases],
   );
 
   return (
@@ -166,6 +186,9 @@ export function ExhibitionEffectPage() {
                     <td className="px-3 py-2.5 text-right tabular-nums">{f.newCustomers}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">
                       {f.cost > 0 ? formatMoney(f.cost) : <span className="text-xs text-muted-foreground">未填</span>}
+                      {f.purchaseCount > 0 ? (
+                        <div className="text-xs text-muted-foreground">採購 {f.purchaseCount} 筆</div>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums">
                       {f.revenuePerCost != null ? `${f.revenuePerCost.toFixed(1)} 倍` : "—"}
@@ -200,6 +223,9 @@ export function ExhibitionEffectPage() {
         key={editing === null ? "closed" : editing === "new" ? "new" : editing.id}
         target={editing}
         costs={editing && editing !== "new" ? costs.filter((c) => c.exhibition_id === editing.id) : []}
+        linkedPurchases={
+          editing && editing !== "new" ? purchases.filter((p) => p.exhibition_id === editing.id) : []
+        }
         onClose={() => setEditing(null)}
         onSaved={() => {
           setEditing(null);
@@ -215,11 +241,13 @@ type CostDraft = { key: string; item: string; amount: number };
 function ExhibitionFormDialog({
   target,
   costs,
+  linkedPurchases,
   onClose,
   onSaved,
 }: {
   target: ExhibitionRow | "new" | null;
   costs: ExhibitionCostRow[];
+  linkedPurchases: ExhibitionPurchaseRow[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -231,14 +259,70 @@ function ExhibitionFormDialog({
   const [customerSource, setCustomerSource] = useState(existing?.customer_source ?? "");
   const [notes, setNotes] = useState(existing?.notes ?? "");
   const [costLines, setCostLines] = useState<CostDraft[]>(() =>
-    costs.length > 0
-      ? costs.map((c) => ({ key: c.id, item: c.item, amount: c.amount }))
-      : EXHIBITION_COST_ITEM_PRESETS.slice(0, 3).map((item, i) => ({ key: `new-${i}`, item, amount: 0 })),
+    costs.map((c) => ({ key: c.id, item: c.item, amount: c.amount })),
   );
+  const [linked, setLinked] = useState<ExhibitionPurchaseRow[]>(linkedPurchases);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const costTotal = costLines.reduce((s, c) => s + (c.amount || 0), 0);
+  // 從採購連結：列出展前 180 天～展後 60 天、尚未連結其他展覽的採購品項
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [candidates, setCandidates] = useState<ExhibitionPurchaseRow[]>([]);
+  const [pickerSearch, setPickerSearch] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  const otherTotal = costLines.reduce((s, c) => s + (c.amount || 0), 0);
+  const purchaseTotal = linked.reduce((s, p) => s + purchaseCostAmount(p), 0);
+
+  async function openPicker() {
+    if (!startDate || !endDate) return void toast.error("請先填寫展期，才能列出這段期間的採購");
+    setPickerOpen(true);
+    setPickerLoading(true);
+    setPicked(new Set());
+    setPickerSearch("");
+    const { from, to } = purchaseCandidateRange(startDate, endDate);
+    let query = supabase
+      .from("purchases")
+      .select(EXHIBITION_PURCHASE_SELECT)
+      .is("deleted_at", null)
+      .gte("purchase_date", from)
+      .lte("purchase_date", to)
+      .order("purchase_date", { ascending: false })
+      .limit(500);
+    query = existing
+      ? query.or(`exhibition_id.is.null,exhibition_id.eq.${existing.id}`)
+      : query.is("exhibition_id", null);
+    const { data, error } = await query;
+    setPickerLoading(false);
+    if (error) return void toast.error(`採購讀取失敗：${error.message}`);
+    const linkedIds = new Set(linked.map((p) => p.id));
+    const rows = ((data ?? []) as Record<string, unknown>[])
+      .map(mapExhibitionPurchase)
+      .filter((p) => !linkedIds.has(p.id));
+    // 看起來像展覽支出的排前面，其餘依日期新到舊
+    rows.sort((a, b) => Number(isLikelyExhibitionPurchase(b)) - Number(isLikelyExhibitionPurchase(a)));
+    setCandidates(rows);
+  }
+
+  const visibleCandidates = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    if (!q) return candidates;
+    return candidates.filter((p) =>
+      [p.item_name, p.vendor_name, p.item_category, p.po_number]
+        .filter(Boolean)
+        .some((t) => String(t).toLowerCase().includes(q)),
+    );
+  }, [candidates, pickerSearch]);
+
+  function linkPicked() {
+    setLinked((prev) =>
+      [...prev, ...candidates.filter((p) => picked.has(p.id))].sort((a, b) =>
+        a.purchase_date.localeCompare(b.purchase_date),
+      ),
+    );
+    setPickerOpen(false);
+  }
 
   async function handleSubmit(ev: React.FormEvent) {
     ev.preventDefault();
@@ -268,7 +352,7 @@ function ExhibitionFormDialog({
         id = data.id as string;
       }
       const costPayload = costLines
-        .filter((c) => c.item.trim() || c.amount)
+        .filter((c) => c.amount)
         .map((c, i) => ({
           exhibition_id: id!,
           item: c.item.trim() || "其他",
@@ -278,6 +362,18 @@ function ExhibitionFormDialog({
       if (costPayload.length > 0) {
         const { error } = await supabase.from("exhibition_costs").insert(costPayload);
         if (error) return void toast.error(`成本明細儲存失敗：${error.message}`);
+      }
+      const initialIds = new Set(linkedPurchases.map((p) => p.id));
+      const currentIds = new Set(linked.map((p) => p.id));
+      const added = [...currentIds].filter((pid) => !initialIds.has(pid));
+      const removed = [...initialIds].filter((pid) => !currentIds.has(pid));
+      if (added.length > 0) {
+        const { error } = await supabase.from("purchases").update({ exhibition_id: id }).in("id", added);
+        if (error) return void toast.error(`連結採購失敗：${error.message}`);
+      }
+      if (removed.length > 0) {
+        const { error } = await supabase.from("purchases").update({ exhibition_id: null }).in("id", removed);
+        if (error) return void toast.error(`解除採購連結失敗：${error.message}`);
       }
       toast.success("已儲存展覽場次");
       onSaved();
@@ -298,7 +394,7 @@ function ExhibitionFormDialog({
     <Dialog.Root open={target !== null} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg focus:outline-none">
           <div className="flex items-start justify-between gap-4">
             <Dialog.Title className="text-base font-semibold text-foreground">
               {existing ? `編輯 ${exhibitionLabel(existing)}` : "新增展覽場次"}
@@ -385,57 +481,168 @@ function ExhibitionFormDialog({
               </select>
             </div>
 
-            <div className="space-y-2 rounded-lg border border-border p-3">
-              <div className="flex items-center justify-between gap-2">
+            <div className="space-y-3 rounded-lg border border-border p-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
                 <span className="text-sm font-medium text-foreground">參展成本</span>
-                <span className="text-xs tabular-nums text-muted-foreground">合計 {formatMoney(costTotal)}</span>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  合計 {formatMoney(purchaseTotal + otherTotal)}（採購 {formatMoney(purchaseTotal)}＋其他{" "}
+                  {formatMoney(otherTotal)}）
+                </span>
               </div>
-              <datalist id="exhibition-cost-presets">
-                {EXHIBITION_COST_ITEM_PRESETS.map((n) => (
-                  <option key={n} value={n} />
-                ))}
-              </datalist>
-              {costLines.map((c) => (
-                <div key={c.key} className="flex items-center gap-2">
-                  <input
-                    aria-label="成本項目"
-                    list="exhibition-cost-presets"
-                    value={c.item}
-                    onChange={(e) =>
-                      setCostLines((prev) => prev.map((x) => (x.key === c.key ? { ...x, item: e.target.value } : x)))
-                    }
-                    className={`${inputClass} min-w-0 flex-1`}
-                    placeholder="項目"
-                  />
-                  <NumericInput
-                    aria-label="金額"
-                    value={c.amount}
-                    onValueChange={(v) =>
-                      setCostLines((prev) => prev.map((x) => (x.key === c.key ? { ...x, amount: v ?? 0 } : x)))
-                    }
-                    className="w-28 shrink-0 text-right"
-                  />
-                  <button
-                    type="button"
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/40"
-                    aria-label="刪除此項"
-                    onClick={() => setCostLines((prev) => prev.filter((x) => x.key !== c.key))}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className={labelClass}>連結的採購（未稅）</span>
+                  <Button type="button" variant="outline" onClick={() => void openPicker()}>
+                    <Link2 className="h-4 w-4" />
+                    從採購連結
+                  </Button>
                 </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-               
-                onClick={() =>
-                  setCostLines((prev) => [...prev, { key: `new-${Date.now()}`, item: "", amount: 0 }])
-                }
-              >
-                <Plus className="h-4 w-4" />
-                新增成本項目
-              </Button>
+                {linked.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">尚未連結採購。攤位費、裝潢等已在採購登記的支出，按「從採購連結」勾選帶入。</p>
+                ) : (
+                  <ul className="divide-y divide-border rounded-md border border-border">
+                    {linked.map((p) => (
+                      <li key={p.id} className="flex items-center gap-2 px-2 py-1.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm text-foreground">
+                            {p.item_name}
+                            {p.vendor_name ? <span className="text-muted-foreground"> · {p.vendor_name}</span> : null}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {p.purchase_date.replace(/-/g, "/")}
+                            {p.po_number ? ` · ${p.po_number}` : ""}
+                          </div>
+                        </div>
+                        <span className="shrink-0 text-sm tabular-nums">{formatMoney(purchaseCostAmount(p))}</span>
+                        <button
+                          type="button"
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/40"
+                          aria-label="解除連結"
+                          title="解除連結（採購資料不受影響）"
+                          onClick={() => setLinked((prev) => prev.filter((x) => x.id !== p.id))}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {pickerOpen ? (
+                  <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/30 p-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        aria-label="搜尋採購"
+                        value={pickerSearch}
+                        onChange={(e) => setPickerSearch(e.target.value)}
+                        className={`${inputClass} min-w-0 flex-1`}
+                        placeholder="搜尋品名、廠商、類別、採購單號"
+                      />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      列出展前 180 天～展後 60 天、尚未連結其他展覽的採購；品名或廠商含「展覽／攤位／佈置」的排在前面。勾選後按「連結所選」，儲存才會生效。
+                    </p>
+                    {pickerLoading ? (
+                      <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        讀取中…
+                      </div>
+                    ) : visibleCandidates.length === 0 ? (
+                      <p className="py-3 text-center text-xs text-muted-foreground">這段期間沒有可連結的採購</p>
+                    ) : (
+                      <ul className="max-h-64 divide-y divide-border overflow-y-auto rounded-md border border-border bg-background">
+                        {visibleCandidates.map((p) => (
+                          <li key={p.id}>
+                            <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 hover:bg-muted/40">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 shrink-0"
+                                checked={picked.has(p.id)}
+                                onChange={(e) =>
+                                  setPicked((prev) => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) next.add(p.id);
+                                    else next.delete(p.id);
+                                    return next;
+                                  })
+                                }
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-sm text-foreground">
+                                  {p.item_name}
+                                  {p.vendor_name ? <span className="text-muted-foreground"> · {p.vendor_name}</span> : null}
+                                </div>
+                                <div className="truncate text-xs text-muted-foreground">
+                                  {p.purchase_date.replace(/-/g, "/")}
+                                  {p.item_category ? ` · ${p.item_category}` : ""}
+                                  {p.po_number ? ` · ${p.po_number}` : ""}
+                                </div>
+                              </div>
+                              <span className="shrink-0 text-sm tabular-nums">{formatMoney(purchaseCostAmount(p))}</span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button type="button" variant="outline" onClick={() => setPickerOpen(false)}>
+                        取消
+                      </Button>
+                      <Button type="button" disabled={picked.size === 0} onClick={linkPicked}>
+                        連結所選（{picked.size}）
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <span className={labelClass}>其他成本（沒有走採購的，例如人力加班、住宿餐費）</span>
+                <datalist id="exhibition-cost-presets">
+                  {EXHIBITION_COST_ITEM_PRESETS.map((n) => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
+                {costLines.map((c) => (
+                  <div key={c.key} className="flex items-center gap-2">
+                    <input
+                      aria-label="成本項目"
+                      list="exhibition-cost-presets"
+                      value={c.item}
+                      onChange={(e) =>
+                        setCostLines((prev) => prev.map((x) => (x.key === c.key ? { ...x, item: e.target.value } : x)))
+                      }
+                      className={`${inputClass} min-w-0 flex-1`}
+                      placeholder="項目"
+                    />
+                    <NumericInput
+                      aria-label="金額"
+                      value={c.amount}
+                      onValueChange={(v) =>
+                        setCostLines((prev) => prev.map((x) => (x.key === c.key ? { ...x, amount: v ?? 0 } : x)))
+                      }
+                      className="w-28 shrink-0 text-right"
+                    />
+                    <button
+                      type="button"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/40"
+                      aria-label="刪除此項"
+                      onClick={() => setCostLines((prev) => prev.filter((x) => x.key !== c.key))}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCostLines((prev) => [...prev, { key: `new-${Date.now()}`, item: "", amount: 0 }])}
+                >
+                  <Plus className="h-4 w-4" />
+                  新增其他成本
+                </Button>
+              </div>
             </div>
 
             <div className="flex min-w-0 flex-col gap-1.5">
@@ -473,7 +680,7 @@ function ExhibitionFormDialog({
             open={confirmDelete}
             onOpenChange={setConfirmDelete}
             title="刪除展覽場次"
-            description="成本明細會一併刪除（訂單不受影響）。確定刪除？"
+            description="成本明細會一併刪除，連結的採購會解除連結（訂單與採購資料不受影響）。確定刪除？"
             confirmLabel="刪除"
             destructive
             onConfirm={handleDelete}

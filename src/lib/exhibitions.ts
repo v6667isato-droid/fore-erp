@@ -62,6 +62,64 @@ export function defaultCustomerSourceFor(name: string): string | null {
   );
 }
 
+/** 連結到展覽的採購品項（purchases.exhibition_id） */
+export interface ExhibitionPurchaseRow {
+  id: string;
+  exhibition_id: string | null;
+  purchase_date: string;
+  vendor_name: string | null;
+  item_name: string;
+  item_category: string | null;
+  amount_ex_tax: number | null;
+  total_amount: number | null;
+  po_number: string | null;
+}
+
+export const EXHIBITION_PURCHASE_SELECT =
+  "id, exhibition_id, purchase_date, vendor_name, item_name, item_category, amount_ex_tax, total_amount, purchase_orders(po_number)";
+
+/** Supabase 回傳列（purchase_orders 為關聯物件）→ ExhibitionPurchaseRow */
+export function mapExhibitionPurchase(r: Record<string, unknown>): ExhibitionPurchaseRow {
+  const po = r.purchase_orders as { po_number?: string | null } | { po_number?: string | null }[] | null;
+  const poNumber = Array.isArray(po) ? po[0]?.po_number : po?.po_number;
+  const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
+  return {
+    id: String(r.id),
+    exhibition_id: r.exhibition_id != null ? String(r.exhibition_id) : null,
+    purchase_date: String(r.purchase_date ?? ""),
+    vendor_name: r.vendor_name != null ? String(r.vendor_name) : null,
+    item_name: String(r.item_name ?? ""),
+    item_category: r.item_category != null ? String(r.item_category) : null,
+    amount_ex_tax: num(r.amount_ex_tax),
+    total_amount: num(r.total_amount),
+    po_number: poNumber ?? null,
+  };
+}
+
+/** 採購成本（未稅，與營收口徑一致）：amount_ex_tax，舊資料沒有時用 total_amount */
+export function purchaseCostAmount(p: Pick<ExhibitionPurchaseRow, "amount_ex_tax" | "total_amount">): number {
+  return Number(p.amount_ex_tax ?? p.total_amount) || 0;
+}
+
+/** 連結採購的候選期間：展前 180 天（攤位費常提早付）～展後 60 天 */
+export function purchaseCandidateRange(startDate: string, endDate: string): { from: string; to: string } {
+  const shift = (ymd: string, days: number) => {
+    const d = new Date(`${ymd}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+  return { from: shift(startDate, -180), to: shift(endDate, 60) };
+}
+
+const LIKELY_EXHIBITION_PURCHASE = /展覽|攤位|佈置|布置|展場|會展/;
+
+/** 看起來像展覽支出的採購（品名、廠商或類別含展覽／攤位／佈置等），連結清單排在前面 */
+export function isLikelyExhibitionPurchase(
+  p: Pick<ExhibitionPurchaseRow, "item_name" | "vendor_name" | "item_category">,
+): boolean {
+  return [p.item_name, p.vendor_name, p.item_category].some((t) => t != null && LIKELY_EXHIBITION_PURCHASE.test(t));
+}
+
 /** 效益統計排除的訂單狀態（與銷售統計一致排除報價；退貨不計營收） */
 const EXCLUDED_STATUSES = new Set(["報價中", "已退貨"]);
 
@@ -99,7 +157,11 @@ export interface ExhibitionEffect {
   totalRevenue: number;
   /** 首次成交落在本屆開始之後的客戶數（不含散客代表客戶） */
   newCustomers: number;
+  /** 成本合計＝連結採購（未稅）＋其他成本 */
   cost: number;
+  purchaseCost: number;
+  purchaseCount: number;
+  otherCost: number;
   /** 營收 ÷ 成本；無成本時 null */
   revenuePerCost: number | null;
   costPerNewCustomer: number | null;
@@ -124,6 +186,7 @@ export function computeExhibitionEffects(
   costs: Pick<ExhibitionCostRow, "exhibition_id" | "amount">[],
   orders: EffectOrderInput[],
   customers: EffectCustomerInput[],
+  purchases: Pick<ExhibitionPurchaseRow, "exhibition_id" | "amount_ex_tax" | "total_amount">[] = [],
 ): ExhibitionEffect[] {
   const customerById = new Map(customers.map((c) => [c.id, c]));
   const counted = orders.filter((o) => !EXCLUDED_STATUSES.has((o.status ?? "").trim()));
@@ -135,9 +198,15 @@ export function computeExhibitionEffects(
     if (!prev || o.order_date < prev) firstOrderDate.set(o.customer_id, o.order_date);
   }
 
-  const costByExhibition = new Map<string, number>();
+  const otherCostByExhibition = new Map<string, number>();
   for (const c of costs) {
-    costByExhibition.set(c.exhibition_id, (costByExhibition.get(c.exhibition_id) ?? 0) + (Number(c.amount) || 0));
+    otherCostByExhibition.set(c.exhibition_id, (otherCostByExhibition.get(c.exhibition_id) ?? 0) + (Number(c.amount) || 0));
+  }
+  const purchaseByExhibition = new Map<string, { cost: number; count: number }>();
+  for (const p of purchases) {
+    if (!p.exhibition_id) continue;
+    const cur = purchaseByExhibition.get(p.exhibition_id) ?? { cost: 0, count: 0 };
+    purchaseByExhibition.set(p.exhibition_id, { cost: cur.cost + purchaseCostAmount(p), count: cur.count + 1 });
   }
 
   const sorted = [...exhibitions].sort((a, b) => b.start_date.localeCompare(a.start_date));
@@ -175,7 +244,9 @@ export function computeExhibitionEffects(
     const postShowRevenue = postShow.reduce((s, o) => s + orderNetRevenue(o), 0);
     const totalRevenue = onsiteRevenue + postShowRevenue;
     const totalOrders = onsite.length + postShow.length;
-    const cost = costByExhibition.get(e.id) ?? 0;
+    const otherCost = otherCostByExhibition.get(e.id) ?? 0;
+    const linked = purchaseByExhibition.get(e.id) ?? { cost: 0, count: 0 };
+    const cost = linked.cost + otherCost;
 
     return {
       exhibition: e,
@@ -189,6 +260,9 @@ export function computeExhibitionEffects(
       totalRevenue,
       newCustomers: newCustomerIds.size,
       cost,
+      purchaseCost: linked.cost,
+      purchaseCount: linked.count,
+      otherCost,
       revenuePerCost: cost > 0 ? totalRevenue / cost : null,
       costPerNewCustomer: cost > 0 && newCustomerIds.size > 0 ? cost / newCustomerIds.size : null,
       avgOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : null,

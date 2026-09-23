@@ -3246,6 +3246,7 @@ export type Database = {
           amount_ex_tax: number | null
           created_at: string | null
           deleted_at: string | null
+          exhibition_id: string | null
           id: string
           item_category: string | null
           item_name: string
@@ -3269,6 +3270,7 @@ export type Database = {
           amount_ex_tax?: number | null
           created_at?: string | null
           deleted_at?: string | null
+          exhibition_id?: string | null
           id?: string
           item_category?: string | null
           item_name: string
@@ -3292,6 +3294,7 @@ export type Database = {
           amount_ex_tax?: number | null
           created_at?: string | null
           deleted_at?: string | null
+          exhibition_id?: string | null
           id?: string
           item_category?: string | null
           item_name?: string
@@ -3311,6 +3314,13 @@ export type Database = {
           vendor_name?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "purchases_exhibition_id_fkey"
+            columns: ["exhibition_id"]
+            isOneToOne: false
+            referencedRelation: "exhibitions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "purchases_material_id_fkey"
             columns: ["material_id"]
