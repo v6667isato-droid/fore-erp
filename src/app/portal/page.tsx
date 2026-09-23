@@ -37,7 +37,8 @@ import {
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
 import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-payment-status";
-import { appendArmHeight } from "@/lib/product-arm-height";
+import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
+import { buildPortalItemListCsv } from "@/lib/portal-item-list-csv";
 import { LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
 import { NumericInput } from "@/components/ui/numeric-input";
 
@@ -109,6 +110,16 @@ interface VariantOption {
   seat_height_cm?: number | null;
   /** 示意圖：product_variants.image_url 優先，否則 product_series.image_url */
   series_image_url?: string | null;
+  /** 以下供「匯出品項清單 CSV」分欄輸出 */
+  series_name: string | null;
+  product_code: string | null;
+  wood_type: string | null;
+  dimension_w: number | null;
+  dimension_d: number | null;
+  dimension_h: number | null;
+  arm_height_cm: number | null;
+  /** 規格或所屬系列已軟刪除：不列入挑選清單與匯出，僅舊訂單明細已選中時保留顯示 */
+  is_deleted: boolean;
 }
 
 /** 系列通路折扣 %＞0 時之通路結算價 */
@@ -276,6 +287,7 @@ function portalApiErrorMessage(
   if (r.status === 409 || r.error === "locked")
     return "此訂單已進入生產或後續階段，無法修改";
   if (r.status === 404) return "找不到訂單，請重新整理列表";
+  if (r.error === "deleted_variant") return "部分品項已下架，請重新整理頁面後重新選擇";
   if (r.error === "network") return "網路連線異常，請稍後再試";
   return fallback;
 }
@@ -398,10 +410,11 @@ export default function PortalPage() {
       return;
     }
 
+    // 含已軟刪除規格：編輯舊訂單時明細仍需顯示；挑選清單與匯出靠 is_deleted 排除
     const { data: variantRows } = await supabase
       .from("product_variants")
       .select(
-        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, spec1, image_url"
+        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, spec1, image_url, deleted_at"
       )
       .in("series_id", seriesIds)
       .order("product_code", { ascending: true });
@@ -410,19 +423,25 @@ export default function PortalPage() {
       new Set((variantRows ?? []).map((r) => String(r.series_id ?? "")).filter(Boolean))
     );
     let categoryBySeriesId = new Map<string, string>();
+    const nameBySeriesId = new Map<string, string>();
     const imageBySeriesId = new Map<string, string | null>();
+    const deletedSeriesIds = new Set<string>();
     if (sidList.length > 0) {
       const { data: seriesRows } = await supabase
         .from("product_series")
-        .select("id, category, image_url")
+        .select("id, series_name, category, image_url, deleted_at")
         .in("id", sidList);
       for (const s of (seriesRows ?? []) as {
         id: string;
+        series_name?: string | null;
         category?: string;
         image_url?: string | null;
+        deleted_at?: string | null;
       }[]) {
         const sid = String(s.id);
         categoryBySeriesId.set(sid, s.category != null ? String(s.category) : "");
+        if (s.series_name != null) nameBySeriesId.set(sid, String(s.series_name));
+        if (s.deleted_at != null) deletedSeriesIds.add(sid);
         const img =
           s.image_url != null && String(s.image_url).trim()
             ? String(s.image_url).trim()
@@ -454,9 +473,10 @@ export default function PortalPage() {
             ? String(v.image_url).trim()
             : null;
         const seriesImg = imageBySeriesId.get(String(v.series_id ?? "")) ?? null;
+        const seriesId = v.series_id != null ? String(v.series_id) : null;
         return {
           id: String(v.id),
-          series_id: v.series_id != null ? String(v.series_id) : null,
+          series_id: seriesId,
           label: labelParts.join(" / "),
           base_price: v.base_price != null ? Number(v.base_price) : null,
           spec1: v.spec1 ?? null,
@@ -464,6 +484,14 @@ export default function PortalPage() {
           series_image_url: variantImg ?? seriesImg,
           seat_height_cm:
             v.seat_height_cm != null ? Number(v.seat_height_cm) : null,
+          series_name: seriesId ? (nameBySeriesId.get(seriesId) ?? null) : null,
+          product_code: v.product_code ?? null,
+          wood_type: v.wood_type ?? null,
+          dimension_w: v.dimension_w != null ? Number(v.dimension_w) : null,
+          dimension_d: v.dimension_d != null ? Number(v.dimension_d) : null,
+          dimension_h: v.dimension_h != null ? Number(v.dimension_h) : null,
+          arm_height_cm: armHeightCm(v.arm_height_cm),
+          is_deleted: v.deleted_at != null || (seriesId != null && deletedSeriesIds.has(seriesId)),
         };
       })
     );
@@ -849,6 +877,24 @@ export default function PortalPage() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `我的訂單_結算_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** 匯出品項清單：下單選單可選的全部品項（排除已刪除），含牌價與通路價 */
+  function exportPortalItemListCsv() {
+    const listed = variants.filter((v) => !v.is_deleted);
+    if (!listed.length) {
+      toast.info("目前沒有可下單的品項");
+      return;
+    }
+    const csv = buildPortalItemListCsv(listed, portalSeriesDiscountPct);
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const name = (session?.customer_name ?? "").replace(/[\\/:*?"<>|]/g, "_").trim();
+    a.download = `品項清單${name ? `_${name}` : ""}_${localYmd(new Date())}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1489,14 +1535,25 @@ export default function PortalPage() {
 
             <section className="space-y-3">
               <PortalSeatHeightNotice />
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   明細品項
                 </h3>
-                <Button type="button" variant="outline" className="h-8 px-3 text-sm" onClick={addItem}>
-                  <Plus className="h-3.5 w-3.5 mr-1" />
-                  新增品項
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 px-3 text-sm"
+                    onClick={exportPortalItemListCsv}
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1" />
+                    匯出品項清單 CSV
+                  </Button>
+                  <Button type="button" variant="outline" className="h-8 px-3 text-sm" onClick={addItem}>
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    新增品項
+                  </Button>
+                </div>
               </div>
               <div className="space-y-3">
                 {items.map((it, idx) => (
@@ -1530,7 +1587,9 @@ export default function PortalPage() {
                             required={idx === 0}
                           >
                             <option value="">請選擇</option>
-                            {variants.map((v) => (
+                            {variants
+                              .filter((v) => !v.is_deleted || v.id === it.variant_id)
+                              .map((v) => (
                               <option key={v.id} value={v.id}>
                                 {v.label}
                                 {v.base_price != null ? ` · $${v.base_price}` : ""}
@@ -2251,7 +2310,10 @@ export default function PortalPage() {
                                   className="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                                 >
                                   <option value="">請選擇</option>
-                                  {variants.map((v) => (
+                                  {variants
+                                    // 已刪除品項只在舊明細已選中時保留，避免出現在挑選清單
+                                    .filter((v) => !v.is_deleted || v.id === it.variant_id)
+                                    .map((v) => (
                                     <option key={v.id} value={v.id}>
                                       {v.label}
                                       {v.base_price != null ? ` · $${v.base_price}` : ""}
