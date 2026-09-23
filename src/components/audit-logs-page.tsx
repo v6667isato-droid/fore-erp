@@ -13,6 +13,10 @@ import {
 } from "@/components/ui/table";
 import { ScrollText, ChevronDown, ChevronRight, RotateCw } from "lucide-react";
 import { toast } from "sonner";
+import { OrderAuditTrailSearch } from "@/components/order-audit-trail";
+import { describeActorLabel, formatAuditTime, type AuditRow } from "@/lib/order-audit-trail";
+import { useAuditActorNames } from "@/lib/use-audit-actor-names";
+import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
 
@@ -78,46 +82,8 @@ const SUMMARY_KEYS = [
   "key",
 ];
 
-interface AuditRow {
-  id: number;
-  happened_at: string;
-  table_name: string;
-  action: string;
-  record_id: string | null;
-  actor_id: string | null;
-  actor_email: string | null;
-  actor_label: string | null;
-  changed_fields: string[] | null;
-  old_data: Record<string, unknown> | null;
-  new_data: Record<string, unknown> | null;
-}
-
 /** 操作者下拉選項；value 形如 `email:someone@x.com` 或 `label:telegram-bot` */
 type ActorOption = { value: string; label: string };
-
-/** service role 寫入來源標記（audit_logs.actor_label）轉可讀文字 */
-function describeActorLabel(
-  label: string,
-  channelNames: Record<string, string>,
-): string {
-  const l = label.trim();
-  if (l.startsWith("portal:")) {
-    const chName = channelNames[l.slice("portal:".length)];
-    return chName ? `通路下單（${chName}）` : "通路下單";
-  }
-  if (l.startsWith("cron:")) return `排程（${l.slice("cron:".length)}）`;
-  if (l.startsWith("user:")) return l.slice("user:".length);
-  if (l === "telegram-bot") return "Telegram Bot";
-  if (l) return l;
-  return "系統";
-}
-
-function formatTime(value: string): string {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 function formatValue(v: unknown): string {
   if (v === null || v === undefined) return "—";
@@ -144,17 +110,50 @@ function summaryOf(row: AuditRow): string {
   return row.record_id ? row.record_id.slice(0, 8) : "—";
 }
 
+type AuditView = "all" | "orders";
+
 export function AuditLogsPage() {
+  const [view, setView] = useState<AuditView>("all");
+  const tabs: { id: AuditView; label: string }[] = [
+    { id: "all", label: "全部紀錄" },
+    { id: "orders", label: "訂單歷程" },
+  ];
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex w-fit flex-wrap gap-1 rounded-lg border border-border bg-muted/40 p-1">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setView(t.id)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              view === t.id
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {view === "all" ? <AllAuditLogs /> : <OrderAuditTrailSearch />}
+    </div>
+  );
+}
+
+function AllAuditLogs() {
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [channelNames, setChannelNames] = useState<Record<string, string>>({});
-  /** email（小寫）→ 顯示名稱：員工姓名優先，其次 user_profiles.full_name */
-  const [nameByEmail, setNameByEmail] = useState<Record<string, string>>({});
-  /** 操作者下拉選項：value 為 `email:<email>` 或 `label:<actor_label>` */
-  const [actorOptions, setActorOptions] = useState<ActorOption[]>([]);
+  const { channelNames, nameByEmail, actorText: actorTextOf } = useAuditActorNames();
+  /** 近期紀錄出現過的操作者（組下拉選項用） */
+  const [actorSample, setActorSample] = useState<{ emails: string[]; labels: string[] }>({
+    emails: [],
+    labels: [],
+  });
 
   const [filterTable, setFilterTable] = useState("");
   const [filterAction, setFilterAction] = useState("");
@@ -209,51 +208,17 @@ export function AuditLogsPage() {
     };
   }, [fetchLogs]);
 
+  // 取樣近期紀錄以列出實際出現過的操作者與來源標記（telegram-bot／portal:／cron:）
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("channels").select("id, name");
-      if (data) {
-        const map: Record<string, string> = {};
-        for (const c of data) map[String(c.id)] = String(c.name ?? "");
-        setChannelNames(map);
-      }
-    })();
-  }, []);
-
-  /** email → 姓名對照，並組出操作者下拉選項（人員來自 employees／user_profiles，來源標記自紀錄取樣） */
-  useEffect(() => {
-    (async () => {
-      const [empRes, profileRes, actorRes] = await Promise.all([
-        supabase.from("employees").select("name, email").is("deleted_at", null),
-        supabase.from("user_profiles").select("email, full_name"),
-        // 取樣近期紀錄以列出實際出現過的來源標記（telegram-bot／portal:／cron:）
-        supabase
-          .from("audit_logs")
-          .select("actor_email, actor_label")
-          .order("id", { ascending: false })
-          .limit(1000),
-      ]);
-
-      const byEmail: Record<string, string> = {};
-      for (const p of (profileRes.data ?? []) as { email?: unknown; full_name?: unknown }[]) {
-        const em = String(p.email ?? "").trim().toLowerCase();
-        const nm = String(p.full_name ?? "").trim();
-        if (em && nm) byEmail[em] = nm;
-      }
-      // 員工姓名優先於 user_profiles.full_name
-      for (const e of (empRes.data ?? []) as { name?: unknown; email?: unknown }[]) {
-        const em = String(e.email ?? "").trim().toLowerCase();
-        const nm = String(e.name ?? "").trim();
-        if (em && nm) byEmail[em] = nm;
-      }
-      setNameByEmail(byEmail);
-
+      const { data } = await supabase
+        .from("audit_logs")
+        .select("actor_email, actor_label")
+        .order("id", { ascending: false })
+        .limit(1000);
       const emails = new Set<string>();
       const labels = new Set<string>();
-      for (const r of (actorRes.data ?? []) as {
-        actor_email?: unknown;
-        actor_label?: unknown;
-      }[]) {
+      for (const r of data ?? []) {
         const em = String(r.actor_email ?? "").trim();
         if (em) emails.add(em);
         else {
@@ -261,29 +226,28 @@ export function AuditLogsPage() {
           if (lb) labels.add(lb);
         }
       }
-      const opts: ActorOption[] = [
-        ...[...emails]
-          .map((em) => ({
-            value: `email:${em}`,
-            label: byEmail[em.toLowerCase()] ? `${byEmail[em.toLowerCase()]}（${em}）` : em,
-          }))
-          .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant")),
-        ...[...labels]
-          .map((lb) => ({ value: `label:${lb}`, label: describeActorLabel(lb, channelNames) }))
-          .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant")),
-      ];
-      setActorOptions(opts);
+      setActorSample({ emails: [...emails], labels: [...labels] });
     })();
-  }, [channelNames]);
+  }, []);
+
+  const actorOptions = useMemo<ActorOption[]>(
+    () => [
+      ...actorSample.emails
+        .map((em) => {
+          const name = nameByEmail[em.toLowerCase()];
+          return { value: `email:${em}`, label: name ? `${name}（${em}）` : em };
+        })
+        .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant")),
+      ...actorSample.labels
+        .map((lb) => ({ value: `label:${lb}`, label: describeActorLabel(lb, channelNames) }))
+        .sort((a, b) => a.label.localeCompare(b.label, "zh-Hant")),
+    ],
+    [actorSample, nameByEmail, channelNames],
+  );
 
   const actorText = useCallback(
-    (row: AuditRow): string => {
-      if (row.actor_email) {
-        return nameByEmail[row.actor_email.trim().toLowerCase()] ?? row.actor_email;
-      }
-      return describeActorLabel(row.actor_label ?? "", channelNames);
-    },
-    [channelNames, nameByEmail],
+    (row: AuditRow): string => actorTextOf(row.actor_email, row.actor_label),
+    [actorTextOf],
   );
 
   const tableOptions = useMemo(
@@ -449,7 +413,7 @@ export function AuditLogsPage() {
                         )}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-                        {formatTime(row.happened_at)}
+                        {formatAuditTime(row.happened_at)}
                       </TableCell>
                       <TableCell
                         className="max-w-[180px] truncate text-xs"

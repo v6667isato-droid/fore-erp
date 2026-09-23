@@ -265,6 +265,7 @@ function portalStatusColor(status: string): string {
   switch (status) {
     case "報價中":    return "text-amber-700";
     case "繪圖中":    return "text-violet-700";
+    case "客戶圖面確認": return "text-sky-700";
     case "排程中":    return "text-amber-600";
     case "繪製製作圖": return "text-violet-700";
     case "生產中":    return "text-amber-800";

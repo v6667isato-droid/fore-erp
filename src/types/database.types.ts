@@ -4244,6 +4244,28 @@ export type Database = {
         Returns: boolean
       }
       is_own_employee: { Args: { p_employee_id: string }; Returns: boolean }
+      order_audit_trail: {
+        Args: { p_order_id: string }
+        Returns: {
+          action: string
+          actor_email: string | null
+          actor_id: string | null
+          actor_label: string | null
+          changed_fields: string[] | null
+          happened_at: string
+          id: number
+          new_data: Json | null
+          old_data: Json | null
+          record_id: string | null
+          table_name: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "audit_logs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       recompute_daily_attendance_for_makeup: {
         Args: { p_date: string; p_employee_id: string; p_mark_makeup: boolean }
         Returns: undefined
