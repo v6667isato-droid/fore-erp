@@ -424,6 +424,7 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
           <CustomerIntakeDialog
             open={intakeOpen}
             onOpenChange={setIntakeOpen}
+            canManageRules={isAdmin}
             onCustomerSaved={fetchCustomers}
           />
           <AddCustomerDialog channels={channels} onSuccess={fetchCustomers} />

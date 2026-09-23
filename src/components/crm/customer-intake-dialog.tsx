@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ArrowLeft, Loader2, Sparkles, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { amegoBanQuery } from "@/lib/sales-invoice";
@@ -31,8 +31,11 @@ import {
   type MatchReason,
 } from "@/lib/customer-intake";
 import { matchIntakeItem, type IntakeVariantMatch } from "@/lib/intake-variant-match";
+import { diffIntakeCustomer } from "@/lib/intake-learning";
+import { submitIntakeLearning } from "@/lib/intake-learning-client";
 import { Button } from "@/components/ui/button";
 import { AddressZipcodeHint } from "@/components/crm/address-zipcode-hint";
+import { IntakeRulesDialog } from "@/components/crm/intake-rules-dialog";
 import { CUSTOMER_VIEW_SELECT, mapCustomerViewRow } from "@/components/orders/order-helpers";
 import type { OrderDraft, OrderItemInput, VariantOption } from "@/components/orders/types";
 import type { CustomerRow } from "@/types/crm";
@@ -341,6 +344,8 @@ export interface CustomerIntakeDialogProps {
   onCustomerSaved?: () => void | Promise<void>;
   /** 有提供時顯示「開訂單」按鈕：傳回預先帶入的訂單內容，由呼叫端開啟訂單表單 */
   onCreateOrder?: (draft: OrderDraft) => void;
+  /** 管理員：可刪除 AI 學到的規則 */
+  canManageRules?: boolean;
 }
 
 /**
@@ -354,12 +359,29 @@ export function CustomerIntakeDialog({
   variants = [],
   onCustomerSaved,
   onCreateOrder,
+  canManageRules = false,
 }: CustomerIntakeDialogProps) {
   const [step, setStep] = useState<"paste" | "review">("paste");
   const [text, setText] = useState("");
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** AI 原本的客戶解析（儲存時比對員工改了哪些欄位，送去學習） */
+  const [aiCustomer, setAiCustomer] = useState<IntakeCustomer | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [rulesCount, setRulesCount] = useState<number | null>(null);
+
+  const loadRulesCount = useCallback(async () => {
+    const { count } = await supabase
+      .from("intake_learning_rules")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null);
+    setRulesCount(count ?? null);
+  }, []);
+
+  useEffect(() => {
+    if (open) void loadRulesCount();
+  }, [open, loadRulesCount]);
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [form, setForm] = useState<IntakeForm>(emptyForm);
   const [order, setOrder] = useState<IntakeOrder>(EMPTY_ORDER);
@@ -438,6 +460,7 @@ export function CustomerIntakeDialog({
     setText("");
     setError(null);
     setCustomers([]);
+    setAiCustomer(null);
     setForm(emptyForm());
     setOrder(EMPTY_ORDER);
     setSelectedId(NEW_CUSTOMER);
@@ -480,6 +503,7 @@ export function CustomerIntakeDialog({
       const result = sanitizeIntakeResult(data);
       const initialMatches = findCustomerMatches(result.customer, allCustomers);
       setCustomers(allCustomers);
+      setAiCustomer(result.customer);
       setForm(toForm(result.customer));
       setOrder(result.order);
       // 電話／統編等確定相同、或恰好一位同名客戶時預設選既有客戶，否則預設建立新客戶
@@ -581,6 +605,7 @@ export function CustomerIntakeDialog({
       deposit_percent: depositPercent,
       deposit_amount: order.deposit_amount,
       shipping_fee: order.shipping_fee,
+      intake_text: text.trim(),
     };
   }
 
@@ -590,6 +615,15 @@ export function CustomerIntakeDialog({
     try {
       const saved = await saveCustomer();
       if (!saved) return;
+      // 員工改過 AI 解析的客戶欄位（訊息裡看得到的）送去學習；訂單部分在訂單表單儲存時另外學
+      if (aiCustomer) {
+        const inputText = text.trim();
+        submitIntakeLearning({
+          kind: "customer",
+          text: inputText,
+          diffs: diffIntakeCustomer(inputText, aiCustomer, formCustomer),
+        });
+      }
       // 先等客戶清單重新載入，訂單表單的客戶下拉才找得到剛建立的客戶
       await onCustomerSaved?.();
       const draft = withOrder && onCreateOrder ? buildOrderDraft(saved) : null;
@@ -659,16 +693,27 @@ export function CustomerIntakeDialog({
                   {text.length} / {INTAKE_TEXT_MAX_LENGTH}
                 </span>
               </div>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Dialog.Close asChild>
-                  <Button type="button" variant="ghost" disabled={busy}>
-                    取消
-                  </Button>
-                </Dialog.Close>
-                <Button type="button" onClick={() => void handleParse()} disabled={busy || !text.trim()}>
-                  {parsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {parsing ? "解析中…" : "解析"}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-8 px-2 text-xs text-muted-foreground"
+                  onClick={() => setRulesOpen(true)}
+                >
+                  <BookOpen className="h-3.5 w-3.5" />
+                  AI 學到的規則{rulesCount != null ? `（${rulesCount}）` : ""}
                 </Button>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Dialog.Close asChild>
+                    <Button type="button" variant="ghost" disabled={busy}>
+                      取消
+                    </Button>
+                  </Dialog.Close>
+                  <Button type="button" onClick={() => void handleParse()} disabled={busy || !text.trim()}>
+                    {parsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {parsing ? "解析中…" : "解析"}
+                  </Button>
+                </div>
               </div>
             </div>
           ) : (
@@ -1114,6 +1159,13 @@ export function CustomerIntakeDialog({
               </div>
             </div>
           )}
+          {rulesOpen ? (
+            <IntakeRulesDialog
+              onClose={() => setRulesOpen(false)}
+              canManage={canManageRules}
+              onChanged={() => void loadRulesCount()}
+            />
+          ) : null}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
