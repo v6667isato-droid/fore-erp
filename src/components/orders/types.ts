@@ -45,6 +45,8 @@ export interface OrderRow {
   quote_includes_tax?: boolean;
   /** 最近一次列印地址條的時間（未列印過為 NULL） */
   address_label_printed_at?: string | null;
+  /** 在哪一場展覽成交（exhibitions.id）；NULL＝非展場訂單 */
+  exhibition_id?: string | null;
 }
 
 export interface CustomerOption {
@@ -61,6 +63,10 @@ export interface CustomerOption {
   /** 統一編號 */
   tax_id?: string | null;
   channel_id?: string | null;
+  /** 客戶來源（開單自動帶入展覽場次用） */
+  source?: string | null;
+  /** 客戶種類（「展覽」＝展場散客代表客戶） */
+  customer_type?: string | null;
 }
 
 export interface VariantOption {

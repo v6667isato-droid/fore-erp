@@ -6,17 +6,18 @@ import { cn } from "@/lib/utils";
 import { CostStatisticsPage } from "@/components/cost-statistics-page";
 import { SalesStatisticsPage } from "@/components/sales-statistics-page";
 import { EmployeeCompletionStatisticsPage } from "@/components/employee-completion-statistics-page";
+import { ExhibitionEffectPage } from "@/components/exhibition-effect-page";
 
-export type StatisticsTab = "cost" | "sales" | "employee";
+export type StatisticsTab = "cost" | "sales" | "exhibition" | "employee";
 
 function parseStatisticsTab(raw: string | null): StatisticsTab {
-  if (raw === "sales" || raw === "employee" || raw === "cost") return raw;
+  if (raw === "sales" || raw === "exhibition" || raw === "employee" || raw === "cost") return raw;
   // 舊網址 ?statisticsTab=ratio：成本占比已併入成本統計
   return "cost";
 }
 
 /**
- * 成本統計頁：成本統計／銷售統計／員工完成統計分頁。
+ * 成本統計頁：成本統計／銷售統計／展覽效益／員工完成統計分頁。
  * 分頁狀態同步至 ?statisticsTab=，與 customersTab、procurementTab 慣例一致。
  */
 export function CostStatisticsTabs() {
@@ -49,6 +50,7 @@ export function CostStatisticsTabs() {
           [
             { id: "cost" as const, label: "成本統計" },
             { id: "sales" as const, label: "銷售統計" },
+            { id: "exhibition" as const, label: "展覽效益" },
             { id: "employee" as const, label: "員工完成統計" },
           ] as const
         ).map((item) => (
@@ -72,6 +74,7 @@ export function CostStatisticsTabs() {
 
       {tab === "cost" && <CostStatisticsPage />}
       {tab === "sales" && <SalesStatisticsPage />}
+      {tab === "exhibition" && <ExhibitionEffectPage />}
       {tab === "employee" && <EmployeeCompletionStatisticsPage />}
     </div>
   );
