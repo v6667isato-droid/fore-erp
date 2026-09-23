@@ -1884,7 +1884,6 @@ export type Database = {
           deposit_amount: number | null
           deposit_date: string | null
           expected_delivery_date: string | null
-          exhibition_id: string | null
           explanation_image_url: string | null
           final_payment_amount: number | null
           final_payment_date: string | null
@@ -1916,7 +1915,6 @@ export type Database = {
           deposit_amount?: number | null
           deposit_date?: string | null
           expected_delivery_date?: string | null
-          exhibition_id?: string | null
           explanation_image_url?: string | null
           final_payment_amount?: number | null
           final_payment_date?: string | null
@@ -1948,7 +1946,6 @@ export type Database = {
           deposit_amount?: number | null
           deposit_date?: string | null
           expected_delivery_date?: string | null
-          exhibition_id?: string | null
           explanation_image_url?: string | null
           final_payment_amount?: number | null
           final_payment_date?: string | null
@@ -1973,13 +1970,6 @@ export type Database = {
           total_amount?: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "orders_exhibition_id_fkey"
-            columns: ["exhibition_id"]
-            isOneToOne: false
-            referencedRelation: "exhibitions"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "orders_customer_id_fkey"
             columns: ["customer_id"]
@@ -3256,6 +3246,7 @@ export type Database = {
           amount_ex_tax: number | null
           created_at: string | null
           deleted_at: string | null
+          exhibition_id: string | null
           id: string
           item_category: string | null
           item_name: string
@@ -3279,6 +3270,7 @@ export type Database = {
           amount_ex_tax?: number | null
           created_at?: string | null
           deleted_at?: string | null
+          exhibition_id?: string | null
           id?: string
           item_category?: string | null
           item_name: string
@@ -3302,6 +3294,7 @@ export type Database = {
           amount_ex_tax?: number | null
           created_at?: string | null
           deleted_at?: string | null
+          exhibition_id?: string | null
           id?: string
           item_category?: string | null
           item_name?: string
@@ -3321,6 +3314,13 @@ export type Database = {
           vendor_name?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "purchases_exhibition_id_fkey"
+            columns: ["exhibition_id"]
+            isOneToOne: false
+            referencedRelation: "exhibitions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "purchases_material_id_fkey"
             columns: ["material_id"]

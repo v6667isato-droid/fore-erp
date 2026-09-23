@@ -62,13 +62,6 @@ import {
   PAYMENT_STATUS_OPTIONS,
 } from "./order-helpers";
 import {
-  EXHIBITION_SELECT,
-  exhibitionLabel,
-  exhibitionOptionsFor,
-  suggestExhibitionId,
-  type ExhibitionRow,
-} from "@/lib/exhibitions";
-import {
   applicableBomLines,
   fetchMaterials,
   resolveMaterialCode,
@@ -451,13 +444,6 @@ function OrderFormDialog({
   const [internalNotes, setInternalNotes] = useState<string>(
     ""
   );
-  /** 展覽場次（exhibitions.id）；空字串＝非展場訂單 */
-  const [exhibitionId, setExhibitionId] = useState<string>(
-    initialOrder?.exhibition_id ?? ""
-  );
-  const [exhibitions, setExhibitions] = useState<ExhibitionRow[]>([]);
-  /** 上一次自動帶入的場次；目前值仍等於它（或空白）時才跟著客戶／下單日改，不覆蓋手動選的 */
-  const lastSuggestedExhibitionRef = useRef("");
   const [orderExplanationImages, setOrderExplanationImages] = useState<ExplanationImage[]>(() =>
     parseExplanationImages(initialOrder?.explanation_image_url)
   );
@@ -497,21 +483,6 @@ function OrderFormDialog({
           },
         ]
   );
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    void supabase
-      .from("exhibitions")
-      .select(EXHIBITION_SELECT)
-      .order("start_date", { ascending: false })
-      .then(({ data }) => {
-        if (!cancelled) setExhibitions((data ?? []) as ExhibitionRow[]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
 
   /** 訂製案例／加工區項目（custom_cases）：品項類型為 case／processing 時的挑選清單 */
   const [customCases, setCustomCases] = useState<OrderCaseOption[]>([]);
@@ -611,7 +582,6 @@ function OrderFormDialog({
       setPaymentStatus(initialOrder.payment_status);
       setOrderExplanationImages(parseExplanationImages(initialOrder.explanation_image_url));
       setInternalNotes(initialOrder.internal_notes ?? "");
-      setExhibitionId(initialOrder.exhibition_id ?? "");
       setDraftOrderNumber(initialOrder.order_number);
       setDiscountTotal(orderDiscountSubtotalField(initialOrder));
       setDiscountLocked(true);
@@ -663,8 +633,6 @@ function OrderFormDialog({
     setInvoiceTitle("");
     setInvoiceTaxId("");
     setInternalNotes("");
-    setExhibitionId("");
-    lastSuggestedExhibitionRef.current = "";
     setOrderExplanationImages([]);
     const blankItems: OrderItemInput[] = [
       {
@@ -705,31 +673,6 @@ function OrderFormDialog({
       pendingDraftPricingRef.current = { draft: initialDraft, items: draftItems };
     }
   }, [open, initialOrder, initialDraft, todayLocal]);
-
-  const suggestedExhibitionId = useMemo(
-    () =>
-      isEdit
-        ? ""
-        : suggestExhibitionId(
-            exhibitions,
-            customers.find((c) => c.id === customerId),
-            orderDate
-          ) ?? "",
-    [isEdit, exhibitions, customers, customerId, orderDate]
-  );
-
-  // 新增模式：散客代表客戶，或客戶來源是該展且下單日在展期內 → 自動帶入展覽場次（須宣告在上方重置 effect 之後）
-  useEffect(() => {
-    if (!open || isEdit) return;
-    const prev = lastSuggestedExhibitionRef.current;
-    lastSuggestedExhibitionRef.current = suggestedExhibitionId;
-    setExhibitionId((cur) => (cur === "" || cur === prev ? suggestedExhibitionId : cur));
-  }, [open, isEdit, suggestedExhibitionId]);
-
-  const exhibitionOptions = useMemo(
-    () => exhibitionOptionsFor(exhibitions, orderDate, exhibitionId),
-    [exhibitions, orderDate, exhibitionId]
-  );
 
   // 新增模式：選到特定通路時，將訂金%預設改為 0%
   useEffect(() => {
@@ -1434,7 +1377,6 @@ function OrderFormDialog({
         invoice_title: invoiceTitle.trim() || null,
         invoice_tax_id: invoiceTaxId.trim() || null,
         internal_notes: internalNotes || null,
-        exhibition_id: exhibitionId || null,
         explanation_image_url:
           orderExplanationImages.length > 0
             ? JSON.stringify(
@@ -1883,36 +1825,6 @@ function OrderFormDialog({
                         {manualOrderStatusOptions(status).map((s) => (
                           <option key={s} value={s}>
                             {s}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                  <div className="col-span-2 flex min-w-0 flex-col gap-1.5">
-                    <label htmlFor="order-exhibition" className={ledgerLabelZh}>
-                      展覽場次
-                      {!readOnly && exhibitionId !== "" && exhibitionId === suggestedExhibitionId ? (
-                        <span className="ml-1 text-[11px] text-muted-foreground/80">（已自動帶入）</span>
-                      ) : null}
-                    </label>
-                    {readOnly ? (
-                      <div id="order-exhibition" className={viewFieldClass}>
-                        {(() => {
-                          const e = exhibitions.find((x) => x.id === exhibitionId);
-                          return e ? exhibitionLabel(e) : "—";
-                        })()}
-                      </div>
-                    ) : (
-                      <select
-                        id="order-exhibition"
-                        value={exhibitionId}
-                        onChange={(e) => setExhibitionId(e.target.value)}
-                        className={ledgerSelect}
-                      >
-                        <option value="">非展場訂單</option>
-                        {exhibitionOptions.map((e) => (
-                          <option key={e.id} value={e.id}>
-                            {exhibitionLabel(e)}
                           </option>
                         ))}
                       </select>
