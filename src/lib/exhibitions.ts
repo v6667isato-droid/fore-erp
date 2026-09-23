@@ -73,15 +73,18 @@ export interface ExhibitionPurchaseRow {
   amount_ex_tax: number | null;
   total_amount: number | null;
   po_number: string | null;
+  /** 採購單備註 */
+  po_notes: string | null;
 }
 
 export const EXHIBITION_PURCHASE_SELECT =
-  "id, exhibition_id, purchase_date, vendor_name, item_name, item_category, amount_ex_tax, total_amount, purchase_orders(po_number)";
+  "id, exhibition_id, purchase_date, vendor_name, item_name, item_category, amount_ex_tax, total_amount, purchase_orders(po_number, notes)";
 
 /** Supabase 回傳列（purchase_orders 為關聯物件）→ ExhibitionPurchaseRow */
 export function mapExhibitionPurchase(r: Record<string, unknown>): ExhibitionPurchaseRow {
-  const po = r.purchase_orders as { po_number?: string | null } | { po_number?: string | null }[] | null;
-  const poNumber = Array.isArray(po) ? po[0]?.po_number : po?.po_number;
+  type PoRel = { po_number?: string | null; notes?: string | null };
+  const rel = r.purchase_orders as PoRel | PoRel[] | null;
+  const po = Array.isArray(rel) ? rel[0] : rel;
   const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
   return {
     id: String(r.id),
@@ -92,7 +95,8 @@ export function mapExhibitionPurchase(r: Record<string, unknown>): ExhibitionPur
     item_category: r.item_category != null ? String(r.item_category) : null,
     amount_ex_tax: num(r.amount_ex_tax),
     total_amount: num(r.total_amount),
-    po_number: poNumber ?? null,
+    po_number: po?.po_number ?? null,
+    po_notes: po?.notes?.trim() || null,
   };
 }
 
@@ -111,13 +115,15 @@ export function purchaseCandidateRange(startDate: string, endDate: string): { fr
   return { from: shift(startDate, -180), to: shift(endDate, 60) };
 }
 
-const LIKELY_EXHIBITION_PURCHASE = /展覽|攤位|佈置|布置|展場|會展/;
+const LIKELY_EXHIBITION_PURCHASE = /展覽|攤位|佈置|布置|展場|會展|生活展|空間展/;
 
-/** 看起來像展覽支出的採購（品名、廠商或類別含展覽／攤位／佈置等），連結清單排在前面 */
+/** 看起來像展覽支出的採購（品名、廠商、類別或採購單備註含展覽／攤位／佈置／展名等），連結清單排在前面 */
 export function isLikelyExhibitionPurchase(
-  p: Pick<ExhibitionPurchaseRow, "item_name" | "vendor_name" | "item_category">,
+  p: Pick<ExhibitionPurchaseRow, "item_name" | "vendor_name" | "item_category"> & { po_notes?: string | null },
 ): boolean {
-  return [p.item_name, p.vendor_name, p.item_category].some((t) => t != null && LIKELY_EXHIBITION_PURCHASE.test(t));
+  return [p.item_name, p.vendor_name, p.item_category, p.po_notes].some(
+    (t) => t != null && LIKELY_EXHIBITION_PURCHASE.test(t),
+  );
 }
 
 /** 效益統計排除的訂單狀態（與銷售統計一致排除報價；退貨不計營收） */
