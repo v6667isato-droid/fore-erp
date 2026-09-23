@@ -70,6 +70,8 @@ export interface VariantOption {
   series_category?: string | null;
   /** 示意圖：product_variants.image_url 優先，否則 product_series.image_url */
   series_image_url?: string | null;
+  /** 產品編號（如 CB05-W-150H90；訂製款為 CB05-C） */
+  product_code?: string | null;
   label: string;
   base_price: number | null;
   /** 訂製款（開單佔位用規格）：牌價改為開單時手動輸入 */
@@ -148,6 +150,15 @@ export interface OrderDraft {
   internal_notes: string | null;
   /** 空陣列＝沿用預設的一筆空白品項 */
   items: OrderItemInput[];
+  /** 整張訂單折扣 %（null＝不折扣） */
+  discount_percent: number | null;
+  /** 整張訂單折抵金額（沒有折扣 % 時才用） */
+  discount_amount: number | null;
+  /** 帶入訂金的比例 %（null 且沒有 deposit_amount＝不帶入訂金） */
+  deposit_percent: number | null;
+  /** 指定訂金金額（優先於比例） */
+  deposit_amount: number | null;
+  shipping_fee: number | null;
 }
 
 export interface OrderFormProps {

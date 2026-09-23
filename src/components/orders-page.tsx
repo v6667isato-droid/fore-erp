@@ -373,6 +373,7 @@ export function OrdersPage({
             series_name: seriesName,
             series_category: seriesCategoryMap.get(seriesId) ?? null,
             series_image_url: variantImg ?? seriesImageMap.get(seriesId) ?? null,
+            product_code: v.product_code ?? null,
             label: labelParts.join(" / "),
             base_price:
               v.base_price !== undefined && v.base_price !== null
@@ -1924,6 +1925,7 @@ export function OrdersPage({
       <CustomerIntakeDialog
         open={intakeOpen}
         onOpenChange={setIntakeOpen}
+        variants={variants}
         onCustomerSaved={fetchCustomers}
         onCreateOrder={(draft) => {
           setEditingOrder(null);
