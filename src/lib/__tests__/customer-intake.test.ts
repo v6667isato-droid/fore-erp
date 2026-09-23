@@ -3,6 +3,7 @@ import {
   diffCustomerFields,
   findCustomerMatches,
   normalizeAddress,
+  pickDefaultMatch,
   normalizeNameKey,
   phoneKeys,
   sanitizeIntakeResult,
@@ -126,6 +127,39 @@ describe("findCustomerMatches", () => {
   });
 });
 
+describe("pickDefaultMatch", () => {
+  it("電話等確定相同 → 選分數最高者", () => {
+    const matches = findCustomerMatches({ name: "王先生", phone: "0912345678" }, customers);
+    expect(pickDefaultMatch(matches, { phone: "0912345678" })?.id).toBe("c1");
+  });
+
+  it("只有名稱：恰好一位同名客戶 → 選他（「蕭雅文要開新訂單」）", () => {
+    const list: MatchableCustomer[] = [
+      { id: "x1", name: "蕭雅文", phone: "0955-111-222" },
+      { id: "x2", name: "蕭雅文設計" },
+    ];
+    const matches = findCustomerMatches({ name: "蕭雅文" }, list);
+    expect(pickDefaultMatch(matches, {})?.id).toBe("x1");
+  });
+
+  it("同名兩位以上、或電話跟主檔不同 → 不自動選", () => {
+    const twins: MatchableCustomer[] = [
+      { id: "a", name: "林小美" },
+      { id: "b", name: "林小美" },
+    ];
+    expect(pickDefaultMatch(findCustomerMatches({ name: "林小美" }, twins), {})).toBeNull();
+
+    const one: MatchableCustomer[] = [{ id: "a", name: "林小美", phone: "0911-000-111" }];
+    expect(pickDefaultMatch(findCustomerMatches({ name: "林小美", phone: "0922333444" }, one), { phone: "0922333444" }))
+      .toBeNull();
+  });
+
+  it("只有名稱相近不自動選", () => {
+    expect(pickDefaultMatch(findCustomerMatches({ name: "王小明" }, [{ id: "a", name: "王小明設計" }]), {})).toBeNull();
+    expect(pickDefaultMatch([], {})).toBeNull();
+  });
+});
+
 describe("diffCustomerFields", () => {
   it("主檔空白補上、不同值列為更新、相同值略過", () => {
     const updates = diffCustomerFields(
@@ -230,6 +264,47 @@ describe("sanitizeIntakeResult", () => {
       items: [],
       expected_delivery_date: "2026-10-31",
       notes: null,
+      discount_percent: null,
+      discount_amount: null,
+      deposit_requested: false,
+      deposit_percent: null,
+      deposit_amount: null,
+      shipping_fee: null,
     });
+  });
+
+  it("品項編號、訂製、單價；折扣、訂金、運費", () => {
+    const res = sanitizeIntakeResult({
+      order: {
+        items: [
+          { name: "CB05 訂製款", product_code: " CB05 ", custom_made: true, unit_price: 52000.4, seat_height_cm: 0 },
+          { name: "餐椅", custom_made: "yes", unit_price: -1 },
+        ],
+        discount_percent: 5,
+        discount_amount: 0,
+        deposit_requested: true,
+        deposit_percent: 150,
+        shipping_fee: "1500",
+      },
+    });
+    expect(res.order.items[0]).toMatchObject({
+      product_code: "CB05",
+      custom_made: true,
+      unit_price: 52000,
+      seat_height_cm: null,
+    });
+    expect(res.order.items[1]).toMatchObject({ custom_made: false, unit_price: null });
+    expect(res.order).toMatchObject({
+      discount_percent: 5,
+      discount_amount: null,
+      deposit_requested: true,
+      deposit_percent: null,
+      shipping_fee: 1500,
+    });
+  });
+
+  it("有寫訂金比例或金額也算要求帶入訂金", () => {
+    expect(sanitizeIntakeResult({ order: { deposit_percent: 30 } }).order.deposit_requested).toBe(true);
+    expect(sanitizeIntakeResult({ order: { deposit_amount: 10000 } }).order.deposit_requested).toBe(true);
   });
 });

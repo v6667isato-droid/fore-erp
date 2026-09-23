@@ -36,6 +36,7 @@ import {
 import { toast } from "sonner";
 import type {
   OrderFormProps,
+  OrderDraft,
   OrderStatus,
   PaymentStatus,
   OrderItemInput,
@@ -178,6 +179,9 @@ interface OrderCaseOption {
   base_price: number | null;
 }
 const WOOD_TYPE_DATALIST_ID = "order-form-wood-type-list";
+
+/** 訂金比例下拉選項（%）；不在清單內的比例顯示為「自訂」 */
+const DEPOSIT_PERCENT_OPTIONS = ["30", "40", "50"];
 
 function WoodTypeComboboxInput({
   id,
@@ -433,6 +437,8 @@ function OrderFormDialog({
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   /** 用於品項總額變動時同步「折扣後總金額」；從 props 載入表單時須重設，否則會沿用上一筆對話的總計造成 delta 錯誤 */
   const prevTotalAmountRef = useRef<number | null>(null);
+  /** 貼上建立：等這組品項寫入 state 後，再依草稿補通路價、套用折扣與訂金 */
+  const pendingDraftPricingRef = useRef<{ draft: OrderDraft; items: OrderItemInput[] } | null>(null);
   const [items, setItems] = useState<OrderItemInput[]>(
     initialItems && initialItems.length
       ? initialItems
@@ -604,7 +610,7 @@ function OrderFormDialog({
     setInvoiceTaxId("");
     setInternalNotes("");
     setOrderExplanationImages([]);
-    setItems([
+    const blankItems: OrderItemInput[] = [
       {
         id: "item-0",
         variant_id: "",
@@ -619,8 +625,10 @@ function OrderFormDialog({
         work_order_assignee_id: null,
         work_order_planned_end_date: null,
       },
-    ]);
+    ];
+    setItems(blankItems);
     prevTotalAmountRef.current = null;
+    pendingDraftPricingRef.current = null;
 
     // 貼上建立：客戶、寄送／發票資料與品項預先帶入（不走選客戶的自動帶入，保留這次訊息中的新地址等）
     if (initialDraft) {
@@ -633,7 +641,11 @@ function OrderFormDialog({
       setInvoiceTitle(initialDraft.invoice_title ?? "");
       setInvoiceTaxId(initialDraft.invoice_tax_id ?? "");
       setInternalNotes(initialDraft.internal_notes ?? "");
-      if (initialDraft.items.length > 0) setItems(initialDraft.items);
+      if (initialDraft.shipping_fee != null) setShippingFee(String(initialDraft.shipping_fee));
+      const draftItems = initialDraft.items.length > 0 ? initialDraft.items : blankItems;
+      setItems(draftItems);
+      // 折扣／訂金要等品項進 state、算得出總計後才套用（見下方「貼上建立：套用折扣與訂金」）
+      pendingDraftPricingRef.current = { draft: initialDraft, items: draftItems };
     }
   }, [open, initialOrder, initialDraft, todayLocal]);
 
@@ -1028,6 +1040,56 @@ function OrderFormDialog({
     const nextBase = applyPct(totalAmount);
     setDiscountTotal(nextBase > 0 ? String(nextBase) : "");
   }, [totalAmount, discountLocked, discountPct]);
+
+  // 貼上建立：套用折扣與訂金（須宣告在上方同步 effect 之後，同一輪執行時以這裡的值為準）
+  useEffect(() => {
+    const pending = pendingDraftPricingRef.current;
+    if (!pending || items !== pending.items) return;
+    pendingDraftPricingRef.current = null;
+    const { draft } = pending;
+
+    // 規格品通路價：與手動選規格相同，依客戶所屬通路的系列折扣帶入（訊息有指定價格者保留）
+    let repriced = false;
+    const priced = items.map((it) => {
+      if (it.kind !== "variant" || !it.variant_id || it.channel_unit_price != null) return it;
+      const channelPrice = resolveChannelUnitPriceFor(draft.customer_id, it.variant_id, it.series_id ?? null);
+      if (channelPrice == null) return it;
+      repriced = true;
+      return { ...it, channel_unit_price: channelPrice };
+    });
+    if (repriced) setItems(priced);
+    const total = priced.reduce(
+      (sum, it) => sum + (Number(it.quantity) || 0) * resolveItemSettlementPrice(it),
+      0
+    );
+
+    // 折扣：與手動輸入折扣 % 相同（鎖定後品項再變動仍依 % 重算）；折抵金額只在有總計時套用
+    let base = total;
+    const pct = draft.discount_percent;
+    if (pct != null && pct > 0) {
+      base = Math.max(0, Math.round(total * (1 - Math.min(100, pct) / 100)));
+      setDiscountPct(String(pct));
+      setDiscountLocked(true);
+      setDiscountTotal(base > 0 ? String(base) : "");
+      prevTotalAmountRef.current = total;
+    } else if (draft.discount_amount != null && draft.discount_amount > 0 && total > 0) {
+      base = Math.max(0, total - draft.discount_amount);
+      setDiscountPct("");
+      setDiscountLocked(true);
+      setDiscountTotal(String(base));
+      prevTotalAmountRef.current = total;
+    }
+
+    // 訂金：指定金額優先；否則依比例以折扣後金額試算（等同按「帶入訂金」）
+    if (draft.deposit_amount != null) {
+      setDepositPercent("");
+      setDeposit(String(draft.deposit_amount));
+    } else if (draft.deposit_percent != null) {
+      const p = draft.deposit_percent;
+      setDepositPercent(DEPOSIT_PERCENT_OPTIONS.includes(String(p)) ? String(p) : "");
+      if (base > 0) setDeposit(String(Math.round((base * p) / 100)));
+    }
+  }, [items, resolveChannelUnitPriceFor, resolveItemSettlementPrice]);
 
   /** 折扣 % 變更：立即以品項總計換算折扣後總金額；清空則回歸品項總計 */
   function handleDiscountPctChange(raw: string) {
@@ -3036,9 +3098,11 @@ function OrderFormDialog({
                           aria-label="訂金比例"
                         >
                           <option value="">自訂</option>
-                          <option value="30">30%</option>
-                          <option value="40">40%</option>
-                          <option value="50">50%</option>
+                          {DEPOSIT_PERCENT_OPTIONS.map((p) => (
+                            <option key={p} value={p}>
+                              {p}%
+                            </option>
+                          ))}
                         </select>
                         <div className="flex flex-1 flex-wrap items-center justify-end gap-2 sm:justify-end">
                           <span className="text-xs text-muted-foreground tabular-nums">
