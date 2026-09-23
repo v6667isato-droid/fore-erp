@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Search,
   User,
+  ZoomIn,
 } from "lucide-react";
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import {
@@ -32,6 +33,7 @@ import {
 } from "@/lib/work-order-stages";
 import { toast } from "sonner";
 import { VariantSeriesThumb } from "@/components/variant-series-thumb";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { maxPlannedEndDate } from "@/lib/planned-end-aggregate";
 import {
   formatSeatHeightCmLabel,
@@ -536,6 +538,11 @@ function OrderFullDetailSections({
     order.shipping_has_elevator != null;
   const borderCls = "border-border";
   const mutedBg = "bg-muted/30";
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const explanationImages = order.explanation_images.map((img, idx) => ({
+    url: img.url,
+    title: img.title?.trim() || `說明圖 ${idx + 1}`,
+  }));
 
   return (
     <div className={cn("flex flex-col gap-4 border-t px-4 py-4 sm:px-5", borderCls)}>
@@ -785,21 +792,37 @@ function OrderFullDetailSections({
         <div>
           <p className="mb-2 text-xs font-semibold text-foreground">設計圖面／訂單說明</p>
           <div className="space-y-4">
-            {order.explanation_images.map((img, idx) => (
+            {explanationImages.map((img, idx) => (
               <div key={idx} className="space-y-1.5">
-                <p className="text-xs font-medium text-foreground">
-                  {img.title?.trim() ? img.title : `說明圖 ${idx + 1}`}
-                </p>
-                <div className={cn("overflow-hidden rounded-lg border bg-muted/20", borderCls)}>
+                <p className="text-xs font-medium text-foreground">{img.title}</p>
+                <button
+                  type="button"
+                  onClick={() => setLightboxIndex(idx)}
+                  className={cn(
+                    "relative block w-full cursor-zoom-in overflow-hidden rounded-lg border bg-muted/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    borderCls
+                  )}
+                  title="點擊放大"
+                  aria-label={`放大檢視${img.title}`}
+                >
                   <img
                     src={img.url}
-                    alt={img.title?.trim() ? img.title : `說明圖 ${idx + 1}`}
+                    alt={img.title}
                     className="w-full max-h-[480px] object-contain"
                   />
-                </div>
+                  <span className="pointer-events-none absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-1 text-[11px] text-white">
+                    <ZoomIn className="h-3.5 w-3.5" />
+                    放大
+                  </span>
+                </button>
               </div>
             ))}
           </div>
+          <ImageLightbox
+            images={explanationImages}
+            index={lightboxIndex}
+            onIndexChange={setLightboxIndex}
+          />
         </div>
       ) : null}
     </div>
