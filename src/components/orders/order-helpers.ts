@@ -2,7 +2,7 @@ import type { CustomerRow } from "@/types/crm";
 import type { OrderRow, OrderStatus, PaymentStatus, ExplanationImage } from "./types";
 
 export const CUSTOMER_VIEW_SELECT =
-  "id, name, alias, contact_person, phone, line_id, ig_account, delivery_address, has_elevator, notes, source, customer_type, channel_id, contact_method";
+  "id, name, alias, contact_person, brand_name, company, tax_id, phone, line_id, ig_account, delivery_address, has_elevator, notes, source, customer_type, channel_id, contact_method, created_at";
 
 export function mapCustomerViewRow(r: Record<string, unknown>): CustomerRow {
   const addr = r.delivery_address ?? r.address;
@@ -11,6 +11,9 @@ export function mapCustomerViewRow(r: Record<string, unknown>): CustomerRow {
     name: String(r.name ?? ""),
     alias: r.alias != null ? String(r.alias) : null,
     contact_person: r.contact_person != null ? String(r.contact_person) : null,
+    brand_name: r.brand_name != null ? String(r.brand_name) : null,
+    company: r.company != null ? String(r.company) : null,
+    tax_id: r.tax_id != null ? String(r.tax_id) : null,
     phone: r.phone != null ? String(r.phone) : null,
     line_id: r.line_id != null ? String(r.line_id) : null,
     ig_account: r.ig_account != null ? String(r.ig_account) : null,
@@ -21,6 +24,7 @@ export function mapCustomerViewRow(r: Record<string, unknown>): CustomerRow {
     customer_type: r.customer_type != null ? String(r.customer_type) : null,
     channel_id: r.channel_id != null ? String(r.channel_id) : null,
     contact_method: r.contact_method != null ? String(r.contact_method) : null,
+    created_at: r.created_at != null ? String(r.created_at) : null,
   };
 }
 
