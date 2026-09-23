@@ -195,7 +195,32 @@ export function ViewSeriesDialog({ open, onOpenChange, row, variants }: ViewSeri
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   規格一覽
                 </h3>
-                <div className="rounded-lg border border-border overflow-hidden">
+                {/* 手機（sm 以下）：列表 */}
+                <ul className="divide-y divide-border rounded-lg border border-border sm:hidden">
+                  {variants.length === 0 ? (
+                    <li className="p-4 text-center text-sm text-muted-foreground">尚無規格</li>
+                  ) : (
+                    variants.map((v) => (
+                      <li key={v.id} className="flex flex-col gap-0.5 px-3 py-2">
+                        <p className="flex items-start justify-between gap-2">
+                          <span className="min-w-0 break-words text-sm font-medium text-foreground">
+                            {v.product_code || "—"}
+                          </span>
+                          <span className="shrink-0 text-sm tabular-nums text-foreground">
+                            {v.base_price != null ? v.base_price.toLocaleString() : "—"}
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {v.wood_type || "—"}
+                          {v.desktop_area != null ? `・面積 ${v.desktop_area}` : ""}
+                        </p>
+                        <p className="break-words text-xs text-muted-foreground">{formatDim(v)}</p>
+                      </li>
+                    ))
+                  )}
+                </ul>
+                {/* 平板以上：表格 */}
+                <div className="hidden rounded-lg border border-border overflow-hidden sm:block">
                   <Table>
                     <TableHeader>
                       <TableRow className="hover:bg-transparent border-b border-border">

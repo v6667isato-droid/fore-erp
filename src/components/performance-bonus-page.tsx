@@ -114,6 +114,12 @@ const inputClassSm =
 const inputClassNarrow =
   "h-9 w-11 rounded-md border border-input bg-background px-1 text-center text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+/**
+ * 姓名欄固定在左側：手機橫向捲動時仍看得到是誰。
+ * 半透明的列底色改以漸層疊在 bg-card 上，讓固定欄不透明、捲動的數字不會透出來。
+ */
+const STICKY_FIRST_COL = "sticky left-0 z-10 bg-card shadow-[inset_-1px_0_0_var(--color-border)]";
+
 function FieldLabel({ children }: { children: ReactNode }) {
   return (
     <span className="text-[11px] font-medium leading-none text-muted-foreground">{children}</span>
@@ -771,7 +777,9 @@ export function PerformanceBonusPage() {
         <table className="w-full min-w-[1040px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
-              <th className="px-2 py-2 text-left font-medium">姓名</th>
+              <th className={cn(STICKY_FIRST_COL, "bg-linear-to-r from-muted/40 to-muted/40 px-2 py-2 text-left font-medium")}>
+                姓名
+              </th>
               <th className="px-1.5 py-2 text-center font-medium">參與分紅</th>
               <th className="px-1.5 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
@@ -848,8 +856,15 @@ export function PerformanceBonusPage() {
               </tr>
             ) : (
               computed.rows.map((row) => (
-                <tr key={row.id} className="border-b border-border/60 hover:bg-muted/20">
-                  <td className="px-2 py-2 font-medium">{row.name}</td>
+                <tr key={row.id} className="group border-b border-border/60 hover:bg-muted/20">
+                  <td
+                    className={cn(
+                      STICKY_FIRST_COL,
+                      "whitespace-nowrap px-2 py-2 font-medium group-hover:bg-linear-to-r group-hover:from-muted/20 group-hover:to-muted/20",
+                    )}
+                  >
+                    {row.name}
+                  </td>
                   <td className="px-1.5 py-2 text-center">
                     <input
                       type="checkbox"
@@ -925,7 +940,7 @@ export function PerformanceBonusPage() {
             )}
             {!loading && computed.rows.length > 0 && (
               <tr className="bg-muted/30 font-medium">
-                <td className="px-2 py-2">合計</td>
+                <td className={cn(STICKY_FIRST_COL, "bg-linear-to-r from-muted/30 to-muted/30 px-2 py-2")}>合計</td>
                 <td className="px-1.5 py-2" />
                 <td className="px-1.5 py-2 text-right tabular-nums">{computed.totals.ability}</td>
                 <td className="px-1.5 py-2 text-right tabular-nums">{computed.totals.performance}</td>

@@ -47,6 +47,28 @@ export function OrderInvoicesDialog({
     if (!res.ok) toast.error(res.error);
   }
 
+  /** 光賀已開立的發票才可下載 PDF；其餘回傳 null */
+  function renderPdfButton(r: SalesInvoiceRow) {
+    if (!((r.sync_status === "confirmed" || r.sync_status === "sent") && r.invoice_number)) return null;
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+        title="下載發票 PDF"
+        aria-label={`下載發票 ${r.invoice_number} PDF`}
+        disabled={downloadingId === r.id}
+        onClick={(e) => {
+          e.stopPropagation();
+          void downloadPdf(r);
+        }}
+      >
+        <FileText className="h-4 w-4" />
+      </Button>
+    );
+  }
+
   return (
     <>
       <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -81,68 +103,85 @@ export function OrderInvoicesDialog({
             ) : rows.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">此訂單尚未開立發票。</p>
             ) : (
-              <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-                <table className="w-full min-w-[520px] text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">日期</th>
-                      <th className="px-2 py-2 font-medium">發票號碼</th>
-                      <th className="px-2 py-2 text-right font-medium">含稅金額</th>
-                      <th className="px-2 py-2 font-medium">狀態</th>
-                      <th className="px-2 py-2 font-medium">光賀</th>
-                      <th className="px-3 py-2 text-right font-medium">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {rows.map((r) => (
-                      <tr
-                        key={r.id}
-                        className="cursor-pointer hover:bg-muted/20"
+              <>
+                {/* 手機（sm 以下）：列表，點一筆開啟發票 */}
+                <ul className="mt-4 divide-y divide-border rounded-lg border border-border sm:hidden">
+                  {rows.map((r) => (
+                    <li key={r.id} className="flex items-center gap-2 px-3 py-2">
+                      <button
+                        type="button"
                         onClick={() => setViewRow(r)}
+                        className="flex min-w-0 flex-1 flex-col gap-0.5 rounded text-left focus:outline-none focus:ring-2 focus:ring-ring"
                       >
-                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-foreground">
-                          {r.invoice_date ?? "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2 font-medium tabular-nums text-foreground">
-                          {r.invoice_number ?? <span className="text-muted-foreground">（草稿）</span>}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-foreground">
-                          {r.amount_inc_tax != null ? `$${r.amount_inc_tax.toLocaleString()}` : "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2">
-                          <span className="rounded border border-border px-1.5 py-px text-xs text-muted-foreground">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium tabular-nums text-foreground">
+                            {r.invoice_number ?? <span className="text-muted-foreground">（草稿）</span>}
+                          </span>
+                          <span className="shrink-0 text-sm tabular-nums text-foreground">
+                            {r.amount_inc_tax != null ? `$${r.amount_inc_tax.toLocaleString()}` : "—"}
+                          </span>
+                        </span>
+                        <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="tabular-nums">{r.invoice_date ?? "—"}</span>
+                          <span className="rounded border border-border px-1.5 py-px">
                             {SALES_STATUS_LABELS[r.status] ?? r.status}
                           </span>
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2">
-                          <span className="rounded border border-border px-1.5 py-px text-xs text-muted-foreground">
+                          <span className="rounded border border-border px-1.5 py-px">
                             {SYNC_STATUS_LABELS[r.sync_status] ?? r.sync_status}
                           </span>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right">
-                          {(r.sync_status === "confirmed" || r.sync_status === "sent") && r.invoice_number && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              title="下載發票 PDF"
-                              aria-label={`下載發票 ${r.invoice_number} PDF`}
-                              disabled={downloadingId === r.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void downloadPdf(r);
-                              }}
-                            >
-                              <FileText className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </td>
+                        </span>
+                      </button>
+                      {renderPdfButton(r)}
+                    </li>
+                  ))}
+                </ul>
+
+                {/* 平板以上：表格 */}
+                <div className="mt-4 hidden overflow-x-auto rounded-lg border border-border sm:block">
+                  <table className="w-full min-w-[520px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                        <th className="px-3 py-2 font-medium">日期</th>
+                        <th className="px-2 py-2 font-medium">發票號碼</th>
+                        <th className="px-2 py-2 text-right font-medium">含稅金額</th>
+                        <th className="px-2 py-2 font-medium">狀態</th>
+                        <th className="px-2 py-2 font-medium">光賀</th>
+                        <th className="px-3 py-2 text-right font-medium">操作</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {rows.map((r) => (
+                        <tr
+                          key={r.id}
+                          className="cursor-pointer hover:bg-muted/20"
+                          onClick={() => setViewRow(r)}
+                        >
+                          <td className="whitespace-nowrap px-3 py-2 tabular-nums text-foreground">
+                            {r.invoice_date ?? "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-2 py-2 font-medium tabular-nums text-foreground">
+                            {r.invoice_number ?? <span className="text-muted-foreground">（草稿）</span>}
+                          </td>
+                          <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-foreground">
+                            {r.amount_inc_tax != null ? `$${r.amount_inc_tax.toLocaleString()}` : "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-2 py-2">
+                            <span className="rounded border border-border px-1.5 py-px text-xs text-muted-foreground">
+                              {SALES_STATUS_LABELS[r.status] ?? r.status}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-2 py-2">
+                            <span className="rounded border border-border px-1.5 py-px text-xs text-muted-foreground">
+                              {SYNC_STATUS_LABELS[r.sync_status] ?? r.sync_status}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right">{renderPdfButton(r)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
 
             <div className="mt-4 flex justify-end gap-2">

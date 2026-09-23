@@ -45,6 +45,12 @@ const BUCKET_DEFS = [
 
 type BucketKey = (typeof BUCKET_DEFS)[number]["key"];
 
+/**
+ * 月表第一欄固定在左側：手機橫向捲動時仍看得到是哪個月份。
+ * 半透明的列底色改以漸層疊在 bg-card 上，讓固定欄不透明、捲動的數字不會透出來。
+ */
+const STICKY_FIRST_COL = "sticky left-0 z-10 bg-card shadow-[inset_-1px_0_0_var(--color-border)]";
+
 function formatMoney(value: number): string {
   return Math.round(value).toLocaleString("zh-TW");
 }
@@ -677,7 +683,9 @@ export function CostStatisticsPage() {
               <table className="w-full min-w-[760px] text-sm">
                 <thead>
                   <tr className="whitespace-nowrap border-b border-border bg-muted/30 text-left text-muted-foreground">
-                    <th className="px-4 py-2 font-medium">月份</th>
+                    <th className={`${STICKY_FIRST_COL} bg-linear-to-r from-muted/30 to-muted/30 px-4 py-2 font-medium`}>
+                      月份
+                    </th>
                     <th className="px-4 py-2 text-right font-medium">材料與攤提</th>
                     <th className="px-4 py-2 text-right font-medium">薪資</th>
                     <th className="px-4 py-2 text-right font-medium">租金與利息</th>
@@ -704,7 +712,7 @@ export function CostStatisticsPage() {
                             key={item.row.key}
                             className={`border-b border-border/70 ${item.row.isProjected ? "text-muted-foreground" : ""}`}
                           >
-                            <td className="px-4 py-2 pl-10">
+                            <td className={`${STICKY_FIRST_COL} whitespace-nowrap px-4 py-2 pl-10`}>
                               <span className="inline-flex items-center gap-1.5">
                                 {monthLabel(item.row.key)}
                                 {item.row.isProjected ? (
@@ -751,7 +759,7 @@ export function CostStatisticsPage() {
                             key={`quarter-${item.quarter}`}
                             className="border-b border-border bg-muted/40 font-medium text-foreground"
                           >
-                            <td className="px-4 py-2">
+                            <td className={`${STICKY_FIRST_COL} bg-linear-to-r from-muted/40 to-muted/40 whitespace-nowrap px-4 py-2`}>
                               <button
                                 type="button"
                                 onClick={() =>
@@ -816,7 +824,10 @@ export function CostStatisticsPage() {
                   )}
                   {computed.tableRows.length > 0 && (
                     <tr className="bg-emerald-50/60 font-medium text-foreground dark:bg-emerald-950/30">
-                      <td className="px-4 py-2" title="僅計實際數，不含預估攤提">
+                      <td
+                        className={`${STICKY_FIRST_COL} bg-linear-to-r from-emerald-50/60 to-emerald-50/60 whitespace-nowrap px-4 py-2 dark:from-emerald-950/30 dark:to-emerald-950/30`}
+                        title="僅計實際數，不含預估攤提"
+                      >
                         年初至今合計
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums">

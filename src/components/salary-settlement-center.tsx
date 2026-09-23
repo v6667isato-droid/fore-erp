@@ -1912,10 +1912,11 @@ export function SalarySettlementCenter() {
                     <td
                       title={emp.name || undefined}
                       className={cn(
-                        "truncate font-medium text-foreground sticky left-0 z-10 shadow-[4px_0_12px_-4px_rgba(0,0,0,0.06)]",
+                        "truncate font-medium text-foreground sticky left-0 z-10 bg-card shadow-[4px_0_12px_-4px_rgba(0,0,0,0.06)]",
+                        // 固定欄需不透明：半透明列底色改以漸層疊在 bg-card 上，捲動的數字才不會透出
                         paid
-                          ? "bg-muted/25"
-                          : "bg-card group-hover:bg-muted/40",
+                          ? "bg-linear-to-r from-muted/25 to-muted/25"
+                          : "group-hover:bg-linear-to-r group-hover:from-muted/40 group-hover:to-muted/40",
                       )}
                     >
                       {emp.name || "—"}

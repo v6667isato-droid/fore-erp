@@ -420,82 +420,131 @@ export function AttendanceHistoryPanel() {
             📭 該月份尚無出勤紀錄，請先由匯入中心寫入。
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table className="min-w-[48rem]">
-              <TableHeader>
-                <TableRow className="border-border bg-muted/60 hover:bg-muted/60">
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
-                    日期
-                  </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
-                    星期
-                  </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
-                    員工姓名
-                  </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
-                    上班
-                  </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
-                    下班
-                  </TableHead>
-                  <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
-                    總工時
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-foreground">
-                    狀態／標籤
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((r, rowIndex) => {
-                  const iso = String(r.attendance_date).slice(0, 10);
-                  const name = r.employees?.name?.trim() || "—";
-                  const statusText = statusLineForHistoryRow(r);
-                  const rowKey =
-                    r.id ||
-                    [r.employee_id || "unknown", iso, String(rowIndex)].join(":");
-                  return (
-                    <TableRow
-                      key={rowKey}
-                      className={cn(
-                        "border-border",
-                        r.is_abnormal &&
-                          "bg-red-50/85 dark:bg-red-950/20 dark:hover:bg-red-950/25",
-                        !r.is_abnormal && "hover:bg-muted/50",
-                      )}
-                    >
-                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
-                        {formatDisplayDate(iso)}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {weekdayLabelFromIso(iso)}
-                      </TableCell>
-                      <TableCell className="text-sm font-medium text-foreground">
-                        {name}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
-                        {formatClockDb(r.clock_in)}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
-                        {formatClockDb(r.clock_out)}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
-                        {r.total_hours != null ? `${r.total_hours} 小時` : "—"}
-                      </TableCell>
-                      <TableCell className="min-w-[10rem] text-sm text-foreground">
-                        {statusText ? (
-                          <span className="leading-relaxed">{statusText}</span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
+          <>
+            {/* 手機／平板（lg 以下）：依日期分組的精簡列表，一人一行 */}
+            <div className="divide-y divide-border lg:hidden">
+              {[...rowsByDate.entries()].map(([iso, dayRows]) => (
+                <section key={iso}>
+                  <h3 className="bg-muted/40 px-4 py-1.5 text-xs font-semibold tabular-nums text-foreground">
+                    {formatDisplayDate(iso)}（{weekdayLabelFromIso(iso)}）
+                  </h3>
+                  <ul className="divide-y divide-border/60">
+                    {dayRows.map((r, ri) => {
+                      const statusText = statusLineForHistoryRow(r);
+                      return (
+                        <li
+                          key={r.id || `${r.employee_id}:${iso}:${ri}`}
+                          className={cn(
+                            "flex items-start justify-between gap-3 px-4 py-2",
+                            r.is_abnormal && "bg-red-50/85 dark:bg-red-950/20",
+                          )}
+                        >
+                          <div className="min-w-0">
+                            {!employeeId && (
+                              <p className="break-words text-sm font-medium text-foreground">
+                                {r.employees?.name?.trim() || "—"}
+                              </p>
+                            )}
+                            {statusText ? (
+                              <p className="break-words text-xs text-amber-900/90 dark:text-amber-200/90">
+                                {statusText}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="shrink-0 text-right tabular-nums">
+                            <p className="text-sm text-foreground">
+                              {formatClockDb(r.clock_in)} – {formatClockDb(r.clock_out)}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {r.total_hours != null ? `${r.total_hours} 小時` : "—"}
+                            </p>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))}
+            </div>
+
+            {/* 電腦（lg 以上）：表格 */}
+            <div className="hidden overflow-x-auto lg:block">
+              <Table className="min-w-[48rem]">
+                <TableHeader>
+                  <TableRow className="border-border bg-muted/60 hover:bg-muted/60">
+                    <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
+                      日期
+                    </TableHead>
+                    <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
+                      星期
+                    </TableHead>
+                    <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
+                      員工姓名
+                    </TableHead>
+                    <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
+                      上班
+                    </TableHead>
+                    <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
+                      下班
+                    </TableHead>
+                    <TableHead className="whitespace-nowrap text-xs font-semibold text-foreground">
+                      總工時
+                    </TableHead>
+                    <TableHead className="text-xs font-semibold text-foreground">
+                      狀態／標籤
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r, rowIndex) => {
+                    const iso = String(r.attendance_date).slice(0, 10);
+                    const name = r.employees?.name?.trim() || "—";
+                    const statusText = statusLineForHistoryRow(r);
+                    const rowKey =
+                      r.id ||
+                      [r.employee_id || "unknown", iso, String(rowIndex)].join(":");
+                    return (
+                      <TableRow
+                        key={rowKey}
+                        className={cn(
+                          "border-border",
+                          r.is_abnormal &&
+                            "bg-red-50/85 dark:bg-red-950/20 dark:hover:bg-red-950/25",
+                          !r.is_abnormal && "hover:bg-muted/50",
                         )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+                      >
+                        <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
+                          {formatDisplayDate(iso)}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {weekdayLabelFromIso(iso)}
+                        </TableCell>
+                        <TableCell className="text-sm font-medium text-foreground">
+                          {name}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
+                          {formatClockDb(r.clock_in)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
+                          {formatClockDb(r.clock_out)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap tabular-nums text-sm text-foreground">
+                          {r.total_hours != null ? `${r.total_hours} 小時` : "—"}
+                        </TableCell>
+                        <TableCell className="min-w-[10rem] text-sm text-foreground">
+                          {statusText ? (
+                            <span className="leading-relaxed">{statusText}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </div>
     </div>

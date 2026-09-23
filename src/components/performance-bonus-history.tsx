@@ -11,6 +11,12 @@ import type { Database } from "@/types/database.types";
 type IssuanceRow =
   Database["public"]["Tables"]["performance_bonus_issuance_rows"]["Row"];
 
+/**
+ * 姓名欄固定在左側：手機橫向捲動時仍看得到是誰。
+ * 半透明的列底色改以漸層疊在 bg-card 上，讓固定欄不透明、捲動的數字不會透出來。
+ */
+const STICKY_FIRST_COL = "sticky left-0 z-10 bg-card shadow-[inset_-1px_0_0_var(--color-border)]";
+
 type Issuance = Database["public"]["Tables"]["performance_bonus_issuances"]["Row"] & {
   performance_bonus_issuance_rows: IssuanceRow[];
 };
@@ -209,7 +215,9 @@ export function PerformanceBonusHistory({ refreshKey }: { refreshKey: number }) 
                       <table className="w-full min-w-[960px] border-collapse text-xs">
                         <thead>
                           <tr className="border-b border-border bg-muted/40 text-muted-foreground">
-                            <th className="px-2 py-1.5 text-left font-medium">姓名</th>
+                            <th className={cn(STICKY_FIRST_COL, "bg-linear-to-r from-muted/40 to-muted/40 px-2 py-1.5 text-left font-medium")}>
+                              姓名
+                            </th>
                             <th className="px-1.5 py-1.5 text-center font-medium">參與分紅</th>
                             <th className="px-1.5 py-1.5 text-right font-medium">能力分級</th>
                             <th className="px-1.5 py-1.5 text-right font-medium">考績</th>
@@ -230,7 +238,9 @@ export function PerformanceBonusHistory({ refreshKey }: { refreshKey: number }) 
                         <tbody>
                           {rows.map((r) => (
                             <tr key={r.id} className="border-b border-border/60 last:border-b-0">
-                              <td className="px-2 py-1.5 font-medium">{r.employee_name}</td>
+                              <td className={cn(STICKY_FIRST_COL, "whitespace-nowrap px-2 py-1.5 font-medium")}>
+                                {r.employee_name}
+                              </td>
                               <td className="px-1.5 py-1.5 text-center">
                                 {r.participates_in_profit_sharing ? "✓" : "—"}
                               </td>
@@ -255,7 +265,9 @@ export function PerformanceBonusHistory({ refreshKey }: { refreshKey: number }) 
                             </tr>
                           ))}
                           <tr className="bg-muted/30 font-medium">
-                            <td className="px-2 py-1.5">合計</td>
+                            <td className={cn(STICKY_FIRST_COL, "bg-linear-to-r from-muted/30 to-muted/30 px-2 py-1.5")}>
+                              合計
+                            </td>
                             <td className="px-1.5 py-1.5" colSpan={11} />
                             <td className="px-1.5 py-1.5 text-right tabular-nums">
                               {formatMoney(rec.year_end_bonus_total)}

@@ -369,8 +369,30 @@ export function DashboardOverview({
           </span>
         </button>
         {recentOpen && (
-          <div className="max-h-[9.5rem] overflow-y-auto border-t border-border">
-            <Table>
+          <div className="@container max-h-[9.5rem] overflow-y-auto border-t border-border">
+            {/* 依容器寬度切換：窄時（手機）改兩行式列表，放得下五欄才用表格 */}
+            <ul className="divide-y divide-border @min-[30rem]:hidden">
+              {recentOrders.length === 0 ? (
+                <li className="py-2 text-center text-xs text-muted-foreground">尚無訂單</li>
+              ) : (
+                recentOrders.map((order) => (
+                  <li key={order.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs text-foreground">{order.customer_name}</p>
+                      <p className="font-mono text-[10px] text-muted-foreground">{order.order_number}</p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-0.5">
+                      <span className="text-xs tabular-nums text-foreground">${order.total_amount.toLocaleString()}</span>
+                      <span className="flex items-center gap-1">
+                        <StatusBadge status={order.status} />
+                        <PaymentStatusBadge paymentStatus={order.payment_status} />
+                      </span>
+                    </div>
+                  </li>
+                ))
+              )}
+            </ul>
+            <Table wrapperClassName="hidden @min-[30rem]:block">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="h-7 px-2 py-1 text-[10px]">訂單編號</TableHead>

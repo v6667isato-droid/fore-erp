@@ -201,36 +201,60 @@ export function ViewVendorDialog({ open, onOpenChange, row, categoryGroups = [] 
               ) : purchases.length === 0 ? (
                 <p className="text-sm text-muted-foreground">尚無採購紀錄</p>
               ) : (
-                <div className="rounded-lg border border-border overflow-x-auto overflow-y-hidden">
-                  <Table className="min-w-[640px]">
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
-                        <TableHead className="text-xs font-semibold p-2">日期</TableHead>
-                        <TableHead className="text-xs font-semibold p-2">品名</TableHead>
-                        <TableHead className="text-xs font-semibold p-2">物品類別</TableHead>
-                        <TableHead className="text-xs font-semibold p-2">規格</TableHead>
-                        <TableHead className="text-xs font-semibold p-2 text-right">數量</TableHead>
-                        <TableHead className="text-xs font-semibold p-2">單位</TableHead>
-                        <TableHead className="text-xs font-semibold p-2 text-right">已稅單價</TableHead>
-                        <TableHead className="text-xs font-semibold p-2 text-right">含稅總價</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {purchases.map((p) => (
-                        <TableRow key={p.id} className="border-b border-border last:border-0">
-                          <TableCell className="text-xs p-2 whitespace-nowrap">{formatDate(p.purchase_date)}</TableCell>
-                          <TableCell className="text-xs p-2">{p.item_name || "—"}</TableCell>
-                          <TableCell className="text-xs p-2 text-muted-foreground">{p.item_category || "—"}</TableCell>
-                          <TableCell className="text-xs p-2 text-muted-foreground">{p.spec || "—"}</TableCell>
-                          <TableCell className="text-xs p-2 text-right">{p.quantity}</TableCell>
-                          <TableCell className="text-xs p-2">{p.unit || "—"}</TableCell>
-                          <TableCell className="text-xs p-2 text-right tabular-nums">{p.unit_price_inc_tax.toLocaleString()}</TableCell>
-                          <TableCell className="text-xs p-2 text-right tabular-nums font-medium">{p.tax_included_amount.toLocaleString()}</TableCell>
+                <>
+                  {/* 手機（md 以下）：列表 */}
+                  <ul className="divide-y divide-border rounded-lg border border-border md:hidden">
+                    {purchases.map((p) => {
+                      const specText = [p.item_category, p.spec].map((s) => s?.trim()).filter(Boolean).join("｜");
+                      return (
+                        <li key={p.id} className="flex flex-col gap-0.5 px-3 py-2 text-xs">
+                          <p className="flex items-start justify-between gap-2">
+                            <span className="min-w-0 break-words text-sm text-foreground">{p.item_name || "—"}</span>
+                            <span className="shrink-0 text-sm font-medium tabular-nums text-foreground">
+                              ${p.tax_included_amount.toLocaleString()}
+                            </span>
+                          </p>
+                          {specText ? <p className="break-words text-muted-foreground">{specText}</p> : null}
+                          <p className="tabular-nums text-muted-foreground">
+                            {formatDate(p.purchase_date)}・數量 {p.quantity}
+                            {p.unit ? ` ${p.unit}` : ""}・單價 {p.unit_price_inc_tax.toLocaleString()}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {/* 平板以上：表格 */}
+                  <div className="hidden rounded-lg border border-border overflow-x-auto overflow-y-hidden md:block">
+                    <Table className="min-w-[640px]">
+                      <TableHeader>
+                        <TableRow className="hover:bg-transparent border-b border-border bg-muted/30">
+                          <TableHead className="text-xs font-semibold p-2">日期</TableHead>
+                          <TableHead className="text-xs font-semibold p-2">品名</TableHead>
+                          <TableHead className="text-xs font-semibold p-2">物品類別</TableHead>
+                          <TableHead className="text-xs font-semibold p-2">規格</TableHead>
+                          <TableHead className="text-xs font-semibold p-2 text-right">數量</TableHead>
+                          <TableHead className="text-xs font-semibold p-2">單位</TableHead>
+                          <TableHead className="text-xs font-semibold p-2 text-right">已稅單價</TableHead>
+                          <TableHead className="text-xs font-semibold p-2 text-right">含稅總價</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {purchases.map((p) => (
+                          <TableRow key={p.id} className="border-b border-border last:border-0">
+                            <TableCell className="text-xs p-2 whitespace-nowrap">{formatDate(p.purchase_date)}</TableCell>
+                            <TableCell className="text-xs p-2">{p.item_name || "—"}</TableCell>
+                            <TableCell className="text-xs p-2 text-muted-foreground">{p.item_category || "—"}</TableCell>
+                            <TableCell className="text-xs p-2 text-muted-foreground">{p.spec || "—"}</TableCell>
+                            <TableCell className="text-xs p-2 text-right">{p.quantity}</TableCell>
+                            <TableCell className="text-xs p-2">{p.unit || "—"}</TableCell>
+                            <TableCell className="text-xs p-2 text-right tabular-nums">{p.unit_price_inc_tax.toLocaleString()}</TableCell>
+                            <TableCell className="text-xs p-2 text-right tabular-nums font-medium">{p.tax_included_amount.toLocaleString()}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </Section>
           </div>

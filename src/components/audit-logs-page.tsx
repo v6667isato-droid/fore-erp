@@ -228,6 +228,21 @@ export function AuditLogsPage() {
     setLoadingMore(false);
   }
 
+  function actionMeta(row: AuditRow) {
+    return (
+      ACTION_LABELS[row.action] ?? {
+        label: row.action,
+        className: "bg-muted text-muted-foreground",
+      }
+    );
+  }
+
+  function contentSummary(row: AuditRow): string {
+    return row.action === "UPDATE"
+      ? `${summaryOf(row)} · 改了 ${(row.changed_fields ?? []).length} 個欄位`
+      : summaryOf(row);
+  }
+
   function renderDetail(row: AuditRow) {
     if (row.action === "UPDATE") {
       const fields = row.changed_fields ?? [];
@@ -346,80 +361,126 @@ export function AuditLogsPage() {
           沒有符合條件的紀錄
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8" />
-                <TableHead className="whitespace-nowrap">時間</TableHead>
-                <TableHead className="whitespace-nowrap">操作者</TableHead>
-                <TableHead className="whitespace-nowrap">動作</TableHead>
-                <TableHead className="whitespace-nowrap">資料表</TableHead>
-                <TableHead className="whitespace-nowrap">內容</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => {
-                const action = ACTION_LABELS[row.action] ?? {
-                  label: row.action,
-                  className: "bg-muted text-muted-foreground",
-                };
-                const expanded = expandedId === row.id;
-                return (
-                  <Fragment key={row.id}>
-                    <TableRow
-                      className="cursor-pointer"
-                      onClick={() => setExpandedId(expanded ? null : row.id)}
-                    >
-                      <TableCell className="pr-0 text-muted-foreground">
-                        {expanded ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-                        {formatAuditTime(row.happened_at)}
-                      </TableCell>
-                      <TableCell
-                        className="max-w-[180px] truncate text-xs"
-                        title={row.actor_email ?? row.actor_label ?? undefined}
-                      >
+        <>
+          {/* 手機／平板（lg 以下）：時間軸，點一筆展開欄位內容 */}
+          <ol className="ml-1.5 border-l border-border lg:hidden">
+            {rows.map((row) => {
+              const action = actionMeta(row);
+              const expanded = expandedId === row.id;
+              return (
+                <li key={row.id} className="relative pb-3 pl-4 last:pb-0">
+                  <span
+                    className="absolute -left-[5px] top-3.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-muted-foreground/60"
+                    aria-hidden
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(expanded ? null : row.id)}
+                    aria-expanded={expanded}
+                    className="flex w-full flex-col gap-1 rounded-lg border border-border bg-card p-3 text-left focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span className="tabular-nums">{formatAuditTime(row.happened_at)}</span>
+                      <span className="min-w-0 truncate" title={row.actor_email ?? row.actor_label ?? undefined}>
                         {actorText(row)}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${action.className}`}
+                      </span>
+                    </span>
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${action.className}`}>
+                        {action.label}
+                      </span>
+                      <span className="text-xs text-foreground">{TABLE_LABELS[row.table_name] ?? row.table_name}</span>
+                      <ChevronDown
+                        className={`ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+                        aria-hidden
+                      />
+                    </span>
+                    <span className="break-words text-xs text-muted-foreground">{contentSummary(row)}</span>
+                  </button>
+                  {expanded ? (
+                    <div className="mt-1 rounded-lg bg-muted/30 p-3">
+                      <div className="mb-2 break-all text-[11px] text-muted-foreground">
+                        紀錄 ID：<span className="font-mono">{row.record_id ?? "—"}</span>
+                      </div>
+                      {renderDetail(row)}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+
+          {/* 電腦（lg 以上）：表格 */}
+          <div className="hidden overflow-x-auto rounded-xl border border-border bg-card lg:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead className="whitespace-nowrap">時間</TableHead>
+                  <TableHead className="whitespace-nowrap">操作者</TableHead>
+                  <TableHead className="whitespace-nowrap">動作</TableHead>
+                  <TableHead className="whitespace-nowrap">資料表</TableHead>
+                  <TableHead className="whitespace-nowrap">內容</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => {
+                  const action = actionMeta(row);
+                  const expanded = expandedId === row.id;
+                  return (
+                    <Fragment key={row.id}>
+                      <TableRow
+                        className="cursor-pointer"
+                        onClick={() => setExpandedId(expanded ? null : row.id)}
+                      >
+                        <TableCell className="pr-0 text-muted-foreground">
+                          {expanded ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+                          {formatAuditTime(row.happened_at)}
+                        </TableCell>
+                        <TableCell
+                          className="max-w-[180px] truncate text-xs"
+                          title={row.actor_email ?? row.actor_label ?? undefined}
                         >
-                          {action.label}
-                        </span>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">
-                        {TABLE_LABELS[row.table_name] ?? row.table_name}
-                      </TableCell>
-                      <TableCell className="max-w-[280px] truncate text-xs text-muted-foreground">
-                        {row.action === "UPDATE"
-                          ? `${summaryOf(row)} · 改了 ${(row.changed_fields ?? []).length} 個欄位`
-                          : summaryOf(row)}
-                      </TableCell>
-                    </TableRow>
-                    {expanded ? (
-                      <TableRow className="bg-muted/30 hover:bg-muted/30">
-                        <TableCell />
-                        <TableCell colSpan={5} className="py-3">
-                          <div className="mb-2 text-[11px] text-muted-foreground">
-                            紀錄 ID：<span className="font-mono">{row.record_id ?? "—"}</span>
-                          </div>
-                          {renderDetail(row)}
+                          {actorText(row)}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${action.className}`}
+                          >
+                            {action.label}
+                          </span>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {TABLE_LABELS[row.table_name] ?? row.table_name}
+                        </TableCell>
+                        <TableCell className="max-w-[280px] truncate text-xs text-muted-foreground">
+                          {contentSummary(row)}
                         </TableCell>
                       </TableRow>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                      {expanded ? (
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableCell />
+                          <TableCell colSpan={5} className="py-3">
+                            <div className="mb-2 text-[11px] text-muted-foreground">
+                              紀錄 ID：<span className="font-mono">{row.record_id ?? "—"}</span>
+                            </div>
+                            {renderDetail(row)}
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
 
       {!loading && hasMore ? (

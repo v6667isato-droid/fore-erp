@@ -251,6 +251,30 @@ export function OrderReturnDialog({
     onSaved();
   }
 
+  function returnItemsText(r: ReturnRecord): string {
+    return (
+      r.order_return_items
+        .map((ri) => `${ri.description ?? "品項"}×${ri.quantity}`)
+        .join("、") || "—"
+    );
+  }
+
+  function renderDeleteReturnButton(r: ReturnRecord) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+        title="刪除退貨紀錄"
+        aria-label={`刪除 ${r.return_date} 退貨紀錄`}
+        onClick={() => setDeleteTarget(r)}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+    );
+  }
+
   return (
     <>
       <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -289,7 +313,26 @@ export function OrderReturnDialog({
             {returns != null && returns.length > 0 && (
               <div className="mt-4">
                 <p className={labelCls}>既有退貨紀錄</p>
-                <div className="mt-1 overflow-x-auto rounded-lg border border-border">
+                {/* 手機（sm 以下）：列表 */}
+                <ul className="mt-1 divide-y divide-border rounded-lg border border-border sm:hidden">
+                  {returns.map((r) => (
+                    <li key={r.id} className="flex items-start gap-2 px-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-center justify-between gap-2 text-xs">
+                          <span className="tabular-nums text-muted-foreground">{r.return_date}</span>
+                          <span className="text-sm tabular-nums text-foreground">
+                            ${Number(r.refund_amount).toLocaleString()}
+                          </span>
+                        </p>
+                        <p className="break-words text-sm text-foreground">{returnItemsText(r)}</p>
+                        {r.reason ? <p className="break-words text-xs text-muted-foreground">{r.reason}</p> : null}
+                      </div>
+                      {renderDeleteReturnButton(r)}
+                    </li>
+                  ))}
+                </ul>
+                {/* 平板以上：表格 */}
+                <div className="mt-1 hidden overflow-x-auto rounded-lg border border-border sm:block">
                   <table className="w-full min-w-[480px] text-sm">
                     <thead>
                       <tr className="border-b border-border text-left text-xs text-muted-foreground">
@@ -306,27 +349,12 @@ export function OrderReturnDialog({
                           <td className="whitespace-nowrap px-3 py-2 tabular-nums text-foreground">
                             {r.return_date}
                           </td>
-                          <td className="px-2 py-2 text-foreground">
-                            {r.order_return_items
-                              .map((ri) => `${ri.description ?? "品項"}×${ri.quantity}`)
-                              .join("、") || "—"}
-                          </td>
+                          <td className="px-2 py-2 text-foreground">{returnItemsText(r)}</td>
                           <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-foreground">
                             ${Number(r.refund_amount).toLocaleString()}
                           </td>
                           <td className="px-2 py-2 text-muted-foreground">{r.reason ?? "—"}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              title="刪除退貨紀錄"
-                              onClick={() => setDeleteTarget(r)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right">{renderDeleteReturnButton(r)}</td>
                         </tr>
                       ))}
                     </tbody>
