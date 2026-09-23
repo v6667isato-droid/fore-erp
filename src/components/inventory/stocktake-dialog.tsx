@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { setStocktakeTaskCompleted } from "@/lib/stocktake-tasks";
 import type { EmployeeOption } from "@/types/inventory";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 /** 盤點列＝一個庫存變體（part_variant_stock_status 一列） */
 interface StocktakeVariant {
@@ -255,12 +257,11 @@ export function StocktakeDialog({
                           {v.current_stock} {v.unit}
                         </td>
                         <td className="p-1.5 text-right sm:p-2">
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
+                          <NumericInput
                             value={raw}
-                            onChange={(e) => setCounts((c) => ({ ...c, [v.id]: e.target.value }))}
+                            keepZero
+                            allowDecimal
+                            onValueChange={(val) => setCounts((c) => ({ ...c, [v.id]: toNumericText(val) }))}
                             className="h-8 w-16 rounded-lg border border-input bg-background px-2 text-right text-sm focus:outline-none focus:ring-2 focus:ring-ring sm:w-24"
                             placeholder="未盤"
                             aria-label={`${v.name}${v.material_name ? `・${v.material_name}` : ""} 實際數量`}

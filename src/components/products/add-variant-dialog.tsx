@@ -15,6 +15,8 @@ import type { TablesInsert } from "@/types/database.types";
 import { seriesCodeFromName } from "@/types/inventory";
 import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
 import { parseSizeCode } from "@/lib/size-code";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 export interface AddVariantDialogProps {
   open: boolean;
@@ -478,11 +480,11 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
             {fallbackNeedD && (
               <div className="flex flex-col gap-1">
                 <label htmlFor="gen-batch-d" className="text-[11px] text-muted-foreground">補深 D（cm）</label>
-                <input
+                <NumericInput
                   id="gen-batch-d"
-                  type="number"
                   value={batchD}
-                  onChange={(e) => setBatchD(e.target.value)}
+                  allowDecimal
+                  onValueChange={(v) => setBatchD(toNumericText(v))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") e.preventDefault();
                   }}
@@ -494,11 +496,11 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
             {fallbackNeedH && (
               <div className="flex flex-col gap-1">
                 <label htmlFor="gen-batch-h" className="text-[11px] text-muted-foreground">補高 H（cm）</label>
-                <input
+                <NumericInput
                   id="gen-batch-h"
-                  type="number"
                   value={batchH}
-                  onChange={(e) => setBatchH(e.target.value)}
+                  allowDecimal
+                  onValueChange={(v) => setBatchH(toNumericText(v))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") e.preventDefault();
                   }}
@@ -567,33 +569,33 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                     <div className="flex flex-wrap items-end gap-2">
                       <div className="flex flex-col gap-1">
                         <label htmlFor="gen-batch-dim-w" className="text-[11px] text-muted-foreground">寬 W</label>
-                        <input
+                        <NumericInput
                           id="gen-batch-dim-w"
-                          type="number"
                           value={batchW}
-                          onChange={(e) => setBatchW(e.target.value)}
+                          allowDecimal
+                          onValueChange={(v) => setBatchW(toNumericText(v))}
                           className={`${inputCls} w-24`}
                           placeholder="選填"
                         />
                       </div>
                       <div className="flex flex-col gap-1">
                         <label htmlFor="gen-batch-dim-d" className="text-[11px] text-muted-foreground">深 D</label>
-                        <input
+                        <NumericInput
                           id="gen-batch-dim-d"
-                          type="number"
                           value={batchD}
-                          onChange={(e) => setBatchD(e.target.value)}
+                          allowDecimal
+                          onValueChange={(v) => setBatchD(toNumericText(v))}
                           className={`${inputCls} w-24`}
                           placeholder="選填"
                         />
                       </div>
                       <div className="flex flex-col gap-1">
                         <label htmlFor="gen-batch-dim-h" className="text-[11px] text-muted-foreground">高 H</label>
-                        <input
+                        <NumericInput
                           id="gen-batch-dim-h"
-                          type="number"
                           value={batchH}
-                          onChange={(e) => setBatchH(e.target.value)}
+                          allowDecimal
+                          onValueChange={(v) => setBatchH(toNumericText(v))}
                           className={`${inputCls} w-24`}
                           placeholder="選填"
                         />
@@ -642,15 +644,15 @@ export function AddVariantDialog({ open, onOpenChange, series, onSuccess }: AddV
                               ) : (
                                 <>
                                   <span className="text-muted-foreground">NT$</span>
-                                  <input
-                                    type="number"
+                                  <NumericInput
                                     value={priceEdits[editKey] ?? (c.price == null ? "" : String(c.price))}
-                                    onChange={(e) =>
-                                      setPriceEdits((prev) => ({ ...prev, [editKey]: e.target.value }))
+                                    keepZero
+                                    onValueChange={(v) =>
+                                      setPriceEdits((prev) => ({ ...prev, [editKey]: toNumericText(v) }))
                                     }
                                     className="h-7 w-24 rounded-md border border-input bg-background px-2 text-right text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                                     aria-label={`定價 ${c.code}`}
-                                    placeholder={c.price == null ? "輸入定價" : undefined}
+                                    placeholder={c.price == null ? "輸入定價" : String(c.price)}
                                   />
                                 </>
                               )}

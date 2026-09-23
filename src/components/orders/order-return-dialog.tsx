@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { supabase } from "@/lib/supabase";
 import type { OrderRow } from "@/components/orders/types";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 const inputCls =
   "h-8 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60";
@@ -362,19 +364,17 @@ export function OrderReturnDialog({
                           </span>
                           <span className="flex items-center gap-1 text-xs text-muted-foreground">
                             退
-                            <input
-                              type="number"
+                            <NumericInput
                               min={1}
                               max={it.quantity}
                               value={checked ? qty : ""}
                               disabled={!checked}
-                              onChange={(e) => {
-                                const v = Math.max(
-                                  1,
-                                  Math.min(it.quantity, Math.floor(Number(e.target.value) || 1)),
-                                );
-                                setSelectedQty((prev) => ({ ...prev, [it.id]: v }));
-                              }}
+                              onValueChange={(v) =>
+                                setSelectedQty((prev) => ({
+                                  ...prev,
+                                  [it.id]: Math.max(1, Math.min(it.quantity, v ?? 1)),
+                                }))
+                              }
                               className="h-7 w-14 rounded-md border border-input bg-background px-1 text-center text-sm tabular-nums disabled:opacity-40"
                             />
                             ／{it.quantity}
@@ -403,14 +403,12 @@ export function OrderReturnDialog({
                   <label className={labelCls} htmlFor="order-return-amount">
                     退款金額（含稅）
                   </label>
-                  <input
+                  <NumericInput
                     id="order-return-amount"
-                    type="number"
-                    min={0}
                     value={refundAmount}
-                    onChange={(e) => {
+                    onValueChange={(v) => {
                       setRefundTouched(true);
-                      setRefundAmount(e.target.value);
+                      setRefundAmount(toNumericText(v));
                     }}
                     placeholder="0"
                     className={inputCls}

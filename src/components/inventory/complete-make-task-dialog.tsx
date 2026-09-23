@@ -7,6 +7,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { completePartMakeTask, type PartMakeTaskItem, type PartMakeTaskRow } from "@/lib/part-make-tasks";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 /** 品項 key：同一任務可能有同零件不同材質變體，優先用 variant id 區分（舊快照退回 part_id） */
 function itemKey(it: PartMakeTaskItem): string {
@@ -104,13 +106,11 @@ export function CompleteMakeTaskDialog({
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
+                  <NumericInput
                     value={actuals[itemKey(it)] ?? ""}
-                    onChange={(e) =>
-                      setActuals((a) => ({ ...a, [itemKey(it)]: e.target.value }))
+                    allowDecimal
+                    onValueChange={(v) =>
+                      setActuals((a) => ({ ...a, [itemKey(it)]: toNumericText(v) }))
                     }
                     className={cn(
                       "h-9 w-24 rounded-lg border border-input bg-background px-2 text-right text-sm",

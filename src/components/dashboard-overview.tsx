@@ -30,6 +30,8 @@ import {
   type LeadTimeEstimates,
 } from "@/lib/lead-time-estimates";
 import { LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 const statusStyles: Record<string, string> = {
   生產中: "bg-[var(--badge-progress)] text-[var(--badge-progress-fg)] border-transparent",
@@ -533,12 +535,10 @@ function LeadTimeParamsDialog({
             {fields.map((f) => (
               <label key={f.key} className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">{f.label}</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
+                <NumericInput
                   value={values[f.key] ?? ""}
-                  onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                  allowDecimal
+                  onValueChange={(v) => setValues((prev) => ({ ...prev, [f.key]: toNumericText(v) }))}
                   className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </label>

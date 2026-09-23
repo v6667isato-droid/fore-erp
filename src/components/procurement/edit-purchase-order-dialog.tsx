@@ -28,6 +28,8 @@ import {
   materialCategoryFilterMatches,
   type MaterialCategoryGroup,
 } from "@/lib/material-category-groups";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 const FILTER_MATERIAL_UNCATEGORIZED = "__uncategorized__";
 
@@ -644,13 +646,11 @@ export function EditPurchaseOrderDialog({ open, onOpenChange, group, onSuccess }
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
                       <div className="flex flex-col gap-1.5">
                         <label htmlFor={`edit-po-qty-${line.key}`} className="text-xs text-muted-foreground">數量</label>
-                        <input
+                        <NumericInput
                           id={`edit-po-qty-${line.key}`}
-                          type="number"
-                          min={0}
-                          step="any"
                           value={line.quantity}
-                          onChange={(e) => updateLine(line.key, { quantity: e.target.value })}
+                          allowDecimal
+                          onValueChange={(v) => updateLine(line.key, { quantity: toNumericText(v) })}
                           className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           placeholder="數量"
                         />
@@ -659,13 +659,12 @@ export function EditPurchaseOrderDialog({ open, onOpenChange, group, onSuccess }
                         <label htmlFor={`edit-po-price-${line.key}`} className="text-xs text-muted-foreground">
                           單價（{line.taxInclusive ? "已稅" : "未稅"}）
                         </label>
-                        <input
+                        <NumericInput
                           id={`edit-po-price-${line.key}`}
-                          type="number"
-                          min={0}
                           step="0.01"
                           value={line.unitPrice}
-                          onChange={(e) => updateLine(line.key, { unitPrice: e.target.value })}
+                          allowDecimal
+                          onValueChange={(v) => updateLine(line.key, { unitPrice: toNumericText(v) })}
                           className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           placeholder="0"
                         />

@@ -39,6 +39,7 @@ import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-paym
 import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
 import { buildPortalItemListCsv } from "@/lib/portal-item-list-csv";
 import { LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
+import { NumericInput } from "@/components/ui/numeric-input";
 
 function resolvePortalSeatHeight(v: {
   seat_height_cm?: number | null;
@@ -1544,31 +1545,19 @@ export default function PortalPage() {
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs text-muted-foreground">數量 *</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={it.quantity || ""}
-                          onChange={(e) =>
-                            updateItem(it.id, { quantity: parseInt(e.target.value, 10) || 0 })
-                          }
+                        <NumericInput
+                          value={it.quantity}
+                          onValueChange={(v) => updateItem(it.id, { quantity: Math.max(1, v ?? 1) })}
                           className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <label className="text-xs text-muted-foreground">座高（cm）</label>
-                        <input
-                          type="number"
-                          min={0}
+                        <NumericInput
                           step="0.1"
                           value={it.seat_height_cm ?? ""}
-                          onChange={(e) =>
-                            updateItem(it.id, {
-                              seat_height_cm:
-                                e.target.value === ""
-                                  ? null
-                                  : Number(e.target.value),
-                            })
-                          }
+                          allowDecimal
+                          onValueChange={(v) => updateItem(it.id, { seat_height_cm: v })}
                           placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}`}
                           className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         />
@@ -2148,29 +2137,19 @@ export default function PortalPage() {
                             </div>
                             <div>
                               <label className="text-[11px] text-muted-foreground">數量 *</label>
-                              <input
-                                type="number"
-                                min={1}
-                                value={it.quantity || ""}
-                                onChange={(e) => updateEditItem(it.id, { quantity: parseInt(e.target.value, 10) || 0 })}
+                              <NumericInput
+                                value={it.quantity}
+                                onValueChange={(v) => updateEditItem(it.id, { quantity: Math.max(1, v ?? 1) })}
                                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                               />
                             </div>
                             <div>
                               <label className="text-[11px] text-muted-foreground">座高（cm）</label>
-                              <input
-                                type="number"
-                                min={0}
+                              <NumericInput
                                 step="0.1"
                                 value={it.seat_height_cm ?? ""}
-                                onChange={(e) =>
-                                  updateEditItem(it.id, {
-                                    seat_height_cm:
-                                      e.target.value === ""
-                                        ? null
-                                        : Number(e.target.value),
-                                  })
-                                }
+                                allowDecimal
+                                onValueChange={(v) => updateEditItem(it.id, { seat_height_cm: v })}
                                 placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}`}
                                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                               />

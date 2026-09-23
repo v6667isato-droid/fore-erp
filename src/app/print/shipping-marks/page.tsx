@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowBigUp, Hand } from "lucide-react";
+import { NumericInput } from "@/components/ui/numeric-input";
 
 type MarkId = "handle" | "fragile" | "up";
 
@@ -95,12 +96,10 @@ export default function ShippingMarksPrintPage() {
                     <m.Icon className="h-4 w-4 text-amber-800 shrink-0" aria-hidden />
                     {m.label}
                   </span>
-                  <input
-                    type="number"
-                    min={0}
+                  <NumericInput
                     max={99}
                     value={counts[m.id]}
-                    onChange={(e) => setCount(m.id, parseInt(e.target.value, 10) || 0)}
+                    onValueChange={(v) => setCount(m.id, v ?? 0)}
                     className="h-8 w-16 rounded-md border border-gray-300 px-2 text-sm tabular-nums text-center"
                   />
                 </div>

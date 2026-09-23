@@ -14,6 +14,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { SeriesRow, SeriesImageMeta } from "@/types/products";
 import { cn } from "@/lib/utils";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 export interface EditSeriesDialogProps {
   open: boolean;
@@ -418,13 +420,11 @@ export function EditSeriesDialog({ open, onOpenChange, row, onSuccess }: EditSer
                       交期（週）
                     </label>
                     <div className="flex items-center gap-2">
-                      <input
+                      <NumericInput
                         id="edit-series-production-time"
-                        type="number"
-                        min={0}
-                        step="any"
                         value={productionTime}
-                        onChange={(e) => setProductionTime(e.target.value)}
+                        allowDecimal
+                        onValueChange={(v) => setProductionTime(toNumericText(v))}
                         className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                         placeholder="例如：3"
                       />

@@ -33,6 +33,8 @@ import {
   type SalesInvoiceRow,
   type SalesInvoiceType,
 } from "@/lib/sales-invoice";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 /** 從 Supabase 錯誤物件盡量取出可讀訊息 */
 function errText(err: unknown, fallback: string): string {
@@ -999,26 +1001,28 @@ export function SalesInvoiceDialog({ open, onOpenChange, invoice, order, readOnl
                         className={`${inputCls} mb-1.5 sm:mb-0`}
                       />
                       <div className="grid grid-cols-[3.25rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-1.5 sm:contents">
-                        <input
-                          type="number"
+                        <NumericInput
                           value={l.quantity}
-                          onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
+                          allowDecimal
+                          onValueChange={(v) => updateLine(l.key, { quantity: toNumericText(v) })}
                           placeholder="數量"
                           aria-label="數量"
                           className={`${inputCls} text-right`}
                         />
-                        <input
-                          type="number"
+                        <NumericInput
                           value={blank ? "" : String(unitEx(l))}
-                          onChange={(e) => updateUnitPrice(l.key, e.target.value, "ex")}
+                          allowNegative
+                          allowDecimal
+                          onValueChange={(v) => updateUnitPrice(l.key, toNumericText(v), "ex")}
                           placeholder="未稅"
                           aria-label="未稅單價"
                           className={`${inputCls} text-right ${priceIsTaxInclusive && taxable ? "text-muted-foreground" : ""}`}
                         />
-                        <input
-                          type="number"
+                        <NumericInput
                           value={blank ? "" : String(unitInc(l))}
-                          onChange={(e) => updateUnitPrice(l.key, e.target.value, "inc")}
+                          allowNegative
+                          allowDecimal
+                          onValueChange={(v) => updateUnitPrice(l.key, toNumericText(v), "inc")}
                           placeholder="含稅"
                           aria-label="含稅單價"
                           className={`${inputCls} text-right ${!priceIsTaxInclusive && taxable ? "text-muted-foreground" : ""}`}

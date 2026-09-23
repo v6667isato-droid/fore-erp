@@ -26,6 +26,8 @@ import {
 import { archiveScanPath, fixRocDate, type InvoiceScanRow } from "@/lib/invoice-scan";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 const FILTER_MATERIAL_UNCATEGORIZED = "__uncategorized__";
 
@@ -779,13 +781,11 @@ export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived, onAd
                             <label htmlFor={`invoice-qty-${line.id}`} className="text-[11px] text-muted-foreground">
                               數量
                             </label>
-                            <input
+                            <NumericInput
                               id={`invoice-qty-${line.id}`}
-                              type="number"
-                              min={0}
-                              step="any"
                               value={line.quantity}
-                              onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
+                              allowDecimal
+                              onValueChange={(v) => updateLine(line.id, { quantity: toNumericText(v) })}
                               className="h-9 rounded-lg border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                             />
                           </div>
@@ -793,13 +793,12 @@ export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived, onAd
                             <label htmlFor={`invoice-price-${line.id}`} className="text-[11px] text-muted-foreground">
                               單價（{priceIsTaxInclusive ? "已稅" : "未稅"}）
                             </label>
-                            <input
+                            <NumericInput
                               id={`invoice-price-${line.id}`}
-                              type="number"
-                              min={0}
                               step="0.01"
                               value={line.unitPrice}
-                              onChange={(e) => updateLine(line.id, { unitPrice: e.target.value })}
+                              allowDecimal
+                              onValueChange={(v) => updateLine(line.id, { unitPrice: toNumericText(v) })}
                               className="h-9 rounded-lg border border-input bg-background px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                             />
                           </div>

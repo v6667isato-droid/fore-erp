@@ -35,6 +35,8 @@ import {
   type BonusEmployeeInput,
   type BonusWeights,
 } from "@/lib/performance-bonus-compute";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 type HalfYear = "H1" | "H2";
 
@@ -640,42 +642,39 @@ export function PerformanceBonusPage() {
         <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5">
           <label className="flex flex-col gap-1.5">
             <FieldLabel>分潤比例 (%)</FieldLabel>
-            <input
-              type="number"
-              min={0}
+            <NumericInput
               step="0.1"
               className={inputClass}
               value={profitSharingPct}
-              onChange={(e) => setProfitSharingPct(e.target.value)}
+              allowDecimal
+              onValueChange={(v) => setProfitSharingPct(toNumericText(v))}
             />
           </label>
           <label className="flex flex-col gap-1.5">
             <FieldLabel>股份獎金比例 (%)</FieldLabel>
-            <input
-              type="number"
-              min={0}
+            <NumericInput
               step="0.1"
               className={inputClass}
               value={shareBonusPct}
-              onChange={(e) => setShareBonusPct(e.target.value)}
+              allowDecimal
+              onValueChange={(v) => setShareBonusPct(toNumericText(v))}
             />
           </label>
           <label className="flex flex-col gap-1.5">
             <FieldLabel>年終獎金（% 月薪）</FieldLabel>
             <div className="flex h-9 items-center gap-2">
-              <input
-                type="number"
-                min={0}
+              <NumericInput
                 step="0.1"
                 className={cn(inputClass, !issueYearEndBonus && "opacity-50")}
                 value={yearEndBonusSalaryPct}
+                allowDecimal
                 disabled={!issueYearEndBonus}
                 title={
                   issueYearEndBonus
                     ? "每半年發放＝月薪 × 此 % × 在職比例"
                     : "勾選「發放」後可設定"
                 }
-                onChange={(e) => setYearEndBonusSalaryPct(e.target.value)}
+                onValueChange={(v) => setYearEndBonusSalaryPct(toNumericText(v))}
               />
               <label
                 htmlFor="issue-year-end-bonus"
@@ -695,14 +694,12 @@ export function PerformanceBonusPage() {
           <label className="flex flex-col gap-1.5 lg:col-span-2">
             <FieldLabel>利潤 · {halfYearLabel(year, half)} 毛利合計</FieldLabel>
             <div className="flex gap-2">
-              <input
-                type="number"
-                min={0}
+              <NumericInput
                 className={inputClass}
                 value={profitInput}
-                onChange={(e) => {
+                onValueChange={(v) => {
                   setProfitManual(true);
-                  setProfitInput(e.target.value);
+                  setProfitInput(toNumericText(v));
                 }}
               />
               <Button
@@ -779,14 +776,11 @@ export function PerformanceBonusPage() {
               <th className="px-1.5 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
                   <span>能力分級</span>
-                  <input
-                    type="number"
-                    min={0}
+                  <NumericInput
                     className={inputClassSm}
                     value={weights.ability}
-                    onChange={(e) =>
-                      setWeights((w) => ({ ...w, ability: Math.max(0, parseNum(e.target.value, 0)) }))
-                    }
+                    allowDecimal
+                    onValueChange={(v) => setWeights((w) => ({ ...w, ability: v ?? 0 }))}
                     title="能力分級加權"
                   />
                 </div>
@@ -794,14 +788,11 @@ export function PerformanceBonusPage() {
               <th className="px-1.5 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
                   <span>考績</span>
-                  <input
-                    type="number"
-                    min={0}
+                  <NumericInput
                     className={inputClassSm}
                     value={weights.performance}
-                    onChange={(e) =>
-                      setWeights((w) => ({ ...w, performance: Math.max(0, parseNum(e.target.value, 0)) }))
-                    }
+                    allowDecimal
+                    onValueChange={(v) => setWeights((w) => ({ ...w, performance: v ?? 0 }))}
                     title="考績加權"
                   />
                 </div>
@@ -809,14 +800,11 @@ export function PerformanceBonusPage() {
               <th className="px-1.5 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
                   <span>年資</span>
-                  <input
-                    type="number"
-                    min={0}
+                  <NumericInput
                     className={inputClassSm}
                     value={weights.seniority}
-                    onChange={(e) =>
-                      setWeights((w) => ({ ...w, seniority: Math.max(0, parseNum(e.target.value, 0)) }))
-                    }
+                    allowDecimal
+                    onValueChange={(v) => setWeights((w) => ({ ...w, seniority: v ?? 0 }))}
                     title="年資加權"
                   />
                 </div>
@@ -824,14 +812,11 @@ export function PerformanceBonusPage() {
               <th className="px-1.5 py-2 text-right font-medium">
                 <div className="flex flex-col items-end gap-1">
                   <span>薪資</span>
-                  <input
-                    type="number"
-                    min={0}
+                  <NumericInput
                     className={inputClassSm}
                     value={weights.salary}
-                    onChange={(e) =>
-                      setWeights((w) => ({ ...w, salary: Math.max(0, parseNum(e.target.value, 0)) }))
-                    }
+                    allowDecimal
+                    onValueChange={(v) => setWeights((w) => ({ ...w, salary: v ?? 0 }))}
                     title="薪資加權"
                   />
                 </div>
@@ -877,30 +862,24 @@ export function PerformanceBonusPage() {
                     />
                   </td>
                   <td className="px-1.5 py-1 text-right">
-                    <input
-                      type="number"
-                      min={0}
+                    <NumericInput
                       max={10}
                       step="0.1"
                       className={inputClassNarrow}
                       value={overrides[row.id]?.abilityGrade ?? 5}
-                      onChange={(e) =>
-                        updateOverride(row.id, { abilityGrade: Math.max(0, parseNum(e.target.value, 0)) })
-                      }
+                      allowDecimal
+                      onValueChange={(v) => updateOverride(row.id, { abilityGrade: v ?? 0 })}
                       aria-label={`${row.name} 能力分級`}
                     />
                   </td>
                   <td className="px-1.5 py-1 text-right">
-                    <input
-                      type="number"
-                      min={0}
+                    <NumericInput
                       max={10}
                       step="0.1"
                       className={inputClassNarrow}
                       value={overrides[row.id]?.performance ?? row.performance}
-                      onChange={(e) =>
-                        updateOverride(row.id, { performance: Math.max(0, parseNum(e.target.value, 0)) })
-                      }
+                      allowDecimal
+                      onValueChange={(v) => updateOverride(row.id, { performance: v ?? 0 })}
                     />
                   </td>
                   <td className="px-1.5 py-2 text-right tabular-nums text-muted-foreground whitespace-nowrap">

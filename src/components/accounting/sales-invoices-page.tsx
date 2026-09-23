@@ -26,6 +26,8 @@ function isAmegoSynced(r: SalesInvoiceRow): boolean {
 import { SalesInvoiceDialog } from "@/components/accounting/sales-invoice-dialog";
 import { ExportSalesTaxMediaDialog } from "@/components/accounting/export-sales-tax-media-dialog";
 import { OrderPeekDialog } from "@/components/orders/order-peek-dialog";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 type StatusFilter = "all" | "draft" | "issued" | "voided";
 type TypeFilter = "all" | "B2B" | "B2C";
@@ -768,11 +770,10 @@ function AllowanceDialog({
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground" htmlFor="al-amount">折讓含稅金額</label>
-              <input
+              <NumericInput
                 id="al-amount"
-                type="number"
                 value={amountIncTax}
-                onChange={(e) => setAmountIncTax(e.target.value)}
+                onValueChange={(v) => setAmountIncTax(toNumericText(v))}
                 className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>

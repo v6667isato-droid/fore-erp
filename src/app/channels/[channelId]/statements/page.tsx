@@ -18,6 +18,8 @@ import { toast } from "sonner";
 import { Printer, Trash2, X, FileText, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRequireAuth } from "@/lib/use-require-auth";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 type StatementStatus = "草稿" | "已請款" | "已收款";
 
@@ -725,12 +727,10 @@ function CreateStatementDialog({
                           </TableCell>
                           <TableCell className="text-xs whitespace-nowrap">{o.status}</TableCell>
                           <TableCell className="text-right">
-                            <input
-                              type="number"
-                              min={0}
+                            <NumericInput
                               value={amounts[o.id] ?? ""}
-                              onChange={(e) =>
-                                setAmounts((prev) => ({ ...prev, [o.id]: e.target.value }))
+                              onValueChange={(v) =>
+                                setAmounts((prev) => ({ ...prev, [o.id]: toNumericText(v) }))
                               }
                               disabled={!checkedOrders[o.id]}
                               className="h-8 w-28 rounded-lg border border-input bg-background px-2 text-right text-sm tabular-nums disabled:opacity-50"
@@ -812,10 +812,10 @@ function CreateStatementDialog({
                           className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2 text-sm"
                           placeholder="摘要（例如：運費、折讓）"
                         />
-                        <input
-                          type="number"
+                        <NumericInput
                           value={a.amount}
-                          onChange={(e) => updateAdjustment(a.key, { amount: e.target.value })}
+                          allowNegative
+                          onValueChange={(v) => updateAdjustment(a.key, { amount: toNumericText(v) })}
                           className="h-8 w-28 rounded-lg border border-input bg-background px-2 text-right text-sm tabular-nums"
                           placeholder="±金額"
                         />
@@ -1088,10 +1088,9 @@ function CollectPaymentDialog({ statement, onOpenChange, onSuccess }: CollectPay
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs text-muted-foreground">收款金額 *</label>
-                <input
-                  type="number"
+                <NumericInput
                   value={paidAmount}
-                  onChange={(e) => setPaidAmount(e.target.value)}
+                  onValueChange={(v) => setPaidAmount(toNumericText(v))}
                   className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-right tabular-nums"
                   required
                 />

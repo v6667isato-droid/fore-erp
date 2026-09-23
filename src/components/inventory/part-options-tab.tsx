@@ -14,6 +14,8 @@ import {
   type PartOptionValueRow,
 } from "@/types/inventory";
 import { fetchMaterials } from "@/lib/part-variants";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 export interface PartOptionsTabProps {
   isAdmin?: boolean;
@@ -99,11 +101,11 @@ function CodeNameSortFields({
       </div>
       <div className="flex flex-col gap-1">
         <label htmlFor={`${idPrefix}-sort`} className="text-[11px] text-muted-foreground">排序</label>
-        <input
+        <NumericInput
           id={`${idPrefix}-sort`}
-          type="number"
           value={draft.sort}
-          onChange={(e) => onChange({ sort: e.target.value })}
+          keepZero
+          onValueChange={(v) => onChange({ sort: toNumericText(v) })}
           className={inputCls}
           placeholder="自動"
         />

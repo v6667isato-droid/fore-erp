@@ -7,6 +7,8 @@ import { X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { SeriesRow } from "@/types/products";
 import { toast } from "sonner";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 export interface ChannelOption {
   id: string;
@@ -156,15 +158,14 @@ export function EditSeriesChannelDiscountDialog({
                     >
                       {ch.name}
                     </label>
-                    <input
+                    <NumericInput
                       id={`series-discount-${ch.id}`}
-                      type="number"
-                      min={0}
                       max={100}
-                      step="any"
                       value={values[ch.id] ?? ""}
-                      onChange={(e) =>
-                        setValues((prev) => ({ ...prev, [ch.id]: e.target.value }))
+                      keepZero
+                      allowDecimal
+                      onValueChange={(v) =>
+                        setValues((prev) => ({ ...prev, [ch.id]: toNumericText(v) }))
                       }
                       className="h-9 flex-1 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="未設定"

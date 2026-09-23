@@ -18,6 +18,8 @@ import { FocalPointPicker } from "@/components/products/focal-point-picker";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 export interface CustomCaseFormDialogProps {
   open: boolean;
@@ -368,32 +370,26 @@ export function CustomCaseFormDialog({
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs text-muted-foreground">尺寸（mm）</span>
                     <div className="grid grid-cols-3 gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        step="any"
+                      <NumericInput
                         value={dimW}
-                        onChange={(e) => setDimW(e.target.value)}
+                        allowDecimal
+                        onValueChange={(v) => setDimW(toNumericText(v))}
                         className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                         placeholder="寬 W"
                         aria-label="寬（mm）"
                       />
-                      <input
-                        type="number"
-                        min={0}
-                        step="any"
+                      <NumericInput
                         value={dimD}
-                        onChange={(e) => setDimD(e.target.value)}
+                        allowDecimal
+                        onValueChange={(v) => setDimD(toNumericText(v))}
                         className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                         placeholder="深 D"
                         aria-label="深（mm）"
                       />
-                      <input
-                        type="number"
-                        min={0}
-                        step="any"
+                      <NumericInput
                         value={dimH}
-                        onChange={(e) => setDimH(e.target.value)}
+                        allowDecimal
+                        onValueChange={(v) => setDimH(toNumericText(v))}
                         className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                         placeholder="高 H"
                         aria-label="高（mm）"
@@ -418,13 +414,11 @@ export function CustomCaseFormDialog({
                       <label htmlFor="case-form-base-price" className="text-xs text-muted-foreground">
                         定價
                       </label>
-                      <input
+                      <NumericInput
                         id="case-form-base-price"
-                        type="number"
-                        min={0}
-                        step="any"
                         value={basePrice}
-                        onChange={(e) => setBasePrice(e.target.value)}
+                        allowDecimal
+                        onValueChange={(v) => setBasePrice(toNumericText(v))}
                         className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                         placeholder="例：2200（可留空）"
                       />

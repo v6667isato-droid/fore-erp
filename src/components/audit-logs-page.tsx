@@ -13,10 +13,8 @@ import {
 } from "@/components/ui/table";
 import { ScrollText, ChevronDown, ChevronRight, RotateCw } from "lucide-react";
 import { toast } from "sonner";
-import { OrderAuditTrailSearch } from "@/components/order-audit-trail";
 import { describeActorLabel, formatAuditTime, type AuditRow } from "@/lib/order-audit-trail";
 import { useAuditActorNames } from "@/lib/use-audit-actor-names";
-import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
 
@@ -110,39 +108,7 @@ function summaryOf(row: AuditRow): string {
   return row.record_id ? row.record_id.slice(0, 8) : "—";
 }
 
-type AuditView = "all" | "orders";
-
 export function AuditLogsPage() {
-  const [view, setView] = useState<AuditView>("all");
-  const tabs: { id: AuditView; label: string }[] = [
-    { id: "all", label: "全部紀錄" },
-    { id: "orders", label: "訂單歷程" },
-  ];
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex w-fit flex-wrap gap-1 rounded-lg border border-border bg-muted/40 p-1">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setView(t.id)}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-              view === t.id
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      {view === "all" ? <AllAuditLogs /> : <OrderAuditTrailSearch />}
-    </div>
-  );
-}
-
-function AllAuditLogs() {
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);

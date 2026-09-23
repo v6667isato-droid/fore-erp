@@ -26,6 +26,8 @@ import {
 } from "@/lib/employee-leave-time";
 import { seniorityFromHire } from "@/lib/employee-seniority";
 import { WORK_ORDER_STAGES } from "@/lib/work-order-stages";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 type Role = "admin" | "staff" | null;
 
@@ -994,13 +996,10 @@ function EmployeeForm({
               >
                 月薪 (monthly_wage)
               </label>
-              <input
+              <NumericInput
                 id="emp-monthly"
-                type="number"
                 value={values.monthly_wage ?? ""}
-                onChange={(e) =>
-                  setField("monthly_wage", Number(e.target.value) || 0)
-                }
+                onValueChange={(v) => setField("monthly_wage", v ?? 0)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1011,24 +1010,10 @@ function EmployeeForm({
               >
                 股份 (share_count)
               </label>
-              <input
+              <NumericInput
                 id="emp-share-count"
-                type="number"
-                min={0}
-                step={1}
                 value={values.share_count ?? ""}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === "") {
-                    setField("share_count", null);
-                    return;
-                  }
-                  const n = Number(raw);
-                  setField(
-                    "share_count",
-                    Number.isFinite(n) ? Math.max(0, n) : null,
-                  );
-                }}
+                onValueChange={(v) => setField("share_count", v)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1042,13 +1027,11 @@ function EmployeeForm({
                   >
                     日
                   </label>
-                  <input
+                  <NumericInput
                     id="emp-special-leave-days"
-                    type="number"
-                    min={0}
-                    step="any"
                     value={annualLeaveDaysInput}
-                    onChange={(e) => setAnnualLeaveDaysInput(e.target.value)}
+                    allowDecimal
+                    onValueChange={(v) => setAnnualLeaveDaysInput(toNumericText(v))}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
@@ -1059,13 +1042,11 @@ function EmployeeForm({
                   >
                     小時
                   </label>
-                  <input
+                  <NumericInput
                     id="emp-special-leave-hours"
-                    type="number"
-                    min={0}
-                    step="any"
                     value={annualLeaveHoursInput}
-                    onChange={(e) => setAnnualLeaveHoursInput(e.target.value)}
+                    allowDecimal
+                    onValueChange={(v) => setAnnualLeaveHoursInput(toNumericText(v))}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
@@ -1086,13 +1067,11 @@ function EmployeeForm({
                   >
                     日
                   </label>
-                  <input
+                  <NumericInput
                     id="emp-comp-leave-days"
-                    type="number"
-                    min={0}
-                    step="any"
                     value={compLeaveDaysInput}
-                    onChange={(e) => setCompLeaveDaysInput(e.target.value)}
+                    allowDecimal
+                    onValueChange={(v) => setCompLeaveDaysInput(toNumericText(v))}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
@@ -1103,13 +1082,11 @@ function EmployeeForm({
                   >
                     小時
                   </label>
-                  <input
+                  <NumericInput
                     id="emp-comp-leave-hours"
-                    type="number"
-                    min={0}
-                    step="any"
                     value={compLeaveHoursInput}
-                    onChange={(e) => setCompLeaveHoursInput(e.target.value)}
+                    allowDecimal
+                    onValueChange={(v) => setCompLeaveHoursInput(toNumericText(v))}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
@@ -1122,28 +1099,16 @@ function EmployeeForm({
               >
                 事假請假天數（personal_leave_days）
               </label>
-              <input
+              <NumericInput
                 id="emp-personal-leave-days"
-                type="number"
-                min={0}
                 step={0.5}
                 value={
                   values.personal_leave_days != null
                     ? values.personal_leave_days
                     : ""
                 }
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === "") {
-                    setField("personal_leave_days", null);
-                    return;
-                  }
-                  const n = Number(raw);
-                  setField(
-                    "personal_leave_days",
-                    Number.isFinite(n) ? Math.max(0, n) : null,
-                  );
-                }}
+                allowDecimal
+                onValueChange={(v) => setField("personal_leave_days", v)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1154,26 +1119,14 @@ function EmployeeForm({
               >
                 病假請假天數（sick_leave_days）
               </label>
-              <input
+              <NumericInput
                 id="emp-sick-leave-days"
-                type="number"
-                min={0}
                 step={0.5}
                 value={
                   values.sick_leave_days != null ? values.sick_leave_days : ""
                 }
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === "") {
-                    setField("sick_leave_days", null);
-                    return;
-                  }
-                  const n = Number(raw);
-                  setField(
-                    "sick_leave_days",
-                    Number.isFinite(n) ? Math.max(0, n) : null,
-                  );
-                }}
+                allowDecimal
+                onValueChange={(v) => setField("sick_leave_days", v)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1203,16 +1156,10 @@ function EmployeeForm({
               >
                 勞保投保薪資
               </label>
-              <input
+              <NumericInput
                 id="emp-labor-salary"
-                type="number"
                 value={values.labor_insured_salary ?? ""}
-                onChange={(e) =>
-                  setField(
-                    "labor_insured_salary",
-                    Number(e.target.value) || 0,
-                  )
-                }
+                onValueChange={(v) => setField("labor_insured_salary", v ?? 0)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1223,13 +1170,10 @@ function EmployeeForm({
               >
                 勞保雇主負擔
               </label>
-              <input
+              <NumericInput
                 id="emp-labor-employer"
-                type="number"
                 value={values.labor_employer ?? ""}
-                onChange={(e) =>
-                  setField("labor_employer", Number(e.target.value) || 0)
-                }
+                onValueChange={(v) => setField("labor_employer", v ?? 0)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1240,13 +1184,10 @@ function EmployeeForm({
               >
                 健保雇主負擔
               </label>
-              <input
+              <NumericInput
                 id="emp-health-employer"
-                type="number"
                 value={values.health_employer ?? ""}
-                onChange={(e) =>
-                  setField("health_employer", Number(e.target.value) || 0)
-                }
+                onValueChange={(v) => setField("health_employer", v ?? 0)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1257,13 +1198,10 @@ function EmployeeForm({
               >
                 勞退雇主負擔
               </label>
-              <input
+              <NumericInput
                 id="emp-pension"
-                type="number"
                 value={values.pension_employer ?? ""}
-                onChange={(e) =>
-                  setField("pension_employer", Number(e.target.value) || 0)
-                }
+                onValueChange={(v) => setField("pension_employer", v ?? 0)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1274,13 +1212,10 @@ function EmployeeForm({
               >
                 勞保自付額
               </label>
-              <input
+              <NumericInput
                 id="emp-labor-self"
-                type="number"
                 value={values.labor_self ?? ""}
-                onChange={(e) =>
-                  setField("labor_self", Number(e.target.value) || 0)
-                }
+                onValueChange={(v) => setField("labor_self", v ?? 0)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1291,13 +1226,10 @@ function EmployeeForm({
               >
                 健保自付額
               </label>
-              <input
+              <NumericInput
                 id="emp-health-self"
-                type="number"
                 value={values.health_self ?? ""}
-                onChange={(e) =>
-                  setField("health_self", Number(e.target.value) || 0)
-                }
+                onValueChange={(v) => setField("health_self", v ?? 0)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -1308,29 +1240,15 @@ function EmployeeForm({
               >
                 健保投保人數（含自己）
               </label>
-              <input
+              <NumericInput
                 id="emp-health-insured-persons"
-                type="number"
-                min={0}
-                step={1}
                 placeholder="例如：1、2、3…"
                 value={
                   values.health_insured_persons != null
                     ? values.health_insured_persons
                     : ""
                 }
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === "") {
-                    setField("health_insured_persons", null);
-                    return;
-                  }
-                  const n = parseInt(raw, 10);
-                  setField(
-                    "health_insured_persons",
-                    Number.isFinite(n) ? Math.max(0, n) : null,
-                  );
-                }}
+                onValueChange={(v) => setField("health_insured_persons", v)}
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>

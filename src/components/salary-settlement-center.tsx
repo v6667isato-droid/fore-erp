@@ -40,6 +40,7 @@ import {
   formatSignedDayDecimalAsDayHour,
 } from "@/lib/employee-leave-time";
 import { seniorityFromHire } from "@/lib/employee-seniority";
+import { NumericInput } from "@/components/ui/numeric-input";
 
 interface SettlementEmployee {
   id: string;
@@ -70,8 +71,6 @@ interface RowInputs {
   /** 考績／分潤／股份等獎金（發放寫入 payslips.payroll_bonus） */
   semiAnnualBonus: number;
   otherAdjust: number;
-  /** 調整欄輸入中的原始字串（允許先打「-」再打數字）；未編輯時以 otherAdjust 顯示 */
-  otherAdjustText?: string;
   /** 出勤備註（預設系統產生，老闆可改；發放寫入 payslips.notes） */
   attendanceNotes: string;
 }
@@ -2115,9 +2114,7 @@ export function SalarySettlementCenter() {
                       )}
                     </td>
                     <td className="border-l border-border text-right">
-                      <input
-                        type="number"
-                        step={1}
+                      <NumericInput
                         disabled={paid}
                         title={
                           bonusDetailByEmp[emp.id] && semiBonus > 0
@@ -2127,42 +2124,30 @@ export function SalarySettlementCenter() {
                               )
                             : undefined
                         }
-                        min={0}
                         value={semiBonus}
-                        onChange={(e) => {
-                          const v = Number(e.target.value);
+                        onValueChange={(v) =>
                           setInputs((p) => ({
                             ...p,
-                            [emp.id]: {
-                              ...inp,
-                              // 獎金不可為負；扣減請使用「調整」欄
-                              semiAnnualBonus: Number.isFinite(v) ? Math.max(0, v) : 0,
-                            },
-                          }));
-                        }}
-                        className="w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            // 獎金不可為負（元件已擋負號）；扣減請使用「調整」欄
+                            [emp.id]: { ...inp, semiAnnualBonus: v ?? 0 },
+                          }))
+                        }
+                        className="h-auto w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </td>
                     <td className="text-right">
-                      <input
-                        type="text"
-                        inputMode="numeric"
+                      <NumericInput
+                        allowNegative
                         disabled={paid}
-                        value={inp.otherAdjustText ?? String(inp.otherAdjust)}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          const v = Number(raw);
+                        value={inp.otherAdjust}
+                        onValueChange={(v) =>
                           setInputs((p) => ({
                             ...p,
-                            [emp.id]: {
-                              ...inp,
-                              otherAdjustText: raw,
-                              // 「-」「」等輸入中狀態暫以 0 計算，輸入完成後即時更新
-                              otherAdjust: raw.trim() !== "" && Number.isFinite(v) ? v : 0,
-                            },
-                          }));
-                        }}
-                        className="w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            // 清空或只打「-」時暫以 0 計算，輸入完成後即時更新
+                            [emp.id]: { ...inp, otherAdjust: v ?? 0 },
+                          }))
+                        }
+                        className="h-auto w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       />
                     </td>
                     <td className="text-right align-middle">

@@ -14,6 +14,8 @@ import {
   type StockMovementRow,
   type StockMovementType,
 } from "@/types/inventory";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 export interface StockMovementDialogProps {
   open: boolean;
@@ -280,12 +282,12 @@ export function StockMovementDialog({ open, onOpenChange, variant, onSaved }: St
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="sm-qty" className="text-xs text-muted-foreground">數量</label>
-                <input
+                <NumericInput
                   id="sm-qty"
-                  type="number"
-                  step="any"
                   value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
+                  allowNegative
+                  allowDecimal
+                  onValueChange={(v) => setQuantity(toNumericText(v))}
                   className={inputCls}
                   placeholder={movementType === "盤點調整" ? "可輸入正負" : "輸入正數即可"}
                   required
