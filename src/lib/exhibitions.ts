@@ -1,9 +1,9 @@
 /**
- * 展覽效益：場次標籤、開單自動帶入場次、效益統計（純函式，開單表單與統計頁共用）。
- *
- * - 現場成交：orders.exhibition_id 為該場次的訂單。
- * - 展後轉單：未標記場次、客戶來源（customers.source）等於該場次 customer_source、
- *   下單日落在本屆開始～下一屆同展開始前的訂單。
+ * 展覽效益統計（純函式）：只看客戶來源與下單日，訂單不另外標記場次。
+ * 統計對象＝客戶來源（customers.source）等於場次 customer_source、
+ * 下單日落在本屆開始～下一屆同展開始前的訂單；其中
+ * - 現場成交：下單日在展期內，或散客代表客戶（客戶種類「展覽」）的訂單
+ * - 展後轉單：展期結束後的其餘訂單
  */
 import { CUSTOMER_SOURCE_OPTIONS } from "@/lib/customer-options";
 
@@ -15,7 +15,7 @@ export interface ExhibitionRow {
   /** YYYY-MM-DD */
   end_date: string;
   location: string | null;
-  /** 對應的客戶來源值（如「展覽(木質生活)」）；null＝不推算展後轉單 */
+  /** 對應的客戶來源值（如「展覽(木質生活)」）；null＝無法統計成交 */
   customer_source: string | null;
   notes: string | null;
 }
@@ -62,9 +62,6 @@ export function defaultCustomerSourceFor(name: string): string | null {
   );
 }
 
-/** 散客代表客戶在展期結束後幾天內補登的訂單，仍自動帶入該場次 */
-const WALKIN_BACKFILL_DAYS = 14;
-
 /** 效益統計排除的訂單狀態（與銷售統計一致排除報價；退貨不計營收） */
 const EXCLUDED_STATUSES = new Set(["報價中", "已退貨"]);
 
@@ -72,58 +69,10 @@ export function exhibitionLabel(e: Pick<ExhibitionRow, "name" | "start_date">): 
   return `${e.start_date.slice(0, 4)} ${e.name}`;
 }
 
-function addDays(ymd: string, days: number): string {
-  const d = new Date(`${ymd}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-/**
- * 開單自動帶入的場次：
- * - 客戶來源是某展、下單日落在該展展期內 → 該場次
- * - 散客代表客戶（客戶種類「展覽」）：展期內或展後 14 天內補登 → 該場次
- * 其餘回傳 null（不帶入）。
- */
-export function suggestExhibitionId(
-  exhibitions: ExhibitionRow[],
-  customer: { source?: string | null; customer_type?: string | null } | null | undefined,
-  orderDate: string,
-): string | null {
-  const source = customer?.source?.trim();
-  if (!source || !orderDate) return null;
-  const graceDays =
-    customer?.customer_type === EXHIBITION_WALKIN_CUSTOMER_TYPE ? WALKIN_BACKFILL_DAYS : 0;
-  const hit = exhibitions
-    .filter(
-      (e) =>
-        e.customer_source === source &&
-        e.start_date <= orderDate &&
-        orderDate <= addDays(e.end_date, graceDays),
-    )
-    .sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
-  return hit?.id ?? null;
-}
-
-/** 開單下拉只列下單日前後一年內的場次（新到舊），並保留目前已選的場次 */
-export function exhibitionOptionsFor(
-  exhibitions: ExhibitionRow[],
-  orderDate: string,
-  selectedId: string,
-): ExhibitionRow[] {
-  const from = orderDate ? addDays(orderDate, -366) : "";
-  const to = orderDate ? addDays(orderDate, 366) : "9999-12-31";
-  return exhibitions
-    .filter(
-      (e) => e.id === selectedId || (e.end_date >= from && e.start_date <= to),
-    )
-    .sort((a, b) => b.start_date.localeCompare(a.start_date));
-}
-
 export interface EffectOrderInput {
   id: string;
   order_date: string | null;
   customer_id: string | null;
-  exhibition_id: string | null;
   status: string | null;
   total_amount: number | null;
   shipping_fee: number | null;
@@ -138,7 +87,7 @@ export interface EffectCustomerInput {
 
 export interface ExhibitionEffect {
   exhibition: ExhibitionRow;
-  /** 展後轉單統計到此日前（不含）＝下一屆同展開始日；null＝統計至今 */
+  /** 統計到此日前（不含）＝下一屆同展開始日；null＝統計至今 */
   windowEnd: string | null;
   onsiteOrders: number;
   /** 其中散客代表客戶的張數 */
@@ -200,21 +149,23 @@ export function computeExhibitionEffects(
     const windowEnd = nextEdition?.start_date ?? null;
     const source = e.customer_source?.trim() || null;
 
-    const onsite = counted.filter((o) => o.exhibition_id === e.id);
-    const postShow = source
-      ? counted.filter((o) => {
-          if (o.exhibition_id || !o.customer_id || !o.order_date) return false;
-          if (customerById.get(o.customer_id)?.source?.trim() !== source) return false;
-          return o.order_date >= e.start_date && (windowEnd == null || o.order_date < windowEnd);
-        })
-      : [];
-
     const isWalkIn = (customerId: string | null) =>
       customerId != null &&
       customerById.get(customerId)?.customer_type === EXHIBITION_WALKIN_CUSTOMER_TYPE;
 
+    const attributed = source
+      ? counted.filter((o) => {
+          if (!o.customer_id || !o.order_date) return false;
+          if (customerById.get(o.customer_id)?.source?.trim() !== source) return false;
+          return o.order_date >= e.start_date && (windowEnd == null || o.order_date < windowEnd);
+        })
+      : [];
+    const isOnsite = (o: EffectOrderInput) => isWalkIn(o.customer_id) || o.order_date! <= e.end_date;
+    const onsite = attributed.filter(isOnsite);
+    const postShow = attributed.filter((o) => !isOnsite(o));
+
     const newCustomerIds = new Set<string>();
-    for (const o of [...onsite, ...postShow]) {
+    for (const o of attributed) {
       if (!o.customer_id || isWalkIn(o.customer_id)) continue;
       const first = firstOrderDate.get(o.customer_id);
       if (first && first >= e.start_date) newCustomerIds.add(o.customer_id);

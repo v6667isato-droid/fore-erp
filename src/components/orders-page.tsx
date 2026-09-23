@@ -269,8 +269,6 @@ export function OrdersPage({
               : null,
           tax_id: c.tax_id != null ? String(c.tax_id) : null,
           channel_id: c.channel_id != null ? String(c.channel_id) : null,
-          source: c.source != null ? String(c.source) : null,
-          customer_type: c.customer_type != null ? String(c.customer_type) : null,
         }))
       );
       setCustomerSearchText(
@@ -403,7 +401,7 @@ export function OrdersPage({
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, address_label_printed_at, exhibition_id, customer_id, customers(name, alias)"
+          "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, address_label_printed_at, customer_id, customers(name, alias)"
         )
         .is("deleted_at", null)
         .order("order_date", { ascending: false });
@@ -451,7 +449,6 @@ export function OrdersPage({
           tax_extra_amount: Number(row.tax_extra_amount ?? 0),
           quote_includes_tax: Boolean(row.quote_includes_tax),
           address_label_printed_at: row.address_label_printed_at ?? null,
-          exhibition_id: row.exhibition_id ?? null,
         }))
       );
     }
@@ -482,7 +479,7 @@ export function OrdersPage({
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, address_label_printed_at, exhibition_id, customer_id, customers(name, alias)"
+        "id, order_number, order_date, expected_delivery_date, status, payment_status, total_amount, deposit_amount, shipping_fee, shipping_address, shipping_contact_name, shipping_contact_phone, shipping_has_elevator, invoice_title, invoice_tax_id, internal_notes, explanation_image_url, tax_extra, tax_extra_amount, quote_includes_tax, address_label_printed_at, customer_id, customers(name, alias)"
       )
       .is("deleted_at", null)
       .order("order_date", { ascending: false });
@@ -530,7 +527,6 @@ export function OrdersPage({
         tax_extra_amount: Number(row.tax_extra_amount ?? 0),
         quote_includes_tax: Boolean(row.quote_includes_tax),
         address_label_printed_at: row.address_label_printed_at ?? null,
-        exhibition_id: row.exhibition_id ?? null,
       }))
     );
   }

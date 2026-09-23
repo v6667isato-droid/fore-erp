@@ -39,7 +39,7 @@ const labelClass = "text-xs text-muted-foreground";
 
 /**
  * 成本統計頁「展覽效益」分頁：各展覽場次的現場成交、展後轉單、參展成本與效益比較。
- * 場次與成本在此維護；訂單的「展覽場次」於開單時選填（多數自動帶入）。
+ * 場次與成本在此維護；成交依客戶來源與下單日推算，訂單不另外標記場次。
  */
 export function ExhibitionEffectPage() {
   const [loading, setLoading] = useState(true);
@@ -63,7 +63,7 @@ export function ExhibitionEffectPage() {
           .order("sort_order", { ascending: true }),
         fetchAllRows<OrderRowWithDeleted>(
           "orders",
-          "id, order_date, customer_id, exhibition_id, status, total_amount, shipping_fee, tax_extra_amount, deleted_at",
+          "id, order_date, customer_id, status, total_amount, shipping_fee, tax_extra_amount, deleted_at",
         ),
         fetchAllRows<EffectCustomerInput>("customers", "id, source, customer_type"),
       ]);
@@ -95,9 +95,8 @@ export function ExhibitionEffectPage() {
         <div className="min-w-0 space-y-1">
           <h2 className="text-base font-semibold text-foreground">展覽效益</h2>
           <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
-            現場成交＝訂單標記該場次（含散客代表客戶、老客人在攤位下單）；展後轉單＝客戶來源為該展、未標記場次、
-            下單日在本屆開始～下一屆同展開始前的訂單。營收為未稅、不含運費，排除「報價中」與「已退貨」。
-            新客＝首次成交在本屆開始之後的客人。
+            統計客戶來源為該展的訂單：展期內下單（含散客代表客戶）算現場成交，展期結束後到下一屆同展開始前算展後轉單。
+            營收為未稅、不含運費，排除「報價中」與「已退貨」。新客＝首次成交在本屆開始之後的客人。
           </p>
         </div>
         <Button type="button" onClick={() => setEditing("new")}>
@@ -145,8 +144,8 @@ export function ExhibitionEffectPage() {
                       </div>
                       <div className="text-[11px] text-muted-foreground/80">
                         {e.customer_source
-                          ? `轉單統計${f.windowEnd ? `至 ${f.windowEnd.replace(/-/g, "/")} 前` : "至今"}`
-                          : "未對應客戶來源，不計展後轉單"}
+                          ? `統計${f.windowEnd ? `至 ${f.windowEnd.replace(/-/g, "/")} 前` : "至今"}`
+                          : "未對應客戶來源，無法統計成交"}
                       </div>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums">
@@ -201,9 +200,6 @@ export function ExhibitionEffectPage() {
         key={editing === null ? "closed" : editing === "new" ? "new" : editing.id}
         target={editing}
         costs={editing && editing !== "new" ? costs.filter((c) => c.exhibition_id === editing.id) : []}
-        taggedOrderCount={
-          editing && editing !== "new" ? orders.filter((o) => o.exhibition_id === editing.id).length : 0
-        }
         onClose={() => setEditing(null)}
         onSaved={() => {
           setEditing(null);
@@ -219,13 +215,11 @@ type CostDraft = { key: string; item: string; amount: number };
 function ExhibitionFormDialog({
   target,
   costs,
-  taggedOrderCount,
   onClose,
   onSaved,
 }: {
   target: ExhibitionRow | "new" | null;
   costs: ExhibitionCostRow[];
-  taggedOrderCount: number;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -377,14 +371,14 @@ function ExhibitionFormDialog({
               </div>
             </div>
             <div className="flex min-w-0 flex-col gap-1.5">
-              <label htmlFor="exhibition-source" className={labelClass}>對應客戶來源（推算展後轉單）</label>
+              <label htmlFor="exhibition-source" className={labelClass}>對應客戶來源（統計哪些客人的訂單）</label>
               <select
                 id="exhibition-source"
                 value={customerSource}
                 onChange={(e) => setCustomerSource(e.target.value)}
                 className={inputClass}
               >
-                <option value="">不對應（只算現場成交）</option>
+                <option value="">不對應（無法統計成交）</option>
                 {EXHIBITION_CUSTOMER_SOURCES.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
@@ -479,11 +473,7 @@ function ExhibitionFormDialog({
             open={confirmDelete}
             onOpenChange={setConfirmDelete}
             title="刪除展覽場次"
-            description={
-              taggedOrderCount > 0
-                ? `有 ${taggedOrderCount} 張訂單標記為此場次，刪除後這些訂單的場次標記會一併清除，成本明細也會刪除。確定刪除？`
-                : "成本明細會一併刪除。確定刪除？"
-            }
+            description="成本明細會一併刪除（訂單不受影響）。確定刪除？"
             confirmLabel="刪除"
             destructive
             onConfirm={handleDelete}
