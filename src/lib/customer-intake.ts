@@ -294,6 +294,7 @@ export interface MatchableCustomer {
   line_id?: string | null;
   ig_account?: string | null;
   delivery_address?: string | null;
+  notes?: string | null;
 }
 
 export type MatchReason =
@@ -303,7 +304,8 @@ export type MatchReason =
   | "ig_account"
   | "name"
   | "address"
-  | "name_partial";
+  | "name_partial"
+  | "surname";
 
 export const MATCH_REASON_LABELS: Record<MatchReason, string> = {
   phone: "電話相同",
@@ -313,6 +315,7 @@ export const MATCH_REASON_LABELS: Record<MatchReason, string> = {
   name: "名稱相同",
   address: "地址相同",
   name_partial: "名稱相近",
+  surname: "同姓",
 };
 
 const MATCH_REASON_SCORES: Record<MatchReason, number> = {
@@ -323,6 +326,7 @@ const MATCH_REASON_SCORES: Record<MatchReason, number> = {
   name: 50,
   address: 40,
   name_partial: 20,
+  surname: 10,
 };
 
 /** 任一命中即視為「確定是同一人」；名稱／地址只算「可能相同」 */
@@ -349,9 +353,28 @@ type MatchInput = Pick<
   | "delivery_address"
 >;
 
-/** 名稱鍵至少 2 字才比對，避免「陳小姐」→「陳」配到所有姓陳的客戶 */
+/** 名稱鍵至少 2 字才比對，避免「陳小姐」→「陳」配到所有姓陳的客戶（同姓另列，見 surnameKey） */
 function nameKeys(values: (string | null | undefined)[]): string[] {
   return [...new Set(values.map(normalizeNameKey).filter((k) => k.length >= 2))];
+}
+
+const TITLE_SUFFIX = /(先生|小姐|女士|太太|老師|醫師|師傅)$/;
+
+/**
+ * 只有「姓＋稱謂」或單一個字時取出姓氏（「曾先生」→ 曾、「歐陽小姐」→ 歐陽、「曾」→ 曾）；
+ * 完整姓名、公司名稱回傳空字串。
+ */
+export function surnameKey(raw: string | null | undefined): string {
+  const s = normalizeText(raw);
+  const stripped = s.replace(TITLE_SUFFIX, "");
+  if (!/^[\u4e00-\u9fff]+$/.test(stripped)) return "";
+  if (stripped.length === 1 || (stripped !== s && stripped.length === 2)) return stripped;
+  return "";
+}
+
+/** 人名比對鍵（不去公司型態，只去稱謂）：比對同姓用 */
+function personKeys(values: (string | null | undefined)[]): string[] {
+  return values.map((v) => normalizeText(v).replace(TITLE_SUFFIX, "")).filter(Boolean);
 }
 
 /** 找出可能是同一位的既有客戶，依相似度排序（最多 limit 筆） */
@@ -366,6 +389,8 @@ export function findCustomerMatches<T extends MatchableCustomer>(
   const inIg = normalizeHandle(input.ig_account);
   const inNames = nameKeys([input.name, input.contact_person, input.company, input.brand_name]);
   const inAddress = normalizeAddress(input.delivery_address);
+  const inSurnames = [surnameKey(input.name), surnameKey(input.contact_person)].filter(Boolean);
+  const inPersons = personKeys([input.name, input.contact_person]);
 
   const matches: CustomerMatch<T>[] = [];
   for (const c of customers) {
@@ -388,6 +413,19 @@ export function findCustomerMatches<T extends MatchableCustomer>(
       }
     }
 
+    // 同姓：訊息只有「曾先生」→ 列出姓曾的客戶；或主檔記「曾先生」、訊息是「曾建華」。
+    // 只算參考、不會自動選取；已有其他相同條件時不再重複標示
+    if (reasons.length === 0) {
+      const cPersons = personKeys([c.name, c.alias, c.contact_person]);
+      const cSurnames = [surnameKey(c.name), surnameKey(c.alias), surnameKey(c.contact_person)].filter(Boolean);
+      if (
+        inSurnames.some((sn) => cPersons.some((p) => p.startsWith(sn))) ||
+        cSurnames.some((sn) => inPersons.some((p) => p.startsWith(sn)))
+      ) {
+        reasons.push("surname");
+      }
+    }
+
     // 地址太短（只有縣市區）不算
     if (inAddress.length >= 8 && normalizeAddress(c.delivery_address) === inAddress) {
       reasons.push("address");
@@ -402,7 +440,43 @@ export function findCustomerMatches<T extends MatchableCustomer>(
     });
   }
 
+  // 同分維持傳入順序（呼叫端可先依建立時間新→舊排好）
   return matches.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/**
+ * 手動搜尋既有客戶：關鍵字比對名稱、別名、聯絡人、公司、品牌、統編、LINE、IG、地址、備註；
+ * 3 碼以上數字另比對電話（忽略 -、空白）；「曾先生」這類姓＋稱謂則列出同姓客戶。
+ */
+export function searchCustomers<T extends MatchableCustomer>(query: string, customers: T[], limit = 20): T[] {
+  const q = normalizeText(query);
+  if (!q) return [];
+  const qDigits = query.normalize("NFKC").replace(/\D/g, "");
+  const surname = surnameKey(query);
+  const hits: T[] = [];
+  for (const c of customers) {
+    const text = [
+      c.name,
+      c.alias,
+      c.contact_person,
+      c.company,
+      c.brand_name,
+      c.tax_id,
+      c.line_id,
+      c.ig_account,
+      c.delivery_address,
+      c.notes,
+    ]
+      .map(normalizeText)
+      .join("|");
+    const hit =
+      text.includes(q) ||
+      (qDigits.length >= 3 && (c.phone ?? "").normalize("NFKC").replace(/\D/g, "").includes(qDigits)) ||
+      (surname !== "" && personKeys([c.name, c.alias, c.contact_person]).some((p) => p.startsWith(surname)));
+    if (hit) hits.push(c);
+    if (hits.length >= limit) break;
+  }
+  return hits;
 }
 
 /**
@@ -542,6 +616,8 @@ export function diffCustomerFields(
 
     const nextText = typeof next === "string" ? next.trim() : "";
     if (!nextText) continue;
+    // 聯絡人只有「曾先生」這類姓＋稱謂時不值得寫回主檔
+    if (field === "contact_person" && surnameKey(nextText)) continue;
     const currentText = typeof current === "string" ? current.trim() : "";
     if (!currentText) {
       updates.push({ field, kind: "fill", current: null, next: nextText });
