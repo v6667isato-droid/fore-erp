@@ -25,9 +25,10 @@ import {
   type OverviewOrder,
 } from "@/components/orders-overview-page";
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
+import { CustomerIntakeDialog } from "@/components/crm/customer-intake-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CustomerRow } from "@/types/crm";
-import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2, History } from "lucide-react";
+import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, Download, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2, History, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import {
@@ -44,6 +45,7 @@ import type {
   CustomerOption,
   VariantOption,
   OrderItemInput,
+  OrderDraft,
   OrderStatus,
   PaymentStatus,
 } from "@/components/orders/types";
@@ -169,6 +171,10 @@ export function OrdersPage({
     undefined
   );
   const [formOpen, setFormOpen] = useState(false);
+  /** 貼上建立客戶／訂單 */
+  const [intakeOpen, setIntakeOpen] = useState(false);
+  /** 貼上建立後帶入新訂單表單的內容 */
+  const [orderDraft, setOrderDraft] = useState<OrderDraft | null>(null);
   const [deleteConfirmOrder, setDeleteConfirmOrder] = useState<OrderRow | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [overviewById, setOverviewById] = useState<
@@ -1213,10 +1219,21 @@ export function OrdersPage({
           )}
           <Button
             type="button"
+            variant="outline"
+            className="h-8 px-3 text-xs"
+            onClick={() => setIntakeOpen(true)}
+            aria-label="貼上客戶資料建立客戶／訂單"
+          >
+            <Sparkles className="h-3.5 w-3.5 mr-1" />
+            貼上建立
+          </Button>
+          <Button
+            type="button"
             className="h-8 px-3 text-xs"
             onClick={() => {
               setEditingOrder(null);
               setEditingItems(undefined);
+              setOrderDraft(null);
               setFormOpen(true);
             }}
           >
@@ -1718,6 +1735,7 @@ export function OrdersPage({
             setFormOpen(false);
             setEditingOrder(null);
             setEditingItems(undefined);
+            setOrderDraft(null);
           } else {
             setFormOpen(true);
           }
@@ -1726,8 +1744,21 @@ export function OrdersPage({
         variants={variants}
         initialOrder={editingOrder}
         initialItems={editingItems}
+        initialDraft={orderDraft}
         onSaved={reloadOrders}
         onRefreshCustomers={fetchCustomers}
+      />
+
+      <CustomerIntakeDialog
+        open={intakeOpen}
+        onOpenChange={setIntakeOpen}
+        onCustomerSaved={fetchCustomers}
+        onCreateOrder={(draft) => {
+          setEditingOrder(null);
+          setEditingItems(undefined);
+          setOrderDraft(draft);
+          setFormOpen(true);
+        }}
       />
 
       <ConfirmDialog

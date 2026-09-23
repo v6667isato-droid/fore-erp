@@ -14,8 +14,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { CustomerRow } from "@/types/crm";
-import { Users, Pencil, Trash2, Download, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Users, Pencil, Trash2, Download, ArrowUpDown, ArrowUp, ArrowDown, Sparkles } from "lucide-react";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
+import { CustomerIntakeDialog } from "@/components/crm/customer-intake-dialog";
 import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { EditCustomerDialog } from "@/components/crm/edit-customer-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -126,6 +127,7 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
   const [viewRow, setViewRow] = useState<CustomerRow | null>(null);
   const [editRow, setEditRow] = useState<CustomerRow | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<CustomerRow | null>(null);
+  const [intakeOpen, setIntakeOpen] = useState(false);
 
   const channelMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -408,7 +410,22 @@ export function CustomersPage({ isAdmin = false }: { isAdmin?: boolean } = {}) {
             <p className="text-xl font-semibold text-foreground">{customers.length}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shrink-0 px-3"
+            onClick={() => setIntakeOpen(true)}
+            aria-label="貼上客戶資料建立客戶"
+          >
+            <Sparkles className="h-4 w-4" />
+            貼上建立
+          </Button>
+          <CustomerIntakeDialog
+            open={intakeOpen}
+            onOpenChange={setIntakeOpen}
+            onCustomerSaved={fetchCustomers}
+          />
           <AddCustomerDialog channels={channels} onSuccess={fetchCustomers} />
           {isAdmin && (
             <Button
