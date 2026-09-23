@@ -567,10 +567,11 @@ function OrderFullDetailSections({
         </div>
       )}
 
-      <div>
+      {/* 依容器寬度（非螢幕寬度）切換：此區塊會放在表格展開列、手機卡片、彈窗等寬度不一的地方，
+          容器放得下明細表格（約 54rem）才用表格，否則改為品項卡片，不出現左右捲軸 */}
+      <div className="@container">
         <p className="mb-2 text-xs font-semibold text-foreground">訂單明細</p>
-        {/* 手機／平板（lg 以下）：品項改為卡片，不需左右滑動 */}
-        <div className="flex flex-col gap-2 lg:hidden">
+        <div className="flex flex-col gap-2 @min-[54rem]:hidden">
           {order.lines.length === 0 ? (
             <p
               className={cn(
@@ -672,7 +673,7 @@ function OrderFullDetailSections({
             })
           )}
         </div>
-        <div className={cn("hidden overflow-x-auto rounded-lg border lg:block", borderCls)}>
+        <div className={cn("hidden overflow-x-auto rounded-lg border @min-[54rem]:block", borderCls)}>
           <table className="w-full min-w-[860px] text-xs">
             <thead>
               <tr className={cn("border-b text-left", borderCls, mutedBg)}>
