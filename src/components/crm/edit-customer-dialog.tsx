@@ -2,6 +2,11 @@
 
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  CONTACT_METHOD_OPTIONS,
+  CUSTOMER_SOURCE_OPTIONS,
+  CUSTOMER_TYPE_OPTIONS,
+} from "@/lib/customer-options";
 import { amegoBanQuery } from "@/lib/sales-invoice";
 import { AddressZipcodeHint } from "@/components/crm/address-zipcode-hint";
 import { Button } from "@/components/ui/button";
@@ -255,12 +260,11 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
                     <option value="">未指定</option>
-                    <option value="line">LINE</option>
-                    <option value="ig">IG</option>
-                    <option value="fb">FB</option>
-                    <option value="email">Email</option>
-                    <option value="bingxueLine">秉學Line</option>
-                    <option value="others">Others</option>
+                    {CONTACT_METHOD_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -324,13 +328,11 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
                     <option value="">請選擇</option>
-                    <option value="網路">網路</option>
-                    <option value="客戶引介">客戶引介</option>
-                    <option value="設計師引介">設計師引介</option>
-                    <option value="親友">親友</option>
-                    <option value="展覽(好感生活)">展覽(好感生活)</option>
-                    <option value="展覽(木質生活)">展覽(木質生活)</option>
-                    <option value="通路(謝木木工作室)">通路(謝木木工作室)</option>
+                    {CUSTOMER_SOURCE_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex-1 space-y-1.5">
@@ -345,14 +347,11 @@ export function EditCustomerDialog({ open, onOpenChange, row, channels = [], onS
                     className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
                     <option value="">請選擇</option>
-                    <option value="一般民眾">一般民眾</option>
-                    <option value="合作通路">合作通路</option>
-                    <option value="室內設計師">室內設計師</option>
-                    <option value="建築師">建築師</option>
-                    <option value="餐廳">餐廳</option>
-                    <option value="政府機關">政府機關</option>
-                    <option value="木工廠(代工)">木工廠(代工)</option>
-                    <option value="展覽">展覽</option>
+                    {CUSTOMER_TYPE_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

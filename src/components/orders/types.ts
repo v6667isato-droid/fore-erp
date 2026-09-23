@@ -135,6 +135,21 @@ export interface EmployeeOption {
 
 export type ExplanationImage = { url: string; title?: string | null };
 
+/** 新增訂單時預先帶入的內容（貼上建立：客戶已選好、寄送資料與品項已填入，仍由使用者確認後儲存） */
+export interface OrderDraft {
+  customer_id: string;
+  shipping_contact_name: string | null;
+  shipping_contact_phone: string | null;
+  shipping_address: string | null;
+  shipping_has_elevator: boolean | null;
+  invoice_title: string | null;
+  invoice_tax_id: string | null;
+  expected_delivery_date: string | null;
+  internal_notes: string | null;
+  /** 空陣列＝沿用預設的一筆空白品項 */
+  items: OrderItemInput[];
+}
+
 export interface OrderFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -142,6 +157,8 @@ export interface OrderFormProps {
   variants: VariantOption[];
   initialOrder?: OrderRow | null;
   initialItems?: OrderItemInput[];
+  /** 新增模式預先帶入的內容（編輯模式忽略） */
+  initialDraft?: OrderDraft | null;
   readOnly?: boolean;
   onSaved: () => void;
   onRefreshCustomers: () => Promise<void>;

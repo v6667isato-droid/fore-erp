@@ -326,6 +326,7 @@ function OrderFormDialog({
   variants,
   initialOrder,
   initialItems,
+  initialDraft,
   readOnly = false,
   onSaved,
   onRefreshCustomers,
@@ -620,7 +621,21 @@ function OrderFormDialog({
       },
     ]);
     prevTotalAmountRef.current = null;
-  }, [open, initialOrder, todayLocal]);
+
+    // 貼上建立：客戶、寄送／發票資料與品項預先帶入（不走選客戶的自動帶入，保留這次訊息中的新地址等）
+    if (initialDraft) {
+      setCustomerId(initialDraft.customer_id);
+      setExpectedDate(initialDraft.expected_delivery_date ?? "");
+      setShippingContactName(initialDraft.shipping_contact_name ?? "");
+      setShippingContactPhone(initialDraft.shipping_contact_phone ?? "");
+      setShippingAddress(initialDraft.shipping_address ?? "");
+      setShippingHasElevator(initialDraft.shipping_has_elevator);
+      setInvoiceTitle(initialDraft.invoice_title ?? "");
+      setInvoiceTaxId(initialDraft.invoice_tax_id ?? "");
+      setInternalNotes(initialDraft.internal_notes ?? "");
+      if (initialDraft.items.length > 0) setItems(initialDraft.items);
+    }
+  }, [open, initialOrder, initialDraft, todayLocal]);
 
   // 新增模式：選到特定通路時，將訂金%預設改為 0%
   useEffect(() => {
