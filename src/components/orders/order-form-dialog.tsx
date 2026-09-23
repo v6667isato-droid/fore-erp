@@ -15,6 +15,7 @@ import {
 import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
 import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { Button } from "@/components/ui/button";
+import { NumericInput } from "@/components/ui/numeric-input";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
 import Link from "next/link";
@@ -2173,18 +2174,15 @@ function OrderFormDialog({
                               >
                                 數量
                               </label>
-                              <input
+                              <NumericInput
                                 id={`item-qty-${it.id}`}
-                                type="number"
                                 min={1}
                                 value={it.quantity}
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    quantity: Number(e.target.value) || 1,
-                                  })
+                                // 清空時 state 保留 1（欄位維持空白直到失焦），避免數量 0 在儲存時被當無效品項略過
+                                onValueChange={(v) =>
+                                  updateItem(it.id, { quantity: Math.max(1, v ?? 1) })
                                 }
                                 readOnly={readOnly}
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
@@ -2194,29 +2192,18 @@ function OrderFormDialog({
                               >
                                 牌價
                               </label>
-                              <input
+                              <NumericInput
                                 id={`item-price-${it.id}`}
-                                type="number"
-                                inputMode="numeric"
                                 min={0}
-                                // 0 顯示為空白（state 仍為 0），可直接輸入數字，不必先刪掉 0
                                 value={
                                   it.variant_id &&
                                   !isCustomOrderVariant(it.variant_id)
                                     ? Number(it.unit_price) ||
-                                      resolveListUnitPrice(it.variant_id) ||
-                                      ""
-                                    : Number(it.unit_price) || ""
+                                      resolveListUnitPrice(it.variant_id)
+                                    : Number(it.unit_price)
                                 }
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    unit_price:
-                                      Number(e.target.value) || 0,
-                                  })
-                                }
-                                placeholder="0"
+                                onValueChange={(v) => updateItem(it.id, { unit_price: v ?? 0 })}
                                 readOnly={readOnly || isVariantUnitPriceLocked(it)}
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
@@ -2226,28 +2213,18 @@ function OrderFormDialog({
                               >
                                 通路價格 / 折扣價格
                               </label>
-                              <input
+                              <NumericInput
                                 id={`item-channel-price-${it.id}`}
-                                type="number"
                                 min={0}
-                                step={1}
-                                value={
-                                  it.channel_unit_price != null &&
-                                  Number.isFinite(Number(it.channel_unit_price)) &&
-                                  Number(it.channel_unit_price) > 0
-                                    ? it.channel_unit_price
-                                    : ""
-                                }
-                                onChange={(e) => {
-                                  const raw = e.target.value.trim();
+                                value={Number(it.channel_unit_price) || null}
+                                onValueChange={(v) =>
                                   updateItem(it.id, {
-                                    channel_unit_price:
-                                      raw === "" ? null : Math.max(0, Number(raw) || 0),
-                                  });
-                                }}
+                                    channel_unit_price: v != null && v > 0 ? v : null,
+                                  })
+                                }
                                 placeholder="無（依牌價結算）"
                                 readOnly={readOnly}
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-xs focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                                className="placeholder:text-xs"
                               />
                             </div>
                           </div>
@@ -2721,17 +2698,14 @@ function OrderFormDialog({
                               <label className="text-xs text-muted-foreground">
                                 數量
                               </label>
-                              <input
-                                type="number"
+                              <NumericInput
                                 min={1}
                                 value={it.quantity}
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    quantity: Number(e.target.value) || 1,
-                                  })
+                                // 清空時 state 保留 1（欄位維持空白直到失焦），避免數量 0 在儲存時被當無效品項略過
+                                onValueChange={(v) =>
+                                  updateItem(it.id, { quantity: Math.max(1, v ?? 1) })
                                 }
                                 readOnly={readOnly}
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
@@ -2741,21 +2715,12 @@ function OrderFormDialog({
                               >
                                 牌價
                               </label>
-                              <input
+                              <NumericInput
                                 id={`item-list-price-custom-${it.id}`}
-                                type="number"
-                                inputMode="numeric"
                                 min={0}
-                                // 0 顯示為空白（state 仍為 0），可直接輸入數字，不必先刪掉 0
-                                value={Number(it.unit_price) || ""}
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    unit_price: Number(e.target.value) || 0,
-                                  })
-                                }
-                                placeholder="0"
+                                value={Number(it.unit_price)}
+                                onValueChange={(v) => updateItem(it.id, { unit_price: v ?? 0 })}
                                 readOnly={readOnly}
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
                             </div>
                             <div className="flex flex-col gap-1.5">
@@ -2765,28 +2730,17 @@ function OrderFormDialog({
                               >
                                 通路價格 / 折扣價格
                               </label>
-                              <input
+                              <NumericInput
                                 id={`item-channel-price-custom-${it.id}`}
-                                type="number"
                                 min={0}
-                                step={1}
-                                value={
-                                  it.channel_unit_price != null &&
-                                  Number.isFinite(Number(it.channel_unit_price)) &&
-                                  Number(it.channel_unit_price) > 0
-                                    ? it.channel_unit_price
-                                    : ""
-                                }
-                                onChange={(e) => {
-                                  const raw = e.target.value.trim();
+                                value={Number(it.channel_unit_price) || null}
+                                onValueChange={(v) =>
                                   updateItem(it.id, {
-                                    channel_unit_price:
-                                      raw === "" ? null : Math.max(0, Number(raw) || 0),
-                                  });
-                                }}
-                                readOnly={readOnly}
+                                    channel_unit_price: v != null && v > 0 ? v : null,
+                                  })
+                                }
                                 placeholder="選填"
-                                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
+                                readOnly={readOnly}
                               />
                             </div>
                           </div>
@@ -3097,13 +3051,12 @@ function OrderFormDialog({
                         {(Number(shippingFee) || 0).toLocaleString()}
                       </div>
                     ) : (
-                      <input
+                      <NumericInput
                         id="order-shipping-fee"
-                        type="number"
                         min={0}
-                        value={shippingFee}
-                        onChange={(e) => setShippingFee(e.target.value)}
-                        className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        value={Number(shippingFee)}
+                        onValueChange={(v) => setShippingFee(v == null ? "" : String(v))}
+                        className="w-full max-w-full tabular-nums"
                       />
                     )}
                   </label>
@@ -3170,13 +3123,12 @@ function OrderFormDialog({
                         {(Number(deposit) || 0).toLocaleString()}
                       </div>
                     ) : (
-                      <input
+                      <NumericInput
                         id="order-deposit"
-                        type="number"
                         min={0}
-                        value={deposit}
-                        onChange={(e) => setDeposit(e.target.value)}
-                        className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        value={Number(deposit)}
+                        onValueChange={(v) => setDeposit(v == null ? "" : String(v))}
+                        className="w-full max-w-full tabular-nums"
                       />
                     )}
                   </label>
