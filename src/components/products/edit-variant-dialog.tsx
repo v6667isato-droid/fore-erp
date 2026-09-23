@@ -13,6 +13,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import type { VariantRow } from "@/types/products";
 import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 export interface EditVariantDialogProps {
   open: boolean;
@@ -330,25 +332,25 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
             <div className="grid grid-cols-3 gap-2">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-variant-w" className="text-xs text-muted-foreground">寬 W（cm）</label>
-                <input id="edit-variant-w" type="number" value={w} onChange={(e) => setW(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
+                <NumericInput id="edit-variant-w" value={w} allowDecimal onValueChange={(v) => setW(toNumericText(v))} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-variant-d" className="text-xs text-muted-foreground">深 D（cm）</label>
-                <input id="edit-variant-d" type="number" value={d} onChange={(e) => setD(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
+                <NumericInput id="edit-variant-d" value={d} allowDecimal onValueChange={(v) => setD(toNumericText(v))} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-variant-h" className="text-xs text-muted-foreground">高 H（cm）</label>
-                <input id="edit-variant-h" type="number" value={h} onChange={(e) => setH(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
+                <NumericInput id="edit-variant-h" value={h} allowDecimal onValueChange={(v) => setH(toNumericText(v))} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="cm" />
               </div>
             </div>
             {hasSeatSpecs(seriesCategory) && (
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-variant-seat-h" className="text-xs text-muted-foreground">座高（cm）</label>
-                <input
+                <NumericInput
                   id="edit-variant-seat-h"
-                  type="number"
                   value={seatHeightCm}
-                  onChange={(e) => setSeatHeightCm(e.target.value)}
+                  allowDecimal
+                  onValueChange={(v) => setSeatHeightCm(toNumericText(v))}
                   className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}cm，座面離地高度`}
                 />
@@ -357,11 +359,11 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
             {hasSeatSpecs(seriesCategory) && (
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-variant-arm-h" className="text-xs text-muted-foreground">扶手高度 AH（cm）</label>
-                <input
+                <NumericInput
                   id="edit-variant-arm-h"
-                  type="number"
                   value={armHeightCmInput}
-                  onChange={(e) => setArmHeightCmInput(e.target.value)}
+                  allowDecimal
+                  onValueChange={(v) => setArmHeightCmInput(toNumericText(v))}
                   className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="無扶手請留空，留空則各處不顯示"
                 />
@@ -369,7 +371,7 @@ export function EditVariantDialog({ open, onOpenChange, row, onSuccess }: EditVa
             )}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-variant-price" className="text-xs text-muted-foreground">基礎定價</label>
-              <input id="edit-variant-price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+              <NumericInput id="edit-variant-price" value={price} placeholder="未設定" keepZero onValueChange={(v) => setPrice(toNumericText(v))} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="edit-variant-spec1" className="text-xs text-muted-foreground">規格 1</label>

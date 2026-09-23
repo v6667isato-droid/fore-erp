@@ -16,6 +16,8 @@ import {
   type PartRow,
 } from "@/types/inventory";
 import { buildSku, fetchMaterials } from "@/lib/part-variants";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 interface SeriesOption {
   id: string;
@@ -523,12 +525,12 @@ export function PartDialog({ open, onOpenChange, row, onSaved }: PartDialogProps
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="part-safety" className="text-xs text-muted-foreground">安全庫存量</label>
-                <input id="part-safety" type="number" min="0" step="any" value={safetyStock} onChange={(e) => setSafetyStock(e.target.value)} className={inputCls} />
+                <NumericInput id="part-safety" value={safetyStock} allowDecimal onValueChange={(v) => setSafetyStock(toNumericText(v))} className={inputCls} />
                 <p className="text-[11px] text-muted-foreground">庫存低於安全庫存時列入缺料提醒；各木種變體共用此設定。</p>
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="part-price" className="text-xs text-muted-foreground">參考單價</label>
-                <input id="part-price" type="number" min="0" step="any" value={referencePrice} onChange={(e) => setReferencePrice(e.target.value)} className={inputCls} placeholder="選填" />
+                <NumericInput id="part-price" value={referencePrice} allowDecimal onValueChange={(v) => setReferencePrice(toNumericText(v))} className={inputCls} placeholder="選填" />
               </div>
               <div className="flex flex-col gap-1.5 sm:col-span-2">
                 <label htmlFor="part-drawing" className="text-xs text-muted-foreground">尺寸圖連結</label>
@@ -542,15 +544,15 @@ export function PartDialog({ open, onOpenChange, row, onSaved }: PartDialogProps
                 <div className="grid grid-cols-3 gap-3">
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="part-dim-l" className="text-xs text-muted-foreground">長</label>
-                    <input id="part-dim-l" type="number" min="0" step="any" value={dimLength} onChange={(e) => setDimLength(e.target.value)} className={inputCls} placeholder="mm" />
+                    <NumericInput id="part-dim-l" value={dimLength} allowDecimal onValueChange={(v) => setDimLength(toNumericText(v))} className={inputCls} placeholder="mm" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="part-dim-w" className="text-xs text-muted-foreground">寬</label>
-                    <input id="part-dim-w" type="number" min="0" step="any" value={dimWidth} onChange={(e) => setDimWidth(e.target.value)} className={inputCls} placeholder="mm" />
+                    <NumericInput id="part-dim-w" value={dimWidth} allowDecimal onValueChange={(v) => setDimWidth(toNumericText(v))} className={inputCls} placeholder="mm" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="part-dim-t" className="text-xs text-muted-foreground">厚</label>
-                    <input id="part-dim-t" type="number" min="0" step="any" value={dimThickness} onChange={(e) => setDimThickness(e.target.value)} className={inputCls} placeholder="mm" />
+                    <NumericInput id="part-dim-t" value={dimThickness} allowDecimal onValueChange={(v) => setDimThickness(toNumericText(v))} className={inputCls} placeholder="mm" />
                   </div>
                 </div>
                 {isMake && (

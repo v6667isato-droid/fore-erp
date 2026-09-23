@@ -35,6 +35,8 @@ import {
   type InvoiceCropBox,
 } from "@/components/accounting/invoice-image-viewer";
 import { FieldCropZoom } from "@/components/accounting/field-crop-zoom";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 /** 從 Supabase 錯誤物件盡量取出可讀訊息 */
 function errText(err: unknown, fallback: string): string {
@@ -1044,14 +1046,14 @@ export function AccountingInvoiceReviewDialog({
                       未稅金額
                       <SourceBadge source={fieldSources.amountExTax} />
                     </label>
-                    <input
+                    <NumericInput
                       id="acct-amount-ex"
-                      type="number"
-                      min={0}
                       step="0.01"
                       value={amountExTax}
-                      onChange={(e) => {
-                        setAmountExTax(e.target.value);
+                      keepZero
+                      allowDecimal
+                      onValueChange={(v) => {
+                        setAmountExTax(toNumericText(v));
                         markManual("amountExTax");
                       }}
                       onFocus={() => setFocusField("amountExTax")}
@@ -1065,14 +1067,14 @@ export function AccountingInvoiceReviewDialog({
                       稅額
                       <SourceBadge source={fieldSources.taxAmount} />
                     </label>
-                    <input
+                    <NumericInput
                       id="acct-tax-amount"
-                      type="number"
-                      min={0}
                       step="0.01"
                       value={taxAmount}
-                      onChange={(e) => {
-                        setTaxAmount(e.target.value);
+                      keepZero
+                      allowDecimal
+                      onValueChange={(v) => {
+                        setTaxAmount(toNumericText(v));
                         markManual("taxAmount");
                       }}
                       onFocus={() => setFocusField("taxAmount")}
@@ -1089,14 +1091,14 @@ export function AccountingInvoiceReviewDialog({
                       含稅金額 *
                       <SourceBadge source={fieldSources.amountIncTax} />
                     </label>
-                    <input
+                    <NumericInput
                       id="acct-amount-inc"
-                      type="number"
-                      min={0}
                       step="0.01"
                       value={amountIncTax}
-                      onChange={(e) => {
-                        setAmountIncTax(e.target.value);
+                      keepZero
+                      allowDecimal
+                      onValueChange={(v) => {
+                        setAmountIncTax(toNumericText(v));
                         markManual("amountIncTax");
                       }}
                       onFocus={() => setFocusField("amountIncTax")}

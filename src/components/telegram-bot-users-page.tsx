@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Copy, Plus, RefreshCw, Ticket, Trash2, UserPlus } from "lucide-react";
+import { NumericInput } from "@/components/ui/numeric-input";
 
 type BotRole = "admin" | "staff";
 
@@ -583,12 +584,11 @@ export function TelegramBotUsersPage() {
             </label>
             <label className="flex flex-col gap-1 text-xs text-muted-foreground">
               有效天數
-              <input
-                type="number"
+              <NumericInput
                 min={1}
                 max={90}
                 value={inviteDays}
-                onChange={(e) => setInviteDays(Number(e.target.value))}
+                onValueChange={(v) => setInviteDays(Math.max(1, v ?? 1))}
                 className={cn(inputCls, "w-20")}
               />
             </label>

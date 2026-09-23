@@ -8,6 +8,8 @@ import { supabase } from "@/lib/supabase";
 import { TABLE_PRODUCT_VARIANTS } from "@/lib/products-db";
 import { parseSizeCode, buildSizeCode } from "@/lib/size-code";
 import { toast } from "sonner";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 export interface SeriesOptionsDialogProps {
   open: boolean;
@@ -1132,13 +1134,11 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                 <label htmlFor="series-base-price" className="text-xs font-medium text-foreground">
                   系列基礎價
                 </label>
-                <input
+                <NumericInput
                   id="series-base-price"
-                  type="number"
-                  min="0"
-                  step="1"
                   value={basePriceDraft}
-                  onChange={(e) => setBasePriceDraft(e.target.value)}
+                  keepZero
+                  onValueChange={(v) => setBasePriceDraft(toNumericText(v))}
                   onBlur={() => void saveBasePrice()}
                   className={`${inputCls} w-36 text-right tabular-nums`}
                   placeholder="未設定"
@@ -1203,33 +1203,33 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                                         <div className="flex flex-col gap-1">
                                           <label htmlFor={`edit-w-${v.id}`} className="text-[11px] text-muted-foreground">寬 W（cm）*</label>
-                                          <input
+                                          <NumericInput
                                             id={`edit-w-${v.id}`}
-                                            type="number"
                                             value={editDraft.w}
-                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, w: e.target.value }))}
+                                            allowDecimal
+                                            onValueChange={(v) => setEditDraft((prev) => ({ ...prev, w: toNumericText(v) }))}
                                             className={inputCls}
                                             placeholder="必填"
                                           />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                           <label htmlFor={`edit-d-${v.id}`} className="text-[11px] text-muted-foreground">深 D（cm）</label>
-                                          <input
+                                          <NumericInput
                                             id={`edit-d-${v.id}`}
-                                            type="number"
                                             value={editDraft.d}
-                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, d: e.target.value }))}
+                                            allowDecimal
+                                            onValueChange={(v) => setEditDraft((prev) => ({ ...prev, d: toNumericText(v) }))}
                                             className={inputCls}
                                             placeholder="選填"
                                           />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                           <label htmlFor={`edit-h-${v.id}`} className="text-[11px] text-muted-foreground">高 H（cm）</label>
-                                          <input
+                                          <NumericInput
                                             id={`edit-h-${v.id}`}
-                                            type="number"
                                             value={editDraft.h}
-                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, h: e.target.value }))}
+                                            allowDecimal
+                                            onValueChange={(v) => setEditDraft((prev) => ({ ...prev, h: toNumericText(v) }))}
                                             className={inputCls}
                                             placeholder="選填"
                                           />
@@ -1247,11 +1247,10 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                         </div>
                                         <div className="flex flex-col gap-1">
                                           <label htmlFor={`edit-sort-${v.id}`} className="text-[11px] text-muted-foreground">排序</label>
-                                          <input
+                                          <NumericInput
                                             id={`edit-sort-${v.id}`}
-                                            type="number"
                                             value={editDraft.sort}
-                                            onChange={(e) => setEditDraft((prev) => ({ ...prev, sort: e.target.value }))}
+                                            onValueChange={(v) => setEditDraft((prev) => ({ ...prev, sort: String(v ?? 0) }))}
                                             className={inputCls}
                                           />
                                         </div>
@@ -1295,21 +1294,20 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                     </div>
                                     <div className="flex flex-col gap-1">
                                       <label htmlFor={`edit-delta-${v.id}`} className="text-[11px] text-muted-foreground">{isConfig ? "價差" : "全域價差"}</label>
-                                      <input
+                                      <NumericInput
                                         id={`edit-delta-${v.id}`}
-                                        type="number"
                                         value={editDraft.delta}
-                                        onChange={(e) => setEditDraft((prev) => ({ ...prev, delta: e.target.value }))}
+                                        allowNegative
+                                        onValueChange={(v) => setEditDraft((prev) => ({ ...prev, delta: String(v ?? 0) }))}
                                         className={inputCls}
                                       />
                                     </div>
                                     <div className="flex flex-col gap-1">
                                       <label htmlFor={`edit-sort-${v.id}`} className="text-[11px] text-muted-foreground">排序</label>
-                                      <input
+                                      <NumericInput
                                         id={`edit-sort-${v.id}`}
-                                        type="number"
                                         value={editDraft.sort}
-                                        onChange={(e) => setEditDraft((prev) => ({ ...prev, sort: e.target.value }))}
+                                        onValueChange={(v) => setEditDraft((prev) => ({ ...prev, sort: String(v ?? 0) }))}
                                         className={inputCls}
                                       />
                                     </div>
@@ -1406,11 +1404,12 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                   {isSize ? (
                                     <>
                                       <span>價差</span>
-                                      <input
-                                        type="number"
+                                      <NumericInput
                                         value={overrideDrafts[v.id] ?? ""}
-                                        onChange={(e) =>
-                                          setOverrideDrafts((prev) => ({ ...prev, [v.id]: e.target.value }))
+                                        keepZero
+                                        allowNegative
+                                        onValueChange={(val) =>
+                                          setOverrideDrafts((prev) => ({ ...prev, [v.id]: toNumericText(val) }))
                                         }
                                         onBlur={() => saveOverride(v)}
                                         disabled={!isAttached}
@@ -1444,11 +1443,12 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                 {!seriesScoped && (
                                   <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                                     <span>覆寫</span>
-                                    <input
-                                      type="number"
+                                    <NumericInput
                                       value={overrideDrafts[v.id] ?? ""}
-                                      onChange={(e) =>
-                                        setOverrideDrafts((prev) => ({ ...prev, [v.id]: e.target.value }))
+                                      keepZero
+                                      allowNegative
+                                      onValueChange={(val) =>
+                                        setOverrideDrafts((prev) => ({ ...prev, [v.id]: toNumericText(val) }))
                                       }
                                       onBlur={() => saveOverride(v)}
                                       disabled={!isAttached}
@@ -1472,33 +1472,33 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                                 <div className="flex flex-col gap-1">
                                   <label htmlFor={`add-w-${t.id}`} className="text-[11px] text-muted-foreground">寬 W（cm）*</label>
-                                  <input
+                                  <NumericInput
                                     id={`add-w-${t.id}`}
-                                    type="number"
                                     value={form.w}
-                                    onChange={(e) => setAddForm(t.id, { w: e.target.value })}
+                                    allowDecimal
+                                    onValueChange={(v) => setAddForm(t.id, { w: toNumericText(v) })}
                                     className={inputCls}
                                     placeholder="必填"
                                   />
                                 </div>
                                 <div className="flex flex-col gap-1">
                                   <label htmlFor={`add-d-${t.id}`} className="text-[11px] text-muted-foreground">深 D（cm）</label>
-                                  <input
+                                  <NumericInput
                                     id={`add-d-${t.id}`}
-                                    type="number"
                                     value={form.d}
-                                    onChange={(e) => setAddForm(t.id, { d: e.target.value })}
+                                    allowDecimal
+                                    onValueChange={(v) => setAddForm(t.id, { d: toNumericText(v) })}
                                     className={inputCls}
                                     placeholder="選填"
                                   />
                                 </div>
                                 <div className="flex flex-col gap-1">
                                   <label htmlFor={`add-h-${t.id}`} className="text-[11px] text-muted-foreground">高 H（cm）</label>
-                                  <input
+                                  <NumericInput
                                     id={`add-h-${t.id}`}
-                                    type="number"
                                     value={form.h}
-                                    onChange={(e) => setAddForm(t.id, { h: e.target.value })}
+                                    allowDecimal
+                                    onValueChange={(v) => setAddForm(t.id, { h: toNumericText(v) })}
                                     className={inputCls}
                                     placeholder="選填"
                                   />
@@ -1516,22 +1516,22 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                                 </div>
                                 <div className="flex flex-col gap-1">
                                   <label htmlFor={`add-delta-${t.id}`} className="text-[11px] text-muted-foreground">價差（此系列）</label>
-                                  <input
+                                  <NumericInput
                                     id={`add-delta-${t.id}`}
-                                    type="number"
                                     value={form.delta}
-                                    onChange={(e) => setAddForm(t.id, { delta: e.target.value })}
+                                    allowNegative
+                                    onValueChange={(v) => setAddForm(t.id, { delta: toNumericText(v) })}
                                     className={inputCls}
                                     placeholder="0"
                                   />
                                 </div>
                                 <div className="flex flex-col gap-1">
                                   <label htmlFor={`add-sort-${t.id}`} className="text-[11px] text-muted-foreground">排序</label>
-                                  <input
+                                  <NumericInput
                                     id={`add-sort-${t.id}`}
-                                    type="number"
                                     value={form.sort}
-                                    onChange={(e) => setAddForm(t.id, { sort: e.target.value })}
+                                    keepZero
+                                    onValueChange={(v) => setAddForm(t.id, { sort: toNumericText(v) })}
                                     className={inputCls}
                                     placeholder="自動＝寬"
                                   />
@@ -1578,22 +1578,22 @@ export function SeriesOptionsDialog({ open, onOpenChange, series, onChanged }: S
                             </div>
                             <div className="flex flex-col gap-1">
                               <label htmlFor={`add-delta-${t.id}`} className="text-[11px] text-muted-foreground">{isConfig ? "價差" : "全域價差"}</label>
-                              <input
+                              <NumericInput
                                 id={`add-delta-${t.id}`}
-                                type="number"
                                 value={form.delta}
-                                onChange={(e) => setAddForm(t.id, { delta: e.target.value })}
+                                allowNegative
+                                onValueChange={(v) => setAddForm(t.id, { delta: toNumericText(v) })}
                                 className={inputCls}
                                 placeholder="0"
                               />
                             </div>
                             <div className="flex flex-col gap-1">
                               <label htmlFor={`add-sort-${t.id}`} className="text-[11px] text-muted-foreground">排序</label>
-                              <input
+                              <NumericInput
                                 id={`add-sort-${t.id}`}
-                                type="number"
                                 value={form.sort}
-                                onChange={(e) => setAddForm(t.id, { sort: e.target.value })}
+                                keepZero
+                                onValueChange={(v) => setAddForm(t.id, { sort: toNumericText(v) })}
                                 className={inputCls}
                                 placeholder="自動"
                               />

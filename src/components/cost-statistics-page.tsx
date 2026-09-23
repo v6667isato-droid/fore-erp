@@ -30,6 +30,7 @@ import {
 import { spreadPurchaseCostByMonth } from "@/lib/purchase-amortization";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight, ChevronUp, Download, Save } from "lucide-react";
+import { NumericInput } from "@/components/ui/numeric-input";
 
 /** 成本結構固定項目與色槽（色彩跟著項目走，不隨金額排序改變） */
 const BUCKET_DEFS = [
@@ -890,13 +891,11 @@ export function CostStatisticsPage() {
                 <label className="text-xs font-medium text-foreground" htmlFor="cost-annual-rent">
                   1. 租金（年）
                 </label>
-                <input
+                <NumericInput
                   id="cost-annual-rent"
-                  type="number"
-                  min={0}
                   step={10000}
                   value={annualRent}
-                  onChange={(e) => setAnnualRent(Math.max(0, Number(e.target.value || 0)))}
+                  onValueChange={(v) => setAnnualRent(v ?? 0)}
                   className="h-9 w-full max-w-[11rem] rounded-md border border-input bg-background px-2 text-sm tabular-nums"
                 />
                 <span className="text-[11px] text-muted-foreground">
@@ -910,13 +909,11 @@ export function CostStatisticsPage() {
                 >
                   2. 公司貸款利息（年）
                 </label>
-                <input
+                <NumericInput
                   id="cost-annual-company-loan"
-                  type="number"
-                  min={0}
                   step={1000}
                   value={annualCompanyLoan}
-                  onChange={(e) => setAnnualCompanyLoan(Math.max(0, Number(e.target.value || 0)))}
+                  onValueChange={(v) => setAnnualCompanyLoan(v ?? 0)}
                   title="預設：29695×12 + 7441×12 + 28037×6"
                   className="h-9 w-full max-w-[11rem] rounded-md border border-input bg-background px-2 text-sm tabular-nums"
                 />
@@ -931,16 +928,13 @@ export function CostStatisticsPage() {
                 >
                   3. 進項稅折抵率（%）
                 </label>
-                <input
+                <NumericInput
                   id="cost-input-tax-deductible"
-                  type="number"
-                  min={0}
                   max={100}
                   step={5}
                   value={deductiblePct}
-                  onChange={(e) =>
-                    setDeductiblePct(Math.min(100, Math.max(0, Number(e.target.value || 0))))
-                  }
+                  allowDecimal
+                  onValueChange={(v) => setDeductiblePct(Math.min(100, v ?? 0))}
                   className="h-9 w-full max-w-[11rem] rounded-md border border-input bg-background px-2 text-sm tabular-nums"
                 />
                 <span className="text-[11px] text-muted-foreground">

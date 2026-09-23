@@ -27,6 +27,8 @@ import {
   materialCategoryFilterMatches,
   type MaterialCategoryGroup,
 } from "@/lib/material-category-groups";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 const FILTER_MATERIAL_UNCATEGORIZED = "__uncategorized__";
 
@@ -445,11 +447,11 @@ export function EditPurchaseDialog({ open, onOpenChange, row, onSuccess }: EditP
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-purchase-qty" className="text-xs text-muted-foreground">數量</label>
-                <input id="edit-purchase-qty" type="number" min={0} step="any" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                <NumericInput id="edit-purchase-qty" value={quantity} allowDecimal onValueChange={(v) => setQuantity(toNumericText(v))} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-purchase-price" className="text-xs text-muted-foreground">單價（{priceInputIsTaxInclusive ? "已稅" : "未稅"}）</label>
-                <input id="edit-purchase-price" type="number" min={0} step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                <NumericInput id="edit-purchase-price" step="0.01" value={unitPrice} allowDecimal onValueChange={(v) => setUnitPrice(toNumericText(v))} className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-purchase-amort" className="text-xs text-muted-foreground">成本攤提</label>

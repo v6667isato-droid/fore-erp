@@ -8,6 +8,8 @@ import type { WarRoomRow } from "@/lib/attendance-war-room";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 const ERR_ZH: Record<string, string> = {
   forbidden: "僅管理員可核准加班。",
@@ -147,13 +149,13 @@ export function WeekendOvertimeApprovalDialog({
             <label htmlFor="comp-leave-hours" className="text-sm font-medium text-foreground">
               老闆核定補休時數（小時）
             </label>
-            <input
+            <NumericInput
               id="comp-leave-hours"
-              type="number"
               min={0.01}
               step={0.1}
               value={hoursInput}
-              onChange={(e) => setHoursInput(e.target.value)}
+              allowDecimal
+              onValueChange={(v) => setHoursInput(toNumericText(v))}
               className={inputClass}
             />
           </div>

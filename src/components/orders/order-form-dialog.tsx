@@ -16,6 +16,7 @@ import { DEFAULT_SEAT_HEIGHT_CM, hasSeatSpecs } from "@/lib/product-seat-height"
 import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { Button } from "@/components/ui/button";
 import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
 import Link from "next/link";
@@ -2251,18 +2252,11 @@ function OrderFormDialog({
                               <label className="text-xs text-muted-foreground">
                                 W
                               </label>
-                              <input
-                                type="number"
+                              <NumericInput
                                 placeholder="W"
                                 value={it.custom_dimension_w ?? ""}
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    custom_dimension_w:
-                                      e.target.value === ""
-                                        ? null
-                                        : Number(e.target.value),
-                                  })
-                                }
+                                allowDecimal
+                                onValueChange={(v) => updateItem(it.id, { custom_dimension_w: v })}
                                 readOnly={readOnly}
                                 className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
@@ -2271,18 +2265,11 @@ function OrderFormDialog({
                               <label className="text-xs text-muted-foreground">
                                 D
                               </label>
-                              <input
-                                type="number"
+                              <NumericInput
                                 placeholder="D"
                                 value={it.custom_dimension_d ?? ""}
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    custom_dimension_d:
-                                      e.target.value === ""
-                                        ? null
-                                        : Number(e.target.value),
-                                  })
-                                }
+                                allowDecimal
+                                onValueChange={(v) => updateItem(it.id, { custom_dimension_d: v })}
                                 readOnly={readOnly}
                                 className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
@@ -2291,18 +2278,11 @@ function OrderFormDialog({
                               <label className="text-xs text-muted-foreground">
                                 H
                               </label>
-                              <input
-                                type="number"
+                              <NumericInput
                                 placeholder="H"
                                 value={it.custom_dimension_h ?? ""}
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    custom_dimension_h:
-                                      e.target.value === ""
-                                        ? null
-                                        : Number(e.target.value),
-                                  })
-                                }
+                                allowDecimal
+                                onValueChange={(v) => updateItem(it.id, { custom_dimension_h: v })}
                                 readOnly={readOnly}
                                 className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
@@ -2314,19 +2294,12 @@ function OrderFormDialog({
                               >
                                 座高（cm）
                               </label>
-                              <input
+                              <NumericInput
                                 id={`item-seat-${it.id}`}
-                                type="number"
                                 placeholder="cm"
                                 value={it.seat_height_cm ?? ""}
-                                onChange={(e) =>
-                                  updateItem(it.id, {
-                                    seat_height_cm:
-                                      e.target.value === ""
-                                        ? null
-                                        : Number(e.target.value),
-                                  })
-                                }
+                                allowDecimal
+                                onValueChange={(v) => updateItem(it.id, { seat_height_cm: v })}
                                 readOnly={readOnly}
                                 className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                               />
@@ -2607,48 +2580,27 @@ function OrderFormDialog({
                                 W / D / H
                               </label>
                               <div className="grid grid-cols-3 gap-1.5">
-                                <input
-                                  type="number"
+                                <NumericInput
                                   placeholder="W"
                                   value={it.custom_dimension_w ?? ""}
-                                  onChange={(e) =>
-                                    updateItem(it.id, {
-                                      custom_dimension_w:
-                                        e.target.value === ""
-                                          ? null
-                                          : Number(e.target.value),
-                                    })
-                                  }
+                                  allowDecimal
+                                  onValueChange={(v) => updateItem(it.id, { custom_dimension_w: v })}
                                   readOnly={readOnly}
                                   className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                                 />
-                                <input
-                                  type="number"
+                                <NumericInput
                                   placeholder="D"
                                   value={it.custom_dimension_d ?? ""}
-                                  onChange={(e) =>
-                                    updateItem(it.id, {
-                                      custom_dimension_d:
-                                        e.target.value === ""
-                                          ? null
-                                          : Number(e.target.value),
-                                    })
-                                  }
+                                  allowDecimal
+                                  onValueChange={(v) => updateItem(it.id, { custom_dimension_d: v })}
                                   readOnly={readOnly}
                                   className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                                 />
-                                <input
-                                  type="number"
+                                <NumericInput
                                   placeholder="H"
                                   value={it.custom_dimension_h ?? ""}
-                                  onChange={(e) =>
-                                    updateItem(it.id, {
-                                      custom_dimension_h:
-                                        e.target.value === ""
-                                          ? null
-                                          : Number(e.target.value),
-                                    })
-                                  }
+                                  allowDecimal
+                                  onValueChange={(v) => updateItem(it.id, { custom_dimension_h: v })}
                                   readOnly={readOnly}
                                   className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                                 />
@@ -2659,18 +2611,11 @@ function OrderFormDialog({
                             <label className="text-xs text-muted-foreground">
                               座高（cm）
                             </label>
-                            <input
-                              type="number"
+                            <NumericInput
                               placeholder="cm"
                               value={it.seat_height_cm ?? ""}
-                              onChange={(e) =>
-                                updateItem(it.id, {
-                                  seat_height_cm:
-                                    e.target.value === ""
-                                      ? null
-                                      : Number(e.target.value),
-                                })
-                              }
+                              allowDecimal
+                              onValueChange={(v) => updateItem(it.id, { seat_height_cm: v })}
                               readOnly={readOnly}
                               className="h-9 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
                             />
@@ -2970,13 +2915,12 @@ function OrderFormDialog({
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          min={0}
+                        <NumericInput
                           max={100}
                           step="0.5"
                           value={discountPct}
-                          onChange={(e) => handleDiscountPctChange(e.target.value)}
+                          allowDecimal
+                          onValueChange={(v) => handleDiscountPctChange(toNumericText(v))}
                           className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                           placeholder="0"
                         />
@@ -2996,14 +2940,13 @@ function OrderFormDialog({
                             : "0"}
                       </div>
                     ) : (
-                      <input
-                        type="number"
-                        min={0}
+                      <NumericInput
                         value={discountTotal}
-                        onChange={(e) => {
+                        keepZero
+                        onValueChange={(v) => {
                           setDiscountLocked(true);
                           setDiscountPct("");
-                          setDiscountTotal(e.target.value);
+                          setDiscountTotal(toNumericText(v));
                         }}
                         className="h-9 w-full max-w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         placeholder={totalAmount > 0 ? String(totalAmount) : "0"}

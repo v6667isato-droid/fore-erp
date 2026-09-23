@@ -17,6 +17,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { TABLE_PRODUCT_SERIES } from "@/lib/products-db";
 import type { SeriesRow } from "@/types/products";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 export interface ChannelRow {
   id: string;
@@ -639,14 +641,13 @@ function ChannelSeriesDiscountDialog({
                         </TableCell>
                         <TableCell className="text-sm">
                           <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min={0}
+                            <NumericInput
                               max={100}
-                              step="any"
                               value={values[s.id] ?? ""}
-                              onChange={(e) =>
-                                setValues((prev) => ({ ...prev, [s.id]: e.target.value }))
+                              keepZero
+                              allowDecimal
+                              onValueChange={(v) =>
+                                setValues((prev) => ({ ...prev, [s.id]: toNumericText(v) }))
                               }
                               className="h-8 w-32 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                               placeholder="未設定"

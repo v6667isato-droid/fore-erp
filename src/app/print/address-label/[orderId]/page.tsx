@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { AlertTriangle, ArrowBigUp, Hand } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRequireAuth } from "@/lib/use-require-auth";
+import { NumericInput } from "@/components/ui/numeric-input";
 
 interface AddressLabelOrder {
   id: string;
@@ -345,15 +346,11 @@ export default function AddressLabelPage() {
             </label>
             <div className="inline-flex items-center gap-1">
               <span>{isMulti ? "每筆訂單張數：" : "地址條數量："}</span>
-              <input
-                type="number"
+              <NumericInput
                 min={1}
                 max={50}
                 value={labelCount}
-                onChange={(e) => {
-                  const v = Number(e.target.value) || 1;
-                  setLabelCount(Math.min(Math.max(v, 1), 50));
-                }}
+                onValueChange={(v) => setLabelCount(Math.min(Math.max(v ?? 1, 1), 50))}
                 className="h-7 w-16 rounded-md border border-gray-300 px-2 text-xs"
               />
             </div>

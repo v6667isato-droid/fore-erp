@@ -15,6 +15,8 @@ import {
   type ResolvedBomItem,
 } from "@/lib/part-variants";
 import { TABLE_PRODUCT_VARIANTS } from "@/lib/products-db";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 /** 隨單材質線的目標候選：有材質軸的邏輯零件 */
 interface AxisPartOption {
@@ -520,12 +522,10 @@ export function BomEditor({ seriesId, isAdmin = false, onCountChange }: BomEdito
                       </div>
                       <div className="flex items-center gap-2">
                         {isAdmin ? (
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
+                          <NumericInput
                             value={qtyDrafts[l.id] ?? String(l.quantity)}
-                            onChange={(e) => setQtyDrafts((d) => ({ ...d, [l.id]: e.target.value }))}
+                            allowDecimal
+                            onValueChange={(v) => setQtyDrafts((d) => ({ ...d, [l.id]: toNumericText(v) }))}
                             onBlur={() => void saveQty(l)}
                             className="h-8 w-20 rounded-lg border border-input bg-background px-2 text-right text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                             aria-label={`${lineTargetLabel(l)} 用量`}
@@ -651,13 +651,11 @@ export function BomEditor({ seriesId, isAdmin = false, onCountChange }: BomEdito
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <label htmlFor={`bom-new-qty-${seriesId}`} className="text-xs text-muted-foreground">用量</label>
-              <input
+              <NumericInput
                 id={`bom-new-qty-${seriesId}`}
-                type="number"
-                min="0"
-                step="any"
                 value={newQty}
-                onChange={(e) => setNewQty(e.target.value)}
+                allowDecimal
+                onValueChange={(v) => setNewQty(toNumericText(v))}
                 className={cn(inputCls, "text-right")}
               />
             </div>

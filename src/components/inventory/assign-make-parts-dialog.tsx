@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils";
 import type { EmployeeOption } from "@/types/inventory";
 import type { PartMakeTaskItem } from "@/lib/part-make-tasks";
 import type { Json } from "@/types/database.types";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 /** 製作對象＝庫存變體（part_variant_stock_status 一列） */
 interface PickerVariant {
@@ -294,12 +296,10 @@ export function AssignMakePartsDialog({ open, onOpenChange }: AssignMakePartsDia
                       </option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
+                  <NumericInput
                     value={it.quantity}
-                    onChange={(e) => updateItem(idx, { quantity: e.target.value })}
+                    allowDecimal
+                    onValueChange={(v) => updateItem(idx, { quantity: toNumericText(v) })}
                     className={cn(inputCls, "w-24 text-right")}
                     placeholder="預計數量"
                     aria-label={`第 ${idx + 1} 列預計製作數量`}

@@ -6,6 +6,8 @@ import { CalendarPlus, ChevronDown, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { isSupabaseConfigured, supabase, SUPABASE_CONFIG_HELP } from "@/lib/supabase";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { toNumericText } from "@/lib/numeric-input";
 
 const ERR_ZH: Record<string, string> = {
   forbidden: "僅管理員可補登加班。",
@@ -303,14 +305,14 @@ export function ManualOvertimeAdminCard({ onMutate }: { onMutate?: () => void })
               <label htmlFor="mot-hours" className="text-sm font-medium text-foreground">
                 核定加班時數（小時） <span className="text-destructive">*</span>
               </label>
-              <input
+              <NumericInput
                 id="mot-hours"
-                type="number"
                 required
                 min={0.5}
                 step={0.5}
                 value={hoursInput}
-                onChange={(e) => setHoursInput(e.target.value)}
+                allowDecimal
+                onValueChange={(v) => setHoursInput(toNumericText(v))}
                 placeholder="例：8"
                 className="mt-1.5 h-10 w-full max-w-xs rounded-lg border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
