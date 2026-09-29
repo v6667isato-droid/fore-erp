@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { LEAVE_WORK_DAY_HOURS } from "@/lib/employee-leave-time";
 import { buildPayslipAttendanceRemarks } from "@/lib/payslip-attendance-remarks";
+import { stripSpecSuffixCodes } from "@/lib/strip-spec-suffix";
 import {
   normalizeWorkOrderStage,
   syncOrderStatusFromWorkOrders,
@@ -920,11 +921,20 @@ function mapWorkOrderRowToAssigneePortal(r: Record<string, unknown>): AssigneeWo
   const customerAlias =
     cust?.alias != null && String(cust.alias).trim() ? String(cust.alias) : null;
 
-  let itemName = "";
+  let baseName = "";
   if (oi?.custom_name) {
-    itemName = String(oi.custom_name);
+    baseName = String(oi.custom_name).trim();
   } else if (pv?.product_code) {
-    itemName = String(pv.product_code);
+    baseName = String(pv.product_code).trim();
+  }
+  // 名稱＋材料（木種，明細優先於規格庫）＋規格（spec1，略去 -P/-R/-W/-F 代碼），如「TB06-C 煙燻白橡木」
+  const woodType =
+    String(oi?.wood_type ?? "").trim() || String(pv?.wood_type ?? "").trim();
+  const spec = stripSpecSuffixCodes(String(pv?.spec1 ?? ""));
+  let itemName = baseName;
+  for (const part of [woodType, spec]) {
+    // 客製名稱已含木種／規格時不重複附加
+    if (part && !itemName.includes(part)) itemName = itemName ? `${itemName} ${part}` : part;
   }
 
   const cat = (oi?.custom_category as string | null | undefined)?.trim() ?? "";
@@ -1001,6 +1011,7 @@ async function fetchAssigneeWorkOrders(employeeId: string): Promise<AssigneeWork
         custom_dimension_d,
         custom_dimension_h,
         quantity,
+        wood_type,
         orders(
           id,
           order_number,
@@ -1012,6 +1023,8 @@ async function fetchAssigneeWorkOrders(employeeId: string): Promise<AssigneeWork
         ),
         product_variants(
           product_code,
+          wood_type,
+          spec1,
           dimension_w,
           dimension_d,
           dimension_h
