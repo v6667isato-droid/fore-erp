@@ -150,7 +150,7 @@ export interface AssigneeWorkOrderRow {
   customer_alias: string | null;
   /** orders.shipping_contact_name */
   shipping_contact_name: string | null;
-  /** 品項＋尺寸，同生產管理「品項 / 尺寸」 */
+  /** 品項（名稱＋材料＋規格）＋尺寸，如「TB06-C 煙燻白橡木 / W:200 x D:90 x H:75」 */
   item_size_label: string;
   /** 該品項備註：order_items.custom_description ＋ custom_notes（以換行併接） */
   item_notes: string | null;
@@ -333,7 +333,7 @@ export const employeePortalMock: EmployeePortalPayload = {
       customer_name: "謝木木工作室",
       customer_alias: "專案 A",
       shipping_contact_name: "林小姐",
-      item_size_label: "ST01-C / W:40 x D:48 x H:75",
+      item_size_label: "ST01-C 白橡木 紙編 / W:40 x D:48 x H:75",
       item_notes: null,
       quantity: 3,
       category: "凳",
