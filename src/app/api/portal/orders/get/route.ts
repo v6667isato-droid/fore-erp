@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   try {
     const { data: order, error: orderErr } = await client
       .from("orders")
-      .select("id, order_date, expected_delivery_date, shipping_address, internal_notes, status")
+      .select("id, order_date, expected_delivery_date, shipping_address, internal_notes, status, explanation_image_url")
       .eq("id", orderId)
       .eq("customer_id", identity.customer_id)
       .is("deleted_at", null)
@@ -27,8 +27,9 @@ export async function POST(request: Request) {
     const { data: items, error: itemsErr } = await client
       .from("order_items")
       .select(
-        // unit_price / channel_unit_price 為下單當下快照；base_price 僅供舊資料（快照 NULL）回退顯示
-        "id, variant_id, quantity, unit_price, channel_unit_price, custom_notes, seat_height_cm, product_variants(base_price)",
+        // unit_price / channel_unit_price 為下單當下快照；base_price 僅供舊資料（快照 NULL）回退顯示；
+        // custom_* 供訂製品編輯；custom_case_id 有值＝內部新增的訂製案例／加工項目（通路端唯讀）
+        "id, variant_id, custom_case_id, quantity, unit_price, channel_unit_price, custom_notes, seat_height_cm, custom_category, custom_name, custom_description, custom_dimension_w, custom_dimension_d, custom_dimension_h, wood_type, product_variants(base_price, series_id)",
       )
       .eq("order_id", orderId)
       .order("line_order", { ascending: true })

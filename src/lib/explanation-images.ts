@@ -41,3 +41,15 @@ export function parseExplanationImages(raw: string | null | undefined): Explanat
     return url ? [{ url }] : [];
   }
 }
+
+/** 訂單說明圖／通路製作圖共用的 Storage bucket（寫入 orders.explanation_image_url） */
+export const ORDER_EXPLANATION_BUCKET = "order-explanations";
+
+/** 單張訂單最多幾張說明圖（通路 API 以此擋異常請求） */
+export const MAX_EXPLANATION_IMAGES = 20;
+
+/** 將圖片清單序列化為 orders.explanation_image_url；空清單存 null */
+export function serializeExplanationImages(images: ExplanationImage[]): string | null {
+  if (images.length === 0) return null;
+  return JSON.stringify(images.map((img) => ({ url: img.url, title: img.title ?? null })));
+}

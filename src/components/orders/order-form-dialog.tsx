@@ -17,6 +17,9 @@ import { useWoodTypeOptions } from "@/lib/use-wood-type-options";
 import { Button } from "@/components/ui/button";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { ImageLightbox, type LightboxImage } from "@/components/ui/image-lightbox";
+import { ExplanationImagesEditor } from "@/components/orders/explanation-images-editor";
+import { serializeExplanationImages } from "@/lib/explanation-images";
+import { CUSTOM_ITEM_CATEGORIES } from "@/lib/portal-order-rules";
 import { toNumericText } from "@/lib/numeric-input";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
@@ -31,7 +34,6 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowLeft,
-  ArrowRight,
   MoreVertical,
   ZoomIn,
 } from "lucide-react";
@@ -76,20 +78,12 @@ import {
 import { submitIntakeLearning } from "@/lib/intake-learning-client";
 
 const IMAGE_BUCKET = "product-images";
-const ORDER_EXPLANATION_BUCKET = "order-explanations";
 const IMAGE_COMPRESSION_OPTIONS = {
   maxSizeMB: 0.5,
   maxWidthOrHeight: 1920,
   useWebWorker: true,
 } as const;
 
-/** 訂單說明／尺寸圖需保留線條與文字可讀性，比品項縮圖寬鬆 */
-const ORDER_EXPLANATION_COMPRESSION_OPTIONS = {
-  maxSizeMB: 3,
-  maxWidthOrHeight: 2880,
-  initialQuality: 0.95,
-  useWebWorker: true,
-} as const;
 
 
 /** 品項類型切換選項：規格庫（產品系列）／訂製案例／加工項目（加工區）／客製家具（手填） */
@@ -785,7 +779,7 @@ function OrderFormDialog({
       case: build("custom", CUSTOM_CASE_CATEGORY_OPTIONS.custom),
       processing: build("processing", CUSTOM_CASE_CATEGORY_OPTIONS.processing),
       // 客製品項固定六類（表單以下拉單選）
-      custom: ["桌", "椅", "凳", "櫃", "層架", "其他"],
+      custom: [...CUSTOM_ITEM_CATEGORIES],
       variant: [] as string[],
     };
   }, [customCases]);
@@ -1215,69 +1209,6 @@ function OrderFormDialog({
     updateItem(id, { image_url: null });
   }
 
-  async function handleOrderImageUpload(file: File) {
-    if (!file.type.startsWith("image/")) {
-      toast.error("請選擇圖片檔案");
-      return;
-    }
-    setUploadingImageItemId("order");
-    try {
-      const compressed = await imageCompression(file, ORDER_EXPLANATION_COMPRESSION_OPTIONS);
-      const ext = compressed.name.split(".").pop()?.toLowerCase() || "webp";
-      const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "webp";
-      const filename = `${crypto.randomUUID()}.${safeExt}`;
-      const { data, error } = await supabase.storage
-        .from(ORDER_EXPLANATION_BUCKET)
-        .upload(filename, compressed, {
-          cacheControl: "3600",
-          upsert: false,
-        });
-      if (error) throw error;
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from(ORDER_EXPLANATION_BUCKET).getPublicUrl(data.path);
-      setOrderExplanationImages((prev) => [...prev, { url: publicUrl, title: null }]);
-      toast.success("訂單說明圖已上傳");
-    } catch (err) {
-      console.error(err);
-      toast.error(err instanceof Error ? err.message : "訂單說明圖上傳失敗");
-    } finally {
-      setUploadingImageItemId(null);
-    }
-  }
-
-  function clearOrderImageAtIndex(index: number) {
-    setOrderExplanationImages((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  function moveOrderImage(index: number, delta: -1 | 1) {
-    setOrderExplanationImages((prev) => {
-      const target = index + delta;
-      if (target < 0 || target >= prev.length) return prev;
-      const next = [...prev];
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
-    });
-  }
-
-  function updateOrderImageTitle(index: number, title: string) {
-    setOrderExplanationImages((prev) =>
-      prev.map((it, i) =>
-        i === index ? { ...it, title: title.trim() || null } : it
-      )
-    );
-  }
-
-  function openOrderImageLightbox(index: number) {
-    setLightbox({
-      images: orderExplanationImages.map((img, i) => ({
-        url: img.url,
-        title: img.title?.trim() || `訂單說明圖 ${i + 1}`,
-      })),
-      index,
-    });
-  }
-
   function updateItem(id: string, patch: Partial<OrderItemInput>) {
     setItems((prev) =>
       prev.map((it) => (it.id === id ? { ...it, ...patch } : it))
@@ -1377,15 +1308,7 @@ function OrderFormDialog({
         invoice_title: invoiceTitle.trim() || null,
         invoice_tax_id: invoiceTaxId.trim() || null,
         internal_notes: internalNotes || null,
-        explanation_image_url:
-          orderExplanationImages.length > 0
-            ? JSON.stringify(
-                orderExplanationImages.map((img) => ({
-                  url: img.url,
-                  title: img.title ?? null,
-                }))
-              )
-            : null,
+        explanation_image_url: serializeExplanationImages(orderExplanationImages),
       };
 
       const hasOrderId =
@@ -1984,138 +1907,13 @@ function OrderFormDialog({
                     className={`${ledgerTa} min-h-[88px]`}
                   />
                 </section>
-                <div className="grid grid-cols-1 gap-3">
-                  <div className={`flex flex-col gap-1.5 rounded-lg border border-dashed border-border bg-background p-4`}>
-                    <span className={`${ledgerLabelZh} font-medium`}>
-                      訂單說明圖（用於列印，建議放訂製品尺寸／圖樣示意，可多張）
-                    </span>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3 sm:flex-wrap">
-                      {orderExplanationImages.length > 0 ? (
-                        orderExplanationImages.map((img, idx) => (
-                          <div key={idx} className="flex items-start gap-2">
-                            <button
-                              type="button"
-                              onClick={() => openOrderImageLightbox(idx)}
-                              className="relative h-32 w-32 shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              title="點擊放大"
-                              aria-label={`放大檢視訂單說明圖 ${idx + 1}`}
-                            >
-                              <img
-                                src={img.url}
-                                alt={`訂單說明圖 ${idx + 1}`}
-                                className="h-full w-full object-cover"
-                              />
-                              <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-black/60 p-1 text-white">
-                                <ZoomIn className="h-3.5 w-3.5" />
-                              </span>
-                            </button>
-                            <div className="flex flex-col gap-2">
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 w-8 p-0"
-                                  title="往前移"
-                                  onClick={() => moveOrderImage(idx, -1)}
-                                  disabled={readOnly || idx === 0 || uploadingImageItemId === "order"}
-                                >
-                                  <ArrowLeft className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 w-8 p-0"
-                                  title="往後移"
-                                  onClick={() => moveOrderImage(idx, 1)}
-                                  disabled={
-                                    readOnly ||
-                                    idx === orderExplanationImages.length - 1 ||
-                                    uploadingImageItemId === "order"
-                                  }
-                                >
-                                  <ArrowRight className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 px-2 text-xs"
-                                  onClick={() => clearOrderImageAtIndex(idx)}
-                                  disabled={readOnly || uploadingImageItemId === "order"}
-                                >
-                                  移除
-                                </Button>
-                              </div>
-                              <div className="flex flex-col gap-1">
-                                <label
-                                  className="text-[11px] text-muted-foreground"
-                                  htmlFor={`order-explain-title-${idx}`}
-                                >
-                                  圖片標題（選填）
-                                </label>
-                                <input
-                                  id={`order-explain-title-${idx}`}
-                                  type="text"
-                                  value={img.title ?? ""}
-                                  onChange={(e) => updateOrderImageTitle(idx, e.target.value)}
-                                  readOnly={readOnly}
-                                  placeholder={`訂單說明圖 ${idx + 1}`}
-                                  className="h-8 w-56 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring read-only:bg-muted/30 read-only:cursor-default"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          尚未上傳訂單說明圖。
-                        </p>
-                      )}
-                      {!readOnly ? (
-                        <div className="flex items-center gap-2">
-                          <label className="inline-flex items-center gap-1.5 text-xs">
-                            <input
-                              type="file"
-                              accept="image/jpeg,image/png,image/webp"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  void handleOrderImageUpload(file);
-                                }
-                                e.target.value = "";
-                              }}
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-8 px-2 text-xs"
-                              disabled={uploadingImageItemId === "order"}
-                              onClick={(e) => {
-                                const input = (e.currentTarget
-                                  .previousSibling as HTMLInputElement | null);
-                                if (input) {
-                                  input.click();
-                                }
-                              }}
-                            >
-                              {uploadingImageItemId === "order" ? (
-                                <>
-                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                  上傳中…
-                                </>
-                              ) : (
-                                <>
-                                  <ImageIcon className="mr-1 h-3 w-3" />
-                                  上傳訂單說明圖
-                                </>
-                              )}
-                            </Button>
-                          </label>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
+                <ExplanationImagesEditor
+                  images={orderExplanationImages}
+                  onChange={setOrderExplanationImages}
+                  readOnly={readOnly}
+                  label="訂單說明圖（用於列印，建議放訂製品尺寸／圖樣示意，可多張；通路下單上傳的製作圖也在這裡）"
+                  labelClassName={ledgerLabelZh}
+                />
 
               <section className="space-y-3">
                 <div className="flex items-center justify-between gap-2">

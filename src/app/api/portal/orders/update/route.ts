@@ -1,18 +1,26 @@
 import { NextResponse } from "next/server";
 import {
+  applyPortalItemSnapshots,
   authPortalRequest,
+  PORTAL_PREV_ITEM_SELECT,
   portalItemInsertPayload,
   pricePortalItems,
+  readPortalExplanationImages,
   readPortalOrderFields,
+  type PortalPrevItemRow,
 } from "@/lib/portal-api";
-import { canEditOrDelete } from "@/lib/portal-order-rules";
+import { canEditOrDelete, PORTAL_QUOTE_STATUS } from "@/lib/portal-order-rules";
+import { parseExplanationImages } from "@/lib/explanation-images";
 import {
   DEFAULT_WORK_ORDER_STAGE,
   plannedEndDateFromOrderDelivery,
   syncWorkOrdersToOrderStatus,
 } from "@/lib/work-order-stages";
 
-/** 通路編輯訂單：更新單頭並整批重建明細與工單（僅限生產前狀態） */
+/**
+ * 通路編輯訂單：更新單頭並整批重建明細與工單（僅限生產前狀態）。
+ * 新增訂製品、或修改已報價的訂製品時，訂單退回「報價中」等內部重新報價。
+ */
 export async function POST(request: Request) {
   const auth = await authPortalRequest(request);
   if (!auth.ok) return auth.response;
@@ -29,7 +37,7 @@ export async function POST(request: Request) {
   try {
     const { data: existing, error: statusErr } = await client
       .from("orders")
-      .select("status")
+      .select("status, explanation_image_url")
       .eq("id", orderId)
       .eq("customer_id", identity.customer_id)
       .is("deleted_at", null)
@@ -39,26 +47,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "query" }, { status: 500 });
     }
     if (!existing) return NextResponse.json({ error: "not_found" }, { status: 404 });
-    if (!canEditOrDelete(String((existing as { status?: string }).status ?? ""))) {
+    const existingRow = existing as { status?: string | null; explanation_image_url?: string | null };
+    const currentStatus = String(existingRow.status ?? "").trim();
+    if (!canEditOrDelete(currentStatus)) {
       return NextResponse.json({ error: "locked" }, { status: 409 });
     }
 
-    const { data: prevRows, error: prevErr } = await client
+    // 製作圖：訂單原有的圖（含內部上傳）允許原樣送回
+    const images = readPortalExplanationImages(
+      body?.explanation_images,
+      new Set(parseExplanationImages(existingRow.explanation_image_url).map((img) => img.url)),
+    );
+    if (!images.ok) {
+      return NextResponse.json({ error: images.error }, { status: 400 });
+    }
+
+    const { data: prevData, error: prevErr } = await client
       .from("order_items")
-      .select("id, variant_id, unit_price, channel_unit_price")
+      .select(PORTAL_PREV_ITEM_SELECT)
       .eq("order_id", orderId);
     if (prevErr) {
       console.error("portal orders/update prev items:", prevErr);
       return NextResponse.json({ error: "query" }, { status: 500 });
     }
+    const prevRows = (prevData ?? []) as unknown as PortalPrevItemRow[];
 
     // 訂單原有的規格即使已下架（軟刪除）仍允許沿用；新選的規格不得為已刪除
     const keepVariantIds = new Set(
-      ((prevRows ?? []) as Array<{ variant_id: string | null }>)
-        .map((r) => (r.variant_id != null ? String(r.variant_id) : ""))
-        .filter(Boolean),
+      prevRows.map((r) => (r.variant_id != null ? String(r.variant_id) : "")).filter(Boolean),
     );
-    const priced = await pricePortalItems(client, identity.channel_id, body?.items, keepVariantIds);
+    const rawPriced = await pricePortalItems(client, identity.channel_id, body?.items, keepVariantIds);
+    // 價格快照凍結（重存訂單不得被現行牌價覆寫）、訂製品報價沿用／歸零、鎖定列原樣保留。
+    // 金額仍全由後端決定，前端只傳來源明細 id，不信任前端金額。
+    const priced = rawPriced.ok ? applyPortalItemSnapshots(rawPriced.items, prevRows) : rawPriced;
     if (!priced.ok) {
       console.error("portal orders/update pricing:", priced.error);
       const status =
@@ -67,48 +88,8 @@ export async function POST(request: Request) {
           : 500;
       return NextResponse.json({ error: priced.error }, { status });
     }
-
-    // 價格快照凍結：明細帶 source_item_id 且 variant 未改選者，沿用原 unit_price／channel_unit_price
-    // （重存訂單不得被現行牌價覆寫）；新明細或改選 variant 者才採用上面重算的現行價。
-    // 金額仍全由後端決定，前端只傳來源明細 id，不信任前端金額。
-    const rawItems = Array.isArray(body?.items) ? (body.items as unknown[]) : [];
-    const sourceIds = rawItems.map((raw) => {
-      const v = (raw as Record<string, unknown>)?.source_item_id;
-      return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
-    });
-    const prevById = new Map(
-      ((prevRows ?? []) as Array<{
-        id: string;
-        variant_id: string | null;
-        unit_price: number | null;
-        channel_unit_price: number | null;
-      }>).map((r) => [String(r.id), r]),
-    );
-    const finalItems = priced.items.map((it, i) => {
-      const srcId = sourceIds[i];
-      const prev = srcId != null ? prevById.get(srcId) : undefined;
-      // 僅來源明細存在、variant 未變、且原本有牌價快照（舊資料 NULL 除外）時凍結
-      if (
-        !prev ||
-        String(prev.variant_id ?? "") !== it.variant_id ||
-        prev.unit_price == null ||
-        !Number.isFinite(Number(prev.unit_price))
-      ) {
-        return it;
-      }
-      const list = Number(prev.unit_price);
-      const channel =
-        prev.channel_unit_price != null &&
-        Number.isFinite(Number(prev.channel_unit_price)) &&
-        Number(prev.channel_unit_price) > 0
-          ? Number(prev.channel_unit_price)
-          : null;
-      return { ...it, list_unit_price: list, settlement_unit_price: channel ?? list };
-    });
-    const totalAmount = finalItems.reduce(
-      (sum, it) => sum + it.quantity * it.settlement_unit_price,
-      0,
-    );
+    const finalItems = priced.items;
+    const nextStatus = priced.requote ? PORTAL_QUOTE_STATUS : currentStatus;
 
     const { error: updateErr } = await client
       .from("orders")
@@ -117,7 +98,9 @@ export async function POST(request: Request) {
         expected_delivery_date: fields.expected_delivery_date,
         shipping_address: fields.shipping_address,
         internal_notes: fields.internal_notes,
-        total_amount: totalAmount,
+        total_amount: priced.totalAmount,
+        ...(nextStatus !== currentStatus ? { status: nextStatus } : {}),
+        ...(images.value !== undefined ? { explanation_image_url: images.value } : {}),
       })
       .eq("id", orderId)
       .eq("customer_id", identity.customer_id);
@@ -188,7 +171,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, status: nextStatus });
   } catch (e) {
     console.error("portal orders/update:", e);
     return NextResponse.json({ error: "server" }, { status: 500 });

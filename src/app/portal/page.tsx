@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { VariantSeriesThumb } from "@/components/variant-series-thumb";
 import {
   OrderOverviewCard,
   parseOrdersPayload,
@@ -32,7 +31,6 @@ import {
 import {
   DEFAULT_SEAT_HEIGHT_CM,
   SEAT_HEIGHT_UPCHARGE_NTD,
-  hasSeatSpecs,
 } from "@/lib/product-seat-height";
 import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
@@ -40,18 +38,19 @@ import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-paym
 import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
 import { buildPortalItemListCsv } from "@/lib/portal-item-list-csv";
 import { LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
-import { NumericInput } from "@/components/ui/numeric-input";
-
-function resolvePortalSeatHeight(v: {
-  seat_height_cm?: number | null;
-  series_category?: string | null;
-}): number | null {
-  if (v.seat_height_cm != null && Number.isFinite(Number(v.seat_height_cm))) {
-    return Number(v.seat_height_cm);
-  }
-  if (hasSeatSpecs(v.series_category)) return DEFAULT_SEAT_HEIGHT_CM;
-  return null;
-}
+import { ExplanationImagesEditor } from "@/components/orders/explanation-images-editor";
+import { parseExplanationImages, type ExplanationImage } from "@/lib/explanation-images";
+import { PORTAL_QUOTE_STATUS } from "@/lib/portal-order-rules";
+import {
+  PortalItemCard,
+  buildPortalItemsPayload,
+  buildPortalSeriesOptions,
+  movePortalItem,
+  newPortalVariantItem,
+  portalItemSettlementPrice,
+  type PortalItem,
+  type PortalVariantOption,
+} from "@/components/portal/portal-order-items";
 
 const PORTAL_SESSION_KEY = "fore_portal_session";
 
@@ -97,67 +96,6 @@ interface PortalSession {
   channel_id: string | null;
   /** 登入時由伺服器簽發，用於 API 代查 work_orders（預計完成日） */
   portal_token?: string;
-}
-
-interface VariantOption {
-  id: string;
-  /** product_variants.series_id，供通路折扣計算（與訂單新增一致） */
-  series_id: string | null;
-  label: string;
-  base_price: number | null;
-  spec1?: string | null;
-  series_category?: string | null;
-  seat_height_cm?: number | null;
-  /** 示意圖：product_variants.image_url 優先，否則 product_series.image_url */
-  series_image_url?: string | null;
-  /** 以下供「匯出品項清單 CSV」分欄輸出 */
-  series_name: string | null;
-  product_code: string | null;
-  wood_type: string | null;
-  dimension_w: number | null;
-  dimension_d: number | null;
-  dimension_h: number | null;
-  arm_height_cm: number | null;
-  /** 規格或所屬系列已軟刪除：不列入挑選清單與匯出，僅舊訂單明細已選中時保留顯示 */
-  is_deleted: boolean;
-}
-
-/** 系列通路折扣 %＞0 時之通路結算價 */
-function portalChannelUnitPrice(
-  v: VariantOption | undefined,
-  discountPctBySeriesId: Map<string, number>
-): number | null {
-  if (!v?.series_id || v.base_price == null || !Number.isFinite(Number(v.base_price))) return null;
-  const pct = discountPctBySeriesId.get(v.series_id) ?? 0;
-  if (!(pct > 0)) return null;
-  return Math.round(Number(v.base_price) * (1 - pct / 100));
-}
-
-function portalListUnitPrice(v: VariantOption | undefined): number {
-  if (v?.base_price == null || !Number.isFinite(Number(v.base_price))) return 0;
-  return Number(v.base_price);
-}
-
-/** 通路下單小計／訂單應收：通路價優先，否則牌價 */
-function portalSettlementUnitPrice(
-  v: VariantOption | undefined,
-  discountPctBySeriesId: Map<string, number>
-): number {
-  return portalChannelUnitPrice(v, discountPctBySeriesId) ?? portalListUnitPrice(v);
-}
-
-interface PortalItem {
-  id: string;
-  variant_id: string;
-  quantity: number;
-  unit_price: number;
-  notes: string;
-  /** 訂單明細約定座高（cm），存入 order_items.seat_height_cm */
-  seat_height_cm?: number | null;
-  /** 通路價快照（編輯既有訂單時由 order_items.channel_unit_price 帶回；null＝無通路價） */
-  channel_unit_price?: number | null;
-  /** 編輯既有訂單時的來源 order_items.id；後端據此凍結未改選規格明細的價格快照 */
-  source_item_id?: string | null;
 }
 
 interface MyOrderRow {
@@ -288,6 +226,8 @@ function portalApiErrorMessage(
     return "此訂單已進入生產或後續階段，無法修改";
   if (r.status === 404) return "找不到訂單，請重新整理列表";
   if (r.error === "deleted_variant") return "部分品項已下架，請重新整理頁面後重新選擇";
+  if (r.error === "bad_item") return "品項資料不完整，請確認訂製品的客製類型與品名";
+  if (r.error === "bad_image") return "製作圖有誤，請移除後重新上傳";
   if (r.error === "network") return "網路連線異常，請稍後再試";
   return fallback;
 }
@@ -311,7 +251,7 @@ function portalStatusColor(status: string): string {
 
 export default function PortalPage() {
   const [session, setSessionState] = useState<PortalSession | null>(null);
-  const [variants, setVariants] = useState<VariantOption[]>([]);
+  const [variants, setVariants] = useState<PortalVariantOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submittedOrderNumber, setSubmittedOrderNumber] = useState<string | null>(null);
@@ -327,9 +267,11 @@ export default function PortalPage() {
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactAddress, setContactAddress] = useState("");
-  const [items, setItems] = useState<PortalItem[]>([
-    { id: "item-0", variant_id: "", quantity: 1, unit_price: 0, notes: "", seat_height_cm: null },
-  ]);
+  const [items, setItems] = useState<PortalItem[]>(() => [newPortalVariantItem()]);
+  /** 製作圖：與 ERP「訂單說明圖」同一欄位（orders.explanation_image_url） */
+  const [drawingImages, setDrawingImages] = useState<ExplanationImage[]>([]);
+  /** 剛送出的訂單是否含訂製品（成功訊息說明「報價中」） */
+  const [submittedNeedsQuote, setSubmittedNeedsQuote] = useState(false);
 
   const [myOrders, setMyOrders] = useState<MyOrderRow[]>([]);
   const [myOrdersLoading, setMyOrdersLoading] = useState(false);
@@ -351,7 +293,10 @@ export default function PortalPage() {
     expected_delivery_date: string;
     shipping_address: string;
     order_notes: string;
+    /** 載入時的訂單狀態（儲存後判斷是否退回報價中） */
+    status: string;
     items: PortalItem[];
+    explanation_images: ExplanationImage[];
   } | null>(null);
   const [editFormLoading, setEditFormLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -504,6 +449,8 @@ export default function PortalPage() {
     setOrderDate(today);
     loadVariants(s?.channel_id ?? null).then(() => setLoading(false));
   }, [loadVariants]);
+
+  const seriesOptions = useMemo(() => buildPortalSeriesOptions(variants), [variants]);
 
   useEffect(() => {
     if (session?.delivery_address != null) setShippingAddress(session.delivery_address);
@@ -1059,8 +1006,10 @@ export default function PortalPage() {
         setEditFormLoading(false);
         return;
       }
-      const itemRows = ((res.data.items ?? []) as any[]).map((d, idx) => {
-        const pv = d.product_variants as { base_price?: number | null } | null;
+      const numOrNull = (v: unknown) =>
+        v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
+      const itemRows = ((res.data.items ?? []) as any[]).map((d, idx): PortalItem => {
+        const pv = d.product_variants as { base_price?: number | null; series_id?: string | null } | null;
         // 牌價快照：以 order_items.unit_price 為準（下單當下凍結）；僅舊資料（NULL）才回退規格庫現價
         const listPx =
           d.unit_price != null && Number.isFinite(Number(d.unit_price))
@@ -1068,40 +1017,38 @@ export default function PortalPage() {
             : d.variant_id && pv?.base_price != null && Number.isFinite(Number(pv.base_price))
             ? Number(pv.base_price)
             : 0;
+        const channelPx = numOrNull(d.channel_unit_price);
         return {
-        id: `edit-item-${idx}-${d.id}`,
-        variant_id: d.variant_id ? String(d.variant_id) : "",
-        quantity: Number(d.quantity ?? 1),
-        unit_price: listPx,
-        channel_unit_price:
-          d.channel_unit_price != null && Number.isFinite(Number(d.channel_unit_price))
-            ? Number(d.channel_unit_price)
-            : null,
-        source_item_id: d.id != null ? String(d.id) : null,
-        notes: d.custom_notes ?? "",
-        seat_height_cm:
-          d.seat_height_cm != null && Number.isFinite(Number(d.seat_height_cm))
-            ? Number(d.seat_height_cm)
-            : null,
-      };
+          ...newPortalVariantItem("edit-item"),
+          id: `edit-item-${idx}-${d.id}`,
+          // 規格品／訂製品（手填）／內部新增的訂製案例、加工項目（唯讀）
+          kind: d.variant_id ? "variant" : d.custom_case_id ? "locked" : "custom",
+          // 從規格帶回系列，讓「系列」下拉在編輯時維持原本選擇
+          series_id: pv?.series_id != null ? String(pv.series_id) : null,
+          variant_id: d.variant_id ? String(d.variant_id) : "",
+          quantity: Number(d.quantity ?? 1),
+          unit_price: listPx,
+          channel_unit_price: channelPx != null && channelPx > 0 ? channelPx : null,
+          source_item_id: d.id != null ? String(d.id) : null,
+          notes: d.custom_notes ?? "",
+          seat_height_cm: numOrNull(d.seat_height_cm),
+          custom_category: d.custom_category ?? "",
+          custom_name: d.custom_name ?? "",
+          custom_description: d.custom_description ?? "",
+          custom_dimension_w: numOrNull(d.custom_dimension_w),
+          custom_dimension_d: numOrNull(d.custom_dimension_d),
+          custom_dimension_h: numOrNull(d.custom_dimension_h),
+          wood_type: d.wood_type ?? "",
+        };
       });
       setEditForm({
         order_date: o.order_date ? String(o.order_date).slice(0, 10) : "",
         expected_delivery_date: o.expected_delivery_date ? String(o.expected_delivery_date).slice(0, 10) : "",
         shipping_address: o.shipping_address ?? "",
         order_notes: o.internal_notes ?? "",
-        items: itemRows.length
-          ? itemRows
-          : [
-              {
-                id: "edit-item-0",
-                variant_id: "",
-                quantity: 1,
-                unit_price: 0,
-                notes: "",
-                seat_height_cm: null,
-              },
-            ],
+        status: String(o.status ?? ""),
+        items: itemRows.length ? itemRows : [newPortalVariantItem("edit-item")],
+        explanation_images: parseExplanationImages(o.explanation_image_url),
       });
     }).finally(() => setEditFormLoading(false));
   }, [editingOrderId, session?.customer_id, session?.portal_token]);
@@ -1115,20 +1062,7 @@ export default function PortalPage() {
   }
   function addEditItem() {
     if (!editForm) return;
-    setEditForm({
-      ...editForm,
-      items: [
-        ...editForm.items,
-        {
-          id: `edit-item-${Date.now()}`,
-          variant_id: "",
-          quantity: 1,
-          unit_price: 0,
-          notes: "",
-          seat_height_cm: null,
-        },
-      ],
-    });
+    setEditForm({ ...editForm, items: [...editForm.items, newPortalVariantItem("edit-item")] });
   }
   function removeEditItem(id: string) {
     if (!editForm || editForm.items.length <= 1) return;
@@ -1138,59 +1072,38 @@ export default function PortalPage() {
   }
   function moveEditItem(id: string, direction: -1 | 1) {
     if (!editForm) return;
-    const idx = editForm.items.findIndex((x) => x.id === id);
-    if (idx < 0) return;
-    const next = idx + direction;
-    if (next < 0 || next >= editForm.items.length) return;
-    const copy = [...editForm.items];
-    [copy[idx], copy[next]] = [copy[next], copy[idx]];
-    setEditForm({ ...editForm, items: copy });
-  }
-  function onEditVariantChange(itemId: string, variantId: string) {
-    const v = variants.find((x) => x.id === variantId);
-    // 主動改選規格＝依現行牌價／通路折扣重新帶入（既有明細未改選者維持快照，見 orders/update API）
-    updateEditItem(itemId, {
-      variant_id: variantId,
-      unit_price: portalListUnitPrice(v),
-      channel_unit_price: portalChannelUnitPrice(v, portalSeriesDiscountPct),
-      seat_height_cm: v ? resolvePortalSeatHeight(v) : null,
-    });
+    setEditForm({ ...editForm, items: movePortalItem(editForm.items, id, direction) });
   }
 
   async function handleSaveEdit() {
     if (!editingOrderId || !editForm || !session) return;
-    const validItems = editForm.items.filter((it) => it.variant_id && it.quantity > 0);
     if (!editForm.expected_delivery_date) {
       toast.error("請填寫預計交貨日");
       return;
     }
-    if (validItems.length === 0) {
-      toast.error("請至少保留一筆有效品項");
+    const built = buildPortalItemsPayload(editForm.items);
+    if (!built.ok) {
+      toast.error(built.error);
       return;
     }
     setEditSaving(true);
     try {
       // 狀態檢查、計價與明細/工單重建皆由 API 以 service role 處理
-      const res = await portalApiPost("/api/portal/orders/update", session.portal_token, {
-        order_id: editingOrderId,
-        order: {
-          order_date: editForm.order_date || "",
-          expected_delivery_date: editForm.expected_delivery_date || "",
-          shipping_address: editForm.shipping_address || "",
-          internal_notes: editForm.order_notes || "",
+      const res = await portalApiPost<{ ok: true; status?: string }>(
+        "/api/portal/orders/update",
+        session.portal_token,
+        {
+          order_id: editingOrderId,
+          order: {
+            order_date: editForm.order_date || "",
+            expected_delivery_date: editForm.expected_delivery_date || "",
+            shipping_address: editForm.shipping_address || "",
+            internal_notes: editForm.order_notes || "",
+          },
+          items: built.payload,
+          explanation_images: editForm.explanation_images,
         },
-        items: validItems.map((it) => ({
-          variant_id: it.variant_id,
-          quantity: it.quantity,
-          notes: it.notes || "",
-          seat_height_cm:
-            it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
-              ? Number(it.seat_height_cm)
-              : null,
-          // 來源明細 id：後端據此比對 variant 未變者沿用原價格快照（金額仍由後端決定）
-          source_item_id: it.source_item_id ?? null,
-        })),
-      });
+      );
       if (!res.ok) {
         if (res.status === 409 || res.error === "locked") {
           toast.error("此訂單已進入生產或後續階段，無法修改");
@@ -1202,7 +1115,11 @@ export default function PortalPage() {
         toast.error(portalApiErrorMessage(res, "更新訂單失敗"));
         return;
       }
-      toast.success("訂單已更新");
+      if (res.data.status === PORTAL_QUOTE_STATUS && editForm.status !== PORTAL_QUOTE_STATUS) {
+        toast.success("訂單已更新；訂製品有異動，訂單改為「報價中」，待我們重新報價");
+      } else {
+        toast.success("訂單已更新");
+      }
       setEditingOrderId(null);
       setEditForm(null);
       fetchMyOrders();
@@ -1218,17 +1135,7 @@ export default function PortalPage() {
   }
 
   function addItem() {
-    setItems((prev) => [
-      ...prev,
-      {
-        id: `item-${Date.now()}`,
-        variant_id: "",
-        quantity: 1,
-        unit_price: 0,
-        notes: "",
-        seat_height_cm: null,
-      },
-    ]);
+    setItems((prev) => [...prev, newPortalVariantItem()]);
   }
 
   function removeItem(id: string) {
@@ -1238,20 +1145,19 @@ export default function PortalPage() {
     setItems((prev) => prev.filter((it) => it.id !== id));
   }
 
-  function onVariantChange(itemId: string, variantId: string) {
-    const v = variants.find((x) => x.id === variantId);
-    updateItem(itemId, {
-      variant_id: variantId,
-      unit_price: portalListUnitPrice(v),
-      seat_height_cm: v ? resolvePortalSeatHeight(v) : null,
-    });
+  function moveItem(id: string, direction: -1 | 1) {
+    setItems((prev) => movePortalItem(prev, id, direction));
   }
 
-  const validItems = items.filter((it) => it.variant_id && it.quantity > 0);
-  const totalAmount = validItems.reduce((sum, it) => {
-    const v = variants.find((x) => x.id === it.variant_id);
-    return sum + it.quantity * portalSettlementUnitPrice(v, portalSeriesDiscountPct);
-  }, 0);
+  /** 小計：規格品依通路價（無則牌價）；訂製品待報價不計入 */
+  const pricedItems = items.filter(
+    (it) => (it.kind === "variant" ? Boolean(it.variant_id) : it.kind === "custom") && it.quantity > 0
+  );
+  const totalAmount = pricedItems.reduce(
+    (sum, it) => sum + it.quantity * portalItemSettlementPrice(it),
+    0,
+  );
+  const hasCustomItems = items.some((it) => it.kind === "custom");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1260,18 +1166,20 @@ export default function PortalPage() {
       toast.error("請填寫預計交貨日");
       return;
     }
-    if (validItems.length === 0) {
-      toast.error("請至少新增一筆有效品項（選擇品項且數量大於 0）");
+    const built = buildPortalItemsPayload(items);
+    if (!built.ok) {
+      toast.error(built.error);
       return;
     }
 
     setSubmitting(true);
     setSubmittedOrderNumber(null);
     try {
-      // 訂單編號、金額計價與工單建立皆由 API 以 service role 處理
+      // 訂單編號、金額計價、狀態（含訂製品＝報價中）與工單建立皆由 API 以 service role 處理
       const res = await portalApiPost<{
         order_id: string;
         order_number: string;
+        status?: string;
         work_orders_ok?: boolean;
       }>("/api/portal/orders/create", session.portal_token, {
         order: {
@@ -1282,15 +1190,8 @@ export default function PortalPage() {
           shipping_address: contactAddress.trim() || shippingAddress.trim() || "",
           internal_notes: orderNotes || "",
         },
-        items: validItems.map((it) => ({
-          variant_id: it.variant_id,
-          quantity: it.quantity,
-          notes: it.notes || "",
-          seat_height_cm:
-            it.seat_height_cm != null && Number.isFinite(Number(it.seat_height_cm))
-              ? Number(it.seat_height_cm)
-              : null,
-        })),
+        items: built.payload,
+        explanation_images: drawingImages,
       });
 
       if (!res.ok) {
@@ -1301,14 +1202,17 @@ export default function PortalPage() {
         toast.error("訂單已建立，但工單建立失敗，請聯絡客服。");
       }
 
-      toast.success("訂單已建立，已進入生產排程");
+      const needsQuote = res.data.status === PORTAL_QUOTE_STATUS;
+      toast.success(
+        needsQuote ? "訂單已建立，訂製品待報價（報價中）" : "訂單已建立，已進入生產排程"
+      );
+      setSubmittedNeedsQuote(needsQuote);
       setSubmittedOrderNumber(res.data.order_number);
       setExpectedDate("");
       setShippingAddress(session.delivery_address ?? "");
       setOrderNotes("");
-      setItems([
-        { id: `item-${Date.now()}`, variant_id: "", quantity: 1, unit_price: 0, notes: "" },
-      ]);
+      setItems([newPortalVariantItem()]);
+      setDrawingImages([]);
     } finally {
       setSubmitting(false);
     }
@@ -1406,6 +1310,11 @@ export default function PortalPage() {
               <p className="mt-1">
                 訂單編號：<span className="font-mono">{submittedOrderNumber}</span>
               </p>
+              {submittedNeedsQuote ? (
+                <p className="mt-1">
+                  此訂單含訂製品，目前為「報價中」；我們報價後會回填金額，屆時可在「我的訂單」查看。
+                </p>
+              ) : null}
               <p className="mt-1 text-muted-foreground">
                 您可在下方「我的訂單」查看，或於內部 ERP 訂單管理與工單列表查詢。
               </p>
@@ -1557,120 +1466,34 @@ export default function PortalPage() {
               </div>
               <div className="space-y-3">
                 {items.map((it, idx) => (
-                  <div
+                  <PortalItemCard
                     key={it.id}
-                    className="rounded-lg border border-border bg-muted/30 p-4 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        品項 {idx + 1}
-                      </span>
-                      {items.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeItem(it.id)}
-                          className="text-muted-foreground hover:text-destructive focus:outline-none focus:ring-2 focus:ring-ring rounded p-1"
-                          aria-label="移除"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <div className="flex flex-col gap-1.5 sm:col-span-1 min-w-0">
-                        <label className="text-xs text-muted-foreground">品項 *</label>
-                        <div className="flex w-full min-w-0 flex-col gap-1.5">
-                          <select
-                            value={it.variant_id}
-                            onChange={(e) => onVariantChange(it.id, e.target.value)}
-                            className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                            required={idx === 0}
-                          >
-                            <option value="">請選擇</option>
-                            {variants
-                              .filter((v) => !v.is_deleted || v.id === it.variant_id)
-                              .map((v) => (
-                              <option key={v.id} value={v.id}>
-                                {v.label}
-                                {v.base_price != null ? ` · $${v.base_price}` : ""}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="flex shrink-0 items-start">
-                            <VariantSeriesThumb
-                              imageUrl={
-                                variants.find((v) => v.id === it.variant_id)?.series_image_url
-                              }
-                              compactPlaceholder
-                              sizeClassName="h-10 w-10 sm:h-11 sm:w-11"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs text-muted-foreground">數量 *</label>
-                        <NumericInput
-                          value={it.quantity}
-                          onValueChange={(v) => updateItem(it.id, { quantity: Math.max(1, v ?? 1) })}
-                          className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs text-muted-foreground">座高（cm）</label>
-                        <NumericInput
-                          step="0.1"
-                          value={it.seat_height_cm ?? ""}
-                          allowDecimal
-                          onValueChange={(v) => updateItem(it.id, { seat_height_cm: v })}
-                          placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}`}
-                          className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                      {it.variant_id ? (
-                        <div className="grid grid-cols-1 gap-3 sm:col-span-3 sm:grid-cols-2">
-                          <div className="flex flex-col gap-1.5">
-                            <span className="text-xs text-muted-foreground">牌價</span>
-                            <div className="flex h-9 items-center justify-end rounded-md border border-input bg-muted/30 px-3 text-sm tabular-nums text-muted-foreground">
-                              {(() => {
-                                const sel = variants.find((vv) => vv.id === it.variant_id);
-                                return sel?.base_price != null && Number.isFinite(Number(sel.base_price))
-                                  ? `$${Number(sel.base_price).toLocaleString()}`
-                                  : "—";
-                              })()}
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-1.5">
-                            <span className="text-xs text-muted-foreground">通路價格</span>
-                            <div className="flex h-9 items-center justify-end rounded-lg border border-dashed border-border bg-muted/40 px-3 text-sm tabular-nums text-muted-foreground">
-                              {(() => {
-                                const sel = variants.find((vv) => vv.id === it.variant_id);
-                                const cp = portalChannelUnitPrice(sel, portalSeriesDiscountPct);
-                                return cp != null ? `$${cp.toLocaleString()}` : "—";
-                              })()}
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-                      <div className="flex flex-col gap-1.5 sm:col-span-3">
-                        <label className="text-xs text-muted-foreground">備註</label>
-                        <input
-                          type="text"
-                          value={it.notes}
-                          onChange={(e) => updateItem(it.id, { notes: e.target.value })}
-                          placeholder={`標準座高 ${DEFAULT_SEAT_HEIGHT_CM}cm；加高請註明（另計增高費）、布墊等`}
-                          className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                    </div>
-                  </div>
+                    item={it}
+                    index={idx}
+                    total={items.length}
+                    variants={variants}
+                    seriesOptions={seriesOptions}
+                    discountPctBySeriesId={portalSeriesDiscountPct}
+                    onChange={(patch) => updateItem(it.id, patch)}
+                    onRemove={() => removeItem(it.id)}
+                    onMove={(direction) => moveItem(it.id, direction)}
+                  />
                 ))}
               </div>
-              {validItems.length > 0 && (
+              {pricedItems.length > 0 && (
                 <p className="text-sm text-muted-foreground">
-                  小計：<span className="font-medium text-foreground">${totalAmount}</span>
+                  小計：<span className="font-medium text-foreground">${totalAmount.toLocaleString()}</span>
+                  {hasCustomItems ? <span className="ml-1">（不含待報價的訂製品）</span> : null}
                 </p>
               )}
             </section>
+
+            <ExplanationImagesEditor
+              images={drawingImages}
+              onChange={setDrawingImages}
+              label="製作圖（選填，可多張；建議放尺寸圖、施工圖或參考照片）"
+              itemLabel="製作圖"
+            />
 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="submit" disabled={submitting}>
@@ -2263,7 +2086,7 @@ export default function PortalPage() {
                   </div>
                   <div>
                     <PortalSeatHeightNotice />
-                    <div className="flex items-center justify-between mb-2 mt-1">
+                    <div className="mb-2 mt-1 flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-medium text-muted-foreground">明細品項</span>
                       <Button type="button" variant="outline" className="h-8 px-3 text-sm" onClick={addEditItem}>
                         <Plus className="h-3.5 w-3.5 mr-1" /> 新增品項
@@ -2271,122 +2094,29 @@ export default function PortalPage() {
                     </div>
                     <div className="space-y-3">
                       {editForm.items.map((it, idx) => (
-                        <div key={it.id} className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
-                          <div className="flex justify-between items-center gap-2">
-                            <span className="text-xs text-muted-foreground">品項 {idx + 1}</span>
-                            {editForm.items.length > 1 && (
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  title="上移"
-                                  disabled={idx === 0}
-                                  onClick={() => moveEditItem(it.id, -1)}
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
-                                  aria-label="上移"
-                                >
-                                  <ArrowUp className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  title="下移"
-                                  disabled={idx === editForm.items.length - 1}
-                                  onClick={() => moveEditItem(it.id, 1)}
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
-                                  aria-label="下移"
-                                >
-                                  <ArrowDown className="h-3.5 w-3.5" />
-                                </button>
-                                <button type="button" onClick={() => removeEditItem(it.id)} className="text-xs text-muted-foreground hover:text-destructive px-1">移除</button>
-                              </div>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                            <div className="min-w-0">
-                              <label className="text-[11px] text-muted-foreground">品項 *</label>
-                              <div className="mt-0.5 flex w-full min-w-0 flex-col gap-1.5">
-                                <select
-                                  value={it.variant_id}
-                                  onChange={(e) => onEditVariantChange(it.id, e.target.value)}
-                                  className="h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                >
-                                  <option value="">請選擇</option>
-                                  {variants
-                                    // 已刪除品項只在舊明細已選中時保留，避免出現在挑選清單
-                                    .filter((v) => !v.is_deleted || v.id === it.variant_id)
-                                    .map((v) => (
-                                    <option key={v.id} value={v.id}>
-                                      {v.label}
-                                      {v.base_price != null ? ` · $${v.base_price}` : ""}
-                                    </option>
-                                  ))}
-                                </select>
-                                <div className="flex shrink-0 items-start">
-                                  <VariantSeriesThumb
-                                    imageUrl={
-                                      variants.find((v) => v.id === it.variant_id)?.series_image_url
-                                    }
-                                    compactPlaceholder
-                                    sizeClassName="h-8 w-8 sm:h-9 sm:w-9"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                            <div>
-                              <label className="text-[11px] text-muted-foreground">數量 *</label>
-                              <NumericInput
-                                value={it.quantity}
-                                onValueChange={(v) => updateEditItem(it.id, { quantity: Math.max(1, v ?? 1) })}
-                                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[11px] text-muted-foreground">座高（cm）</label>
-                              <NumericInput
-                                step="0.1"
-                                value={it.seat_height_cm ?? ""}
-                                allowDecimal
-                                onValueChange={(v) => updateEditItem(it.id, { seat_height_cm: v })}
-                                placeholder={`預設 ${DEFAULT_SEAT_HEIGHT_CM}`}
-                                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                              />
-                            </div>
-                            {it.variant_id ? (
-                              <div className="grid grid-cols-1 gap-2 sm:col-span-3 sm:grid-cols-2">
-                                <div className="flex flex-col gap-0.5">
-                                  <span className="text-[11px] text-muted-foreground">牌價</span>
-                                  <div className="flex h-8 items-center justify-end rounded-md border border-input bg-muted/30 px-2 text-sm tabular-nums text-muted-foreground">
-                                    {/* 快照優先：顯示明細凍結的牌價，不隨規格庫現價變動 */}
-                                    {Number.isFinite(Number(it.unit_price)) && Number(it.unit_price) > 0
-                                      ? `$${Number(it.unit_price).toLocaleString()}`
-                                      : "—"}
-                                  </div>
-                                </div>
-                                <div className="flex flex-col gap-0.5">
-                                  <span className="text-[11px] text-muted-foreground">通路價格</span>
-                                  <div className="flex h-8 items-center justify-end rounded-lg border border-dashed border-border bg-muted/40 px-2 text-sm tabular-nums text-muted-foreground">
-                                    {/* 快照優先：顯示明細凍結的通路價；null＝無通路價（依牌價結算） */}
-                                    {it.channel_unit_price != null && Number(it.channel_unit_price) > 0
-                                      ? `$${Number(it.channel_unit_price).toLocaleString()}`
-                                      : "—"}
-                                  </div>
-                                </div>
-                              </div>
-                            ) : null}
-                            <div className="sm:col-span-3">
-                              <label className="text-[11px] text-muted-foreground">備註</label>
-                              <input
-                                type="text"
-                                value={it.notes}
-                                onChange={(e) => updateEditItem(it.id, { notes: e.target.value })}
-                                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                placeholder={`標準座高 ${DEFAULT_SEAT_HEIGHT_CM}cm；加高請註明`}
-                              />
-                            </div>
-                          </div>
-                        </div>
+                        <PortalItemCard
+                          key={it.id}
+                          item={it}
+                          index={idx}
+                          total={editForm.items.length}
+                          variants={variants}
+                          seriesOptions={seriesOptions}
+                          discountPctBySeriesId={portalSeriesDiscountPct}
+                          onChange={(patch) => updateEditItem(it.id, patch)}
+                          onRemove={() => removeEditItem(it.id)}
+                          onMove={(direction) => moveEditItem(it.id, direction)}
+                        />
                       ))}
                     </div>
                   </div>
+                  <ExplanationImagesEditor
+                    images={editForm.explanation_images}
+                    onChange={(next) =>
+                      setEditForm((prev) => (prev ? { ...prev, explanation_images: next } : prev))
+                    }
+                    label="製作圖（選填，可多張；建議放尺寸圖、施工圖或參考照片）"
+                    itemLabel="製作圖"
+                  />
                   <div className="flex justify-end gap-2 pt-2">
                     <Dialog.Close asChild>
                       <Button type="button" variant="outline" disabled={editSaving}>取消</Button>

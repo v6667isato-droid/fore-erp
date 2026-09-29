@@ -20,6 +20,18 @@ export function canEditOrDelete(status: string | null | undefined): boolean {
   return !PORTAL_NO_EDIT_DELETE_STATUSES.has(String(status ?? "").trim());
 }
 
+/** 客製家具（手填品項）類別：ERP 開單「客製家具」與通路「訂製品」共用 */
+export const CUSTOM_ITEM_CATEGORIES = ["桌", "椅", "凳", "櫃", "層架", "其他"] as const;
+
+/** 有座高的客製類別（通路訂製品才顯示座高欄） */
+export const CUSTOM_ITEM_SEAT_CATEGORIES: ReadonlySet<string> = new Set(["椅", "凳"]);
+
+/** 含待報價訂製品的通路訂單狀態；報完價由內部改為後續狀態 */
+export const PORTAL_QUOTE_STATUS = "報價中";
+
+/** 通路下單（僅規格品）建立後的狀態 */
+export const PORTAL_DEFAULT_STATUS = "排程中";
+
 export function generatePortalOrderNumber(): string {
   const now = new Date();
   const ymd = now.toISOString().slice(0, 10).replace(/-/g, "");
