@@ -29,7 +29,7 @@ import {
   type LeadTimeCategoryEstimate,
   type LeadTimeEstimates,
 } from "@/lib/lead-time-estimates";
-import { LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
+import { LEAD_TIME_SCALE_MONTHS, LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { toNumericText } from "@/lib/numeric-input";
 
@@ -544,7 +544,7 @@ function LeadTimeParamsDialog({
             <div>
               <Dialog.Title className="text-base font-semibold text-foreground">調整水位參數</Dialog.Title>
               <p id="lead-time-params-desc" className="mt-1 text-sm text-muted-foreground">
-                交期（月）＝max(基準交期, backlog ÷ 月產能)，進位到 0.5；刻度為當月起 4 個月產能
+                交期（月）＝max(基準交期, backlog ÷ 月產能)，進位到 0.5；刻度為當月起 {LEAD_TIME_SCALE_MONTHS} 個月產能
               </p>
             </div>
             <Dialog.Close asChild>

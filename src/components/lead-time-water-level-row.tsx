@@ -6,8 +6,8 @@
  * 通路端由 /api/portal/lead-time 提供去金額化的月數資料。
  */
 
-/** 滿水位＝當月起 4 個月（一季）的產能 */
-export const LEAD_TIME_SCALE_MONTHS = 4;
+/** 滿水位＝當月起 6 個月（半年）的產能 */
+export const LEAD_TIME_SCALE_MONTHS = 6;
 
 /** 當月起連續 monthCount 個月的「N月」標籤 */
 export function upcomingMonthLabels(monthCount: number = LEAD_TIME_SCALE_MONTHS): string[] {
@@ -42,7 +42,7 @@ export function LeadTimeWaterLevelRow({
   detailTitle,
   size = "sm",
 }: LeadTimeWaterLevelRowProps) {
-  // 刻度＝當月起 4 個月，每格一個月；超過基準交期的水位以警示色顯示
+  // 刻度＝當月起 LEAD_TIME_SCALE_MONTHS 個月，每格一個月；超過基準交期的水位以警示色顯示
   const cappedLoad = Math.max(0, Math.min(monthsLoad, LEAD_TIME_SCALE_MONTHS));
   const cappedBase = Math.min(Math.max(baseMonths, 0), LEAD_TIME_SCALE_MONTHS);
   const normalPct = (Math.min(cappedLoad, cappedBase) / LEAD_TIME_SCALE_MONTHS) * 100;
@@ -89,7 +89,7 @@ export function LeadTimeWaterLevelRow({
         </div>
         <div className={`mt-0.5 flex ${tickTextCls} text-muted-foreground`}>
           {monthLabels.map((m) => (
-            <span key={m} className="w-1/4 text-center">
+            <span key={m} className="flex-1 basis-0 text-center">
               {m}
             </span>
           ))}
