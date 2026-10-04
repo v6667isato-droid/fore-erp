@@ -18,7 +18,7 @@ import { getSupabaseSession, isSupabaseConfigured } from "@/lib/supabase";
 /**
  * 員工儀表板線上打卡卡片（attendance_logs, source='portal'）。
  * 開放範圍由 app_settings.portal_checkin_scope 控制（off／admin 測試／all）；
- * 未開放或 Mock 模式時整張卡不渲染。測試期資料僅作補卡審核佐證，不進月底出勤統計。
+ * 未開放或 Mock 模式時整張卡不渲染。出勤戰情匯入時會補入 CSV 缺卡的那側（CSV 優先）。
  */
 
 type CheckinLog = {

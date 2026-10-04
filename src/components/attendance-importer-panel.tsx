@@ -26,7 +26,9 @@ import {
   appendAbsentEmployeeWarnings,
   appendLeaveOnlyRowsWithoutPunch,
   appendMakeupPunchTags,
+  appendOnlinePunchTags,
   applyApprovedMakeupPunches,
+  applyOnlinePunches,
   buildCalendarAnomalyEntriesByDay,
   buildCalendarApprovedLeavesByDay,
   buildWarRoomRows,
@@ -39,11 +41,15 @@ import {
   pickDominantMonth,
   dateStrToIso,
   SPECIAL_ATTENDANCE_TAG,
+  summarizeOnlinePunchLogs,
   type LeaveSpan,
   type MakeupPunchSpan,
+  type OnlinePunchSpan,
+  type PatchedPunchSides,
   type PublicHolidayEntry,
   type WarRoomRow,
 } from "@/lib/attendance-war-room";
+import { taipeiDayRangeUtc } from "@/lib/attendance-checkin";
 import { WeekendOvertimeApprovalDialog } from "@/components/weekend-overtime-approval-dialog";
 import {
   isSupabaseConfigured,
@@ -56,6 +62,37 @@ function monthEndIso(ym: string): string {
   const [y, mo] = ym.split("-").map(Number);
   const last = new Date(y, mo, 0).getDate();
   return `${ym}-${String(last).padStart(2, "0")}`;
+}
+
+/** 主力月之線上打卡（attendance_logs）；Supabase 單次最多 1000 筆，分頁抓齊 */
+async function fetchMonthOnlinePunchLogs(
+  ym: string,
+): Promise<{ employee_id: string; check_type: string; created_at: string }[]> {
+  const { startIso } = taipeiDayRangeUtc(`${ym}-01`);
+  const { endIso } = taipeiDayRangeUtc(monthEndIso(ym));
+  const pageSize = 1000;
+  const rows: { employee_id: string; check_type: string; created_at: string }[] = [];
+  for (let page = 0; ; page++) {
+    const { data, error } = await supabase
+      .from("attendance_logs")
+      .select("employee_id, check_type, created_at")
+      .gte("created_at", startIso)
+      .lte("created_at", endIso)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+    if (error) throw error;
+    const batch = (data ?? []) as Record<string, unknown>[];
+    for (const r of batch) {
+      rows.push({
+        employee_id: String(r.employee_id ?? ""),
+        check_type: String(r.check_type ?? ""),
+        created_at: String(r.created_at ?? ""),
+      });
+    }
+    if (batch.length < pageSize) break;
+  }
+  return rows;
 }
 
 function overtimeLookupKey(employeeId: string, dateIso: string): string {
@@ -94,6 +131,7 @@ function WarCalendar({
   ym,
   leavesByDay,
   makeupByDay,
+  onlineByDay,
   anomalyEntriesByDay,
   anomalyEntriesByDayAllEmployees,
   monthPublicHolidays,
@@ -116,6 +154,16 @@ function WarCalendar({
       clockOut: string | null;
       /** 補卡後有效工時滿 8 小時：不判遲到早退，標示特殊出勤 */
       special: boolean;
+    }[]
+  >;
+  /** 圖層二：線上打卡（attendance_logs，與 CSV 是否有列無關）；filled＝已補入戰情缺卡側 */
+  onlineByDay: Map<
+    number,
+    {
+      employeeName: string;
+      clockIn: string | null;
+      clockOut: string | null;
+      filled: PatchedPunchSides | null;
     }[]
   >;
   /** 圖層三：打卡衍生的異常（不含 leave 標籤，避免與假單圖層重複） */
@@ -175,7 +223,7 @@ function WarCalendar({
       <p className="mb-3 font-serif text-base font-semibold text-foreground">
         {y} 年 {m} 月 · 出勤戰情月曆
         <span className="ml-1 text-xs font-normal text-muted-foreground">
-          （放假日：本日為休假日；該日有 CSV 且全體在職戰情無異常列時：藍底「此日打卡狀況正常」）
+          （放假日：本日為休假日；該日有 CSV 且全體在職戰情無異常列時：藍底「此日打卡狀況正常」；📱＝線上打卡）
         </span>
       </p>
 
@@ -278,6 +326,7 @@ function WarCalendar({
           const hols = day != null ? holidaysByDay.get(day) ?? [] : [];
           const leaveRows = day != null ? leavesByDay.get(day) ?? [] : [];
           const makeupLines = day != null ? makeupByDay.get(day) ?? [] : [];
+          const onlineLines = day != null ? onlineByDay.get(day) ?? [] : [];
           const entries = day != null ? anomalyEntriesByDay.get(day) ?? [] : [];
           const entriesAll =
             day != null ? anomalyEntriesByDayAllEmployees.get(day) ?? [] : [];
@@ -289,9 +338,13 @@ function WarCalendar({
           const hasMakeupPunches = makeupLines.length > 0;
           const hasRestHoliday = restHols.length > 0;
           const hasMakeupOnly = makeupHols.length > 0 && restHols.length === 0;
-          /** 當日有任何 public_holiday、異常列、核准假單列、核准補卡列 */
+          /** 當日有任何 public_holiday、異常列、核准假單列、核准補卡列、線上打卡列 */
           const hasCalendarContent =
-            hasAnomaly || hols.length > 0 || hasLeaves || hasMakeupPunches;
+            hasAnomaly ||
+            hols.length > 0 ||
+            hasLeaves ||
+            hasMakeupPunches ||
+            onlineLines.length > 0;
           const showAllPunchNormal =
             day != null &&
             !hasRestHoliday &&
@@ -452,6 +505,43 @@ function WarCalendar({
                         此日打卡狀況正常
                       </p>
                     )}
+
+                    {/* 線上打卡放最後：人數多時不把異常擠到捲動區下方 */}
+                    {onlineLines.length > 0 && (
+                      <div className="flex flex-col gap-0.5">
+                        {onlineLines.map((op, oi) => {
+                          const timeLabel =
+                            op.clockIn != null && op.clockOut != null
+                              ? `${op.clockIn}–${op.clockOut}`
+                              : op.clockIn != null
+                                ? `上班 ${op.clockIn}`
+                                : `下班 ${op.clockOut ?? "—"}`;
+                          const filledLabel = op.filled
+                            ? op.filled.in && op.filled.out
+                              ? "上下班"
+                              : op.filled.in
+                                ? "上班"
+                                : "下班"
+                            : null;
+                          return (
+                            <div
+                              key={`olp-${op.employeeName}-${oi}`}
+                              className="rounded-md bg-indigo-600 px-1.5 py-0.5 text-center text-[9px] font-semibold leading-snug text-white shadow-sm dark:bg-indigo-700"
+                              title={`線上打卡：上班 ${op.clockIn ?? "—"}／下班 ${op.clockOut ?? "—"}${
+                                filledLabel
+                                  ? `；已補入戰情缺卡側（${filledLabel}）`
+                                  : csvPunchDaySet.has(day)
+                                    ? "；CSV 已有該側打卡，以 CSV 為準"
+                                    : ""
+                              }`}
+                            >
+                              <span aria-hidden>📱</span> {op.employeeName}（{timeLabel}
+                              {filledLabel ? `·補${filledLabel}` : ""}）
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -498,6 +588,8 @@ export function AttendanceImporterPanel({
   const [leaves, setLeaves] = useState<LeaveSpan[]>([]);
   /** 主力月內已核准補卡單；統計時補入 CSV 缺卡側（重匯不會洗掉補卡） */
   const [makeupSpans, setMakeupSpans] = useState<MakeupPunchSpan[]>([]);
+  /** 主力月內線上打卡（attendance_logs 彙整為每員工日一筆）；統計時於補卡單之前補入 CSV 缺卡側 */
+  const [onlineSpans, setOnlineSpans] = useState<OnlinePunchSpan[]>([]);
   const [publicHolidays, setPublicHolidays] = useState<PublicHolidayEntry[]>([]);
   const [filterEmployeeKey, setFilterEmployeeKey] = useState<string>("");
   const [dbLoading, setDbLoading] = useState(false);
@@ -547,6 +639,7 @@ export function AttendanceImporterPanel({
       setActiveEmployees([]);
       setLeaves([]);
       setMakeupSpans([]);
+      setOnlineSpans([]);
       setPublicHolidays([]);
       setDbError(null);
       setDbLoading(false);
@@ -564,7 +657,7 @@ export function AttendanceImporterPanel({
       setDbLoading(true);
       setDbError(null);
       try {
-        const [empRes, leaveRes, holRes, makeupRes] = await Promise.all([
+        const [empRes, leaveRes, holRes, makeupRes, onlineLogs] = await Promise.all([
           supabase
             .from("employees")
             .select("id, name, timeclock_uid, employment_status")
@@ -588,6 +681,7 @@ export function AttendanceImporterPanel({
             .eq("status", "approved")
             .gte("punch_date", monthStart)
             .lte("punch_date", monthEnd),
+          fetchMonthOnlinePunchLogs(ym),
         ]);
 
         if (cancelled) return;
@@ -623,6 +717,7 @@ export function AttendanceImporterPanel({
             clock_out: r.clock_out != null ? String(r.clock_out).slice(0, 5) : null,
           })),
         );
+        setOnlineSpans(summarizeOnlinePunchLogs(onlineLogs));
         setPublicHolidays(normalizePublicHolidayRows((holRes.data ?? []) as Record<string, unknown>[]));
       } catch (e) {
         if (!cancelled)
@@ -637,21 +732,42 @@ export function AttendanceImporterPanel({
     };
   }, [ym, holidayRefreshTick]);
 
-  /** 已核准補卡單併入 CSV 缺卡側（僅在有 CSV 時；先於戰情列計算，異常標籤自然正確） */
-  const makeupPatch = useMemo(() => {
+  const employeeNameById = useMemo(
+    () => new Map(activeEmployees.map((e) => [e.id, e.name])),
+    [activeEmployees],
+  );
+
+  /**
+   * 併入 CSV 缺卡側（僅在有 CSV 時；先於戰情列計算，異常標籤自然正確）：
+   * CSV 優先 → 線上打卡補缺的那側 → 已核准補卡單補仍缺的那側。
+   */
+  const punchPatch = useMemo(() => {
     if (!hasCsv) {
       return {
         rows: filtered,
-        patchedKeys: new Set<string>(),
+        makeupKeys: new Set<string>(),
+        onlineSides: new Map<string, PatchedPunchSides>(),
         extraNameByUid: new Map<string, { employeeId: string | null; name: string }>(),
       };
     }
-    return applyApprovedMakeupPunches(filtered, makeupSpans, empClockMap);
-  }, [filtered, hasCsv, makeupSpans, empClockMap]);
+    const online = applyOnlinePunches(filtered, onlineSpans, empClockMap, employeeNameById);
+    const makeup = applyApprovedMakeupPunches(
+      online.rows,
+      makeupSpans,
+      empClockMap,
+      employeeNameById,
+    );
+    return {
+      rows: makeup.rows,
+      makeupKeys: makeup.patchedKeys,
+      onlineSides: online.patchedSides,
+      extraNameByUid: new Map([...online.extraNameByUid, ...makeup.extraNameByUid]),
+    };
+  }, [filtered, hasCsv, onlineSpans, makeupSpans, empClockMap, employeeNameById]);
 
   const nameByUid = useMemo(() => {
     const map = new Map<string, { employeeId: string | null; name: string }>();
-    for (const r of makeupPatch.rows) {
+    for (const r of punchPatch.rows) {
       const k = r.uid.trim();
       if (map.has(k)) continue;
       const hit = empClockMap.get(k);
@@ -659,18 +775,18 @@ export function AttendanceImporterPanel({
         k,
         hit
           ? { employeeId: hit.id, name: hit.name }
-          : (makeupPatch.extraNameByUid.get(k) ?? {
+          : (punchPatch.extraNameByUid.get(k) ?? {
               employeeId: null,
               name: r.displayName || "—",
             }),
       );
     }
     return map;
-  }, [makeupPatch, empClockMap]);
+  }, [punchPatch, empClockMap]);
 
   const warRows = useMemo(
-    () => buildWarRoomRows(makeupPatch.rows, nameByUid, leaves, publicHolidays),
-    [makeupPatch.rows, nameByUid, leaves, publicHolidays],
+    () => buildWarRoomRows(punchPatch.rows, nameByUid, leaves, publicHolidays),
+    [punchPatch.rows, nameByUid, leaves, publicHolidays],
   );
 
   const warRowsWithLeaveOnly = useMemo(() => {
@@ -689,7 +805,10 @@ export function AttendanceImporterPanel({
             leaves,
             publicHolidays,
           );
-    return appendMakeupPunchTags(base, makeupPatch.patchedKeys);
+    return appendOnlinePunchTags(
+      appendMakeupPunchTags(base, punchPatch.makeupKeys),
+      punchPatch.onlineSides,
+    );
   }, [
     warRowsWithLeaveOnly,
     ym,
@@ -697,7 +816,8 @@ export function AttendanceImporterPanel({
     activeEmployees,
     leaves,
     publicHolidays,
-    makeupPatch.patchedKeys,
+    punchPatch.makeupKeys,
+    punchPatch.onlineSides,
   ]);
 
   const activeEmployeeIdSet = useMemo(
@@ -842,6 +962,39 @@ export function AttendanceImporterPanel({
     }
     return map;
   }, [ym, makeupSpans, activeEmployees, scopeEmpIdsForCalendar, displayWarRows]);
+
+  /** 月曆線上打卡圖層：直接來自 attendance_logs（與 CSV 是否匯入無關），並標示是否已補入戰情缺卡側 */
+  const onlineLinesByDay = useMemo(() => {
+    const map = new Map<
+      number,
+      {
+        employeeName: string;
+        clockIn: string | null;
+        clockOut: string | null;
+        filled: PatchedPunchSides | null;
+      }[]
+    >();
+    if (!ym) return map;
+    const prefix = `${ym}-`;
+    for (const op of onlineSpans) {
+      if (!op.punch_date.startsWith(prefix)) continue;
+      if (!scopeEmpIdsForCalendar.has(op.employee_id)) continue;
+      const day = Number(op.punch_date.slice(8, 10));
+      if (!Number.isFinite(day) || day < 1 || day > 31) continue;
+      const arr = map.get(day) ?? [];
+      arr.push({
+        employeeName: employeeNameById.get(op.employee_id) ?? "—",
+        clockIn: op.clock_in,
+        clockOut: op.clock_out,
+        filled: punchPatch.onlineSides.get(`${op.employee_id}\t${op.punch_date}`) ?? null,
+      });
+      map.set(day, arr);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => a.employeeName.localeCompare(b.employeeName, "zh-Hant"));
+    }
+    return map;
+  }, [ym, onlineSpans, scopeEmpIdsForCalendar, employeeNameById, punchPatch.onlineSides]);
 
   const anomalyCalendarMap = useMemo(
     () => buildCalendarAnomalyEntriesByDay(filteredDisplayWarRows),
@@ -1112,7 +1265,7 @@ export function AttendanceImporterPanel({
           <span className="text-muted-foreground">
             {hasCsv
               ? `（${filtered.length} 筆，已排除其他月份）`
-              : "（尚未匯入 CSV；先顯示本月假日與核准假單，匯入後自動切換為資料最多之月份並帶入打卡分析）"}
+              : "（尚未匯入 CSV；先顯示本月假日、核准假單與線上打卡，匯入後自動切換為資料最多之月份並帶入打卡分析）"}
           </span>
           {dbLoading && (
             <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -1140,6 +1293,7 @@ export function AttendanceImporterPanel({
           ym={ym}
           leavesByDay={approvedLeavesByDay}
           makeupByDay={makeupLinesByDay}
+          onlineByDay={onlineLinesByDay}
           anomalyEntriesByDay={anomalyCalendarMap}
           anomalyEntriesByDayAllEmployees={anomalyCalendarMapAll}
           monthPublicHolidays={monthPublicHolidaysSorted}
@@ -1289,6 +1443,7 @@ export function AttendanceImporterPanel({
             當日有效工時（扣午休）≤7 小時標示「時數不足」；&gt;9 小時標示「時間超時」（可搭配核准加班／補休）{"\n"}
             已核准請假但 CSV 該日完全沒有該員之列時，仍會顯示一列（僅假單標籤，上下班與時數為空）；按下「寫入資料庫」時一併寫入 daily_attendance。{"\n"}
             在職員工於主力月份之應出勤日（平日或補班週末），若 CSV 無任何打卡紀錄且非核准假單涵蓋日、非國定放假日，會列示「未出勤」；按下「寫入資料庫」時會寫入 daily_attendance（薪資結算出勤備註會顯示「未出勤」）。國定放假日（public_holidays.is_workday=false）不標缺卡；補班日（is_workday=true）視同平日。{"\n"}
+            線上打卡（儀表板／LINE／Telegram）：以打卡鐘 CSV 為準，只補 CSV 缺的那側（同日多筆時上班取最早、下班取最晚）；CSV 該日完全沒有該員之列時以線上打卡建立一列，並標示「📱 線上打卡」。之後才以已核准補卡單補仍缺的那側。{"\n"}
             離職或無法對應在職 timeclock_uid 之 CSV 列已略過，不列入本表、Raw 匯總與月曆異常統計。
           </p>
         </div>

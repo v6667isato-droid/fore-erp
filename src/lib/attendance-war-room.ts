@@ -1,4 +1,5 @@
 import type { AttendanceDayRow } from "@/lib/attendance-csv";
+import { normalizeCheckinType, taipeiHmOfIso, taipeiYmdOfIso } from "@/lib/attendance-checkin";
 
 export type WarRoomTag = {
   id: string;
@@ -656,6 +657,9 @@ export type MakeupPunchSpan = {
   clock_out: string | null;
 };
 
+/** 線上打卡（attendance_logs）彙整成每員工日一筆；上班取當日最早、下班取最晚（台北時間 HH:MM） */
+export type OnlinePunchSpan = MakeupPunchSpan;
+
 export const MAKEUP_PUNCH_TAG: WarRoomTag = {
   id: "makeup",
   label: "📝 已補卡",
@@ -663,49 +667,81 @@ export const MAKEUP_PUNCH_TAG: WarRoomTag = {
     "border-teal-600/45 bg-teal-600 text-white dark:border-teal-700 dark:bg-teal-800",
 };
 
-function makeupKey(employeeId: string, iso: string): string {
+export const ONLINE_PUNCH_TAG: WarRoomTag = {
+  id: "online_punch",
+  label: "📱 線上打卡",
+  className:
+    "border-indigo-500/45 bg-indigo-600 text-white dark:border-indigo-700 dark:bg-indigo-800",
+};
+
+/** 某員工日由補卡單／線上打卡補上的是哪一側 */
+export type PatchedPunchSides = { in: boolean; out: boolean };
+
+type SyntheticUidPrefix = "makeup" | "online";
+const SYNTHETIC_UID_PREFIXES: readonly SyntheticUidPrefix[] = ["makeup", "online"];
+
+function employeeDayKey(employeeId: string, iso: string): string {
   return `${employeeId}\t${iso}`;
 }
 
-/**
- * 匯入統計前，將已核准的補卡單併入 CSV 打卡列：
- * 既有列只補「缺的那側」（實卡不覆蓋）；該員工該日完全無 CSV 列時合成一列。
- * 回傳 patchedKeys（`employeeId\tYYYY-MM-DD`）供 appendMakeupPunchTags 標示，
- * extraNameByUid 為合成列使用之替代 uid（員工無 timeclock_uid 時）→ 員工對應。
- */
-export function applyApprovedMakeupPunches(
-  rows: AttendanceDayRow[],
-  makeups: MakeupPunchSpan[],
+/** 列 uid → employee_id；合成列（員工無 timeclock_uid）之 uid 為 `makeup:<id>`／`online:<id>` */
+function employeeIdOfRowUid(
+  uid: string,
   empByUid: Map<string, { id: string; name: string }>,
+): string | undefined {
+  const hit = empByUid.get(uid)?.id;
+  if (hit) return hit;
+  for (const p of SYNTHETIC_UID_PREFIXES) {
+    if (uid.startsWith(`${p}:`)) return uid.slice(p.length + 1) || undefined;
+  }
+  return undefined;
+}
+
+/**
+ * 將外部打卡來源（補卡單／線上打卡）併入 CSV 打卡列：
+ * 既有列只補「缺的那側」（已有的卡不覆蓋）；該員工該日完全無列時合成一列。
+ * `employeeNames` 供合成列顯示姓名（含未設 timeclock_uid 的員工）。
+ */
+function fillMissingPunchSides(
+  rows: AttendanceDayRow[],
+  spans: MakeupPunchSpan[],
+  empByUid: Map<string, { id: string; name: string }>,
+  syntheticUidPrefix: SyntheticUidPrefix,
+  employeeNames?: ReadonlyMap<string, string>,
 ): {
   rows: AttendanceDayRow[];
-  patchedKeys: Set<string>;
+  patched: Map<string, PatchedPunchSides>;
   extraNameByUid: Map<string, { employeeId: string | null; name: string }>;
 } {
-  const patchedKeys = new Set<string>();
+  const patched = new Map<string, PatchedPunchSides>();
   const extraNameByUid = new Map<string, { employeeId: string | null; name: string }>();
-  if (makeups.length === 0) return { rows, patchedKeys, extraNameByUid };
+  if (spans.length === 0) return { rows, patched, extraNameByUid };
 
   const uidByEmpId = new Map<string, string>();
-  const nameByEmpId = new Map<string, string>();
+  const nameByEmpId = new Map<string, string>(employeeNames ?? []);
   for (const [uid, emp] of empByUid) {
     if (!uidByEmpId.has(emp.id)) uidByEmpId.set(emp.id, uid);
     if (!nameByEmpId.has(emp.id)) nameByEmpId.set(emp.id, emp.name);
   }
 
+  const markPatched = (k: string, sides: PatchedPunchSides) => {
+    const prev = patched.get(k);
+    patched.set(k, { in: sides.in || !!prev?.in, out: sides.out || !!prev?.out });
+  };
+
   const out = [...rows];
   const indexByKey = new Map<string, number>();
   for (let i = 0; i < out.length; i++) {
     const r = out[i]!;
-    const empId = empByUid.get(r.uid.trim())?.id;
+    const empId = employeeIdOfRowUid(r.uid.trim(), empByUid);
     if (!empId) continue;
     const iso = dateStrToIso(r.date);
     if (!iso) continue;
-    const k = makeupKey(empId, iso);
+    const k = employeeDayKey(empId, iso);
     if (!indexByKey.has(k)) indexByKey.set(k, i);
   }
 
-  for (const m of makeups) {
+  for (const m of spans) {
     const empId = String(m.employee_id ?? "").trim();
     const iso = String(m.punch_date ?? "").slice(0, 10);
     if (!empId || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
@@ -713,24 +749,26 @@ export function applyApprovedMakeupPunches(
     const mOut = m.clock_out != null ? m.clock_out.slice(0, 5) : null;
     if (mIn == null && mOut == null) continue;
 
-    const k = makeupKey(empId, iso);
+    const k = employeeDayKey(empId, iso);
     const idx = indexByKey.get(k);
     if (idx != null) {
       const r = out[idx]!;
+      const fillIn = r.clockIn == null && mIn != null;
+      const fillOut = r.clockOut == null && mOut != null;
+      if (!fillIn && !fillOut) continue;
       const newIn = r.clockIn ?? mIn;
       const newOut = r.clockOut ?? mOut;
-      if (newIn === r.clockIn && newOut === r.clockOut) continue;
       out[idx] = {
         ...r,
         clockIn: newIn,
         clockOut: newOut,
         missingPunch: (newIn == null) !== (newOut == null),
       };
-      patchedKeys.add(k);
+      markPatched(k, { in: fillIn, out: fillOut });
       continue;
     }
 
-    const uid = uidByEmpId.get(empId) ?? `makeup:${empId}`;
+    const uid = uidByEmpId.get(empId) ?? `${syntheticUidPrefix}:${empId}`;
     if (!uidByEmpId.has(empId)) {
       extraNameByUid.set(uid, { employeeId: empId, name: nameByEmpId.get(empId) ?? "—" });
     }
@@ -743,10 +781,106 @@ export function applyApprovedMakeupPunches(
       missingPunch: (mIn == null) !== (mOut == null),
     });
     indexByKey.set(k, out.length - 1);
-    patchedKeys.add(k);
+    markPatched(k, { in: mIn != null, out: mOut != null });
   }
 
-  return { rows: out, patchedKeys, extraNameByUid };
+  return { rows: out, patched, extraNameByUid };
+}
+
+/**
+ * 匯入統計前，將已核准的補卡單併入 CSV 打卡列：
+ * 既有列只補「缺的那側」（實卡不覆蓋）；該員工該日完全無 CSV 列時合成一列。
+ * 回傳 patchedKeys（`employeeId\tYYYY-MM-DD`）供 appendMakeupPunchTags 標示，
+ * extraNameByUid 為合成列使用之替代 uid（員工無 timeclock_uid 時）→ 員工對應。
+ */
+export function applyApprovedMakeupPunches(
+  rows: AttendanceDayRow[],
+  makeups: MakeupPunchSpan[],
+  empByUid: Map<string, { id: string; name: string }>,
+  employeeNames?: ReadonlyMap<string, string>,
+): {
+  rows: AttendanceDayRow[];
+  patchedKeys: Set<string>;
+  extraNameByUid: Map<string, { employeeId: string | null; name: string }>;
+} {
+  const res = fillMissingPunchSides(rows, makeups, empByUid, "makeup", employeeNames);
+  return {
+    rows: res.rows,
+    patchedKeys: new Set(res.patched.keys()),
+    extraNameByUid: res.extraNameByUid,
+  };
+}
+
+/**
+ * 將線上打卡（儀表板／LINE／Telegram）併入 CSV 打卡列：CSV 優先，只補缺卡那側；
+ * 該員工該日完全無 CSV 列時以線上打卡合成一列。須在補卡單之前套用（線上打卡為即時實卡）。
+ * 回傳 patchedSides（`employeeId\tYYYY-MM-DD` → 補上的側）供 appendOnlinePunchTags 標示。
+ */
+export function applyOnlinePunches(
+  rows: AttendanceDayRow[],
+  spans: OnlinePunchSpan[],
+  empByUid: Map<string, { id: string; name: string }>,
+  employeeNames?: ReadonlyMap<string, string>,
+): {
+  rows: AttendanceDayRow[];
+  patchedSides: Map<string, PatchedPunchSides>;
+  extraNameByUid: Map<string, { employeeId: string | null; name: string }>;
+} {
+  const res = fillMissingPunchSides(rows, spans, empByUid, "online", employeeNames);
+  return { rows: res.rows, patchedSides: res.patched, extraNameByUid: res.extraNameByUid };
+}
+
+/** attendance_logs 原始列 → 每員工日一筆（上班取最早、下班取最晚；日期與時間皆以台北時區計） */
+export function summarizeOnlinePunchLogs(
+  logs: readonly { employee_id: string; check_type: string; created_at: string }[],
+): OnlinePunchSpan[] {
+  const sorted = logs
+    .map((log) => ({ log, ms: new Date(log.created_at).getTime() }))
+    .filter((x) => Number.isFinite(x.ms))
+    .sort((a, b) => a.ms - b.ms);
+  const byKey = new Map<string, OnlinePunchSpan>();
+  for (const { log } of sorted) {
+    const empId = String(log.employee_id ?? "").trim();
+    const type = normalizeCheckinType(log.check_type);
+    if (!empId || !type) continue;
+    const date = taipeiYmdOfIso(log.created_at);
+    const k = employeeDayKey(empId, date);
+    const span = byKey.get(k) ?? {
+      employee_id: empId,
+      punch_date: date,
+      clock_in: null,
+      clock_out: null,
+    };
+    const hm = taipeiHmOfIso(log.created_at);
+    if (type === "in") {
+      if (span.clock_in == null) span.clock_in = hm;
+    } else {
+      span.clock_out = hm;
+    }
+    byKey.set(k, span);
+  }
+  return [...byKey.values()];
+}
+
+function onlinePunchTagLabel(sides: PatchedPunchSides): string {
+  if (sides.in && sides.out) return `${ONLINE_PUNCH_TAG.label}（上下班）`;
+  if (sides.in) return `${ONLINE_PUNCH_TAG.label}（上班）`;
+  return `${ONLINE_PUNCH_TAG.label}（下班）`;
+}
+
+/** 於戰情列補上「📱 線上打卡（上班／下班／上下班）」標籤（線上打卡有補入缺卡側的員工日） */
+export function appendOnlinePunchTags(
+  warRows: WarRoomRow[],
+  patchedSides: Map<string, PatchedPunchSides>,
+): WarRoomRow[] {
+  if (patchedSides.size === 0) return warRows;
+  return warRows.map((r) => {
+    if (!r.employeeId) return r;
+    const sides = patchedSides.get(employeeDayKey(r.employeeId, r.dateIso.slice(0, 10)));
+    if (!sides) return r;
+    if (r.tags.some((t) => t.id === ONLINE_PUNCH_TAG.id)) return r;
+    return { ...r, tags: [...r.tags, { ...ONLINE_PUNCH_TAG, label: onlinePunchTagLabel(sides) }] };
+  });
 }
 
 /** 補卡日有效工時（扣午休）達此分鐘數：不依 9:00–18:00 判遲到／早退，改標「特殊出勤」 */
@@ -800,7 +934,7 @@ export function appendMakeupPunchTags(
   if (patchedKeys.size === 0) return warRows;
   return warRows.map((r) => {
     if (!r.employeeId) return r;
-    if (!patchedKeys.has(makeupKey(r.employeeId, r.dateIso.slice(0, 10)))) return r;
+    if (!patchedKeys.has(employeeDayKey(r.employeeId, r.dateIso.slice(0, 10)))) return r;
     if (r.tags.some((t) => t.id === MAKEUP_PUNCH_TAG.id)) return r;
     // 假日／國定假日出勤、請假日本來就不判遲到早退，不另標特殊出勤
     const isRegularWorkday = !r.tags.some((t) => SPECIAL_ATTENDANCE_EXCLUDED_TAG_IDS.has(t.id));
