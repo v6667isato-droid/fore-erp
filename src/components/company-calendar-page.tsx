@@ -92,6 +92,10 @@ const EVENT_STYLES: Record<
     badge: "bg-green-50 text-green-700 dark:bg-green-950/35 dark:text-green-200",
     hover: "hover:bg-green-100/90 dark:hover:bg-green-900/30",
   },
+  overtime: {
+    badge: "bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-950/35 dark:text-fuchsia-200",
+    hover: "hover:bg-fuchsia-100/90 dark:hover:bg-fuchsia-900/30",
+  },
   other: {
     badge: "bg-stone-100 text-stone-700 dark:bg-stone-900/50 dark:text-stone-200",
     hover: "hover:bg-stone-200/80 dark:hover:bg-stone-800/50",
@@ -137,6 +141,8 @@ function cellItemDotClass(item: CalendarCellItem): string {
       return "bg-rose-400";
     case "company":
       return "bg-green-500";
+    case "overtime":
+      return "bg-fuchsia-500";
     default:
       return "bg-stone-400";
   }
@@ -861,19 +867,27 @@ export function CompanyCalendarPage() {
         <span className="font-medium text-foreground/80">圖例</span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-green-500" />
-          公司
+          公司公告
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-fuchsia-500" />
+          加班公告
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-yellow-400" />
-          生產
+          家具運送
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-sky-400" />
-          事件
+          參觀預約
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-rose-400" />
+          交辦事項
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-stone-400" />
-          備忘
+          其他事項
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-gradient-to-r from-orange-500 to-red-500" />

@@ -132,6 +132,7 @@ function WarCalendar({
   leavesByDay,
   makeupByDay,
   onlineByDay,
+  overtimeNoticesByDay,
   anomalyEntriesByDay,
   anomalyEntriesByDayAllEmployees,
   monthPublicHolidays,
@@ -166,6 +167,8 @@ function WarCalendar({
       filled: PatchedPunchSides | null;
     }[]
   >;
+  /** 圖層一：加班公告（company_event category=overtime，全員可見之公告） */
+  overtimeNoticesByDay: Map<number, { id: string; title: string; description: string | null }[]>;
   /** 圖層三：打卡衍生的異常（不含 leave 標籤，避免與假單圖層重複） */
   anomalyEntriesByDay: Map<
     number,
@@ -223,7 +226,7 @@ function WarCalendar({
       <p className="mb-3 font-serif text-base font-semibold text-foreground">
         {y} 年 {m} 月 · 出勤戰情月曆
         <span className="ml-1 text-xs font-normal text-muted-foreground">
-          （放假日：本日為休假日；該日有 CSV 且全體在職戰情無異常列時：藍底「此日打卡狀況正常」；📱＝線上打卡）
+          （放假日：本日為休假日；該日有 CSV 且全體在職戰情無異常列時：藍底「此日打卡狀況正常」；📣＝加班公告；📱＝線上打卡）
         </span>
       </p>
 
@@ -327,6 +330,7 @@ function WarCalendar({
           const leaveRows = day != null ? leavesByDay.get(day) ?? [] : [];
           const makeupLines = day != null ? makeupByDay.get(day) ?? [] : [];
           const onlineLines = day != null ? onlineByDay.get(day) ?? [] : [];
+          const overtimeNotices = day != null ? overtimeNoticesByDay.get(day) ?? [] : [];
           const entries = day != null ? anomalyEntriesByDay.get(day) ?? [] : [];
           const entriesAll =
             day != null ? anomalyEntriesByDayAllEmployees.get(day) ?? [] : [];
@@ -344,7 +348,8 @@ function WarCalendar({
             hols.length > 0 ||
             hasLeaves ||
             hasMakeupPunches ||
-            onlineLines.length > 0;
+            onlineLines.length > 0 ||
+            overtimeNotices.length > 0;
           const showAllPunchNormal =
             day != null &&
             !hasRestHoliday &&
@@ -404,6 +409,20 @@ function WarCalendar({
                           >
                             {h.name}
                             <span aria-hidden> {h.is_workday ? "💼" : "🧨"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {overtimeNotices.length > 0 && (
+                      <div className="flex flex-col gap-0.5">
+                        {overtimeNotices.map((n) => (
+                          <div
+                            key={`otn-${n.id}`}
+                            className="rounded-md bg-fuchsia-600 px-1.5 py-0.5 text-center text-[9px] font-semibold leading-snug text-white shadow-sm dark:bg-fuchsia-700"
+                            title={`加班公告：${n.title}${n.description ? `\n${n.description}` : ""}`}
+                          >
+                            <span aria-hidden>📣</span> 加班公告：{n.title}
                           </div>
                         ))}
                       </div>
@@ -590,6 +609,10 @@ export function AttendanceImporterPanel({
   const [makeupSpans, setMakeupSpans] = useState<MakeupPunchSpan[]>([]);
   /** 主力月內線上打卡（attendance_logs 彙整為每員工日一筆）；統計時於補卡單之前補入 CSV 缺卡側 */
   const [onlineSpans, setOnlineSpans] = useState<OnlinePunchSpan[]>([]);
+  /** 主力月內加班公告（company_event category=overtime） */
+  const [overtimeNotices, setOvertimeNotices] = useState<
+    { id: string; title: string; event_date: string; description: string | null }[]
+  >([]);
   const [publicHolidays, setPublicHolidays] = useState<PublicHolidayEntry[]>([]);
   const [filterEmployeeKey, setFilterEmployeeKey] = useState<string>("");
   const [dbLoading, setDbLoading] = useState(false);
@@ -640,6 +663,7 @@ export function AttendanceImporterPanel({
       setLeaves([]);
       setMakeupSpans([]);
       setOnlineSpans([]);
+      setOvertimeNotices([]);
       setPublicHolidays([]);
       setDbError(null);
       setDbLoading(false);
@@ -657,7 +681,7 @@ export function AttendanceImporterPanel({
       setDbLoading(true);
       setDbError(null);
       try {
-        const [empRes, leaveRes, holRes, makeupRes, onlineLogs] = await Promise.all([
+        const [empRes, leaveRes, holRes, makeupRes, onlineLogs, overtimeNoticeRes] = await Promise.all([
           supabase
             .from("employees")
             .select("id, name, timeclock_uid, employment_status")
@@ -682,6 +706,13 @@ export function AttendanceImporterPanel({
             .gte("punch_date", monthStart)
             .lte("punch_date", monthEnd),
           fetchMonthOnlinePunchLogs(ym),
+          supabase
+            .from("company_event")
+            .select("id, title, event_date, description")
+            .eq("category", "overtime")
+            .gte("event_date", monthStart)
+            .lte("event_date", monthEnd)
+            .order("event_date", { ascending: true }),
         ]);
 
         if (cancelled) return;
@@ -689,6 +720,7 @@ export function AttendanceImporterPanel({
         if (leaveRes.error) throw leaveRes.error;
         if (holRes.error) throw holRes.error;
         if (makeupRes.error) throw makeupRes.error;
+        if (overtimeNoticeRes.error) throw overtimeNoticeRes.error;
 
         const m = new Map<string, { id: string; name: string }>();
         const active: { id: string; name: string }[] = [];
@@ -718,6 +750,14 @@ export function AttendanceImporterPanel({
           })),
         );
         setOnlineSpans(summarizeOnlinePunchLogs(onlineLogs));
+        setOvertimeNotices(
+          ((overtimeNoticeRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
+            id: String(r.id ?? ""),
+            title: String(r.title ?? ""),
+            event_date: String(r.event_date ?? "").slice(0, 10),
+            description: typeof r.description === "string" ? r.description : null,
+          })),
+        );
         setPublicHolidays(normalizePublicHolidayRows((holRes.data ?? []) as Record<string, unknown>[]));
       } catch (e) {
         if (!cancelled)
@@ -996,6 +1036,22 @@ export function AttendanceImporterPanel({
     return map;
   }, [ym, onlineSpans, scopeEmpIdsForCalendar, employeeNameById, punchPatch.onlineSides]);
 
+  /** 月曆加班公告圖層：全公司公告，不受員工篩選影響 */
+  const overtimeNoticesByDay = useMemo(() => {
+    const map = new Map<number, { id: string; title: string; description: string | null }[]>();
+    if (!ym) return map;
+    const prefix = `${ym}-`;
+    for (const n of overtimeNotices) {
+      if (!n.event_date.startsWith(prefix)) continue;
+      const day = Number(n.event_date.slice(8, 10));
+      if (!Number.isFinite(day) || day < 1 || day > 31) continue;
+      const arr = map.get(day) ?? [];
+      arr.push({ id: n.id, title: n.title, description: n.description });
+      map.set(day, arr);
+    }
+    return map;
+  }, [ym, overtimeNotices]);
+
   const anomalyCalendarMap = useMemo(
     () => buildCalendarAnomalyEntriesByDay(filteredDisplayWarRows),
     [filteredDisplayWarRows],
@@ -1265,7 +1321,7 @@ export function AttendanceImporterPanel({
           <span className="text-muted-foreground">
             {hasCsv
               ? `（${filtered.length} 筆，已排除其他月份）`
-              : "（尚未匯入 CSV；先顯示本月假日、核准假單與線上打卡，匯入後自動切換為資料最多之月份並帶入打卡分析）"}
+              : "（尚未匯入 CSV；先顯示本月假日、加班公告、核准假單與線上打卡，匯入後自動切換為資料最多之月份並帶入打卡分析）"}
           </span>
           {dbLoading && (
             <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -1294,6 +1350,7 @@ export function AttendanceImporterPanel({
           leavesByDay={approvedLeavesByDay}
           makeupByDay={makeupLinesByDay}
           onlineByDay={onlineLinesByDay}
+          overtimeNoticesByDay={overtimeNoticesByDay}
           anomalyEntriesByDay={anomalyCalendarMap}
           anomalyEntriesByDayAllEmployees={anomalyCalendarMapAll}
           monthPublicHolidays={monthPublicHolidaysSorted}

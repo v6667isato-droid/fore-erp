@@ -23,12 +23,13 @@ export const maxDuration = 60;
 /** 對帳範圍：台北今天往前推此天數起的所有事件（更早的視為封存，不再動） */
 const SYNC_WINDOW_DAYS = 60;
 
-/** Google Calendar colorId，對齊行事曆頁 EVENT_STYLES 配色（黃/藍/玫紅/綠/灰） */
+/** Google Calendar colorId，對齊行事曆頁 EVENT_STYLES 配色（黃/藍/玫紅/綠/紫紅/灰） */
 const CATEGORY_COLOR_IDS: Record<CompanyEventCategory, string> = {
   delivery: "5", // Banana 黃
   visit: "7", // Peacock 藍
   task: "4", // Flamingo 玫紅
   company: "10", // Basil 綠
+  overtime: "3", // Grape 紫紅
   other: "8", // Graphite 灰
 };
 

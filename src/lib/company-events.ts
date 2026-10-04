@@ -11,7 +11,19 @@ export interface CompanyAnnouncementDto {
   published_at: string;
 }
 
-export type CompanyEventCategory = "delivery" | "visit" | "task" | "company" | "other";
+export type CompanyEventCategory =
+  | "delivery"
+  | "visit"
+  | "task"
+  | "company"
+  | "overtime"
+  | "other";
+
+/** 全員可見（員工儀表板「公司公告」區塊、未登入公告 policy）的類別 */
+export const COMPANY_EVENT_PUBLIC_CATEGORIES: readonly CompanyEventCategory[] = [
+  "company",
+  "overtime",
+];
 
 export interface CompanyEventRow {
   id: string;
@@ -48,6 +60,11 @@ export const COMPANY_EVENT_CATEGORY_OPTIONS: {
     description: "全公司周知的重要訊息；全體員工都會在公告看到",
   },
   {
+    value: "overtime",
+    label: "加班公告",
+    description: "公告加班日；全體員工都會在公告看到，該日也會顯示在出勤戰情月曆",
+  },
+  {
     value: "other",
     label: "其他事項",
     description: "不屬於以上類別的事項；僅指派的負責人會看到",
@@ -59,6 +76,7 @@ export const companyEventCategoryLabel: Record<CompanyEventCategory, string> = {
   visit: "參觀預約",
   task: "交辦事項",
   company: "公司公告",
+  overtime: "加班公告",
   other: "其他事項",
 };
 
@@ -68,7 +86,14 @@ export function companyEventBadgePrefix(category: CompanyEventCategory): string 
 
 /** 舊類別值相容：production(Telegram 交辦，bot 改版前仍會寫入)→task；event/memo→other */
 export function normalizeCompanyEventCategory(v: unknown): CompanyEventCategory | null {
-  if (v === "delivery" || v === "visit" || v === "task" || v === "company" || v === "other") {
+  if (
+    v === "delivery" ||
+    v === "visit" ||
+    v === "task" ||
+    v === "company" ||
+    v === "overtime" ||
+    v === "other"
+  ) {
     return v;
   }
   if (v === "production") return "task";
@@ -174,7 +199,10 @@ export async function fetchCompanyEventsBetween(
   return (data ?? []).map((r) => normalizeRow(r as Record<string, unknown>)).filter(Boolean) as CompanyEventRow[];
 }
 
-/** 員工儀表板「公司公告」：僅 company 公司公告；匿名 policy 亦只開放此類別。只取今日（含）以後，由近到遠 */
+/**
+ * 員工儀表板「公司公告」：公司公告＋加班公告（加班公告標題前加「[加班公告]」）；
+ * 匿名 policy 亦只開放這兩類。只取今日（含）以後，由近到遠
+ */
 export async function fetchCompanyAnnouncementsFromEvents(): Promise<CompanyAnnouncementDto[]> {
   if (!isSupabaseConfigured) return [];
   const t = new Date();
@@ -183,8 +211,8 @@ export async function fetchCompanyAnnouncementsFromEvents(): Promise<CompanyAnno
   ).padStart(2, "0")}`;
   const { data, error } = await supabase
     .from(COMPANY_EVENT_TABLE)
-    .select("id,title,description,event_date")
-    .eq("category", "company")
+    .select("id,title,description,event_date,category")
+    .in("category", [...COMPANY_EVENT_PUBLIC_CATEGORIES])
     .gte("event_date", todayIso)
     .order("event_date", { ascending: true })
     .limit(40);
@@ -193,7 +221,9 @@ export async function fetchCompanyAnnouncementsFromEvents(): Promise<CompanyAnno
   return (data ?? []).map((r) => {
     const row = r as Record<string, unknown>;
     const id = typeof row.id === "string" ? row.id : "";
-    const title = typeof row.title === "string" ? row.title : "";
+    const rawTitle = typeof row.title === "string" ? row.title : "";
+    const title =
+      row.category === "overtime" ? `${companyEventBadgePrefix("overtime")} ${rawTitle}` : rawTitle;
     const body = typeof row.description === "string" ? row.description : "";
     const published_at = typeof row.event_date === "string" ? row.event_date : "";
     return { id, title, body, published_at };
