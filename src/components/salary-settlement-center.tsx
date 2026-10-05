@@ -2094,7 +2094,17 @@ export function SalarySettlementCenter() {
                           : undefined
                       }
                     >
-                      {overtimeAmt > 0 ? overtimeAmt.toLocaleString("zh-TW") : "—"}
+                      {ot.pay > 0 ? (
+                        <div className="flex flex-col items-end leading-tight">
+                          {/* 計算加班費的時數（折抵加班費之核准加班合計） */}
+                          <span className="text-[10px] font-normal text-muted-foreground">
+                            {Math.round(ot.pay * 100) / 100}h
+                          </span>
+                          <span>{overtimeAmt > 0 ? overtimeAmt.toLocaleString("zh-TW") : "—"}</span>
+                        </div>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td
                       className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground"
