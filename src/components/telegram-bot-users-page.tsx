@@ -84,6 +84,52 @@ function inviteStatus(row: BotInviteRow): "unused" | "used" | "expired" {
 const inputCls =
   "h-9 rounded-lg border border-input bg-background px-2 text-sm";
 
+/** 員工從新手機加入 bot 的步驟；頁面顯示與「複製步驟給員工」共用 */
+const JOIN_STEPS: { title: string; lines: string[] }[] = [
+  {
+    title: "安裝 Telegram",
+    lines: [
+      "iPhone 開 App Store、Android 開 Google Play，搜尋「Telegram」，安裝藍底白色紙飛機圖示的 App。",
+    ],
+  },
+  {
+    title: "註冊帳號",
+    lines: [
+      "開啟 App 按「Start Messaging」，國家選 Taiwan，輸入手機號碼（去掉開頭的 0）。",
+      "輸入簡訊收到的驗證碼（若畫面要求設定 Email，依指示用 Email 收碼）。",
+      "填寫名字，建議用本名（bot 名單會顯示這個名字）。",
+    ],
+  },
+  {
+    title: "打開公司 bot",
+    lines: [
+      "點管理員傳來的 bot 連結（t.me/…），或在 Telegram 按放大鏡搜尋管理員提供的 bot 帳號（@ 開頭）。",
+      "進入對話後按下方「START」。bot 回覆「尚未授權」和一串 ID 是正常的，接著做第 4 步。",
+    ],
+  },
+  {
+    title: "完成加入",
+    lines: [
+      "有邀請碼：把管理員傳來的「/start 邀請碼」整段貼到輸入框送出，看到「✅ 註冊成功」就完成了。",
+      "沒有邀請碼：點一下 bot 回覆的 ID 數字即可複製，傳給管理員；管理員新增後約 1 分鐘生效。",
+    ],
+  },
+  {
+    title: "開始使用",
+    lines: [
+      "點輸入框左側的「Menu」按鈕可直接點選指令，輸入 /help 看完整說明。",
+      "也可以直接打字問問題，例如「我的工單」。",
+    ],
+  },
+];
+
+const JOIN_STEPS_TEXT = [
+  "【Telegram 公司 bot 加入步驟】",
+  ...JOIN_STEPS.map(
+    (s, i) => `${i + 1}. ${s.title}\n${s.lines.map((l) => `・${l}`).join("\n")}`,
+  ),
+].join("\n");
+
 export function TelegramBotUsersPage() {
   const [users, setUsers] = useState<BotUserRow[]>([]);
   const [invites, setInvites] = useState<BotInviteRow[]>([]);
@@ -303,6 +349,15 @@ export function TelegramBotUsersPage() {
     }
   }
 
+  async function copyJoinSteps() {
+    try {
+      await navigator.clipboard.writeText(JOIN_STEPS_TEXT);
+      toast.success("已複製加入步驟，連同 bot 連結與邀請碼傳給員工即可");
+    } catch {
+      toast.error("複製失敗，請手動複製");
+    }
+  }
+
   const employeeSelect = (
     value: string,
     onChange: (v: string) => void,
@@ -496,6 +551,48 @@ export function TelegramBotUsersPage() {
         <br />
         權限:管理者=全功能;員工=僅查詢(訂單/工單/產品/行事曆),不含銷售/成本統計、請假審核與交辦。
       </div>
+
+      <details className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm">
+        <summary className="cursor-pointer select-none text-sm font-medium text-foreground">
+          員工手機加入教學（從安裝 Telegram 開始）
+        </summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <ol className="flex flex-col gap-2.5">
+            {JOIN_STEPS.map((step, i) => (
+              <li key={step.title} className="flex gap-2.5">
+                <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-[11px] font-semibold tabular-nums text-foreground">
+                  {i + 1}
+                </span>
+                <div className="min-w-0 text-xs leading-relaxed text-muted-foreground">
+                  <p className="font-medium text-foreground">{step.title}</p>
+                  {step.lines.map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => void copyJoinSteps()}
+            >
+              <Copy className="h-3.5 w-3.5" />
+              複製步驟給員工
+            </Button>
+            <span className="text-[11px] text-muted-foreground">
+              可用 LINE 傳給員工，連同 bot 連結與「/start 邀請碼」。
+            </span>
+          </div>
+          <p className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">管理員：bot 連結在哪？</span>
+            在自己的 Telegram 打開這個 bot 的對話 → 點上方 bot 名稱，資訊頁會顯示 @ 開頭的帳號（username）。連結就是
+            https://t.me/帳號（不含 @），複製後傳給員工即可。
+          </p>
+        </div>
+      </details>
 
       {/* 使用者清單 */}
       <section className="flex flex-col gap-3">
