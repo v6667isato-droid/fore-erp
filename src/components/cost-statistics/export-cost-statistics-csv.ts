@@ -43,6 +43,7 @@ export type ExportCurrentView = {
   totalRevenue: number;
   grossProfit: number;
   grossMargin: number;
+  totalBonus: number;
   monthlyRows: Array<{
     key: string;
     purchaseNonWood: number;
@@ -56,6 +57,7 @@ export type ExportCurrentView = {
     revenue: number;
     grossProfit: number;
     grossMargin: number;
+    bonus: number;
   }>;
 };
 
@@ -95,6 +97,8 @@ export function exportCostStatisticsCsv(args: {
     csvRow(["訂單營收(含稅)", Math.round(current.totalRevenue)]),
     csvRow(["毛利", Math.round(current.grossProfit)]),
     csvRow(["毛利率(%)", current.grossMargin.toFixed(1)]),
+    csvRow(["獎金(盈餘分配)", Math.round(current.totalBonus)]),
+    csvRow(["發獎金後毛利", Math.round(current.grossProfit - current.totalBonus)]),
     csvRow(["年度租金設定", Math.round(current.fixedOverhead.annualRent)]),
     csvRow(["年度公司貸款利息設定", Math.round(current.fixedOverhead.annualCompanyLoanInterest)]),
     csvRow([
@@ -118,6 +122,7 @@ export function exportCostStatisticsCsv(args: {
       "訂單營收(含稅)",
       "毛利",
       "毛利率(%)",
+      "獎金(盈餘分配)",
     ]),
     ...current.monthlyRows.map((row) =>
       csvRow([
@@ -133,6 +138,7 @@ export function exportCostStatisticsCsv(args: {
         Math.round(row.revenue),
         Math.round(row.grossProfit),
         row.grossMargin.toFixed(1),
+        Math.round(row.bonus),
       ]),
     ),
   ];
@@ -155,6 +161,12 @@ export function exportCostStatisticsCsv(args: {
       csvRow(["訂單營收", Math.round(snapshot.totalRevenue)]),
       csvRow(["毛利", Math.round(snapshot.grossProfit)]),
       csvRow(["毛利率(%)", snapshot.grossMargin.toFixed(1)]),
+      ...(snapshot.totalBonus != null
+        ? [
+            csvRow(["獎金(盈餘分配)", Math.round(snapshot.totalBonus)]),
+            csvRow(["發獎金後毛利", Math.round(snapshot.grossProfit - snapshot.totalBonus)]),
+          ]
+        : []),
     ]);
   }
 
