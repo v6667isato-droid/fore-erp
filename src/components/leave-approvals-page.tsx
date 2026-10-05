@@ -1181,7 +1181,7 @@ export function LeaveApprovalsPage() {
         return {
           title: "已發放薪資查詢",
           description:
-            "預設列出全部已發放薪資；可改選指定月份（period_key）篩選。",
+            "預設顯示最新已發放月份；可用左右箭頭切換上／下個月，或改選全部月份。",
           Icon: Receipt,
           showLeaveRefresh: false,
         };
