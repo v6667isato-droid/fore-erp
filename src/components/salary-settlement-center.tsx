@@ -1305,7 +1305,7 @@ export function SalarySettlementCenter() {
       );
     }
     confirmLines.push(
-      `特休結算後餘額將更新為：${formatSignedDayDecimalAsDayHour(settledRemaining)}（原本 ${formatDayDecimalAsDayHour(baseRemaining)}${
+      `特休結算後餘額將更新為：${formatSignedDayDecimalAsDayHour(settledRemaining)}（原本 ${formatSignedDayDecimalAsDayHour(baseRemaining)}${
         grantDays > 0 ? ` ＋ 新增特休 ${formatDayDecimalAsDayHour(grantDays)}` : ""
       } − 本月建立之特休 ${formatDayDecimalAsDayHour(st.specialThisMonth)}）`,
     );

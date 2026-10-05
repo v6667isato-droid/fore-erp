@@ -34,7 +34,7 @@ export function formatSignedDayDecimalAsDayHour(
   return formatDayDecimalAsDayHour(dayDecimal);
 }
 
-/** 表單「日 + 小時」→ 寫入 DB 的 annual_leave_remaining（小數日）；日／小時皆可小數，合計為 日 + 小時/8 */
+/** 表單「日 + 小時」→ 寫入 DB 的 annual_leave_remaining（小數日）；日／小時皆可小數，可為負（透支），合計為 日 + 小時/8 */
 export function annualLeavePartsToDecimal(daysStr: string, hoursStr: string): number | null {
   const dTrim = daysStr.trim();
   const hTrim = hoursStr.trim();
@@ -47,9 +47,7 @@ export function annualLeavePartsToDecimal(daysStr: string, hoursStr: string): nu
   ) {
     return null;
   }
-  const d = Math.max(0, dParsed);
-  const h = Math.max(0, hParsed);
-  return d + h / LEAVE_WORK_DAY_HOURS;
+  return dParsed + hParsed / LEAVE_WORK_DAY_HOURS;
 }
 
 /** 總時數 → ?日?小時（餘數可含小數） */
@@ -60,15 +58,20 @@ export function hoursToDayHourParts(totalHours: number): { days: number; hours: 
   return { days, hours };
 }
 
-/** 顯示用：employees.comp_leave_remaining 為「總小時」→「X 天 Y 小時」（8 小時 = 1 日） */
+/**
+ * 顯示用：employees.comp_leave_remaining 為「總小時」→「X 天 Y 小時」（8 小時 = 1 日）。
+ * 補休可能透支（結算扣除超過餘額、撤銷已用掉的加班），負值顯示為「−X 天 Y 小時」。
+ */
 export function formatHoursAsDayHour(totalHours: number | null | undefined): string {
-  if (totalHours == null || !Number.isFinite(totalHours) || totalHours < 0) return "—";
-  const { days, hours } = hoursToDayHourParts(totalHours);
-  return `${days} 天 ${hours} 小時`;
+  if (totalHours == null || !Number.isFinite(totalHours)) return "—";
+  const { days, hours } = hoursToDayHourParts(Math.abs(totalHours));
+  const sign = totalHours < 0 && (days > 0 || hours > 0) ? "−" : "";
+  return `${sign}${days} 天 ${hours} 小時`;
 }
 
 /**
  * 表單「日 + 小時」→ 寫入 DB 的 comp_leave_remaining（總小時）；日／小時皆可小數（8 小時 = 1 日）。
+ * 可為負（透支），合計為 日×8 + 小時。
  */
 export function compLeavePartsToTotalHours(
   daysStr: string,
@@ -85,9 +88,7 @@ export function compLeavePartsToTotalHours(
   ) {
     return null;
   }
-  const d = Math.max(0, dParsed);
-  const h = Math.max(0, hParsed);
-  return d * LEAVE_WORK_DAY_HOURS + h;
+  return dParsed * LEAVE_WORK_DAY_HOURS + hParsed;
 }
 
 const MS_MIN = 60_000;

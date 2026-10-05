@@ -66,7 +66,6 @@ import {
   formatSignedDayDecimalAsDayHour,
   hoursToDayHourParts,
   parseLocalDateTime,
-  splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
 import { normalizePublicHolidayRows } from "@/lib/attendance-war-room";
 import { seniorityFromHire } from "@/lib/employee-seniority";
@@ -371,7 +370,7 @@ function PayslipBreakdownPanel({
         b.special_leave_remaining_after != null
           ? formatSignedDayDecimalAsDayHour(b.special_leave_remaining_after)
           : annualLeaveRemaining != null && Number.isFinite(annualLeaveRemaining)
-            ? formatDayDecimalAsDayHour(annualLeaveRemaining)
+            ? formatSignedDayDecimalAsDayHour(annualLeaveRemaining)
             : "—",
       note:
         b.special_leave_remaining_after == null &&
@@ -1245,10 +1244,11 @@ export default function EmployeePortalPage() {
     return { totalHours: hrs, parts: hoursToDayHourParts(hrs) };
   }, [leaveForm.start, leaveForm.end, leaveForm.startTime, leaveForm.endTime, leaveHolidayLookup]);
 
-  const annualLeaveRemainingParts = useMemo(() => {
+  /** 特休可能透支（結算扣超過餘額），負值顯示為「−X 天 Y 小時」 */
+  const annualLeaveRemainingText = useMemo(() => {
     const r = data?.employee.annual_leave_remaining;
     if (r == null || !Number.isFinite(r)) return null;
-    return splitRemainingDaysToDayHour(r);
+    return formatSignedDayDecimalAsDayHour(r);
   }, [data?.employee.annual_leave_remaining]);
 
   /** 補休：無餘額資料、或預覽時數超過剩餘時，不可送出 */
@@ -1887,7 +1887,7 @@ export default function EmployeePortalPage() {
                         特休
                       </p>
                       <p className="mt-0.5 text-base font-semibold tabular-nums tracking-tight text-primary sm:text-lg md:text-xl">
-                        {formatDayDecimalAsDayHour(employee.annual_leave_remaining)}
+                        {formatSignedDayDecimalAsDayHour(employee.annual_leave_remaining)}
                       </p>
                     </div>
                     <div className="min-w-0 border-t border-border/50 pt-2">
@@ -3077,9 +3077,9 @@ export default function EmployeePortalPage() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="rounded-lg border border-border/80 bg-muted/20 p-3 text-sm">
                   <p className="text-xs font-medium text-muted-foreground">目前特休剩餘</p>
-                  {annualLeaveRemainingParts ? (
+                  {annualLeaveRemainingText ? (
                     <p className="mt-1 tabular-nums text-base font-medium text-foreground">
-                      {annualLeaveRemainingParts.days} 天 {annualLeaveRemainingParts.hours} 小時
+                      {annualLeaveRemainingText}
                     </p>
                   ) : (
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

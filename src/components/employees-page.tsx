@@ -19,8 +19,8 @@ import { toast } from "sonner";
 import {
   annualLeavePartsToDecimal,
   compLeavePartsToTotalHours,
-  formatDayDecimalAsDayHour,
   formatHoursAsDayHour,
+  formatSignedDayDecimalAsDayHour,
   hoursToDayHourParts,
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
@@ -428,18 +428,24 @@ function EmployeeForm({
       setAnnualLeaveDaysInput("");
       setAnnualLeaveHoursInput("");
     } else {
-      const { days, hours } = splitRemainingDaysToDayHour(Number(r));
-      setAnnualLeaveDaysInput(String(days));
-      setAnnualLeaveHoursInput(String(hours));
+      // 透支（負值）時日、小時都帶負號，例：−1.5 日 → −1 日 −4 小時；避免開啟編輯後存檔被歸零
+      const n = Number(r);
+      const sign = n < 0 ? -1 : 1;
+      const { days, hours } = splitRemainingDaysToDayHour(Math.abs(n));
+      setAnnualLeaveDaysInput(String(sign * days));
+      setAnnualLeaveHoursInput(String(sign * hours));
     }
     const cr = initial.comp_leave_remaining;
     if (cr == null || !Number.isFinite(Number(cr))) {
       setCompLeaveDaysInput("");
       setCompLeaveHoursInput("");
     } else {
-      const { days, hours } = hoursToDayHourParts(Number(cr));
-      setCompLeaveDaysInput(String(days));
-      setCompLeaveHoursInput(String(hours));
+      // 透支（負值）時日、小時都帶負號，例：−12h → −1 日 −4 小時；避免開啟編輯後存檔被歸零
+      const n = Number(cr);
+      const sign = n < 0 ? -1 : 1;
+      const { days, hours } = hoursToDayHourParts(Math.abs(n));
+      setCompLeaveDaysInput(String(sign * days));
+      setCompLeaveHoursInput(String(sign * hours));
     }
   }, [initial, mode]);
 
@@ -1031,6 +1037,7 @@ function EmployeeForm({
                     id="emp-special-leave-days"
                     value={annualLeaveDaysInput}
                     allowDecimal
+                    allowNegative
                     onValueChange={(v) => setAnnualLeaveDaysInput(toNumericText(v))}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
@@ -1046,13 +1053,14 @@ function EmployeeForm({
                     id="emp-special-leave-hours"
                     value={annualLeaveHoursInput}
                     allowDecimal
+                    allowNegative
                     onValueChange={(v) => setAnnualLeaveHoursInput(toNumericText(v))}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
               </div>
               <p className="text-[10px] leading-snug text-muted-foreground">
-                日、小時皆可輸入小數（例：12.5 日或 4.5 小時）；儲存時合計為「日 + 小時÷8」。
+                日、小時皆可輸入小數（例：12.5 日或 4.5 小時），負數＝透支；儲存時合計為「日 + 小時÷8」。
               </p>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -1071,6 +1079,7 @@ function EmployeeForm({
                     id="emp-comp-leave-days"
                     value={compLeaveDaysInput}
                     allowDecimal
+                    allowNegative
                     onValueChange={(v) => setCompLeaveDaysInput(toNumericText(v))}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
@@ -1086,11 +1095,15 @@ function EmployeeForm({
                     id="emp-comp-leave-hours"
                     value={compLeaveHoursInput}
                     allowDecimal
+                    allowNegative
                     onValueChange={(v) => setCompLeaveHoursInput(toNumericText(v))}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
               </div>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                負數＝透支（結算扣超過餘額）；儲存時合計為「日×8 + 小時」。
+              </p>
             </div>
             <div className="flex flex-col gap-1.5">
               <label
@@ -1710,7 +1723,7 @@ function ViewEmployeeDialog({
                         <span className="text-muted-foreground">特休剩餘</span>
                         <span className="text-foreground tabular-nums">
                           {row.annual_leave_remaining != null
-                            ? formatDayDecimalAsDayHour(row.annual_leave_remaining)
+                            ? formatSignedDayDecimalAsDayHour(row.annual_leave_remaining)
                             : "—"}
                         </span>
                       </div>
@@ -2009,7 +2022,7 @@ export function EmployeesPage() {
       { label: "月薪", value: row.monthly_wage != null ? row.monthly_wage.toLocaleString() : "—" },
       {
         label: "特休",
-        value: row.annual_leave_remaining != null ? formatDayDecimalAsDayHour(row.annual_leave_remaining) : "—",
+        value: row.annual_leave_remaining != null ? formatSignedDayDecimalAsDayHour(row.annual_leave_remaining) : "—",
       },
       {
         label: "補休",
