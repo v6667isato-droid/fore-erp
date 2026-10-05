@@ -6,7 +6,11 @@ import {
   hoursToDayHourParts,
   splitRemainingDaysToDayHour,
 } from "@/lib/employee-leave-time";
-import { isOffFixedShift, meetsSpecialAttendanceHours } from "@/lib/attendance-war-room";
+import {
+  FLEX_SHIFT_REMARK,
+  isOffFixedShift,
+  meetsSpecialAttendanceHours,
+} from "@/lib/attendance-war-room";
 
 export type PayslipRemarkBounds = {
   start: string;
@@ -157,6 +161,11 @@ function attendanceLineForRow(row: Record<string, unknown>): string | null {
     parts.push("未出勤");
   } else if (punchRm) {
     parts.push(punchRm);
+  }
+
+  /** 戰情判定之彈性工時（早上班 08:00–17:00／晚上班 10:00–19:00），不視為遲到早退 */
+  for (const remark of Object.values(FLEX_SHIFT_REMARK)) {
+    if (tagText.includes(remark)) parts.push(remark);
   }
 
   if (tagText.includes("遲到")) {
