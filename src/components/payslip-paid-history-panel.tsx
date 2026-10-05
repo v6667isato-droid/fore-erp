@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   isSupabaseConfigured,
   supabase,
@@ -16,7 +16,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { Eye, Loader2, Receipt, RefreshCw, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Loader2,
+  Receipt,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { parsePayrollBonusFromNotes } from "@/lib/performance-bonus-payroll";
 import {
@@ -30,9 +38,32 @@ function ymNow(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** YYYY-MM 往前／往後推 delta 個月 */
+function shiftYm(ym: string, delta: number): string {
+  const [y, m] = ym.split("-").map((x) => Number(x));
+  if (!y || !m) return ym;
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function isPaidStatus(raw: string | null | undefined): boolean {
   const s = (raw ?? "").trim().toLowerCase();
   return s === "paid" || s === "已發放" || s === "發放";
+}
+
+/** 已發放薪資中最新的 period_key（YYYY-MM）；查無資料或讀取失敗回傳 null */
+async function fetchLatestPaidPeriodKey(): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("payslips")
+    .select("period_key, status")
+    .order("period_key", { ascending: false });
+  if (error) return null;
+  for (const r of (data ?? []) as { period_key?: unknown; status?: unknown }[]) {
+    if (!isPaidStatus(String(r.status ?? ""))) continue;
+    const pk = String(r.period_key ?? "").trim().slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(pk)) return pk;
+  }
+  return null;
 }
 
 function num(v: unknown, fallback = 0): number {
@@ -227,10 +258,16 @@ function periodLabelForRow(periodKey: string, rowMonthLabel: string): string {
 }
 
 export function PayslipPaidHistoryPanel() {
-  /** true：列出全部已發放；false：僅指定 period_key */
-  const [showAllMonths, setShowAllMonths] = useState(true);
+  /** true：列出全部已發放；false：僅指定 period_key（預設為最新已發放月份） */
+  const [showAllMonths, setShowAllMonths] = useState(false);
   const [filterMonth, setFilterMonth] = useState(ymNow);
+  /** 已查到最新已發放月份後才開始載入，避免先閃一次本月的空白結果 */
+  const [monthReady, setMonthReady] = useState(false);
   const [filterEmployee, setFilterEmployee] = useState<string>("all");
+  /** 員工 id → 姓名；切換月份後仍保留已選員工的名稱，避免下拉選單對不上 */
+  const [employeeNames, setEmployeeNames] = useState<Record<string, string>>({});
+  /** 連續切換月份時只採用最後一次查詢的結果 */
+  const loadSeqRef = useRef(0);
   const [rows, setRows] = useState<PaidSlipRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -254,9 +291,26 @@ export function PayslipPaidHistoryPanel() {
         byId.set(r.employee_id, r.employee_name);
       }
     }
+    if (filterEmployee !== "all" && !byId.has(filterEmployee)) {
+      byId.set(filterEmployee, employeeNames[filterEmployee] ?? "—");
+    }
     return [...byId.entries()]
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name, "zh-TW"));
+  }, [rows, filterEmployee, employeeNames]);
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    setEmployeeNames((prev) => {
+      let next: Record<string, string> | null = null;
+      for (const r of rows) {
+        if (r.employee_id && prev[r.employee_id] !== r.employee_name) {
+          next ??= { ...prev };
+          next[r.employee_id] = r.employee_name;
+        }
+      }
+      return next ?? prev;
+    });
   }, [rows]);
 
   const displayRows = useMemo(
@@ -274,6 +328,8 @@ export function PayslipPaidHistoryPanel() {
       setLoading(false);
       return;
     }
+    const seq = ++loadSeqRef.current;
+    const isStale = () => seq !== loadSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -382,7 +438,7 @@ export function PayslipPaidHistoryPanel() {
                     nameById.get(String(r.employee_id ?? "")) ?? "—",
                   ),
                 );
-              setRows(mapped);
+              if (!isStale()) setRows(mapped);
               return;
             }
           } else {
@@ -416,10 +472,12 @@ export function PayslipPaidHistoryPanel() {
                 nameById.get(String(r.employee_id ?? "")) ?? "—",
               ),
             );
-          setRows(mapped);
+          if (!isStale()) setRows(mapped);
           return;
         }
       }
+
+      if (isStale()) return;
 
       if (err) {
         setError(err.message || "無法讀取薪資紀錄");
@@ -439,13 +497,31 @@ export function PayslipPaidHistoryPanel() {
 
       setRows(mapped);
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
   }, [filterMonth, monthLabel, showAllMonths]);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setMonthReady(true);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const latest = await fetchLatestPaidPeriodKey();
+      if (cancelled) return;
+      if (latest) setFilterMonth(latest);
+      setMonthReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!monthReady) return;
     void load();
-  }, [load]);
+  }, [load, monthReady]);
 
   async function handleDeletePaid(row: PaidSlipRow) {
     const periodLabel = row.month_label || row.period_key;
@@ -646,6 +722,42 @@ export function PayslipPaidHistoryPanel() {
           <h2 className="sr-only">已發放薪資查詢</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {!showAllMonths && (
+            <div className="flex items-center rounded-lg border border-input bg-background shadow-xs">
+              <button
+                type="button"
+                onClick={() => setFilterMonth((m) => shiftYm(m, -1))}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-l-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="上個月"
+                title="上個月"
+              >
+                <ChevronLeft className="h-4 w-4" aria-hidden />
+              </button>
+              <label className="flex items-center gap-2 px-1">
+                <span className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">
+                  月份
+                </span>
+                <input
+                  type="month"
+                  value={filterMonth}
+                  onChange={(e) => {
+                    if (e.target.value) setFilterMonth(e.target.value);
+                  }}
+                  className="min-w-[9.5rem] bg-transparent text-sm font-medium text-foreground focus:outline-none"
+                  aria-label="依月份篩選已發放薪資"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setFilterMonth((m) => shiftYm(m, 1))}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="下個月"
+                title="下個月"
+              >
+                <ChevronRight className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          )}
           <label className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 shadow-xs">
             <span className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">
               員工
@@ -677,24 +789,10 @@ export function PayslipPaidHistoryPanel() {
               className="min-w-[6.5rem] bg-transparent text-sm font-medium text-foreground focus:outline-none"
               aria-label="已發放薪資範圍"
             >
-              <option value="all">全部月份</option>
               <option value="month">指定月份</option>
+              <option value="all">全部月份</option>
             </select>
           </label>
-          {!showAllMonths && (
-            <label className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 shadow-xs">
-              <span className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">
-                薪資月份
-              </span>
-              <input
-                type="month"
-                value={filterMonth}
-                onChange={(e) => setFilterMonth(e.target.value)}
-                className="min-w-[9.5rem] bg-transparent text-sm font-medium text-foreground focus:outline-none"
-                aria-label="依月份篩選已發放薪資"
-              />
-            </label>
-          )}
           <Button
             type="button"
             variant="outline"
@@ -733,7 +831,7 @@ export function PayslipPaidHistoryPanel() {
                 ? "可改選「全部員工」或調整月份範圍。"
                 : showAllMonths
                   ? "可改選「指定月份」篩選，或至「薪資結算」完成發放。"
-                  : "可換其他月份、改選「全部月份」，或至「薪資結算」完成發放。"}
+                  : "可用左右箭頭切換月份、改選「全部月份」，或至「薪資結算」完成發放。"}
             </p>
           </div>
         ) : (
