@@ -293,6 +293,7 @@ export function CostStatisticsPage() {
       totalRevenue: snapshot.totalRevenue,
       grossProfit: snapshot.grossProfit,
       grossMargin: snapshot.grossMargin,
+      totalBonus: snapshot.totalBonus ?? 0,
       monthlyRows: snapshot.monthlyRows.map((row) => ({
         key: row.month,
         purchaseNonWood: row.purchaseNonWood,
@@ -306,6 +307,7 @@ export function CostStatisticsPage() {
         revenue: row.revenue,
         grossProfit: row.grossProfit,
         grossMargin: row.grossMargin,
+        bonus: row.bonus ?? 0,
       })),
     };
   }
@@ -330,6 +332,7 @@ export function CostStatisticsPage() {
       totalRevenue: computed.totalRevenue,
       grossProfit: computed.grossProfit,
       grossMargin: computed.grossMargin,
+      totalBonus: computed.totalBonus,
       monthlyRows: computed.monthlyRows,
     };
   }
@@ -355,6 +358,7 @@ export function CostStatisticsPage() {
       totalRevenue: computed.totalRevenue,
       grossProfit: computed.grossProfit,
       grossMargin: computed.grossMargin,
+      totalBonus: computed.totalBonus,
       monthlyRows: computed.monthlyRows.map((row) => ({
         month: row.key,
         purchaseNonWood: row.purchaseNonWood,
@@ -368,6 +372,7 @@ export function CostStatisticsPage() {
         revenue: row.revenue,
         grossProfit: row.grossProfit,
         grossMargin: row.grossMargin,
+        bonus: row.bonus,
       })),
     };
   }
@@ -406,6 +411,10 @@ export function CostStatisticsPage() {
 
   const profitClass =
     computed.grossProfit >= 0 ? "text-emerald-600 dark:text-emerald-500" : "text-destructive";
+  /** 年初至今有發放半年度獎金時，才顯示獎金與發獎金後毛利 */
+  const hasBonus = computed.totalBonus !== 0;
+  const afterBonusClass =
+    computed.profitAfterBonus >= 0 ? "text-emerald-600 dark:text-emerald-500" : "text-destructive";
 
   return (
     <section className="space-y-4">
@@ -488,12 +497,36 @@ export function CostStatisticsPage() {
               <p className={`mt-1 text-xl font-semibold tabular-nums sm:text-2xl ${profitClass}`}>
                 {formatMoney(computed.grossProfit)}
               </p>
+              {hasBonus && (
+                <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+                  <p>
+                    獎金（盈餘分配）{" "}
+                    <span className="tabular-nums text-foreground">
+                      −{formatMoney(computed.totalBonus)}
+                    </span>
+                  </p>
+                  <p>
+                    發獎金後{" "}
+                    <span className={`font-semibold tabular-nums ${afterBonusClass}`}>
+                      {formatMoney(computed.profitAfterBonus)}
+                    </span>
+                  </p>
+                </div>
+              )}
             </div>
             <div className="rounded-xl border border-border bg-card p-4">
               <p className="text-xs text-muted-foreground">毛利率</p>
               <p className={`mt-1 text-xl font-semibold tabular-nums sm:text-2xl ${profitClass}`}>
                 {computed.grossMargin.toFixed(1)}%
               </p>
+              {hasBonus && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  發獎金後{" "}
+                  <span className={`font-semibold tabular-nums ${afterBonusClass}`}>
+                    {computed.marginAfterBonus.toFixed(1)}%
+                  </span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -869,6 +902,50 @@ export function CostStatisticsPage() {
                       </td>
                     </tr>
                   )}
+                  {computed.tableRows.length > 0 && hasBonus && (
+                    <>
+                      {/* 獎金列只有「毛利」欄有值，窄螢幕只看關鍵欄位時隱藏（上方卡片已列出金額） */}
+                      <tr
+                        className={`border-t border-border/70 text-muted-foreground ${showAllMonthCols ? "" : "hidden lg:table-row"}`}
+                      >
+                        <td
+                          className={`${STICKY_FIRST_COL} whitespace-nowrap px-4 py-2`}
+                          title="半年度獎金由盈餘發放，不計入總成本；依發薪月份計入"
+                        >
+                          獎金（盈餘分配）
+                        </td>
+                        <td className={detailCol} />
+                        <td className={detailCol} />
+                        <td className={detailCol} />
+                        <td className={detailCol} />
+                        <td />
+                        <td />
+                        <td className={`${detailCol} px-4 py-2 text-right tabular-nums`}>
+                          −{formatMoney(computed.totalBonus)}
+                        </td>
+                        <td />
+                      </tr>
+                      <tr className="border-t border-border font-medium text-foreground">
+                        <td className={`${STICKY_FIRST_COL} whitespace-nowrap px-4 py-2`}>
+                          發獎金後毛利
+                        </td>
+                        <td className={detailCol} />
+                        <td className={detailCol} />
+                        <td className={detailCol} />
+                        <td className={detailCol} />
+                        <td />
+                        <td />
+                        <td
+                          className={`${detailCol} px-4 py-2 text-right tabular-nums ${computed.profitAfterBonus < 0 ? "text-destructive" : ""}`}
+                        >
+                          {formatMoney(computed.profitAfterBonus)}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {computed.marginAfterBonus.toFixed(1)}%
+                        </td>
+                      </tr>
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1031,6 +1108,12 @@ export function CostStatisticsPage() {
             {year} 年年初至今（截至 {computed.ytdCutoffLabel}
             ）；採購／薪資／訂單依實際日期或發薪月份，設攤提之採購按月分攤（含往年採購當年度分攤額），木料攤提併入「木料攤提」，租金與公司貸款利息依年額按月分攤（當月按日比例）。營收排除「報價中」與已刪除訂單；採購不含已刪除紀錄。成本結構與合計列僅計實際數、不含
             Q3/Q4 預估攤提；表中未到月份僅列預估攤提供參考。「材料與攤提」＝非木料＋木料攤提＋其他攤提；「租金與利息」＝租金＋公司貸款利息。
+          </p>
+          <p>
+            <span className="font-medium text-foreground">獎金（盈餘分配）：</span>
+            薪資單上的半年度獎金（年終、考績分潤、股份）由盈餘發放，不計入薪資成本與毛利；
+            依發薪月份計入年初至今（上半年獎金約於 7–8 月、下半年獎金約於隔年 1–2 月隨薪資發放），
+            「發獎金後毛利」＝毛利 −獎金。
           </p>
           <p>
             此口徑與考績獎金的半年度毛利共用，兩邊數字一致。2026-08-05

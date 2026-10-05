@@ -52,6 +52,8 @@ export type CostStatisticsMonthlySnapshotRow = {
   revenue: number;
   grossProfit: number;
   grossMargin: number;
+  /** 半年度獎金（盈餘分配）；舊快照無此欄位 */
+  bonus?: number;
 };
 
 export type CostStatisticsYearSnapshot = {
@@ -72,6 +74,8 @@ export type CostStatisticsYearSnapshot = {
   totalRevenue: number;
   grossProfit: number;
   grossMargin: number;
+  /** 年初至今半年度獎金（盈餘分配）；舊快照無此欄位 */
+  totalBonus?: number;
   monthlyRows: CostStatisticsMonthlySnapshotRow[];
 };
 
