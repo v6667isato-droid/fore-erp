@@ -1205,7 +1205,7 @@ export function LeaveApprovalsPage() {
         return {
           title: "Telegram Bot",
           description:
-            "管理可使用 ERP Telegram bot 的帳號與權限：手動新增 chat_id 或產生邀請碼；管理者可用全功能，員工僅限查詢。",
+            "管理可使用 ERP Telegram bot 的帳號與權限：手動新增 chat_id 或產生邀請碼；老闆可用全功能，管理者與員工僅限查詢。",
           Icon: Send,
           showLeaveRefresh: false,
         };

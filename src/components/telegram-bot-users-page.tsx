@@ -26,7 +26,93 @@ import {
   TELEGRAM_BOT_USERNAME_KEY,
 } from "@/lib/telegram-bot-invite";
 
-type BotRole = "admin" | "staff";
+/** admin=老闆(全功能)、manager=管理者、staff=員工;manager 目前權限與 staff 相同(由 fore-telegram-bot 判斷) */
+type BotRole = "admin" | "manager" | "staff";
+
+/** 下拉選單順序:權限由低到高 */
+const ROLE_OPTIONS: { value: BotRole; label: string }[] = [
+  { value: "staff", label: "員工" },
+  { value: "manager", label: "管理者" },
+  { value: "admin", label: "老闆" },
+];
+
+/** 說明表欄位順序:權限由高到低 */
+const ROLE_COLUMNS: BotRole[] = ["admin", "manager", "staff"];
+
+/** DB 的 role 字串轉 BotRole;未知值視為權限最低的員工(與 bot 端 parseRole 一致) */
+function parseRole(role: string | null | undefined): BotRole {
+  return role === "admin" || role === "manager" ? role : "staff";
+}
+
+/** true=可用、false=不可用、字串=可用但有範圍限制 */
+type PermissionCell = boolean | string;
+
+/**
+ * 角色權限說明表。內容須與 fore-telegram-bot 的實際權限一致
+ * (webhook ADMIN_ONLY_COMMANDS、gemini STAFF_FUNCTIONS、審核 callback、推播對象),
+ * bot 權限變動時要同步改這裡。
+ */
+const ROLE_PERMISSIONS: {
+  group: string;
+  items: ({ feature: string; note?: string } & Record<BotRole, PermissionCell>)[];
+}[] = [
+  {
+    group: "指令",
+    items: [
+      {
+        feature: "/打卡 上下班打卡",
+        note: "含上下班打卡提醒,帳號需綁定員工",
+        admin: true,
+        manager: true,
+        staff: true,
+      },
+      { feature: "/today 今日公司行事曆", admin: true, manager: true, staff: true },
+      { feature: "/price 產品價格", admin: true, manager: true, staff: true },
+      {
+        feature: "/work 進行中工單",
+        note: "「只看自己」需帳號綁定員工",
+        admin: "所有人",
+        manager: "只看自己",
+        staff: "只看自己",
+      },
+      { feature: "/orders 進行中訂單", admin: "含金額", manager: false, staff: false },
+      { feature: "/sales、/costs 銷售與成本統計", admin: true, manager: false, staff: false },
+    ],
+  },
+  {
+    group: "直接打字問 AI",
+    items: [
+      {
+        feature: "自己的工單、工單排程、產品與價格、公司行事曆",
+        admin: true,
+        manager: true,
+        staff: true,
+      },
+      { feature: "訂單與客戶、其他人的工單", admin: true, manager: false, staff: false },
+      { feature: "銷售與成本統計", admin: true, manager: false, staff: false },
+      {
+        feature: "交辦工作",
+        note: "例:「請○○製作…」,可附照片",
+        admin: true,
+        manager: false,
+        staff: false,
+      },
+    ],
+  },
+  {
+    group: "審核與通知",
+    items: [
+      { feature: "請假、加班、補卡審核按鈕", admin: true, manager: false, staff: false },
+      {
+        feature: "推播通知",
+        note: "新訂單、請假/加班/補卡申請、每日 08:00 行事曆",
+        admin: true,
+        manager: false,
+        staff: false,
+      },
+    ],
+  },
+];
 
 interface BotUserRow {
   chat_id: string;
@@ -65,7 +151,29 @@ function generateInviteCode(): string {
 }
 
 function roleLabel(role: string): string {
-  return role === "admin" ? "管理者" : "員工";
+  const parsed = parseRole(role);
+  return ROLE_OPTIONS.find((o) => o.value === parsed)?.label ?? "員工";
+}
+
+const roleOptionElements = ROLE_OPTIONS.map((o) => (
+  <option key={o.value} value={o.value}>
+    {o.label}
+  </option>
+));
+
+function renderPermissionCell(cell: PermissionCell) {
+  if (cell === false) {
+    return (
+      <span className="text-muted-foreground/60" aria-label="不可用">
+        —
+      </span>
+    );
+  }
+  return (
+    <span className="font-medium text-emerald-700 dark:text-emerald-400">
+      ✓{typeof cell === "string" && <span className="ml-0.5 text-[11px]">{cell}</span>}
+    </span>
+  );
 }
 
 function formatDateTime(iso: string | null): string {
@@ -109,10 +217,10 @@ const JOIN_STEPS: { title: string; lines: string[] }[] = [
   {
     title: "加入公司 bot",
     lines: [
-      "點管理員傳來的加入連結（t.me/…），進入對話後按下方「START」，看到「✅ 註冊成功」就完成了。",
+      "點老闆傳來的加入連結（t.me/…），進入對話後按下方「START」，看到「✅ 註冊成功」就完成了。",
       "若是先點連結才安裝 Telegram，註冊完請回去再點一次連結。",
-      "只拿到「/start 邀請碼」：在 Telegram 按放大鏡搜尋管理員提供的 bot 帳號（@ 開頭），進入對話後把整段貼到輸入框送出。",
-      "沒有邀請碼：進入 bot 對話按「START」，bot 會回覆「尚未授權」和你的 ID，點一下 ID 即可複製，傳給管理員；管理員新增後約 1 分鐘生效。",
+      "只拿到「/start 邀請碼」：在 Telegram 按放大鏡搜尋老闆提供的 bot 帳號（@ 開頭），進入對話後把整段貼到輸入框送出。",
+      "沒有邀請碼：進入 bot 對話按「START」，bot 會回覆「尚未授權」和你的 ID，點一下 ID 即可複製，傳給老闆；老闆新增後約 1 分鐘生效。",
     ],
   },
   {
@@ -426,7 +534,7 @@ export function TelegramBotUsersPage() {
   function renderUserRoleSelect(row: BotUserRow) {
     return (
       <select
-        value={row.role === "admin" ? "admin" : "staff"}
+        value={parseRole(row.role)}
         disabled={actingId === row.chat_id}
         onChange={(e) =>
           void updateUser(
@@ -438,8 +546,7 @@ export function TelegramBotUsersPage() {
         aria-label={`${row.name} 的角色`}
         className="h-8 rounded-lg border border-input bg-background px-2 text-xs"
       >
-        <option value="staff">員工</option>
-        <option value="admin">管理者</option>
+        {roleOptionElements}
       </select>
     );
   }
@@ -597,9 +704,62 @@ export function TelegramBotUsersPage() {
         <br />
         ② <span className="font-medium text-foreground">手動新增</span>
         :請員工先隨便傳一句話給 bot,bot 會回覆他的 ID,再到這裡新增。
-        <br />
-        權限:管理者=全功能;員工=僅查詢(訂單/工單/產品/行事曆),不含銷售/成本統計、請假審核與交辦。
       </div>
+
+      <details open className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm">
+        <summary className="cursor-pointer select-none text-sm font-medium text-foreground">
+          角色權限說明（老闆／管理者／員工）
+        </summary>
+        <div className="mt-3 flex flex-col gap-2">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border text-left text-muted-foreground">
+                  <th className="py-1.5 pr-2 font-semibold">功能</th>
+                  {ROLE_COLUMNS.map((role) => (
+                    <th
+                      key={role}
+                      className="w-16 whitespace-nowrap px-1 py-1.5 text-center font-semibold sm:w-20"
+                    >
+                      {roleLabel(role)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              {ROLE_PERMISSIONS.map((group) => (
+                <tbody key={group.group}>
+                  <tr>
+                    <td
+                      colSpan={ROLE_COLUMNS.length + 1}
+                      className="pb-1 pt-3 text-[11px] font-semibold text-foreground"
+                    >
+                      {group.group}
+                    </td>
+                  </tr>
+                  {group.items.map((item) => (
+                    <tr key={item.feature} className="border-b border-border/50 last:border-0">
+                      <td className="py-1.5 pr-2 text-foreground">
+                        {item.feature}
+                        {item.note && (
+                          <span className="block text-[11px] text-muted-foreground">{item.note}</span>
+                        )}
+                      </td>
+                      {ROLE_COLUMNS.map((role) => (
+                        <td key={role} className="px-1 py-1.5 text-center align-middle">
+                          {renderPermissionCell(item[role])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+            </table>
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            管理者目前與員工權限相同,之後可再個別調整。角色變更約 1 分鐘內生效。
+          </p>
+        </div>
+      </details>
 
       <details className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm">
         <summary className="cursor-pointer select-none text-sm font-medium text-foreground">
@@ -693,11 +853,10 @@ export function TelegramBotUsersPage() {
               角色
               <select
                 value={addRole}
-                onChange={(e) => setAddRole(e.target.value as BotRole)}
+                onChange={(e) => setAddRole(parseRole(e.target.value))}
                 className={inputCls}
               >
-                <option value="staff">員工</option>
-                <option value="admin">管理者</option>
+                {roleOptionElements}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -721,7 +880,7 @@ export function TelegramBotUsersPage() {
             <p className="py-10 text-center text-sm text-muted-foreground">載入中…</p>
           ) : users.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
-              尚無授權帳號。管理員本人首次傳訊息給 bot 後會自動出現在這裡。
+              尚無授權帳號。老闆本人首次傳訊息給 bot 後會自動出現在這裡。
             </p>
           ) : (
             <>
@@ -887,11 +1046,10 @@ export function TelegramBotUsersPage() {
               角色
               <select
                 value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as BotRole)}
+                onChange={(e) => setInviteRole(parseRole(e.target.value))}
                 className={inputCls}
               >
-                <option value="staff">員工</option>
-                <option value="admin">管理者</option>
+                {roleOptionElements}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs text-muted-foreground">

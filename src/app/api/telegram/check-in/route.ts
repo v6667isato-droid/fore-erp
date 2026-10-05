@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
   if (!tgUser || tgUser.is_active !== true || !tgUser.employee_id) {
     return NextResponse.json({
       ok: false,
-      message: "你的 Telegram 尚未綁定員工帳號，請聯絡管理員設定。",
+      message: "你的 Telegram 尚未綁定員工帳號，請聯絡老闆設定。",
     });
   }
 
