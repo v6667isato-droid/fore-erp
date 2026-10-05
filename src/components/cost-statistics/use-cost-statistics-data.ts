@@ -146,6 +146,8 @@ export type CostMonthlyRow = {
   revenue: number;
   grossProfit: number;
   grossMargin: number;
+  /** 半年度獎金（盈餘分配），依發薪月份；不含在 totalCost */
+  bonus: number;
   labelSuffix: string;
   isProjected: boolean;
 };
@@ -183,6 +185,10 @@ export type CostStatisticsComputed = {
   totalRevenue: number;
   grossProfit: number;
   grossMargin: number;
+  /** 年初至今已發放的半年度獎金（盈餘分配） */
+  totalBonus: number;
+  profitAfterBonus: number;
+  marginAfterBonus: number;
   monthlyRows: CostMonthlyRow[];
   tableRows: CostTableRow[];
   orderCount: number;
@@ -311,6 +317,7 @@ export function useCostStatisticsData(args: {
     const purchaseWoodFullByMonth = new Map<string, number>();
     const purchaseAmortizedFullByMonth = new Map<string, number>();
     const salaryByMonth = new Map<string, number>();
+    const bonusByMonth = new Map<string, number>();
     const revenueByMonth = new Map<string, number>();
     const burdenByEmployeeId = new Map<string, number>();
 
@@ -356,6 +363,7 @@ export function useCostStatisticsData(args: {
     }
 
     let totalSalaryCost = 0;
+    let totalBonus = 0;
     for (const row of payslipRowsYtd) {
       if (row.status && row.status !== "paid") continue;
       const key = row.period_key && row.period_key.length >= 7 ? row.period_key.slice(0, 7) : "";
@@ -369,6 +377,11 @@ export function useCostStatisticsData(args: {
       const salaryCost = netPay + burden;
       totalSalaryCost += salaryCost;
       salaryByMonth.set(key, (salaryByMonth.get(key) ?? 0) + salaryCost);
+      const bonus = Number(row.payroll_bonus ?? 0);
+      if (Number.isFinite(bonus) && bonus !== 0) {
+        totalBonus += bonus;
+        bonusByMonth.set(key, (bonusByMonth.get(key) ?? 0) + bonus);
+      }
     }
 
     /** 2026 年 1–2 月系統尚未有發薪紀錄：薪資（含雇主負擔）沿用 3 月試算，並扣除指定員工於 3 月之金額（僅在 YTD 已含 3 月起始時套用） */
@@ -441,6 +454,7 @@ export function useCostStatisticsData(args: {
       let rentCost = 0;
       let loanCost = 0;
       let revenue = 0;
+      let bonus = 0;
       let labelSuffix = "";
 
       if (isProjected) {
@@ -461,6 +475,7 @@ export function useCostStatisticsData(args: {
         rentCost = rl.rent;
         loanCost = rl.loan;
         revenue = revenueByMonth.get(key) ?? 0;
+        bonus = bonusByMonth.get(key) ?? 0;
         if (year === 2026 && (key === "2026-01" || key === "2026-02")) {
           labelSuffix = " (用3月試算，不含鍾語桐)";
         }
@@ -488,6 +503,7 @@ export function useCostStatisticsData(args: {
         revenue,
         grossProfit,
         grossMargin,
+        bonus,
         labelSuffix,
         isProjected,
       });
@@ -575,6 +591,8 @@ export function useCostStatisticsData(args: {
       totalPurchaseCost + totalSalaryCost + totalRentCost + totalCompanyLoanCost + totalTaxCost;
     const grossProfit = totalRevenue - totalCost;
     const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
+    const profitAfterBonus = grossProfit - totalBonus;
+    const marginAfterBonus = totalRevenue > 0 ? (profitAfterBonus / totalRevenue) * 100 : 0;
 
     return {
       ytdCutoffLabel: cutoffStr,
@@ -590,6 +608,9 @@ export function useCostStatisticsData(args: {
       totalRevenue,
       grossProfit,
       grossMargin,
+      totalBonus,
+      profitAfterBonus,
+      marginAfterBonus,
       monthlyRows,
       tableRows,
       orderCount: orderRowsYtd.length,
