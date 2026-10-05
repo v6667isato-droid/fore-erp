@@ -116,6 +116,15 @@ export function effectiveWorkMinutes(inM: number, outM: number): number {
   return outM - inM - lunchOverlapMinutes(inM, outM);
 }
 
+/** 彈性工時班別：早上班 08:00–17:00、晚上班 10:00–19:00 */
+export type FlexShift = "early" | "late";
+
+/** 出勤標籤與薪資備註共用文字 */
+export const FLEX_SHIFT_REMARK: Record<FlexShift, string> = {
+  early: "彈性工時（早上班）",
+  late: "彈性工時（晚上班）",
+};
+
 const TAG = {
   missing: {
     id: "missing",
@@ -140,6 +149,20 @@ const TAG = {
     label: "🏃 早退",
     className:
       "border-orange-500/50 bg-orange-600 text-white dark:bg-orange-700",
+  },
+  /** 彈性工時早上班 08:00–17:00：不判遲到／早退 */
+  flexEarly: {
+    id: "flex_early",
+    label: `🕗 ${FLEX_SHIFT_REMARK.early}`,
+    className:
+      "border-blue-500/45 bg-blue-50 text-blue-900 dark:border-blue-700/50 dark:bg-blue-950/40 dark:text-blue-100",
+  },
+  /** 彈性工時晚上班 10:00–19:00：不判遲到／早退 */
+  flexLate: {
+    id: "flex_late",
+    label: `🕙 ${FLEX_SHIFT_REMARK.late}`,
+    className:
+      "border-blue-500/45 bg-blue-50 text-blue-900 dark:border-blue-700/50 dark:bg-blue-950/40 dark:text-blue-100",
   },
   short: {
     id: "short",
@@ -389,6 +412,37 @@ export function approvedLeaveTypeForDay(
 const LATE_AFTER_MIN = 9 * 60 + 15; // > 09:15 → 遲到（分鐘精度，等同 09:15:59 寬限）
 const EARLY_BEFORE_MIN = 17 * 60 + 45; // < 17:45 → 早退
 const MIN_WORK_MINUTES = 7 * 60 + 45; // 7h45m
+
+/** 與固定班相同 15 分鐘裕度：上班不晚於 inBy、下班不早於 outFrom */
+const FLEX_SHIFT_WINDOWS: Record<FlexShift, { inBy: number; outFrom: number }> = {
+  early: { inBy: 8 * 60 + 15, outFrom: 16 * 60 + 45 },
+  late: { inBy: 10 * 60 + 15, outFrom: 18 * 60 + 45 },
+};
+
+/**
+ * 依 9:00–18:00 會被判遲到／早退、但符合彈性班別時回傳班別；固定班已正常或兩種彈性班都不符 → null。
+ * 早上班需下班 <17:45 才會偏離固定班，晚上班需下班 ≥18:45，兩者不會同時成立。
+ */
+function flexShiftOfMinutes(inM: number, outM: number): FlexShift | null {
+  if (outM <= inM) return null;
+  if (inM <= LATE_AFTER_MIN && outM >= EARLY_BEFORE_MIN) return null;
+  for (const shift of ["early", "late"] as const) {
+    const w = FLEX_SHIFT_WINDOWS[shift];
+    if (inM <= w.inBy && outM >= w.outFrom) return shift;
+  }
+  return null;
+}
+
+/** 上下班打卡（HH:mm 或 HH:mm:ss）是否屬彈性工時早上班／晚上班 */
+export function flexShiftOf(
+  clockIn: string | null | undefined,
+  clockOut: string | null | undefined,
+): FlexShift | null {
+  const inM = clockToMinutes(clockIn ?? null);
+  const outM = clockToMinutes(clockOut ?? null);
+  if (inM == null || outM == null) return null;
+  return flexShiftOfMinutes(inM, outM);
+}
 /** 戰情室：有效工時 ≤7h／>9h 之提示（扣午休後之 hoursDay） */
 const DAY_HOURS_LOW_MAX = 7;
 const DAY_HOURS_HIGH_MIN = 9;
@@ -593,11 +647,18 @@ export function buildWarRoomRows(
     }
 
     if (!missingPunch && inM != null && outM != null && outM > inM && applyWeekdayDiscipline) {
-      if (inM > LATE_AFTER_MIN) {
-        tags.push({ ...TAG.late, label: TAG.late.label });
-      }
-      if (outM < EARLY_BEFORE_MIN) {
-        tags.push({ ...TAG.early, label: TAG.early.label });
+      const flex = flexShiftOfMinutes(inM, outM);
+      if (flex === "early") {
+        tags.push({ ...TAG.flexEarly, label: TAG.flexEarly.label });
+      } else if (flex === "late") {
+        tags.push({ ...TAG.flexLate, label: TAG.flexLate.label });
+      } else {
+        if (inM > LATE_AFTER_MIN) {
+          tags.push({ ...TAG.late, label: TAG.late.label });
+        }
+        if (outM < EARLY_BEFORE_MIN) {
+          tags.push({ ...TAG.early, label: TAG.early.label });
+        }
       }
       const workM = effectiveWorkMinutes(inM, outM);
       if (workM < MIN_WORK_MINUTES) {
@@ -904,13 +965,14 @@ export function meetsSpecialAttendanceHours(
   return effectiveWorkMinutes(inM, outM) >= SPECIAL_ATTENDANCE_MIN_MINUTES;
 }
 
-/** 依 9:00–18:00 班別會被判遲到（>09:15）或早退（<17:45） */
+/** 依 9:00–18:00 班別會被判遲到（>09:15）或早退（<17:45）；符合彈性工時早上班／晚上班者不算 */
 export function isOffFixedShift(
   clockIn: string | null | undefined,
   clockOut: string | null | undefined,
 ): boolean {
   const inM = clockToMinutes(clockIn ?? null);
   const outM = clockToMinutes(clockOut ?? null);
+  if (inM != null && outM != null && flexShiftOfMinutes(inM, outM) != null) return false;
   return (inM != null && inM > LATE_AFTER_MIN) || (outM != null && outM < EARLY_BEFORE_MIN);
 }
 
