@@ -19,6 +19,12 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Copy, Plus, RefreshCw, Ticket, Trash2, UserPlus } from "lucide-react";
 import { NumericInput } from "@/components/ui/numeric-input";
+import {
+  botChatLink,
+  botInviteLink,
+  normalizeBotUsername,
+  TELEGRAM_BOT_USERNAME_KEY,
+} from "@/lib/telegram-bot-invite";
 
 type BotRole = "admin" | "staff";
 
@@ -84,6 +90,47 @@ function inviteStatus(row: BotInviteRow): "unused" | "used" | "expired" {
 const inputCls =
   "h-9 rounded-lg border border-input bg-background px-2 text-sm";
 
+/** 員工從新手機加入 bot 的步驟；頁面顯示與「複製步驟給員工」共用 */
+const JOIN_STEPS: { title: string; lines: string[] }[] = [
+  {
+    title: "安裝 Telegram",
+    lines: [
+      "iPhone 開 App Store、Android 開 Google Play，搜尋「Telegram」，安裝藍底白色紙飛機圖示的 App。",
+    ],
+  },
+  {
+    title: "註冊帳號",
+    lines: [
+      "開啟 App 按「Start Messaging」，國家選 Taiwan，輸入手機號碼（去掉開頭的 0）。",
+      "輸入簡訊收到的驗證碼（若畫面要求設定 Email，依指示用 Email 收碼）。",
+      "填寫名字，建議用本名（bot 名單會顯示這個名字）。",
+    ],
+  },
+  {
+    title: "加入公司 bot",
+    lines: [
+      "點管理員傳來的加入連結（t.me/…），進入對話後按下方「START」，看到「✅ 註冊成功」就完成了。",
+      "若是先點連結才安裝 Telegram，註冊完請回去再點一次連結。",
+      "只拿到「/start 邀請碼」：在 Telegram 按放大鏡搜尋管理員提供的 bot 帳號（@ 開頭），進入對話後把整段貼到輸入框送出。",
+      "沒有邀請碼：進入 bot 對話按「START」，bot 會回覆「尚未授權」和你的 ID，點一下 ID 即可複製，傳給管理員；管理員新增後約 1 分鐘生效。",
+    ],
+  },
+  {
+    title: "開始使用",
+    lines: [
+      "點輸入框左側的「Menu」按鈕可直接點選指令，輸入 /help 看完整說明。",
+      "也可以直接打字問問題，例如「我的工單」。",
+    ],
+  },
+];
+
+const JOIN_STEPS_TEXT = [
+  "【Telegram 公司 bot 加入步驟】",
+  ...JOIN_STEPS.map(
+    (s, i) => `${i + 1}. ${s.title}\n${s.lines.map((l) => `・${l}`).join("\n")}`,
+  ),
+].join("\n");
+
 export function TelegramBotUsersPage() {
   const [users, setUsers] = useState<BotUserRow[]>([]);
   const [invites, setInvites] = useState<BotInviteRow[]>([]);
@@ -106,6 +153,11 @@ export function TelegramBotUsersPage() {
   const [inviteEmployeeId, setInviteEmployeeId] = useState("");
   const [inviteDays, setInviteDays] = useState(7);
 
+  // bot 帳號(產生一鍵加入連結用)
+  const [botUsername, setBotUsername] = useState<string | null>(null);
+  const [editingBot, setEditingBot] = useState(false);
+  const [botInput, setBotInput] = useState("");
+
   const employeeNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const e of employees) m.set(e.id, e.name);
@@ -121,7 +173,7 @@ export function TelegramBotUsersPage() {
     setLoading(true);
     setError(null);
     try {
-      const [usersRes, invitesRes, employeesRes] = await Promise.all([
+      const [usersRes, invitesRes, employeesRes, botSettingRes] = await Promise.all([
         supabase
           .from("telegram_bot_users")
           .select("chat_id, name, role, employee_id, is_active, note, created_at")
@@ -136,6 +188,11 @@ export function TelegramBotUsersPage() {
           .from("employees")
           .select("id, name, employment_status")
           .order("name", { ascending: true }),
+        supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", TELEGRAM_BOT_USERNAME_KEY)
+          .maybeSingle(),
       ]);
       if (usersRes.error) {
         setError(usersRes.error.message);
@@ -147,6 +204,7 @@ export function TelegramBotUsersPage() {
       }
       setUsers((usersRes.data ?? []) as BotUserRow[]);
       setInvites((invitesRes.data ?? []) as BotInviteRow[]);
+      setBotUsername(normalizeBotUsername(botSettingRes.data?.value));
       setEmployees(
         ((employeesRes.data ?? []) as {
           id: string;
@@ -294,12 +352,58 @@ export function TelegramBotUsersPage() {
     }
   }
 
-  async function copyCode(code: string) {
+  async function saveBotUsername() {
+    const raw = botInput.trim();
+    const username = normalizeBotUsername(raw);
+    if (raw && !username) {
+      toast.error("bot 帳號格式不對:應為英數與底線、以 bot 結尾,例:@fore_erp_bot");
+      return;
+    }
+    setActingId("bot");
     try {
-      await navigator.clipboard.writeText(`/start ${code}`);
-      toast.success(`已複製「/start ${code}」,傳給員工即可`);
+      const { error: err } = username
+        ? await supabase.from("app_settings").upsert(
+            {
+              key: TELEGRAM_BOT_USERNAME_KEY,
+              value: username,
+              description: "Telegram bot 帳號(不含 @),用於產生邀請碼一鍵加入連結",
+            },
+            { onConflict: "key" },
+          )
+        : await supabase.from("app_settings").delete().eq("key", TELEGRAM_BOT_USERNAME_KEY);
+      if (err) {
+        toast.error(err.message);
+        return;
+      }
+      setBotUsername(username);
+      setEditingBot(false);
+      toast.success(username ? `已設定 bot 帳號 @${username}` : "已清除 bot 帳號");
+    } finally {
+      setActingId(null);
+    }
+  }
+
+  /** 有設定 bot 帳號時複製一鍵加入連結,否則複製「/start 邀請碼」 */
+  async function copyInvite(code: string) {
+    const text = botUsername ? botInviteLink(botUsername, code) : `/start ${code}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(
+        botUsername
+          ? "已複製加入連結,傳給員工點開後按 START 即可"
+          : `已複製「/start ${code}」,傳給員工即可`,
+      );
     } catch {
       toast.error("複製失敗,請手動複製");
+    }
+  }
+
+  async function copyJoinSteps() {
+    try {
+      await navigator.clipboard.writeText(JOIN_STEPS_TEXT);
+      toast.success("已複製加入步驟，連同 bot 連結與邀請碼傳給員工即可");
+    } catch {
+      toast.error("複製失敗，請手動複製");
     }
   }
 
@@ -436,10 +540,10 @@ export function TelegramBotUsersPage() {
               type="button"
               variant="outline"
               className="h-7 gap-1 px-2 text-xs"
-              onClick={() => void copyCode(row.code)}
+              onClick={() => void copyInvite(row.code)}
             >
               <Copy className="h-3 w-3" />
-              複製
+              {botUsername ? "複製連結" : "複製"}
             </Button>
             <Button
               type="button"
@@ -489,13 +593,50 @@ export function TelegramBotUsersPage() {
         員工加入方式(二擇一):
         <br />
         ① <span className="font-medium text-foreground">邀請碼</span>
-        :產生邀請碼後把「/start 邀請碼」傳給員工,員工對 bot 送出即自動註冊。
+        :產生邀請碼後按「複製連結」傳給員工,員工點開按 START 即自動註冊(未設定 bot 帳號時改傳「/start 邀請碼」,由員工貼給 bot)。
         <br />
         ② <span className="font-medium text-foreground">手動新增</span>
         :請員工先隨便傳一句話給 bot,bot 會回覆他的 ID,再到這裡新增。
         <br />
         權限:管理者=全功能;員工=僅查詢(訂單/工單/產品/行事曆),不含銷售/成本統計、請假審核與交辦。
       </div>
+
+      <details className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm">
+        <summary className="cursor-pointer select-none text-sm font-medium text-foreground">
+          員工手機加入教學（從安裝 Telegram 開始）
+        </summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <ol className="flex flex-col gap-2.5">
+            {JOIN_STEPS.map((step, i) => (
+              <li key={step.title} className="flex gap-2.5">
+                <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-[11px] font-semibold tabular-nums text-foreground">
+                  {i + 1}
+                </span>
+                <div className="min-w-0 text-xs leading-relaxed text-muted-foreground">
+                  <p className="font-medium text-foreground">{step.title}</p>
+                  {step.lines.map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => void copyJoinSteps()}
+            >
+              <Copy className="h-3.5 w-3.5" />
+              複製步驟給員工
+            </Button>
+            <span className="text-[11px] text-muted-foreground">
+              可用 LINE 傳給員工，連同下方邀請碼的加入連結。
+            </span>
+          </div>
+        </div>
+      </details>
 
       {/* 使用者清單 */}
       <section className="flex flex-col gap-3">
@@ -673,6 +814,73 @@ export function TelegramBotUsersPage() {
           </Button>
         </div>
 
+        {!loading &&
+          (editingBot || !botUsername ? (
+            <div className="flex flex-col gap-2 rounded-xl border border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="telegram-bot-username" className="font-medium text-foreground">
+                  Bot 帳號
+                </label>
+                <input
+                  id="telegram-bot-username"
+                  value={botInput}
+                  onChange={(e) => setBotInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveBotUsername();
+                  }}
+                  placeholder="例:@fore_erp_bot"
+                  className={cn(inputCls, "w-full min-w-0 max-w-56 flex-1")}
+                />
+                <Button
+                  type="button"
+                  className="h-8 text-xs"
+                  onClick={() => void saveBotUsername()}
+                  disabled={actingId === "bot"}
+                >
+                  儲存
+                </Button>
+                {botUsername && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={() => setEditingBot(false)}
+                  >
+                    取消
+                  </Button>
+                )}
+              </div>
+              <p className="leading-relaxed">
+                設定後邀請碼可複製「一鍵加入連結」,員工點開按 START 就完成註冊。查法:在自己的 Telegram 打開 bot
+                對話 → 點上方 bot 名稱,資訊頁 @ 開頭的就是。
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-border bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Bot 帳號</span>
+              <a
+                href={botChatLink(botUsername)}
+                target="_blank"
+                rel="noreferrer"
+                className="break-all font-mono text-foreground underline-offset-2 hover:underline"
+              >
+                @{botUsername}
+              </a>
+              <span>按「複製連結」即可取得一鍵加入連結</span>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => {
+                  setBotInput(`@${botUsername}`);
+                  setEditingBot(true);
+                }}
+              >
+                修改
+              </Button>
+            </div>
+          ))}
+
         {showInviteForm && (
           <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
             <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -726,7 +934,9 @@ export function TelegramBotUsersPage() {
             <p className="py-10 text-center text-sm text-muted-foreground">載入中…</p>
           ) : invites.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
-              尚無邀請碼。產生後把「/start 邀請碼」傳給員工即可。
+              {botUsername
+                ? "尚無邀請碼。產生後按「複製連結」傳給員工即可。"
+                : "尚無邀請碼。產生後把「/start 邀請碼」傳給員工即可。"}
             </p>
           ) : (
             <>
