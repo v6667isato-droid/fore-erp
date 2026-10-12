@@ -1710,6 +1710,66 @@ export type Database = {
           },
         ]
       }
+      order_attachments: {
+        Row: {
+          caption: string | null
+          category: string
+          created_at: string
+          deleted_at: string | null
+          file_name: string | null
+          id: string
+          order_id: string
+          order_item_id: string | null
+          storage_path: string
+          taken_on: string | null
+          thumb_path: string | null
+          uploaded_by: string | null
+        }
+        Insert: {
+          caption?: string | null
+          category?: string
+          created_at?: string
+          deleted_at?: string | null
+          file_name?: string | null
+          id?: string
+          order_id: string
+          order_item_id?: string | null
+          storage_path: string
+          taken_on?: string | null
+          thumb_path?: string | null
+          uploaded_by?: string | null
+        }
+        Update: {
+          caption?: string | null
+          category?: string
+          created_at?: string
+          deleted_at?: string | null
+          file_name?: string | null
+          id?: string
+          order_id?: string
+          order_item_id?: string | null
+          storage_path?: string
+          taken_on?: string | null
+          thumb_path?: string | null
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_attachments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_attachments_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           channel_unit_price: number | null
@@ -1868,6 +1928,44 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "order_returns_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_status_history: {
+        Row: {
+          actor_label: string | null
+          changed_at: string
+          changed_by_user_id: string | null
+          id: string
+          new_status: string
+          old_status: string | null
+          order_id: string
+        }
+        Insert: {
+          actor_label?: string | null
+          changed_at?: string
+          changed_by_user_id?: string | null
+          id?: string
+          new_status: string
+          old_status?: string | null
+          order_id: string
+        }
+        Update: {
+          actor_label?: string | null
+          changed_at?: string
+          changed_by_user_id?: string | null
+          id?: string
+          new_status?: string
+          old_status?: string | null
+          order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_status_history_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"

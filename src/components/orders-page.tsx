@@ -28,7 +28,7 @@ import { ViewCustomerDialog } from "@/components/crm/view-customer-dialog";
 import { CustomerIntakeDialog } from "@/components/crm/customer-intake-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CustomerRow } from "@/types/crm";
-import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2, History, Sparkles } from "lucide-react";
+import { Search, Plus, Printer, Pencil, Trash2, ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, ChevronDown, Receipt, FileText, Hammer, PackageCheck, Archive, Undo2, History, Sparkles, Images } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
@@ -41,6 +41,8 @@ import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
 import { OrderInvoicesDialog } from "@/components/orders/order-invoices-dialog";
 import { OrderReturnDialog } from "@/components/orders/order-return-dialog";
 import { OrderAuditTrailDialog } from "@/components/order-audit-trail";
+import { OrderHistoryDialog } from "@/components/orders/order-history-dialog";
+import { fetchOrderPhotoCounts } from "@/lib/order-attachments";
 import type {
   OrderRow,
   CustomerOption,
@@ -211,6 +213,9 @@ export function OrdersPage({
   /** 退貨對話框（已完工／已出貨／結案後可操作；已退貨訂單可檢視、刪除紀錄） */
   const [returnOrder, setReturnOrder] = useState<OrderRow | null>(null);
   const [historyOrder, setHistoryOrder] = useState<OrderRow | null>(null);
+  /** 訂單履歷（時間軸＋完工照片）與各訂單完工照片張數 */
+  const [recordOrder, setRecordOrder] = useState<OrderRow | null>(null);
+  const [photoCounts, setPhotoCounts] = useState<Record<string, number>>({});
   /** 地址條多選列印：勾選的訂單 id（一次列印多筆省 A4） */
   const [selectedPrintIds, setSelectedPrintIds] = useState<Set<string>>(
     () => new Set()
@@ -222,6 +227,10 @@ export function OrdersPage({
     if (!canIssueInvoice) return;
     void fetchOrderInvoiceCounts().then(setInvoiceCounts);
   }, [canIssueInvoice]);
+
+  useEffect(() => {
+    void fetchOrderPhotoCounts().then(setPhotoCounts);
+  }, []);
 
   function toggleOrderExpand(orderId: string) {
     const willExpand = !expandedIds.has(orderId);
@@ -1158,7 +1167,7 @@ export function OrdersPage({
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  /** 列印／地址條／發票／退貨／紀錄／編輯／刪除；touch＝手機卡片用較大的按鈕 */
+  /** 列印／地址條／發票／退貨／履歷／紀錄／編輯／刪除；touch＝手機卡片用較大的按鈕 */
   function renderOrderActions(
     order: OrderRow,
     { readOnly, deleteLocked, touch = false }: { readOnly: boolean; deleteLocked: boolean; touch?: boolean }
@@ -1166,6 +1175,7 @@ export function OrdersPage({
     const btn = touch ? "h-8 w-8" : "h-6 w-6";
     const icon = touch ? "h-4 w-4" : "h-3 w-3";
     const invoiceCount = invoiceCounts[order.id] ?? 0;
+    const photoCount = photoCounts[order.id] ?? 0;
     return (
       <>
         <Button
@@ -1264,6 +1274,26 @@ export function OrdersPage({
             <Undo2 className={icon} />
           </Button>
         )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            btn,
+            photoCount > 0
+              ? "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          title={photoCount > 0 ? `訂單履歷（完工照片 ${photoCount} 張）` : "訂單履歷（時間軸、完工照片）"}
+          aria-label="訂單履歷"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setRecordOrder(order);
+          }}
+        >
+          <Images className={icon} />
+        </Button>
         {canViewAuditTrail && (
           <Button
             type="button"
@@ -1887,6 +1917,15 @@ export function OrdersPage({
           if (!open) setReturnOrder(null);
         }}
         onSaved={reloadOrders}
+      />
+
+      <OrderHistoryDialog
+        order={recordOrder}
+        open={recordOrder != null}
+        onOpenChange={(open) => {
+          if (!open) setRecordOrder(null);
+        }}
+        onPhotosChanged={() => void fetchOrderPhotoCounts().then(setPhotoCounts)}
       />
 
       <OrderAuditTrailDialog
