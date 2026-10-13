@@ -21,6 +21,11 @@ import { ExplanationImagesEditor } from "@/components/orders/explanation-images-
 import { serializeExplanationImages } from "@/lib/explanation-images";
 import { CUSTOM_ITEM_CATEGORIES } from "@/lib/portal-order-rules";
 import { toNumericText } from "@/lib/numeric-input";
+import {
+  planOrderItemSave,
+  workOrderPatch,
+  type WorkOrderFormFields,
+} from "@/lib/order-items-save";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AddCustomerDialog } from "@/components/crm/add-customer-dialog";
 import Link from "next/link";
@@ -1335,19 +1340,24 @@ function OrderFormDialog({
           toast.error(error.message || "更新訂單失敗");
           return;
         }
-        // 先清空舊明細（連帶刪除工單，再以表單內容重建並保留工序／負責人）
-        const { data: existingItems } = await supabase
+      }
+
+      // 品項沿用原 id 更新，只新增／刪除真正增減的列（理由見 planOrderItemSave）
+      let existingItemIds: string[] = [];
+      if (hasOrderId) {
+        const { data: existingItems, error: existingErr } = await supabase
           .from("order_items")
           .select("id")
           .eq("order_id", orderId);
-        const existingIds = (existingItems ?? []).map((x: { id: string }) => x.id);
-        if (existingIds.length > 0) {
-          await supabase.from("work_orders").delete().in("order_item_id", existingIds);
+        if (existingErr) {
+          toast.error(existingErr.message || "讀取訂單明細失敗");
+          return;
         }
-        await supabase.from("order_items").delete().eq("order_id", orderId);
+        existingItemIds = (existingItems ?? []).map((x: { id: string }) => x.id);
       }
+      const plan = planOrderItemSave(existingItemIds, validItems);
 
-      const itemsPayload = validItems.map((it, lineIndex) => {
+      const buildItemRow = (it: OrderItemInput, lineIndex: number) => {
         // 若為規格品且尚未指定 custom_category，依 series 對應的 product_series.category 自動帶入
         let resolvedCategory = it.custom_category ?? null;
         if (it.kind === "variant" && !resolvedCategory && it.series_id) {
@@ -1401,64 +1411,144 @@ function OrderFormDialog({
           image_url: it.image_url ?? null,
           wood_type: it.wood_type ?? null,
         };
+      };
+
+      /** 舊 schema 沒有 channel_unit_price／custom_case_id 時，去掉這兩欄重試一次 */
+      async function writeItemRows<R extends { error: { message: string } | null }>(
+        rows: Record<string, unknown>[],
+        write: (rows: Record<string, unknown>[]) => PromiseLike<R>,
+      ): Promise<R> {
+        const first = await write(rows);
+        if (!first.error || !/column .* does not exist/i.test(first.error.message)) return first;
+        return write(
+          rows.map((p) => {
+            const row = { ...p };
+            delete row.channel_unit_price;
+            delete row.custom_case_id;
+            return row;
+          }),
+        );
+      }
+
+      if (plan.keep.length > 0) {
+        const { error: keepErr } = await writeItemRows(
+          plan.keep.map((k) => ({ id: k.id, ...buildItemRow(k.item, k.lineOrder) })),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema
+          (rows) => supabase.from("order_items").upsert(rows as any, { onConflict: "id" }),
+        );
+        if (keepErr) {
+          toast.error(keepErr.message || "更新訂單明細失敗");
+          return;
+        }
+      }
+
+      let insertedItemIds: string[] = [];
+      if (plan.insert.length > 0) {
+        const { data: insertedItems, error: insertErr } = await writeItemRows(
+          plan.insert.map((x) => buildItemRow(x.item, x.lineOrder)),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema
+          (rows) => supabase.from("order_items").insert(rows as any).select("id"),
+        );
+        if (insertErr) {
+          toast.error(insertErr.message || "寫入訂單明細失敗");
+          return;
+        }
+        insertedItemIds = ((insertedItems ?? []) as { id: string }[]).map((r) => r.id);
+      }
+
+      if (plan.removeIds.length > 0) {
+        // 工單隨 FK on delete cascade 一併刪除
+        const { error: removeErr } = await supabase
+          .from("order_items")
+          .delete()
+          .in("id", plan.removeIds);
+        if (removeErr) {
+          toast.error(removeErr.message || "移除訂單明細失敗");
+          return;
+        }
+      }
+
+      // 工單：新品項建立工單；沿用的品項只回寫表單上改過的欄位，沒有工單的舊資料補建
+      const plannedFromDelivery = plannedEndDateFromOrderDelivery(expectedDate);
+      const workOrderFields = (it: OrderItemInput): WorkOrderFormFields => ({
+        stage: it.work_order_stage
+          ? normalizeWorkOrderStage(it.work_order_stage)
+          : DEFAULT_WORK_ORDER_STAGE,
+        assignee_id: it.work_order_assignee_id?.trim() || null,
+        planned_end_date: it.work_order_planned_end_date?.trim() || plannedFromDelivery,
       });
 
-      let { data: insertedItems, error: itemsError } = await supabase
-        .from("order_items")
-        .insert(itemsPayload)
-        .select("id");
-      if (itemsError && /column .* does not exist/i.test(itemsError.message)) {
-        const reduced = itemsPayload.map((p) => {
-          const row: Record<string, unknown> = { ...p };
-          delete row.channel_unit_price;
-          delete row.custom_case_id;
-          return row;
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進刪除欄位以相容舊 schema
-        const retry = await supabase.from("order_items").insert(reduced as any).select("id");
-        insertedItems = retry.data;
-        itemsError = retry.error;
-      }
-      if (itemsError) {
-        toast.error(itemsError.message || "寫入訂單明細失敗");
-        return;
+      const workOrderErrors: string[] = [];
+      const itemsWithWorkOrder = new Set<string>();
+      let keptWorkOrdersLoaded = true;
+      if (plan.keep.length > 0) {
+        const { data: woRows, error: woReadErr } = await supabase
+          .from("work_orders")
+          .select("order_item_id")
+          .in(
+            "order_item_id",
+            plan.keep.map((k) => k.id),
+          );
+        if (woReadErr) {
+          workOrderErrors.push(woReadErr.message);
+          keptWorkOrdersLoaded = false;
+        }
+        for (const w of (woRows ?? []) as { order_item_id: string }[]) {
+          itemsWithWorkOrder.add(w.order_item_id);
+        }
       }
 
-      // 依照 order_items 自動建立工單（work_orders）
-      const plannedFromDelivery = plannedEndDateFromOrderDelivery(expectedDate);
-      const workOrderPayload =
-        (insertedItems ?? []).map((row: { id: string }, index: number) => {
-          const it = validItems[index];
-          const stage = it?.work_order_stage
-            ? normalizeWorkOrderStage(it.work_order_stage)
-            : DEFAULT_WORK_ORDER_STAGE;
-          const plannedEnd =
-            it?.work_order_planned_end_date?.trim() || plannedFromDelivery;
-          return {
-            order_item_id: row.id,
-            stage,
-            status: "未開始",
-            planned_end_date: plannedEnd,
-            assignee_id: it?.work_order_assignee_id?.trim() || null,
-          };
-        }) ?? [];
-      if (workOrderPayload.length > 0) {
-        const { error: woError } = await supabase
+      const initialItemById = new Map((initialItems ?? []).map((it) => [it.id, it]));
+      const workOrderInserts: (WorkOrderFormFields & { order_item_id: string; status: string })[] = [];
+      const workOrderPatches: { itemId: string; patch: Partial<WorkOrderFormFields> }[] = [];
+      for (const k of keptWorkOrdersLoaded ? plan.keep : []) {
+        const next = workOrderFields(k.item);
+        if (!itemsWithWorkOrder.has(k.id)) {
+          workOrderInserts.push({ order_item_id: k.id, status: "未開始", ...next });
+          continue;
+        }
+        const initial = initialItemById.get(k.id);
+        const patch = workOrderPatch(
+          initial
+            ? {
+                stage: normalizeWorkOrderStage(initial.work_order_stage),
+                assignee_id: initial.work_order_assignee_id ?? null,
+                planned_end_date: initial.work_order_planned_end_date ?? null,
+              }
+            : undefined,
+          next,
+        );
+        if (Object.keys(patch).length > 0) workOrderPatches.push({ itemId: k.id, patch });
+      }
+      plan.insert.forEach((x, i) => {
+        const itemId = insertedItemIds[i];
+        if (itemId) {
+          workOrderInserts.push({ order_item_id: itemId, status: "未開始", ...workOrderFields(x.item) });
+        }
+      });
+
+      for (const { itemId, patch } of workOrderPatches) {
+        // 工序推進到生產站別時 DB trigger 會自動扣料，BOM 對不到時會擋下並回傳原因
+        const { error: woUpdateErr } = await supabase
           .from("work_orders")
-          .insert(workOrderPayload);
-        if (woError) {
-          // 不阻擋訂單建立，只提示
-          console.error("建立工單失敗:", woError);
-          toast.error("訂單已建立，但工單建立失敗，請稍後到生產管理檢查。");
-        } else {
-          const sync = await syncWorkOrdersToOrderStatus(
-            supabase,
-            orderId!,
-            status,
-          );
-          if (!sync.ok) {
-            console.warn("[orders] 工單與訂單狀態同步失敗:", sync.error);
-          }
+          .update(patch)
+          .eq("order_item_id", itemId);
+        if (woUpdateErr) workOrderErrors.push(woUpdateErr.message);
+      }
+      if (workOrderInserts.length > 0) {
+        const { error: woInsertErr } = await supabase.from("work_orders").insert(workOrderInserts);
+        if (woInsertErr) workOrderErrors.push(woInsertErr.message);
+      }
+      if (workOrderErrors.length > 0) {
+        // 不阻擋訂單儲存，只提示
+        console.error("工單寫入失敗:", workOrderErrors);
+        toast.error(
+          `訂單已${isEdit ? "更新" : "建立"}，但工單寫入失敗，請到生產管理檢查：${workOrderErrors[0]}`,
+        );
+      } else {
+        const sync = await syncWorkOrdersToOrderStatus(supabase, orderId!, status);
+        if (!sync.ok) {
+          console.warn("[orders] 工單與訂單狀態同步失敗:", sync.error);
         }
       }
 
