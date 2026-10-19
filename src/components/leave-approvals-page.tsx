@@ -51,8 +51,10 @@ import { CompanyAssignmentsAdmin } from "@/components/company-assignments-admin"
 import { TelegramBotUsersPage } from "@/components/telegram-bot-users-page";
 import {
   OVERTIME_COMPENSATION_LABELS,
+  OVERTIME_LUNCH_HOURS,
   approveOvertimeRequest,
   fetchAllOvertimeRequests,
+  isOvertimeLunchDeducted,
   rejectOvertimeRequest,
   revokeOvertimeRecord,
   revokeOvertimeRequest,
@@ -1466,6 +1468,11 @@ export function LeaveApprovalsPage() {
                             <span className="text-lg font-semibold tabular-nums text-primary">
                               {fmtOvertimeHours(ot.hours)}
                             </span>
+                            {isOvertimeLunchDeducted(ot) ? (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                （已扣午休 {OVERTIME_LUNCH_HOURS} 小時）
+                              </span>
+                            ) : null}
                           </p>
                           <p className="sm:col-span-2">
                             <span className="text-xs uppercase tracking-wide">申請時間</span>

@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { LEAVE_LUNCH_END_HOUR, LEAVE_LUNCH_START_HOUR } from "@/lib/employee-leave-time";
 
 /**
  * 員工加班申報（overtime_requests）：
@@ -78,6 +79,43 @@ export function computeOvertimeHoursFromTimes(
   const e = parseHmToMinutes(endTime);
   if (s == null || e == null || e <= s) return null;
   return (e - s) / 60;
+}
+
+/** 午休長度（小時），與請假計算共用 12:00–13:00 */
+export const OVERTIME_LUNCH_HOURS = LEAVE_LUNCH_END_HOUR - LEAVE_LUNCH_START_HOUR;
+
+/**
+ * 加班時段是否完整涵蓋午休 12:00–13:00；涵蓋時才提供「扣除午休」選項。
+ * 只碰到一部分（例：12:30 才開始）視為午休後才上工，不扣。
+ */
+export function overtimeCoversLunch(startTime: string, endTime: string): boolean {
+  const s = parseHmToMinutes(startTime);
+  const e = parseHmToMinutes(endTime);
+  if (s == null || e == null || e <= s) return false;
+  return s <= LEAVE_LUNCH_START_HOUR * 60 && e >= LEAVE_LUNCH_END_HOUR * 60;
+}
+
+/** 申報時數：起訖時數；涵蓋午休且勾選扣除時減午休 1 小時。格式錯誤或結束不晚於開始回 null */
+export function computeOvertimeNetHours(
+  startTime: string,
+  endTime: string,
+  deductLunch: boolean,
+): number | null {
+  const gross = computeOvertimeHoursFromTimes(startTime, endTime);
+  if (gross == null) return null;
+  if (deductLunch && overtimeCoversLunch(startTime, endTime)) {
+    return gross - OVERTIME_LUNCH_HOURS;
+  }
+  return gross;
+}
+
+/** 審核顯示用：申報時數剛好比起訖少午休 1 小時（員工勾選扣午休，或整日 09:00–18:00 計 8 小時） */
+export function isOvertimeLunchDeducted(
+  row: Pick<OvertimeRequestRow, "start_time" | "end_time" | "hours">,
+): boolean {
+  if (!overtimeCoversLunch(row.start_time, row.end_time)) return false;
+  const gross = computeOvertimeHoursFromTimes(row.start_time, row.end_time);
+  return gross != null && Math.abs(gross - OVERTIME_LUNCH_HOURS - row.hours) < 1e-9;
 }
 
 /**
