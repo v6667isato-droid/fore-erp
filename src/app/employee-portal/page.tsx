@@ -21,11 +21,13 @@ import {
 import { insertEmployeeLeaveRequest } from "@/lib/employee-leave-requests";
 import {
   OVERTIME_COMPENSATION_LABELS,
-  computeOvertimeHoursFromTimes,
+  OVERTIME_LUNCH_HOURS,
+  computeOvertimeNetHours,
   fetchEmployeeOvertimeRequests,
   hasOvertimeTimeOverlap,
   insertEmployeeOvertimeRequest,
   isHalfHourStep,
+  overtimeCoversLunch,
   type OvertimeCompensationType,
   type OvertimeRequestRow,
 } from "@/lib/employee-overtime-requests";
@@ -786,6 +788,8 @@ type OvertimeFormState = {
   endTime: string;
   /** 整日（8 小時，09:00–18:00 扣午休）；手動改時間即取消 */
   fullDay: boolean;
+  /** 時段涵蓋午休 12:00–13:00 時扣 1 小時；預設勾選，中午沒休息再自行取消 */
+  deductLunch: boolean;
   compType: OvertimeCompensationType;
   reason: string;
 };
@@ -795,6 +799,7 @@ const OVERTIME_FORM_INITIAL: OvertimeFormState = {
   startTime: "18:00",
   endTime: "20:00",
   fullDay: false,
+  deductLunch: true,
   compType: "pay",
   reason: "",
 };
@@ -1488,11 +1493,20 @@ export default function EmployeePortalPage() {
     await load();
   }
 
+  /** 非整日且時段涵蓋午休時，才顯示「扣除午休」勾選 */
+  const overtimeLunchOption =
+    !overtimeForm.fullDay && overtimeCoversLunch(overtimeForm.startTime, overtimeForm.endTime);
+  const overtimeLunchApplied = overtimeLunchOption && overtimeForm.deductLunch;
+
   const overtimeHoursPreview = useMemo(() => {
     if (overtimeForm.fullDay) return 8;
     if (!overtimeForm.startTime.trim() || !overtimeForm.endTime.trim()) return null;
-    return computeOvertimeHoursFromTimes(overtimeForm.startTime, overtimeForm.endTime);
-  }, [overtimeForm.fullDay, overtimeForm.startTime, overtimeForm.endTime]);
+    return computeOvertimeNetHours(
+      overtimeForm.startTime,
+      overtimeForm.endTime,
+      overtimeForm.deductLunch,
+    );
+  }, [overtimeForm.fullDay, overtimeForm.startTime, overtimeForm.endTime, overtimeForm.deductLunch]);
 
   async function submitOvertimeRequest(e: React.FormEvent) {
     e.preventDefault();
@@ -1503,9 +1517,17 @@ export default function EmployeePortalPage() {
     }
     const hrs = overtimeForm.fullDay
       ? 8
-      : computeOvertimeHoursFromTimes(overtimeForm.startTime, overtimeForm.endTime);
-    if (hrs == null || hrs <= 0) {
+      : computeOvertimeNetHours(
+          overtimeForm.startTime,
+          overtimeForm.endTime,
+          overtimeForm.deductLunch,
+        );
+    if (hrs == null) {
       toast.error("結束時間須晚於開始時間（跨夜加班請分兩筆申報）");
+      return;
+    }
+    if (hrs <= 0) {
+      toast.error("扣除午休後加班時數為 0，請確認起訖時間或取消「扣除午休」");
       return;
     }
     if (!isHalfHourStep(hrs)) {
@@ -3479,6 +3501,26 @@ export default function EmployeePortalPage() {
                   />
                 </div>
               </div>
+              {overtimeLunchOption ? (
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-input bg-background px-3 py-2.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={overtimeForm.deductLunch}
+                    onChange={(e) =>
+                      setOvertimeForm((f) => ({ ...f, deductLunch: e.target.checked }))
+                    }
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                  />
+                  <span className="min-w-0">
+                    <span className="font-medium text-foreground">
+                      扣除午休 {OVERTIME_LUNCH_HOURS} 小時
+                    </span>
+                    <span className="block text-[11px] leading-snug text-muted-foreground">
+                      中間有休息就保持勾選；整段都在工作、沒有休息才取消。
+                    </span>
+                  </span>
+                </label>
+              ) : null}
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 以 0.5 小時為最小單位（分鐘請選 00 或 30）；不支援跨午夜，跨夜加班請分兩筆申報。
                 同一天若有多段加班（例：早上提早來、下班後再加班），分開各送一筆即可，時段不重疊就能分別核准。
@@ -3494,6 +3536,11 @@ export default function EmployeePortalPage() {
                       })}{" "}
                       小時
                     </span>
+                    {overtimeLunchApplied ? (
+                      <span className="text-xs text-muted-foreground">
+                        （已扣午休 {OVERTIME_LUNCH_HOURS} 小時）
+                      </span>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="text-xs text-destructive">
