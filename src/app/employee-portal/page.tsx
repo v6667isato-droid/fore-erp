@@ -804,6 +804,12 @@ const OVERTIME_FORM_INITIAL: OvertimeFormState = {
   reason: "",
 };
 
+/** 加班起訖只能選整點或半點（00／30），type="time" 的 step 在手機上擋不住 */
+const OVERTIME_TIME_OPTIONS = Array.from(
+  { length: 48 },
+  (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`,
+);
+
 type MakeupPunchFormState = {
   date: string;
   /** 空字串表示不補這側；至少一側必填 */
@@ -3463,10 +3469,8 @@ export default function EmployeePortalPage() {
                   >
                     開始時間
                   </label>
-                  <input
+                  <select
                     id="overtime-start-time"
-                    type="time"
-                    step={1800}
                     value={overtimeForm.startTime}
                     onChange={(e) =>
                       setOvertimeForm((f) => ({
@@ -3475,8 +3479,14 @@ export default function EmployeePortalPage() {
                         startTime: e.target.value,
                       }))
                     }
-                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    {OVERTIME_TIME_OPTIONS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label
@@ -3485,10 +3495,8 @@ export default function EmployeePortalPage() {
                   >
                     結束時間
                   </label>
-                  <input
+                  <select
                     id="overtime-end-time"
-                    type="time"
-                    step={1800}
                     value={overtimeForm.endTime}
                     onChange={(e) =>
                       setOvertimeForm((f) => ({
@@ -3497,8 +3505,14 @@ export default function EmployeePortalPage() {
                         endTime: e.target.value,
                       }))
                     }
-                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    {OVERTIME_TIME_OPTIONS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
               {overtimeLunchOption ? (
@@ -3522,8 +3536,7 @@ export default function EmployeePortalPage() {
                 </label>
               ) : null}
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                以 0.5 小時為最小單位（分鐘請選 00 或 30）；不支援跨午夜，跨夜加班請分兩筆申報。
-                同一天若有多段加班（例：早上提早來、下班後再加班），分開各送一筆即可，時段不重疊就能分別核准。
+                同一天若有多段加班（例：早上提早來、下班後再加班），分開各送一筆即可
               </p>
               {overtimeHoursPreview != null ? (
                 isHalfHourStep(overtimeHoursPreview) ? (
