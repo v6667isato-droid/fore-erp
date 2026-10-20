@@ -14,6 +14,7 @@ import {
   groupPublicHolidaysByDateKey,
 } from "@/lib/company-calendar-extra";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { usePageVisible } from "@/lib/use-page-visible";
 import { fetchMeetingAssignmentsForEmployee, type MeetingAssignmentForEmployeeRow } from "@/lib/meeting-minutes";
 import {
   fetchCompanyEventAssignmentsForEmployee,
@@ -390,12 +391,16 @@ async function loadTodaySummary(employeeId: string): Promise<TodaySummaryItem[]>
 export function EmployeePortalMiniCalendar({
   employeeId,
   showSubtitleHints = true,
+  refreshKey,
 }: {
   employeeId: string;
   /** false：不顯示行事曆資料來源說明（給非 admin 儀表板） */
   showSubtitleHints?: boolean;
+  /** 遞增時重抓當月資料（儀表板打卡成功後，讓「我的打卡」馬上出現） */
+  refreshKey?: number;
 }) {
-  const today = useMemo(() => new Date(), []);
+  const [today, setToday] = useState(() => new Date());
+  const todayKey = formatDateKey(today.getFullYear(), today.getMonth() + 1, today.getDate());
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [selectedKey, setSelectedKey] = useState<string | null>(() =>
@@ -403,6 +408,21 @@ export function EmployeePortalMiniCalendar({
   );
 
   const useDb = isSupabaseConfigured && Boolean(String(employeeId ?? "").trim());
+
+  /** 切回前景時遞增，觸發重抓（Telegram 打卡、隔天回來等情況） */
+  const [visibleTick, setVisibleTick] = useState(0);
+  usePageVisible(() => {
+    const now = new Date();
+    const nowKey = formatDateKey(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    if (nowKey !== todayKey) {
+      // 頁面從前一天開到現在：跳回新的今天
+      setToday(now);
+      setYear(now.getFullYear());
+      setMonth(now.getMonth() + 1);
+      setSelectedKey(nowKey);
+    }
+    setVisibleTick((t) => t + 1);
+  }, useDb);
 
   const [remoteByDate, setRemoteByDate] = useState<Record<string, CalendarEventItem[]>>({});
   const [remoteLoading, setRemoteLoading] = useState(false);
@@ -433,7 +453,7 @@ export function EmployeePortalMiniCalendar({
     return () => {
       cancelled = true;
     };
-  }, [useDb, employeeId]);
+  }, [useDb, employeeId, visibleTick]);
 
   const reloadRemote = useCallback(async () => {
     if (!useDb) {
@@ -461,7 +481,7 @@ export function EmployeePortalMiniCalendar({
 
   useEffect(() => {
     void reloadRemote();
-  }, [reloadRemote]);
+  }, [reloadRemote, refreshKey, visibleTick]);
 
   const grid = useMemo(() => buildCalendarMonthGrid(year, month), [year, month]);
 
@@ -501,7 +521,6 @@ export function EmployeePortalMiniCalendar({
 
   const selectedEvents = selectedKey ? eventsByDate[selectedKey] ?? [] : [];
   const selectedCheckins = selectedKey ? checkinsByDate[selectedKey] ?? [] : [];
-  const todayKey = formatDateKey(today.getFullYear(), today.getMonth() + 1, today.getDate());
 
   return (
     <section className={epSection.cardRing}>
