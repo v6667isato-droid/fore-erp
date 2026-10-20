@@ -899,6 +899,8 @@ export default function EmployeePortalPage() {
   const [overtimeRows, setOvertimeRows] = useState<OvertimeRequestRow[]>([]);
   /** 送出成功後遞增以重新載入加班列表 */
   const [overtimeTick, setOvertimeTick] = useState(0);
+  /** 儀表板打卡成功後遞增，讓行事曆重抓「我的打卡」 */
+  const [checkinTick, setCheckinTick] = useState(0);
   /** 補打卡申請（makeup_punch_requests）：Dialog 與自己的申請列表 */
   const [makeupOpen, setMakeupOpen] = useState(false);
   const [makeupForm, setMakeupForm] = useState<MakeupPunchFormState>({
@@ -1935,11 +1937,12 @@ export default function EmployeePortalPage() {
           </section>
 
           {/* 線上打卡（app_settings.portal_checkin_scope 控制；未開放時不渲染） */}
-          <EmployeeCheckinCard />
+          <EmployeeCheckinCard onPunched={() => setCheckinTick((t) => t + 1)} />
 
           <EmployeePortalMiniCalendar
             employeeId={employee.id}
             showSubtitleHints={showAdminFieldHints}
+            refreshKey={checkinTick}
           />
 
           {/* 公司公告（左）＋ 週五工坊輪替（右，lg 並排） */}

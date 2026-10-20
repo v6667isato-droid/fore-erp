@@ -14,6 +14,7 @@ import {
   type PortalCheckinScope,
 } from "@/lib/attendance-checkin";
 import { getSupabaseSession, isSupabaseConfigured } from "@/lib/supabase";
+import { usePageVisible } from "@/lib/use-page-visible";
 
 /**
  * 員工儀表板線上打卡卡片（attendance_logs, source='portal'）。
@@ -65,7 +66,12 @@ function geolocationErrorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "無法取得定位";
 }
 
-export function EmployeeCheckinCard() {
+export function EmployeeCheckinCard({
+  onPunched,
+}: {
+  /** 打卡成功後通知（儀表板用來刷新行事曆的「我的打卡」） */
+  onPunched?: () => void;
+} = {}) {
   const [status, setStatus] = useState<CheckinStatus | null>(null);
   const [punching, setPunching] = useState(false);
   /** 依台北時間判定目前是上班卡／下班卡時段（每 30 秒重新判定） */
@@ -103,6 +109,12 @@ export function EmployeeCheckinCard() {
   useEffect(() => {
     void loadStatus();
   }, [loadStatus]);
+
+  // 切回前景時重抓今日打卡：可能已用 Telegram 打過，或頁面從前一天開到現在
+  usePageVisible(() => {
+    void loadStatus();
+    setPunchType(resolveCheckinTypeByTime());
+  });
 
   async function punch() {
     if (punching) return;
@@ -159,6 +171,7 @@ export function EmployeeCheckinCard() {
         } else {
           void loadStatus();
         }
+        onPunched?.();
       } else {
         toast.error(json.warning ?? json.error ?? "打卡失敗");
         if (json.logs) {
