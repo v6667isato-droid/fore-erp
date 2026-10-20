@@ -308,7 +308,7 @@ const IN_PRODUCTION_STAGES: readonly WorkOrderStage[] = [
   "組裝中(一)",
   "塗裝中",
   "組裝中(二)",
-  "塗裝中(二)",
+  "塗裝中(最終塗裝)",
 ];
 
 const POST_PAINT_STAGES: readonly WorkOrderStage[] = [
@@ -334,7 +334,7 @@ const STAGE_CATEGORY_META: Record<
   { icon: typeof Hammer; hint: string | null }
 > = {
   待排程: { icon: CalendarClock, hint: null },
-  生產中: { icon: Hammer, hint: "備料～塗裝中(二)" },
+  生產中: { icon: Hammer, hint: "備料～塗裝中(最終塗裝)" },
   塗裝後: { icon: PackageCheck, hint: "塗裝後製程～待出貨" },
   已出貨: { icon: Truck, hint: null },
   無負責人或暫停: { icon: PauseCircle, hint: "生產中未指派，或暫停" },
