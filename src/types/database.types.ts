@@ -1597,6 +1597,7 @@ export type Database = {
       material_swatches: {
         Row: {
           category: string
+          code: string | null
           created_at: string | null
           id: string
           image_url: string | null
@@ -1607,6 +1608,7 @@ export type Database = {
         }
         Insert: {
           category: string
+          code?: string | null
           created_at?: string | null
           id?: string
           image_url?: string | null
@@ -1617,6 +1619,7 @@ export type Database = {
         }
         Update: {
           category?: string
+          code?: string | null
           created_at?: string | null
           id?: string
           image_url?: string | null

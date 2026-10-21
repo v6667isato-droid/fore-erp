@@ -116,6 +116,8 @@ export interface SwatchRow {
   name: string;
   /** 英文標示，例：Oak / Natural white（印在介紹表上） */
   name_en?: string | null;
+  /** 布樣編號（布料廠商的型號／色號，與廠商溝通用；目前只有 cloth 會填，不印在介紹表） */
+  code?: string | null;
   /** 色樣照片 Public URL（bucket: material-swatches，1:1 方形）；可先建檔後補照片，無照片者不會出現在介紹表 */
   image_url: string | null;
   sort_order: number;
