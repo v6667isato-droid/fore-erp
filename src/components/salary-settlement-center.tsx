@@ -2143,7 +2143,7 @@ export function SalarySettlementCenter() {
                             [emp.id]: { ...inp, semiAnnualBonus: v ?? 0 },
                           }))
                         }
-                        className="h-auto w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        className="h-auto w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
                       />
                     </td>
                     <td className="text-right">
@@ -2158,7 +2158,7 @@ export function SalarySettlementCenter() {
                             [emp.id]: { ...inp, otherAdjust: v ?? 0 },
                           }))
                         }
-                        className="h-auto w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        className="h-auto w-full max-w-[4.5rem] rounded border border-input bg-background px-1 py-0.5 text-right text-xs tabular-nums shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
                       />
                     </td>
                     <td className="text-right align-middle">

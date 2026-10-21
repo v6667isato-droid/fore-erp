@@ -240,6 +240,22 @@ body {
 }
 
 /*
+ * 數字欄位一律不顯示上下微調鈕（規則見 CLAUDE.md「數字輸入欄位」）：
+ * 微調鈕很容易被滑鼠點到或滾輪帶到而悄悄改掉金額，全站統一隱藏。
+ */
+@layer base {
+  input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+/*
  * A4 列印頁共用規則（訂單確認單／報價單等）
  * 目標：列印時內容一律收在可列印範圍內，不得橫向超出紙張。
  */
