@@ -30,7 +30,7 @@ type ChairRow = {
   sideDateMd: string;
   /** 組立整張：工序更新為「組裝中(二)」的日期 */
   fullDateMd: string;
-  /** 噴漆階段：工序更新為「塗裝中(二)」的日期 */
+  /** 噴漆階段：工序更新為「塗裝中(最終塗裝)」的日期 */
   paintDateMd: string;
   walnut: [string, string, string];
   oak: [string, string, string];
@@ -46,11 +46,11 @@ type ChairSnapshotMeta = {
   row_count: number;
 };
 
-/** 工序 → 列印欄位：組裝中(一)=側邊、組裝中(二)=整張、塗裝中(二)=噴漆階段 */
+/** 工序 → 列印欄位：組裝中(一)=側邊、組裝中(二)=整張、塗裝中(最終塗裝)=噴漆階段 */
 const STAGE_DATE_COLUMNS = {
   "組裝中(一)": "sideDateMd",
   "組裝中(二)": "fullDateMd",
-  "塗裝中(二)": "paintDateMd",
+  "塗裝中(最終塗裝)": "paintDateMd",
 } as const;
 
 /** 未出貨：與生產工單相同，排除尚未確認與已結／已出貨 */
@@ -738,7 +738,7 @@ export default function ChairProductionPrintPage() {
         });
       }
 
-      // 工序更新日期：查 work_order_stage_logs，取各工單「組裝中(一)／(二)、塗裝中(二)」最新一筆
+      // 工序更新日期：查 work_order_stage_logs，取各工單「組裝中(一)／(二)、塗裝中(最終塗裝)」最新一筆
       const woIds = Array.from(new Set(rowWorkOrderIds.values()));
       if (woIds.length > 0) {
         const { data: logData, error: logError } = await supabase
@@ -1102,7 +1102,7 @@ export default function ChairProductionPrintPage() {
               <p className="chair-print-data-note relative z-10 mt-3 rounded-sm bg-zinc-100 px-0.5 pb-1 text-[15px] text-zinc-500 print:hidden">
                 資料來源：訂單狀態非「已出貨／結案／報價中」，產品代碼為 CH03／CH03A／CH03-A
                 系列；工單工序為「塗裝後製程(組配、編織)／包裝管理／待出貨／已出貨／暫停」（舊站別正規化後同樣適用，例如「成品」→待出貨、「品檢中」→包裝管理）者不列入。「完成日」優先為工單預計完成日，無則為訂單預計交期。第一欄依 CH03／CH03A
-                合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。胡桃木列胡桃三欄；白橡木與煙燻橡木列白橡三欄（編織／實木／布墊依規格關鍵字分欄）。座高取自訂單明細座高（無則產品變體預設），常規 45 不標示、僅非 45 尺寸顯示。組立「側邊／整張」與「噴漆階段」自動帶入工序更新日期（組裝中(一)／組裝中(二)／塗裝中(二)），尚無日期者留空供現場勾選。每次列印即時資料會自動儲存快照，可由上方「快照」下拉調閱歷史輸出。
+                合併；通路訂單時第二欄下為收貨聯絡人（淺色）；規格略去 -P/-R/-W/-F 等後綴。胡桃木列胡桃三欄；白橡木與煙燻橡木列白橡三欄（編織／實木／布墊依規格關鍵字分欄）。座高取自訂單明細座高（無則產品變體預設），常規 45 不標示、僅非 45 尺寸顯示。組立「側邊／整張」與「噴漆階段」自動帶入工序更新日期（組裝中(一)／組裝中(二)／塗裝中(最終塗裝)），尚無日期者留空供現場勾選。每次列印即時資料會自動儲存快照，可由上方「快照」下拉調閱歷史輸出。
               </p>
             </>
           )}

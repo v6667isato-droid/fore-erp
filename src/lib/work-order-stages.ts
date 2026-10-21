@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /**
  * 工單工序站別（與 DB `work_orders.stage` 一致）。
  * 順序：待排程 → 備料中 → 零部件製作中 → … → 已出貨；「暫停」為特殊狀態。
- * 兩段組裝／塗裝以 (一)(二) 區分（… → 塗裝中(二) → 塗裝後製程(組配、編織) → 包裝管理）。
+ * 兩段組裝以 (一)(二) 區分；第二段塗裝為「塗裝中(最終塗裝)」（… → 塗裝中(最終塗裝) → 塗裝後製程(組配、編織) → 包裝管理）。
  */
 export const WORK_ORDER_STAGES = [
   "待排程",
@@ -13,7 +13,7 @@ export const WORK_ORDER_STAGES = [
   "組裝中(一)",
   "塗裝中",
   "組裝中(二)",
-  "塗裝中(二)",
+  "塗裝中(最終塗裝)",
   "塗裝後製程(組配、編織)",
   "包裝管理",
   "待出貨",
@@ -53,6 +53,8 @@ const LEGACY_STAGE_MAP: Record<string, WorkOrderStage> = {
   包裝檢查: "包裝管理",
   /** 舊簡稱（migration 可能曾寫入） */
   塗裝後製程: "塗裝後製程(組配、編織)",
+  /** 舊站別名稱（已更名） */
+  "塗裝中(二)": "塗裝中(最終塗裝)",
   成品: "待出貨",
 };
 
@@ -87,7 +89,7 @@ export function stageStyleClassName(stage: WorkOrderStage): string {
     case "組裝中(二)":
       return "bg-indigo-100 text-indigo-900 border-indigo-200";
     case "塗裝中":
-    case "塗裝中(二)":
+    case "塗裝中(最終塗裝)":
       return "bg-rose-100 text-rose-900 border-rose-200";
     case "塗裝後製程(組配、編織)":
     case "包裝管理":
