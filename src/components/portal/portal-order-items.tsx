@@ -12,6 +12,8 @@ import {
   CUSTOM_ITEM_SEAT_CATEGORIES,
 } from "@/lib/portal-order-rules";
 import { cn } from "@/lib/utils";
+import { VariantCodeSearch, VariantStepPicker } from "@/components/variant-step-picker";
+import type { VariantAxisValues } from "@/lib/variant-steps";
 
 /** 通路下單可選的規格（product_variants＋所屬系列） */
 export interface PortalVariantOption {
@@ -35,6 +37,10 @@ export interface PortalVariantOption {
   arm_height_cm: number | null;
   /** 規格或所屬系列已軟刪除：不列入挑選清單與匯出，僅舊訂單明細已選中時保留顯示 */
   is_deleted: boolean;
+  /** 訂製款（開單佔位用規格）：逐步挑選時列在「其他」 */
+  is_custom_order?: boolean;
+  /** 選項軸值（木種／尺寸／座墊／配置），逐步挑選用；舊規格為 null */
+  axis_values?: VariantAxisValues | null;
 }
 
 /**
@@ -202,6 +208,10 @@ export function buildPortalItemsPayload(
         source_item_id: it.source_item_id,
       });
       continue;
+    }
+    // 已選系列但還沒選完（例如選了木種、還沒選座墊）→ 提醒，不要默默略過
+    if (!it.variant_id && it.series_id) {
+      return { ok: false, error: `品項 ${i + 1} 尚未選完規格` };
     }
     if (!it.variant_id || !(it.quantity > 0)) continue;
     payload.push({
@@ -391,16 +401,10 @@ function PortalVariantFields({
   onChange: (patch: Partial<PortalItem>) => void;
 }) {
   const selected = variants.find((v) => v.id === it.variant_id);
-  const pickable = variants.filter(
-    (v) =>
-      // 已刪除品項只在舊明細已選中時保留，避免出現在挑選清單
-      (!v.is_deleted || v.id === it.variant_id) &&
-      (it.series_id ? v.series_id === it.series_id : true)
-  );
 
   function selectVariant(variantId: string) {
     if (variantId === it.variant_id) return;
-    const v = variants.find((x) => x.id === variantId);
+    const v = variantId ? variants.find((x) => x.id === variantId) : undefined;
     // 主動改選規格＝依現行牌價／通路折扣重新帶入（既有明細未改選者維持快照，見 orders/update API）
     onChange({
       variant_id: variantId,
@@ -446,27 +450,28 @@ function PortalVariantFields({
           <label className={labelCls} htmlFor={`portal-variant-${it.id}`}>
             品項 *
           </label>
-          <select
-            id={`portal-variant-${it.id}`}
-            value={it.variant_id}
-            onChange={(e) => selectVariant(e.target.value)}
-            className={fieldCls}
-          >
-            <option value="">請選擇</option>
-            {pickable.map((v) => (
-              <option key={v.id} value={v.id}>
-                {/* 已選系列時不重複系列名，選單較短（手機好讀） */}
-                {!it.series_id && v.series_name ? `${v.series_name} / ${v.label}` : v.label}
-                {v.base_price != null ? ` · $${v.base_price}` : ""}
-              </option>
-            ))}
-          </select>
-          <VariantSeriesThumb
-            imageUrl={selected?.series_image_url}
-            compactPlaceholder
-            sizeClassName="h-10 w-10 sm:h-11 sm:w-11"
-          />
+          {/* 熟悉編號可直接搜尋（跨系列）；一般流程用下方逐步挑選 */}
+          <div className="flex min-w-0 items-center gap-2">
+            <VariantCodeSearch
+              id={`portal-variant-${it.id}`}
+              variants={variants}
+              onPick={selectVariant}
+            />
+            <VariantSeriesThumb
+              imageUrl={selected?.series_image_url}
+              compactPlaceholder
+              sizeClassName="h-10 w-10 sm:h-11 sm:w-11"
+            />
+          </div>
         </div>
+      </div>
+      <div className="rounded-md border border-dashed border-border bg-background/60 p-3">
+        <VariantStepPicker
+          seriesId={it.series_id}
+          variants={variants}
+          value={it.variant_id}
+          onChange={selectVariant}
+        />
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="flex min-w-0 flex-col gap-1.5">

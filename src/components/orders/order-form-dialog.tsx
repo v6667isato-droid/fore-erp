@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { ImageLightbox, type LightboxImage } from "@/components/ui/image-lightbox";
 import { ExplanationImagesEditor } from "@/components/orders/explanation-images-editor";
+import { VariantCodeSearch, VariantStepPicker } from "@/components/variant-step-picker";
 import { serializeExplanationImages } from "@/lib/explanation-images";
 import { CUSTOM_ITEM_CATEGORIES } from "@/lib/portal-order-rules";
 import { toNumericText } from "@/lib/numeric-input";
@@ -1267,6 +1268,14 @@ function OrderFormDialog({
       toast.error("請選擇客戶");
       return;
     }
+    // 規格庫品項須逐步選到唯一規格（木種、座墊／尺寸都選完）才能存
+    const unfinishedIdx = items.findIndex(
+      (it) => it.kind === "variant" && !it.variant_id
+    );
+    if (unfinishedIdx >= 0) {
+      toast.error(`品項 ${unfinishedIdx + 1} 尚未選完規格`);
+      return;
+    }
     const validItems = items.filter(
       (it) =>
         (it.kind === "variant" ? it.variant_id : it.custom_name) &&
@@ -2215,38 +2224,29 @@ function OrderFormDialog({
                                   </div>
                                 </div>
                               ) : (
-                                <div className="flex w-full min-w-0 flex-col gap-1.5">
-                                  <select
-                                    id={`item-variant-${it.id}`}
-                                    value={it.variant_id}
-                                    onChange={(e) =>
-                                      handleVariantSelect(it, e.target.value)
-                                    }
-                                    className="h-9 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                    required
-                                  >
-                                    <option value="">請選擇規格</option>
-                                    {variants
-                                      .filter(
-                                        (v) =>
-                                          // 已刪除規格只在舊明細已選中時保留，避免出現在挑選清單
-                                          (!v.is_deleted ||
-                                            v.id === it.variant_id) &&
-                                          (it.series_id
-                                            ? v.series_id === it.series_id
-                                            : true)
-                                      )
-                                      .map((v) => (
-                                        <option key={v.id} value={v.id}>
-                                          {v.series_name
-                                            ? `${v.series_name} / ${v.label}`
-                                            : v.label}
-                                        </option>
-                                      ))}
-                                  </select>
-                                </div>
+                                // 熟悉編號可直接搜尋（跨系列）；一般流程用下方逐步挑選
+                                <VariantCodeSearch
+                                  id={`item-variant-${it.id}`}
+                                  variants={variants}
+                                  onPick={(variantId) =>
+                                    handleVariantSelect(it, variantId)
+                                  }
+                                />
                               )}
                             </div>
+                            {!readOnly ? (
+                              // 手機排在系列下方；電腦版移到整列最後、橫跨全寬
+                              <div className="min-w-0 rounded-lg border border-dashed border-border bg-background/60 p-3 lg:order-last lg:col-span-5">
+                                <VariantStepPicker
+                                  seriesId={it.series_id}
+                                  variants={variants}
+                                  value={it.variant_id}
+                                  onChange={(variantId) =>
+                                    handleVariantSelect(it, variantId)
+                                  }
+                                />
+                              </div>
+                            ) : null}
                             <div className="flex flex-col gap-1.5">
                               <label
                                 className="text-xs text-muted-foreground"

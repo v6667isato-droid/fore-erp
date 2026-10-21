@@ -1,4 +1,5 @@
 import type { WorkOrderStage } from "@/lib/work-order-stages";
+import type { VariantAxisValues } from "@/lib/variant-steps";
 
 export type OrderStatus =
   | "報價中"
@@ -86,6 +87,8 @@ export interface VariantOption {
   arm_height_cm?: number | null;
   /** 已軟刪除（規格本身或所屬系列）：僅供舊訂單明細顯示名稱，不進規格庫挑選清單 */
   is_deleted?: boolean;
+  /** 選項軸值（木種／尺寸／座墊／配置），逐步挑選規格用；舊規格為 null */
+  axis_values?: VariantAxisValues | null;
 }
 
 /**

@@ -36,6 +36,7 @@ import { cn, formatDateYyMmDd } from "@/lib/utils";
 import { plannedVsDeliveryTone } from "@/lib/planned-delivery-tone";
 import { normalizeChannelPartnerPaymentStatus } from "@/lib/channel-partner-payment-status";
 import { appendArmHeight, armHeightCm } from "@/lib/product-arm-height";
+import { axisValuesOf, fetchAxisValueMap } from "@/lib/variant-steps";
 import { buildPortalItemListCsv } from "@/lib/portal-item-list-csv";
 import { LeadTimeWaterLevelRow } from "@/components/lead-time-water-level-row";
 import { ExplanationImagesEditor } from "@/components/orders/explanation-images-editor";
@@ -356,13 +357,17 @@ export default function PortalPage() {
     }
 
     // 含已軟刪除規格：編輯舊訂單時明細仍需顯示；挑選清單與匯出靠 is_deleted 排除
-    const { data: variantRows } = await supabase
-      .from("product_variants")
-      .select(
-        "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, spec1, image_url, deleted_at"
-      )
-      .in("series_id", seriesIds)
-      .order("product_code", { ascending: true });
+    // 連同選項軸值：下單時依木種 → 尺寸／座墊逐步挑選（讀不到軸值時全部列在「規格」）
+    const [{ data: variantRows }, axisValueMap] = await Promise.all([
+      supabase
+        .from("product_variants")
+        .select(
+          "id, series_id, product_code, wood_type, dimension_w, dimension_d, dimension_h, seat_height_cm, arm_height_cm, base_price, spec1, image_url, deleted_at, is_custom_order, wood_value_id, size_value_id, cushion_value_id, config_value_id"
+        )
+        .in("series_id", seriesIds)
+        .order("product_code", { ascending: true }),
+      fetchAxisValueMap(supabase),
+    ]);
 
     const sidList = Array.from(
       new Set((variantRows ?? []).map((r) => String(r.series_id ?? "")).filter(Boolean))
@@ -437,6 +442,8 @@ export default function PortalPage() {
           dimension_h: v.dimension_h != null ? Number(v.dimension_h) : null,
           arm_height_cm: armHeightCm(v.arm_height_cm),
           is_deleted: v.deleted_at != null || (seriesId != null && deletedSeriesIds.has(seriesId)),
+          is_custom_order: v.is_custom_order === true,
+          axis_values: axisValuesOf(v, axisValueMap),
         };
       })
     );
