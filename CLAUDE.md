@@ -22,6 +22,7 @@
   - `allowDecimal`：尺寸（cm／mm）、工時、百分比、採購數量／單價等可有小數的欄位。台幣金額維持整數。
   - `allowNegative`：價差、盤點調整、薪資／對帳「調整」、發票折扣列等本來就可為負的欄位。
   - `keepZero`：「空白」和「0」意義不同時開啟（空白＝沿用全域／未設定／未盤點／自動推算，0＝明確設為 0），值為 0 時照常顯示 0。
+- **不要有上下微調鈕**：微調鈕很容易被滑鼠點到或滾輪帶到而悄悄改掉金額（如發票金額），全站在 `globals.css` 統一隱藏 `input[type="number"]` 的 spin button，元件也會在滾輪時失焦避免改值。不要再自己加 `[appearance:textfield]`／`[&::-webkit-inner-spin-button]:appearance-none` 之類的 class，也不要覆寫成會顯示微調鈕的樣式。
 - 手機會自動跳數字鍵盤（元件已設 `inputMode`），不需另外處理。
 - 清空欄位時 `onValueChange` 會收到 `null`，由呼叫端決定存成什麼：
   - 金額類：`v ?? 0`（或可為空的欄位存 `null`）。

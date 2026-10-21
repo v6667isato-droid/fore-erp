@@ -30,6 +30,7 @@ type NumericInputProps = Omit<
  * - 0／空值顯示為空白（placeholder 0），可直接輸入，不必先刪 0
  * - 只能輸入數字（擋掉文字、e、+、- 等；allowNegative 才放負號），貼上時自動清理
  * - 手機跳數字鍵盤
+ * - 不顯示上下微調鈕（globals.css 全站隱藏 input[type="number"] 的 spin button），滾輪也不會改值
  *
  * 保留 type="number"：桌機 Chrome 會在數字欄位自動關閉注音輸入法，改成 text 會讓數字鍵打出注音。
  */
