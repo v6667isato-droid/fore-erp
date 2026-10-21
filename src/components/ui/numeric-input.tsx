@@ -30,7 +30,7 @@ type NumericInputProps = Omit<
  * - 0／空值顯示為空白（placeholder 0），可直接輸入，不必先刪 0
  * - 只能輸入數字（擋掉文字、e、+、- 等；allowNegative 才放負號），貼上時自動清理
  * - 手機跳數字鍵盤
- * - 不顯示上下微調鈕（globals.css 全站隱藏 input[type="number"] 的 spin button），滾輪也不會改值
+ * - 不顯示上下微調鈕（globals.css 全站隱藏 input[type="number"] 的 spin button），滾輪、方向鍵上下也不會改值
  *
  * 保留 type="number"：桌機 Chrome 會在數字欄位自動關閉注音輸入法，改成 text 會讓數字鍵打出注音。
  */
@@ -67,14 +67,20 @@ function NumericInput({
       // iOS 的 numeric／decimal 鍵盤沒有負號，允許負數時交給 type="number" 的預設鍵盤
       inputMode={allowNegative ? undefined : allowDecimal ? "decimal" : "numeric"}
       step={step ?? (allowDecimal ? "any" : 1)}
-      // 不允許負數時預設 min=0，避免方向鍵／微調鈕往下調成負數
+      // 不允許負數時預設 min=0，交給瀏覽器驗證擋掉負數
       min={min ?? (allowNegative ? undefined : 0)}
       placeholder={placeholder}
       value={draft ?? formatNumericValue(value, keepZero)}
       onChange={(e) => commit(e.target.value)}
       onKeyDown={(e) => {
         onKeyDown?.(e);
-        if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.defaultPrevented) return;
+        // number 欄位按方向鍵上下會加減數值，容易誤觸悄悄改掉金額，一律擋掉（含搭配修飾鍵）
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+          e.preventDefault();
+          return;
+        }
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (!isAllowedNumericKey(e.key, options)) e.preventDefault();
       }}
       onPaste={(e) => {
