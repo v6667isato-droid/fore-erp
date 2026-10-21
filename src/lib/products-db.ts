@@ -17,7 +17,7 @@ export const TABLE_SERIES_SWATCHES = "product_series_swatches";
 
 /** material_swatches 查詢欄位 */
 export const SWATCH_SELECT =
-  "id, category, name, name_en, image_url, sort_order, is_active";
+  "id, category, name, name_en, code, image_url, sort_order, is_active";
 
 /** 色樣照片 Storage bucket（public read，1:1 方形） */
 export const SWATCH_BUCKET = "material-swatches";

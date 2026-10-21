@@ -17,6 +17,7 @@ function mapSwatch(r: Record<string, unknown>): SwatchRow {
         : "wood",
     name: String(r.name ?? ""),
     name_en: r.name_en != null ? String(r.name_en) : null,
+    code: r.code != null && String(r.code).trim() ? String(r.code).trim() : null,
     image_url: r.image_url != null && String(r.image_url) ? String(r.image_url) : null,
     sort_order: Number(r.sort_order ?? 0),
     is_active: r.is_active !== false,
@@ -143,7 +144,11 @@ export function SeriesSwatchesSelector({ value, onChange, disabled = false }: Se
                     <span className="min-w-0">
                       <span className="block truncate text-xs font-medium text-foreground">{s.name}</span>
                       <span className={cn("block truncate text-[10px]", !s.image_url && s.is_active ? "text-accent-warn" : "text-muted-foreground")}>
-                        {!s.is_active ? "已停用" : !s.image_url ? "缺照片（介紹表不會顯示）" : s.name_en?.trim() || ""}
+                        {!s.is_active
+                          ? "已停用"
+                          : !s.image_url
+                            ? "缺照片（介紹表不會顯示）"
+                            : [s.code, s.name_en?.trim()].filter(Boolean).join(" · ")}
                       </span>
                     </span>
                   </label>

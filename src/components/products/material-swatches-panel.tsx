@@ -30,6 +30,7 @@ function mapSwatch(r: Record<string, unknown>): SwatchRow {
         : "wood",
     name: String(r.name ?? ""),
     name_en: r.name_en != null ? String(r.name_en) : null,
+    code: r.code != null && String(r.code).trim() ? String(r.code).trim() : null,
     image_url: r.image_url != null && String(r.image_url) ? String(r.image_url) : null,
     sort_order: Number(r.sort_order ?? 0),
     is_active: r.is_active !== false,
@@ -232,6 +233,11 @@ export function MaterialSwatchesPanel({ isAdmin = false }: { isAdmin?: boolean }
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">{row.name}</p>
                   <p className="truncate text-xs text-muted-foreground">{row.name_en?.trim() || "—"}</p>
+                  {row.category === "cloth" && (
+                    <p className="truncate text-xs text-muted-foreground">
+                      編號：<span className="font-mono text-foreground">{row.code || "—"}</span>
+                    </p>
+                  )}
                 </div>
                 {!row.image_url && (
                   <span className="shrink-0 rounded-full border border-accent-warn/60 px-2 py-0.5 text-[10px] text-accent-warn whitespace-nowrap">
@@ -360,6 +366,7 @@ function SwatchEditorDialog({
   const [category, setCategory] = useState<SwatchCategory>(defaultCategory);
   const [name, setName] = useState("");
   const [nameEn, setNameEn] = useState("");
+  const [code, setCode] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -369,6 +376,7 @@ function SwatchEditorDialog({
       setCategory(row?.category ?? defaultCategory);
       setName(row?.name ?? "");
       setNameEn(row?.name_en ?? "");
+      setCode(row?.code ?? "");
       setImageUrl(row?.image_url || null);
       setError(null);
       setTimeout(() => firstRef.current?.focus(), 0);
@@ -387,6 +395,8 @@ function SwatchEditorDialog({
       category,
       name: name.trim(),
       name_en: nameEn.trim() || null,
+      // 布樣編號只有布樣分類使用，改成其他分類時一併清掉
+      code: category === "cloth" ? code.trim() || null : null,
       image_url: imageUrl || null,
     };
     const res = row
@@ -490,6 +500,22 @@ function SwatchEditorDialog({
                   placeholder="例：Oak / Natural white"
                 />
               </div>
+              {category === "cloth" && (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="swatch-code" className="text-xs text-muted-foreground">
+                    布樣編號
+                  </label>
+                  <input
+                    id="swatch-code"
+                    type="text"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="廠商型號／色號"
+                    autoComplete="off"
+                  />
+                </div>
+              )}
             </div>
             {error && (
               <p className="text-xs text-destructive" role="alert">
