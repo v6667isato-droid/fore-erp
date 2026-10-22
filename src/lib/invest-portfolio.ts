@@ -188,3 +188,10 @@ export function valuePosition(
   const unrealizedPnl = round4(marketValue - p.cost);
   return { marketValue, unrealizedPnl, returnRate: p.cost > 0 ? unrealizedPnl / p.cost : null };
 }
+
+/** 換算台幣：台幣原值；美元乘匯率（1 USD = usdTwd TWD）；沒有匯率或其他幣別回 null */
+export function toTwd(amount: number, currency: string, usdTwd: number | null | undefined): number | null {
+  if (currency === "TWD") return amount;
+  if (currency === "USD" && usdTwd != null && usdTwd > 0) return amount * usdTwd;
+  return null;
+}

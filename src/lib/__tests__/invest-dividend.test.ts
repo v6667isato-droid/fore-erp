@@ -63,9 +63,16 @@ describe("findDividendSuggestions", () => {
   const actions: InvestCorporateAction[] = [
     { id: "s", account_id: "tw", symbol: "0050", action_date: "2025-06-18", type: "split", ratio: 4, quantity: null, note: null },
   ];
-  const event = (symbol: string, ex_date: string, cash: number | null, rights_type = "息"): InvestDividendEvent => ({
+  const event = (
+    symbol: string,
+    ex_date: string,
+    cash: number | null,
+    rights_type = "息",
+    market: "TW" | "US" = "TW"
+  ): InvestDividendEvent => ({
     symbol,
     ex_date,
+    market,
     name: null,
     rights_type,
     cash_per_share: cash,
@@ -78,6 +85,7 @@ describe("findDividendSuggestions", () => {
         event("0050", "2025-07-21", 0.36),
         event("0050", "2024-07-16", 1),
         event("2330", "2025-03-18", 4.5),
+        // 市場不符（美股帳戶沒有 0050、台股帳戶不比對美股資料）
         event("VOO", "2025-03-24", 1.8),
       ],
       accounts,
@@ -90,6 +98,39 @@ describe("findDividendSuggestions", () => {
       // 一拆四後 5250 × 4 = 21000 股；除息未滿 60 天 → 待入帳
       ["0050", "2025-07-21", 21_000, 7560, false],
       ["0050", "2025-01-17", 3000, 8100, true],
+    ]);
+  });
+
+  it("美股帳戶比對美股股利，試算扣 30% 預扣稅", () => {
+    const [s] = findDividendSuggestions({
+      events: [event("VOO", "2025-03-27", 1.812, "息", "US")],
+      accounts,
+      trades,
+      actions,
+      dividends: [],
+      today: "2025-08-01",
+    });
+    expect(s).toMatchObject({
+      accountId: "us",
+      market: "US",
+      shares: 5,
+      estimate: { grossAmount: 9.06, nhiPremium: 0, withholdingTax: 2.72 },
+      likelyReceived: true,
+    });
+  });
+
+  it("美股除息超過 14 天視為已入帳、台股要超過 60 天", () => {
+    const result = findDividendSuggestions({
+      events: [event("VOO", "2025-07-10", 1.7, "息", "US"), event("0050", "2025-07-10", 0.5)],
+      accounts,
+      trades,
+      actions,
+      dividends: [],
+      today: "2025-08-01",
+    });
+    expect(result.map((s) => [s.market, s.likelyReceived])).toEqual([
+      ["TW", false],
+      ["US", true],
     ]);
   });
 

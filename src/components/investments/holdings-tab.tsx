@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { investDb } from "@/lib/invest-client";
 import {
   resolvePrice,
+  toTwd,
   valuePosition,
   type PortfolioResult,
   type Position,
@@ -67,6 +68,67 @@ function summarize(
   return [...map.values()].sort((a, b) => (a.currency === "TWD" ? -1 : b.currency === "TWD" ? 1 : 0));
 }
 
+/** 各幣別合計換算台幣（美元以目前匯率換算，不含匯差）；有無法換算的幣別時回 null */
+function totalInTwd(summaries: CurrencySummary[], usdTwd: number): CurrencySummary | null {
+  const total: CurrencySummary = {
+    currency: "TWD",
+    cost: 0,
+    marketValue: 0,
+    unrealized: 0,
+    unpriced: 0,
+    realized: 0,
+    dividends: 0,
+  };
+  for (const s of summaries) {
+    if (toTwd(1, s.currency, usdTwd) == null) return null;
+    const conv = (n: number) => toTwd(n, s.currency, usdTwd) ?? 0;
+    total.cost += conv(s.cost);
+    total.marketValue += conv(s.marketValue);
+    total.unrealized += conv(s.unrealized);
+    total.realized += conv(s.realized);
+    total.dividends += conv(s.dividends);
+    total.unpriced += s.unpriced;
+  }
+  return total;
+}
+
+const CURRENCY_LABELS: Record<string, string> = { TWD: "台幣", USD: "美元" };
+
+function SummaryBlock({ s, title, note }: { s: CurrencySummary; title?: string; note?: string }) {
+  return (
+    <div className="space-y-2">
+      {(title || note) && (
+        <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
+          {title && <span className="font-medium text-foreground">{title}</span>}
+          {note && <span className="text-muted-foreground">{note}</span>}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <SummaryCard label="持股成本" value={formatMoney(s.cost, s.currency)} />
+        <SummaryCard
+          label="市值"
+          value={formatMoney(s.marketValue, s.currency)}
+          hint={s.unpriced > 0 ? `${s.unpriced} 檔沒有現價` : undefined}
+        />
+        <SummaryCard
+          label="未實現損益"
+          value={formatMoney(s.unrealized, s.currency)}
+          valueClassName={pnlClass(s.unrealized)}
+          hint={s.unpriced > 0 ? "不含沒有現價的持股" : undefined}
+        />
+        <SummaryCard label="已實現損益" value={formatMoney(s.realized, s.currency)} valueClassName={pnlClass(s.realized)} />
+        <SummaryCard label="已入帳股利" value={formatMoney(s.dividends, s.currency)} />
+        <SummaryCard
+          label="總損益"
+          value={formatMoney(s.unrealized + s.realized + s.dividends, s.currency)}
+          valueClassName={pnlClass(s.unrealized + s.realized + s.dividends)}
+          hint="未實現＋已實現＋股利"
+        />
+      </div>
+    </div>
+  );
+}
+
 export function HoldingsTab({
   data,
   portfolio,
@@ -97,11 +159,23 @@ export function HoldingsTab({
   const positions = portfolio.positions.filter((p) => inFilter(p.accountId));
   const shown = showClosed ? positions : positions.filter((p) => p.quantity !== 0);
   const showAccount = accountFilter === "all" && data.accounts.length > 1;
-  const summaries = summarize(
-    positions,
-    priceBySymbol,
-    data.dividends.filter((d) => inFilter(d.account_id))
-  );
+  const filteredDividends = data.dividends.filter((d) => inFilter(d.account_id));
+  const summaries = summarize(positions, priceBySymbol, filteredDividends);
+  const usdTwd = data.usdTwd?.rate ?? null;
+  const twdTotal = summaries.length > 1 && usdTwd ? totalInTwd(summaries, usdTwd) : null;
+  /** 每檔已入帳股利（實收）合計 */
+  const dividendsByPosition = new Map<string, number>();
+  for (const d of filteredDividends) {
+    if (!d.received_at) continue;
+    const key = `${d.account_id}|${d.symbol}`;
+    dividendsByPosition.set(key, (dividendsByPosition.get(key) ?? 0) + d.net_amount);
+  }
+  /** 美元金額下方顯示約當台幣 */
+  const twdHint = (amount: number, currency: string) => {
+    if (currency === "TWD" || !usdTwd) return null;
+    const twd = toTwd(amount, currency, usdTwd);
+    return twd == null ? null : <div className="text-[11px] text-muted-foreground">≈ NT$ {formatMoney(twd)}</div>;
+  };
 
   // 同一檔只提示第一次賣超的日期
   const warnings = new Map<string, PortfolioResult["warnings"][number]>();
@@ -152,41 +226,26 @@ export function HoldingsTab({
         </div>
       ))}
 
-      {summaries.map((s) => (
-        <div key={s.currency} className="space-y-2">
-          {summaries.length > 1 && <div className="text-xs font-medium text-muted-foreground">{s.currency}</div>}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            <SummaryCard label="持股成本" value={formatMoney(s.cost, s.currency)} />
-            <SummaryCard
-              label="市值"
-              value={formatMoney(s.marketValue, s.currency)}
-              hint={s.unpriced > 0 ? `${s.unpriced} 檔未填現價` : undefined}
-            />
-            <SummaryCard
-              label="未實現損益"
-              value={formatMoney(s.unrealized, s.currency)}
-              valueClassName={pnlClass(s.unrealized)}
-              hint={s.unpriced > 0 ? "不含未填現價的持股" : undefined}
-            />
-            <SummaryCard
-              label="已實現損益"
-              value={formatMoney(s.realized, s.currency)}
-              valueClassName={pnlClass(s.realized)}
-            />
-            <SummaryCard label="已入帳股利" value={formatMoney(s.dividends, s.currency)} />
-            <SummaryCard
-              label="總損益"
-              value={formatMoney(s.unrealized + s.realized + s.dividends, s.currency)}
-              valueClassName={pnlClass(s.unrealized + s.realized + s.dividends)}
-              hint="未實現＋已實現＋股利"
-            />
-          </div>
+      {twdTotal && data.usdTwd && (
+        <div className="rounded-lg border border-border bg-muted/30 p-3">
+          <SummaryBlock
+            s={twdTotal}
+            title="合計（台幣）"
+            note={`美元以 1 USD = ${formatNumber(data.usdTwd.rate, 3)} TWD 換算（${data.usdTwd.date}），成本也以目前匯率換算、不含匯差`}
+          />
         </div>
+      )}
+      {summaries.map((s) => (
+        <SummaryBlock
+          key={s.currency}
+          s={s}
+          title={summaries.length > 1 ? (CURRENCY_LABELS[s.currency] ?? s.currency) : undefined}
+        />
       ))}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          現價自動帶入最近收盤價；盤中可手動改（離開欄位後儲存），有更新的收盤價時自動換回。沒有收盤價的標的（如美股）請手動輸入。平均成本含買進手續費。
+          現價每天自動帶入最近收盤價（台股證交所、美股 Yahoo Finance）；盤中可手動改（離開欄位後儲存），有更新的收盤價時自動換回。平均成本含買進手續費；累計股利為已入帳的實收金額。
         </p>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
@@ -213,6 +272,7 @@ export function HoldingsTab({
                 <TableHead className="text-right">未實現損益</TableHead>
                 <TableHead className="text-right">報酬率</TableHead>
                 <TableHead className="text-right">已實現損益</TableHead>
+                <TableHead className="text-right">累計股利</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -259,15 +319,22 @@ export function HoldingsTab({
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {v ? formatMoney(v.marketValue, p.currency) : "—"}
+                      {v && twdHint(v.marketValue, p.currency)}
                     </TableCell>
                     <TableCell className={`text-right tabular-nums ${pnlClass(v?.unrealizedPnl)}`}>
                       {v ? formatMoney(v.unrealizedPnl, p.currency) : "—"}
+                      {v && twdHint(v.unrealizedPnl, p.currency)}
                     </TableCell>
                     <TableCell className={`text-right tabular-nums ${pnlClass(v?.returnRate)}`}>
                       {v ? formatPercent(v.returnRate) : "—"}
                     </TableCell>
                     <TableCell className={`text-right tabular-nums ${pnlClass(p.realizedPnl)}`}>
                       {formatMoney(p.realizedPnl, p.currency)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {dividendsByPosition.has(`${p.accountId}|${p.symbol}`)
+                        ? formatMoney(dividendsByPosition.get(`${p.accountId}|${p.symbol}`)!, p.currency)
+                        : "—"}
                     </TableCell>
                   </TableRow>
                 );

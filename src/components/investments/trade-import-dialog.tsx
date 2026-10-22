@@ -122,7 +122,7 @@ function TradeImport({ onOpenChange, accounts, defaultAccountId, existingTrades,
       description="台股買賣對帳單、複委託對帳單都可以（Excel .xlsx 或 CSV）。已匯入過的交易（同成交日、委託單號、代號、數量、價格）會自動略過，可以放心重複匯入。"
       footer={
         <>
-          <Button type="button" onClick={() => void handleImport()} disabled={saving || fresh.length === 0}>
+          <Button type="button" onClick={() => void handleImport()} disabled={saving || fresh.length === 0 || otherCurrencies.length > 0}>
             {saving ? "匯入中…" : `匯入 ${fresh.length} 筆`}
           </Button>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -172,7 +172,8 @@ function TradeImport({ onOpenChange, accounts, defaultAccountId, existingTrades,
 
             {otherCurrencies.length > 0 && (
               <p className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
-                對帳單幣別（{otherCurrencies.join("、")}）與帳戶幣別（{account?.currency}）不同，請確認是否選對帳戶。
+                對帳單幣別（{otherCurrencies.join("、")}）與帳戶幣別（{account?.currency}）不同，不能匯入：請改選幣別相同的帳戶，
+                或先關閉視窗按「新增帳戶」建立{otherCurrencies.includes("USD") ? "美股" : "對應的"}帳戶。
               </p>
             )}
 

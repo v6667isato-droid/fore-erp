@@ -15,7 +15,7 @@ import type { InvestData } from "@/components/investments/investments-page";
 import type { DividendPrefill } from "@/components/investments/dividend-form-dialog";
 import { formatMoney, formatNumber, todayIso } from "@/components/investments/invest-ui";
 
-/** 證交所除權息資料比對持股後，列出還沒登錄的股利，確認後一鍵加入 */
+/** 除權息資料（台股證交所、美股 Yahoo Finance）比對持股後，列出還沒登錄的股利，確認後一鍵加入 */
 export function DividendSuggestions({
   data,
   accountFilter,
@@ -48,6 +48,8 @@ export function DividendSuggestions({
 
   if (suggestions.length === 0) return null;
 
+  const currencyOf = (s: DividendSuggestion) => accountsById.get(s.accountId)?.currency ?? "TWD";
+
   function toRow(s: DividendSuggestion) {
     return {
       account_id: s.accountId,
@@ -59,12 +61,12 @@ export function DividendSuggestions({
       shares: s.shares,
       gross_amount: s.estimate?.grossAmount ?? 0,
       nhi_premium: s.estimate?.nhiPremium ?? 0,
-      withholding_tax: 0,
+      withholding_tax: s.estimate?.withholdingTax ?? 0,
       fee: 0,
-      currency: accountsById.get(s.accountId)?.currency ?? "TWD",
+      currency: currencyOf(s),
       // 除息很久以前的股利應該早已入帳；入帳日不知道，先記為除息日（可再編輯）
       received_at: s.likelyReceived ? s.exDate : null,
-      note: "證交所除權息資料自動帶入",
+      note: s.market === "US" ? "Yahoo Finance 股利資料自動帶入" : "證交所除權息資料自動帶入",
     };
   }
 
@@ -96,7 +98,7 @@ export function DividendSuggestions({
       <div className="flex flex-wrap items-center gap-2">
         <Sparkles className="h-4 w-4 shrink-0 text-sky-600" />
         <p className="min-w-0 flex-1 text-sm font-medium text-foreground">
-          證交所除權息資料：找到 {suggestions.length} 筆你有持股、還沒登錄的股利
+          除權息資料：找到 {suggestions.length} 筆你有持股、還沒登錄的股利
         </p>
         {complete.length > 0 && (
           <Button type="button" onClick={() => void insert(complete)} disabled={saving}>
@@ -105,8 +107,8 @@ export function DividendSuggestions({
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        持股依除息日前一天的交易紀錄（含拆股）計算，補充保費為試算，實際以入帳為準、加入後可再編輯。除息日超過{" "}
-        {LIKELY_RECEIVED_AFTER_DAYS} 天的直接記為已入帳（入帳日先記為除息日）。
+        持股依除息日前一天的交易紀錄（含拆股）計算；台股扣二代健保補充保費、美股扣 30% 預扣稅，皆為試算，實際以入帳為準、加入後可再編輯。除息日超過 {LIKELY_RECEIVED_AFTER_DAYS.TW}{" "}
+        天（台股）／{LIKELY_RECEIVED_AFTER_DAYS.US} 天（美股）的直接記為已入帳（入帳日先記為除息日）。
       </p>
       <div className="max-h-96 overflow-y-auto rounded-lg border border-border bg-card">
         <Table>
@@ -118,7 +120,7 @@ export function DividendSuggestions({
               <TableHead className="text-right">每股</TableHead>
               <TableHead className="text-right">持股</TableHead>
               <TableHead className="text-right">應收</TableHead>
-              <TableHead className="text-right">補充保費</TableHead>
+              <TableHead className="text-right">補充保費／預扣稅</TableHead>
               <TableHead>加入後</TableHead>
               <TableHead className="w-20" />
             </TableRow>
@@ -141,10 +143,12 @@ export function DividendSuggestions({
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{formatNumber(s.shares)}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {s.estimate ? formatMoney(s.estimate.grossAmount) : "—"}
+                  {s.estimate ? formatMoney(s.estimate.grossAmount, currencyOf(s)) : "—"}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {s.estimate ? formatMoney(s.estimate.nhiPremium) : "—"}
+                  {s.estimate
+                    ? formatMoney(s.estimate.nhiPremium + s.estimate.withholdingTax, currencyOf(s))
+                    : "—"}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">{s.likelyReceived ? "已入帳" : "待入帳"}</TableCell>
                 <TableCell className="text-right">

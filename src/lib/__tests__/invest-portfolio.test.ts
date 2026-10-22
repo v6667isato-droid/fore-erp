@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computePortfolio, holdingBefore, resolvePrice, valuePosition } from "@/lib/invest-portfolio";
+import { computePortfolio, holdingBefore, resolvePrice, toTwd, valuePosition } from "@/lib/invest-portfolio";
 import type { InvestCorporateAction, InvestTrade } from "@/lib/invest-types";
 
 let seq = 0;
@@ -182,5 +182,14 @@ describe("valuePosition", () => {
 
   it("沒有現價時回 null", () => {
     expect(valuePosition({ quantity: 1000, cost: 50_000 }, null)).toBeNull();
+  });
+});
+
+describe("toTwd", () => {
+  it("台幣原值、美元乘匯率、缺匯率或其他幣別回 null", () => {
+    expect(toTwd(1000, "TWD", null)).toBe(1000);
+    expect(toTwd(100, "USD", 32.5)).toBe(3250);
+    expect(toTwd(100, "USD", null)).toBeNull();
+    expect(toTwd(100, "JPY", 32.5)).toBeNull();
   });
 });
