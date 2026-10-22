@@ -33,6 +33,10 @@
 （台灣早上 6:30）抓美股帳戶持股的最新價、股利與 USD/TWD 匯率；第一次可手動執行
 `select public.invest_fetch_us_market_data();`。美股現價、股利偵測與台幣換算就會出現。
 
+選用：再執行 `migrations/20261022140000_invest_price_history.sql`（Yahoo Finance），每個交易日台灣早上 6:45
+抓所有交易過的代號與 USD/TWD 的每日收盤價（圖表的總資產走勢用）；第一次從最早交易日前補抓歷史：
+`select public.invest_fetch_price_history('2024-01-01');`（依代號數量約需 1 分鐘）。
+
 ### 3. 投資帳號
 
 「我的投資」頁面用這個專案的登入帳號（Authentication → Users）。專案裡已經有自己的帳號就直接沿用；
