@@ -319,38 +319,35 @@ export default function PortalPage() {
   const [settleStatusFilter, setSettleStatusFilter] =
     useState<PortalOrderStatusFilter>("全部");
 
-  const loadVariants = useCallback(async (channelId: string | null) => {
-    if (!channelId) {
+  const loadVariants = useCallback(async (portalToken: string | undefined) => {
+    if (!portalToken) {
       setVariants([]);
       setPortalSeriesDiscountPct(new Map());
       return;
     }
 
-    // 只載入「有為此通路設定折扣」的系列之規格
-    const { data: discountRows, error: discountError } = await supabase
-      .from("product_series_channel_discounts")
-      .select("series_id, discount_percent")
-      .eq("channel_id", channelId);
+    // 只載入「有為此通路設定折扣」的系列之規格；折扣不開放 anon 直讀，由 API 依登入通路代查
+    const discountRes = await portalApiPost<{
+      discounts: { series_id: string; discount_percent: number }[];
+    }>("/api/portal/channel-discounts", portalToken, {});
 
-    if (discountError) {
+    if (!discountRes.ok) {
+      // 登入過期（401）由「我的訂單」載入時統一提示重新登入，這裡不重複
+      if (discountRes.status !== 401) {
+        toast.error(portalApiErrorMessage(discountRes, "無法載入可下單品項，請稍後再試"));
+      }
       setVariants([]);
       setPortalSeriesDiscountPct(new Map());
       return;
     }
 
     const pctBySeries = new Map<string, number>();
-    for (const r of (discountRows ?? []) as { series_id?: string; discount_percent?: number }[]) {
-      if (r.series_id != null) {
-        pctBySeries.set(String(r.series_id), Number(r.discount_percent ?? 0));
-      }
+    for (const r of discountRes.data.discounts ?? []) {
+      pctBySeries.set(String(r.series_id), Number(r.discount_percent ?? 0));
     }
     setPortalSeriesDiscountPct(pctBySeries);
 
-    const seriesIds = Array.from(
-      new Set(
-        (discountRows ?? []).map((r: any) => String(r.series_id))
-      )
-    );
+    const seriesIds = Array.from(pctBySeries.keys());
     if (!seriesIds.length) {
       setVariants([]);
       return;
@@ -454,7 +451,7 @@ export default function PortalPage() {
     setSessionState(s);
     const today = new Date().toISOString().slice(0, 10);
     setOrderDate(today);
-    loadVariants(s?.channel_id ?? null).then(() => setLoading(false));
+    loadVariants(s?.portal_token).then(() => setLoading(false));
   }, [loadVariants]);
 
   const seriesOptions = useMemo(() => buildPortalSeriesOptions(variants), [variants]);
@@ -882,7 +879,7 @@ export default function PortalPage() {
       setSessionState(newSession);
       setShippingAddress(newSession.delivery_address ?? "");
       // 依通路重新載入可選規格
-      await loadVariants(newSession.channel_id ?? null);
+      await loadVariants(newSession.portal_token);
       toast.success("登入成功");
     } finally {
       setLoginSubmitting(false);
