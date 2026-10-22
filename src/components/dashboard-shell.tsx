@@ -18,6 +18,7 @@ import {
   Newspaper,
   Boxes,
   ScrollText,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompanyCalendarPage } from "@/components/company-calendar-page";
 import { CostStatisticsTabs } from "@/components/cost-statistics-tabs";
 import { AccountingPage } from "@/components/accounting/accounting-page";
+import { InvestmentsPage } from "@/components/investments/investments-page";
 import {
   ThemeToggle,
   applyColorTheme,
@@ -52,6 +54,7 @@ import {
 } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isAdminOrManagerRole } from "@/lib/post-login-redirect";
+import { isInvestOwner } from "@/lib/invest-client";
 
 type Page =
   | "dashboard"
@@ -66,7 +69,8 @@ type Page =
   | "customers"
   | "leave_approvals"
   | "feedback"
-  | "audit_logs";
+  | "audit_logs"
+  | "investments";
 type AppRole = "admin" | "manager" | "staff" | null;
 
 /** 報價／訂單／產品等：admin 與 manager 可編輯；員工管理（含員工資料分頁）僅 admin */
@@ -82,8 +86,12 @@ const ADMIN_ONLY_PAGES: ReadonlySet<Page> = new Set([
   "audit_logs",
 ]);
 
-/** admin 全開；manager 除 admin 專屬頁外全開；staff 僅 user_profiles.extra_pages 授權的頁 */
-function canViewPage(page: Page, role: AppRole, extraPages: Page[]): boolean {
+/**
+ * admin 全開；manager 除 admin 專屬頁外全開；staff 僅 user_profiles.extra_pages 授權的頁。
+ * 「我的投資」是擁有者個人的頁面，與角色無關，只有 NEXT_PUBLIC_INVEST_OWNER_USER_ID 那個帳號看得到。
+ */
+function canViewPage(page: Page, role: AppRole, extraPages: Page[], investOwner: boolean): boolean {
+  if (page === "investments") return investOwner;
   if (role === "admin") return true;
   if (role === "manager") return !ADMIN_ONLY_PAGES.has(page);
   return extraPages.includes(page);
@@ -103,6 +111,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "leave_approvals", label: "員工管理", icon: ClipboardCheck },
   { id: "feedback", label: "使用回饋", icon: MessageSquare },
   { id: "audit_logs", label: "操作紀錄", icon: ScrollText },
+  { id: "investments", label: "我的投資", icon: Wallet },
 ];
 
 function Logo() {
@@ -130,16 +139,18 @@ function SidebarNav({
   onNavigate,
   userRole,
   extraPages,
+  investOwner,
 }: {
   activePage: Page;
   onNavigate: (page: Page) => void;
   userRole: AppRole;
   extraPages: Page[];
+  investOwner: boolean;
 }) {
   return (
     <nav className="flex flex-col gap-1 px-3">
       {navItems.map((item) => {
-        if (!canViewPage(item.id, userRole, extraPages)) {
+        if (!canViewPage(item.id, userRole, extraPages, investOwner)) {
           return null;
         }
         const Icon = item.icon;
@@ -168,6 +179,7 @@ function DesktopSidebar({
   userEmail,
   userRole,
   extraPages,
+  investOwner,
   onLogout,
 }: {
   activePage: Page;
@@ -175,6 +187,7 @@ function DesktopSidebar({
   userEmail: string | null;
   userRole: AppRole;
   extraPages: Page[];
+  investOwner: boolean;
   onLogout: () => void;
 }) {
   return (
@@ -183,7 +196,13 @@ function DesktopSidebar({
         <Logo />
       </div>
       <ScrollArea className="flex-1 py-4">
-        <SidebarNav activePage={activePage} onNavigate={onNavigate} userRole={userRole} extraPages={extraPages} />
+        <SidebarNav
+          activePage={activePage}
+          onNavigate={onNavigate}
+          userRole={userRole}
+          extraPages={extraPages}
+          investOwner={investOwner}
+        />
       </ScrollArea>
       <div className="flex flex-col gap-1 px-3 py-2">
         <a
@@ -247,11 +266,13 @@ function MobileHeader({
   onNavigate,
   userRole,
   extraPages,
+  investOwner,
 }: {
   activePage: Page;
   onNavigate: (page: Page) => void;
   userRole: AppRole;
   extraPages: Page[];
+  investOwner: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -279,7 +300,7 @@ function MobileHeader({
             <div className="py-4">
               <nav className="flex flex-col gap-1 px-3">
                 {navItems.map((item) => {
-                  if (!canViewPage(item.id, userRole, extraPages)) {
+                  if (!canViewPage(item.id, userRole, extraPages, investOwner)) {
                     return null;
                   }
                   const Icon = item.icon;
@@ -361,6 +382,7 @@ export default function DashboardShell() {
   const pageTitle =
     navItems.find((i) => i.id === activePage)?.label ?? "總覽";
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<AppRole>(null);
   /** staff 專用：user_profiles.extra_pages 授權的 ERP 頁面（已過濾為合法且非 admin 專屬） */
   const [extraPages, setExtraPages] = useState<Page[]>([]);
@@ -471,6 +493,7 @@ export default function DashboardShell() {
         const user = session?.user ?? null;
         if (!user) {
           setUserEmail(null);
+          setUserId(null);
           setUserRole(null);
           setAuthChecked(true);
           router.replace("/login");
@@ -478,6 +501,7 @@ export default function DashboardShell() {
         }
 
         setUserEmail(user.email ?? null);
+        setUserId(user.id);
         const { data: profile } = await supabase
           .from("user_profiles")
           .select("role, theme, extra_pages")
@@ -534,16 +558,18 @@ export default function DashboardShell() {
     };
   }, [router]);
 
+  const investOwner = isInvestOwner(userId);
+
   // 無權限頁面（含書籤或手動改 ?page=）導回可見的頁：staff 導到 extra_pages 第一頁，其餘導總覽
   useEffect(() => {
     if (!authChecked || userRole === null) return;
-    if (!canViewPage(activePage, userRole, extraPages)) {
+    if (!canViewPage(activePage, userRole, extraPages, investOwner)) {
       const fallback: Page =
         userRole === "staff" ? (extraPages[0] ?? "dashboard") : "dashboard";
       setActivePage(fallback);
       router.replace(`/?page=${fallback}`);
     }
-  }, [authChecked, userRole, activePage, extraPages, router]);
+  }, [authChecked, userRole, activePage, extraPages, investOwner, router]);
 
   async function handleLogout() {
     try {
@@ -552,6 +578,7 @@ export default function DashboardShell() {
       if (!isAuthSessionMissingError(e)) console.error("[fore-erp] signOut:", e);
     }
     setUserEmail(null);
+    setUserId(null);
     setUserRole(null);
     router.push("/login");
   }
@@ -587,6 +614,7 @@ export default function DashboardShell() {
         userEmail={userEmail}
         userRole={userRole}
         extraPages={extraPages}
+        investOwner={investOwner}
         onLogout={handleLogout}
       />
       <MobileHeader
@@ -594,6 +622,7 @@ export default function DashboardShell() {
         onNavigate={onNavigate}
         userRole={userRole}
         extraPages={extraPages}
+        investOwner={investOwner}
       />
 
       <main className="lg:pl-60">
@@ -602,7 +631,7 @@ export default function DashboardShell() {
             <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">{pageTitle}</h1>
           </div>
 
-          {canViewPage(activePage, userRole, extraPages) && (
+          {canViewPage(activePage, userRole, extraPages, investOwner) && (
             <>
               {activePage === "dashboard" && (
                 <>
@@ -644,6 +673,7 @@ export default function DashboardShell() {
               )}
               {activePage === "feedback" && <FeedbackPage />}
               {activePage === "audit_logs" && userRole === "admin" && <AuditLogsPage />}
+              {activePage === "investments" && investOwner && <InvestmentsPage />}
             </>
           )}
         </div>
