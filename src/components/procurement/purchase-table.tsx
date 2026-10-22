@@ -27,6 +27,9 @@ import {
   FileUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { PURCHASE_INVOICE_BUCKET } from "@/lib/invoice-file";
+import { useSignedInvoiceUrls } from "@/lib/use-signed-invoice-urls";
 
 const PAGE_SIZE = 20;
 
@@ -83,9 +86,17 @@ const MOBILE_SORT_OPTIONS: readonly { key: GroupSortKey; label: string }[] = [
   { key: "total_inc_tax", label: "含稅總計" },
 ];
 
-function openInvoiceFiles(group: PurchaseOrderGroup) {
-  for (const f of group.invoice_files) {
-    window.open(f.url, "_blank", "noopener,noreferrer");
+/** 開啟請款單附件：bucket 不公開，用預先產生的限時網址（還在產生時提示稍候） */
+function openInvoiceFiles(group: PurchaseOrderGroup, signedUrls: Map<string, string | null>) {
+  const urls = group.invoice_files
+    .map((f) => signedUrls.get(f.path))
+    .filter((u): u is string => Boolean(u));
+  if (urls.length === 0) {
+    toast.info("附件連結準備中，請稍候再試");
+    return;
+  }
+  for (const url of urls) {
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 }
 
@@ -118,6 +129,10 @@ export function PurchaseTable({
   onUploadInvoice,
 }: PurchaseTableProps) {
   const [page, setPage] = useState(0);
+  const signedInvoiceUrls = useSignedInvoiceUrls(
+    PURCHASE_INVOICE_BUCKET,
+    groups.flatMap((g) => g.invoice_files.map((f) => f.path)),
+  );
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
   /** 單一物件避免在 setSortKey updater 內呼叫 setSortDir（Strict Mode 會重複執行 updater，導致方向被切兩次） */
   const [sort, setSort] = useState<{ key: GroupSortKey; dir: "asc" | "desc" }>({
@@ -241,6 +256,7 @@ export function PurchaseTable({
                 onEditGroup={onEditGroup}
                 onDeleteGroup={onDeleteGroup}
                 onUploadInvoice={onUploadInvoice}
+                signedInvoiceUrls={signedInvoiceUrls}
               />
             ))}
           </div>
@@ -322,7 +338,7 @@ export function PurchaseTable({
                             title={`檢視請款單附件：${group.invoice_files.map((f) => f.name).join("、")}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              openInvoiceFiles(group);
+                              openInvoiceFiles(group, signedInvoiceUrls);
                             }}
                           >
                             <Paperclip className="h-3.5 w-3.5" />
@@ -561,6 +577,8 @@ interface PurchaseGroupCardProps
   onToggle: () => void;
   showInvoiceMatch: boolean;
   invoiceMatch?: PoInvoiceMatch;
+  /** 請款單附件限時網址（path → url） */
+  signedInvoiceUrls: Map<string, string | null>;
 }
 
 /** 手機／平板的採購單卡片：點卡片或「明細」展開品項，底部為附件與整單操作 */
@@ -576,6 +594,7 @@ function PurchaseGroupCard({
   onEditGroup,
   onDeleteGroup,
   onUploadInvoice,
+  signedInvoiceUrls,
 }: PurchaseGroupCardProps) {
   const firstLine = group.lines[0];
   const vendorNotes = group.vendor_notes?.trim();
@@ -695,7 +714,7 @@ function PurchaseGroupCard({
             variant="ghost"
             className="h-8 gap-1 px-2 text-xs text-primary"
             title={`檢視請款單附件：${group.invoice_files.map((f) => f.name).join("、")}`}
-            onClick={() => openInvoiceFiles(group)}
+            onClick={() => openInvoiceFiles(group, signedInvoiceUrls)}
           >
             <Paperclip className="h-3.5 w-3.5" />
             附件 {group.invoice_files.length}

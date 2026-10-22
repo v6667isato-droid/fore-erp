@@ -8,6 +8,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { fixRocDate } from "@/lib/invoice-scan";
+import { ACCOUNTING_INVOICE_BUCKET } from "@/lib/invoice-file";
+import { useSignedInvoiceUrls } from "@/lib/use-signed-invoice-urls";
 import {
   accountingArchiveFileName,
   accountingArchivePath,
@@ -113,6 +115,10 @@ export function AccountingInvoiceReviewDialog({
   queueProgress,
 }: AccountingInvoiceReviewDialogProps) {
   const isEdit = invoice?.status === "confirmed";
+  // bucket 不公開：原稿、QR 解碼、欄位放大都用限時網址
+  const signedUrls = useSignedInvoiceUrls(ACCOUNTING_INVOICE_BUCKET, [invoice?.file_path]);
+  const fileUrl = invoice ? signedUrls.get(invoice.file_path) : undefined;
+  const fileReady = fileUrl != null;
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -235,10 +241,10 @@ export function AccountingInvoiceReviewDialog({
 
   // 照片載入時自動解碼電子發票 QR：解出的值為 ground truth，覆寫 OCR 預填
   useEffect(() => {
-    if (!open || !invoice || invoice.status === "confirmed") return;
+    if (!open || !invoice || invoice.status === "confirmed" || !fileUrl) return;
     let cancelled = false;
     setQrStatus("decoding");
-    void decodeEInvoiceQrFromUrl(invoice.file_url, invoice.media_type).then((res) => {
+    void decodeEInvoiceQrFromUrl(fileUrl, invoice.media_type).then((res) => {
       if (cancelled) return;
       if (res.status === "decoded") {
         const qr = res.data;
@@ -276,8 +282,8 @@ export function AccountingInvoiceReviewDialog({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 僅在開啟／換張時解碼一次
-  }, [open, invoice?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 僅在開啟／換張（且限時網址備妥）時解碼一次
+  }, [open, invoice?.id, fileReady]);
 
   // 未稅／稅額自動推算：含稅有值且未稅、稅額為空（或仍是推算值）時自動填入。
   // 人工輸入或 QR／OCR 帶入的欄位不覆寫；「推算」值會跟著含稅金額即時重算。
@@ -475,13 +481,13 @@ export function AccountingInvoiceReviewDialog({
    */
   function fieldZoomPopover(key: FieldKey, align: "left" | "right" = "left") {
     const box = fieldBoxMap[key];
-    if (!invoice || activeField !== key || !box) return null;
+    if (!invoice || activeField !== key || !box || !fileUrl) return null;
     const alignClass = align === "right" ? "left-0 sm:left-auto sm:right-0" : "left-0";
     return (
       <div
         className={`absolute ${alignClass} top-full z-20 mt-1 w-80 max-w-[calc(100vw-5rem)] rounded-md border border-border bg-card p-1 shadow-lg`}
       >
-        <FieldCropZoom src={invoice.file_url} box={box} />
+        <FieldCropZoom src={fileUrl} box={box} />
       </div>
     );
   }
@@ -849,9 +855,9 @@ export function AccountingInvoiceReviewDialog({
                       </span>
                     )}
                   </span>
-                  {invoice && (
+                  {fileUrl && (
                     <a
-                      href={invoice.file_url}
+                      href={fileUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -862,15 +868,19 @@ export function AccountingInvoiceReviewDialog({
                   )}
                 </div>
                 {invoice ? (
-                  isPdf ? (
+                  fileUrl === null ? (
+                    <p className="p-6 text-center text-sm text-muted-foreground">找不到原稿檔案</p>
+                  ) : !fileUrl ? (
+                    <div className="h-[50vh] w-full animate-pulse rounded-md bg-muted/40 lg:h-[72vh]" />
+                  ) : isPdf ? (
                     <iframe
-                      src={invoice.file_url}
+                      src={fileUrl}
                       title="發票 PDF"
                       className="h-[50vh] w-full rounded-md border-0 bg-white lg:h-[72vh]"
                     />
                   ) : (
                     <InvoiceImageViewer
-                      src={invoice.file_url}
+                      src={fileUrl}
                       alt="發票照片"
                       cropBox={cropBox}
                       fieldsBox={fieldsBox}

@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Camera, FileText, FolderUp, Loader2, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { compressInvoiceFileForStorage } from "@/lib/invoice-file";
+import { ACCOUNTING_INVOICE_BUCKET, compressInvoiceFileForStorage } from "@/lib/invoice-file";
+import { useSignedInvoiceUrls } from "@/lib/use-signed-invoice-urls";
 import { fixRocDate } from "@/lib/invoice-scan";
 import {
   fetchInvoiceQueue,
@@ -14,7 +15,7 @@ import {
   normalizeInvoiceNumber,
   OWNER_CATEGORY_LABELS,
   recognizeAccountingInvoice,
-  recognizeAccountingInvoiceFromUrl,
+  recognizeAccountingInvoiceFromStorage,
   SOURCE_LABELS,
   type AccountingInvoiceRow,
 } from "@/lib/accounting-invoice";
@@ -41,6 +42,11 @@ export interface AccountingInvoiceQueueProps {
 
 export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueueProps) {
   const [rows, setRows] = useState<AccountingInvoiceRow[]>([]);
+  // bucket 不公開：縮圖與原稿連結用限時網址
+  const signedUrls = useSignedInvoiceUrls(
+    ACCOUNTING_INVOICE_BUCKET,
+    rows.map((r) => r.file_path),
+  );
   const [uploadingCount, setUploadingCount] = useState(0);
   const [gmailImporting, setGmailImporting] = useState(false);
   /** 正在跑辨識的發票 id（DB 裡仍是 pending，前端顯示辨識中） */
@@ -69,7 +75,7 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
       await Promise.all(
         pending.map(async (row) => {
           markRecognizing(row.id, true);
-          await recognizeAccountingInvoiceFromUrl(row);
+          await recognizeAccountingInvoiceFromStorage(row);
           markRecognizing(row.id, false);
         }),
       );
@@ -183,7 +189,7 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
       await Promise.all(
         newRows.map(async (row) => {
           markRecognizing(row.id, true);
-          const outcome = await recognizeAccountingInvoiceFromUrl(row);
+          const outcome = await recognizeAccountingInvoiceFromStorage(row);
           markRecognizing(row.id, false);
           if (!outcome.ok && outcome.notConfigured) aiNotConfigured = true;
         }),
@@ -197,7 +203,7 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
 
   async function retryRecognition(row: AccountingInvoiceRow) {
     markRecognizing(row.id, true);
-    const outcome = await recognizeAccountingInvoiceFromUrl(row);
+    const outcome = await recognizeAccountingInvoiceFromStorage(row);
     markRecognizing(row.id, false);
     if (!outcome.ok) toast.error(outcome.error);
     await refresh();
@@ -331,10 +337,11 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
             const badge = STATUS_BADGE[inFlight ? "recognizing" : row.status] ?? STATUS_BADGE.pending;
             const isPdf = (row.media_type ?? "") === "application/pdf" || row.file_path.endsWith(".pdf");
             const reviewable = !inFlight && (row.status === "ready" || row.status === "failed" || row.status === "pending");
+            const fileUrl = signedUrls.get(row.file_path);
             return (
               <li key={row.id} className="flex items-center gap-3 px-4 py-2.5">
                 <a
-                  href={row.file_url}
+                  href={fileUrl ?? undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="shrink-0"
@@ -344,12 +351,17 @@ export function AccountingInvoiceQueue({ onConfirmed }: AccountingInvoiceQueuePr
                     <span className="flex h-12 w-12 items-center justify-center rounded-md border border-border bg-muted/40">
                       <FileText className="h-5 w-5 text-muted-foreground" />
                     </span>
-                  ) : (
+                  ) : fileUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element -- Supabase 縮圖
                     <img
-                      src={row.file_url}
+                      src={fileUrl}
                       alt="發票縮圖"
                       className="h-12 w-12 rounded-md border border-border object-cover"
+                    />
+                  ) : (
+                    <span
+                      className={`block h-12 w-12 rounded-md border border-border bg-muted/40 ${fileUrl === null ? "" : "animate-pulse"}`}
+                      title={fileUrl === null ? "找不到原稿檔案" : undefined}
                     />
                   )}
                 </a>

@@ -5,12 +5,13 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Camera, FileText, FolderUp, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { compressInvoiceFileForStorage } from "@/lib/invoice-file";
+import { compressInvoiceFileForStorage, PURCHASE_INVOICE_BUCKET } from "@/lib/invoice-file";
+import { useSignedInvoiceUrls } from "@/lib/use-signed-invoice-urls";
 import {
   fetchPendingScans,
   fixRocDate,
   recognizeScan,
-  recognizeScanFromUrl,
+  recognizeScanFromStorage,
   type InvoiceScanRow,
 } from "@/lib/invoice-scan";
 import { InvoiceReviewDialog } from "@/components/procurement/invoice-review-dialog";
@@ -36,6 +37,11 @@ export interface InvoiceScanQueueProps {
 
 export function InvoiceScanQueue({ onArchived }: InvoiceScanQueueProps) {
   const [scans, setScans] = useState<InvoiceScanRow[]>([]);
+  // bucket 不公開：縮圖與原稿連結用限時網址
+  const signedUrls = useSignedInvoiceUrls(
+    PURCHASE_INVOICE_BUCKET,
+    scans.map((s) => s.file_path),
+  );
   const [uploadingCount, setUploadingCount] = useState(0);
   /** 正在跑辨識的 scan id（DB 裡仍是 pending，前端顯示辨識中） */
   const [recognizingIds, setRecognizingIds] = useState<Set<string>>(() => new Set());
@@ -126,7 +132,7 @@ export function InvoiceScanQueue({ onArchived }: InvoiceScanQueueProps) {
 
   async function retryRecognition(scan: InvoiceScanRow) {
     markRecognizing(scan.id, true);
-    const outcome = await recognizeScanFromUrl(scan);
+    const outcome = await recognizeScanFromStorage(scan);
     markRecognizing(scan.id, false);
     if (!outcome.ok) toast.error(outcome.error);
     await refresh();
@@ -246,10 +252,11 @@ export function InvoiceScanQueue({ onArchived }: InvoiceScanQueueProps) {
             const badge = STATUS_BADGE[inFlight ? "recognizing" : scan.status] ?? STATUS_BADGE.pending;
             const isPdf = (scan.media_type ?? "") === "application/pdf" || scan.file_path.endsWith(".pdf");
             const reviewable = !inFlight && (scan.status === "ready" || scan.status === "failed" || scan.status === "pending");
+            const fileUrl = signedUrls.get(scan.file_path);
             return (
               <li key={scan.id} className="flex items-center gap-3 px-4 py-2.5">
                 <a
-                  href={scan.file_url}
+                  href={fileUrl ?? undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="shrink-0"
@@ -259,12 +266,17 @@ export function InvoiceScanQueue({ onArchived }: InvoiceScanQueueProps) {
                     <span className="flex h-12 w-12 items-center justify-center rounded-md border border-border bg-muted/40">
                       <FileText className="h-5 w-5 text-muted-foreground" />
                     </span>
-                  ) : (
+                  ) : fileUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element -- Supabase 縮圖
                     <img
-                      src={scan.file_url}
+                      src={fileUrl}
                       alt="請款單縮圖"
                       className="h-12 w-12 rounded-md border border-border object-cover"
+                    />
+                  ) : (
+                    <span
+                      className={`block h-12 w-12 rounded-md border border-border bg-muted/40 ${fileUrl === null ? "" : "animate-pulse"}`}
+                      title={fileUrl === null ? "找不到原稿檔案" : undefined}
                     />
                   )}
                 </a>

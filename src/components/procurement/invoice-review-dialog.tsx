@@ -24,6 +24,8 @@ import {
   type VendorItemAlias,
 } from "@/lib/invoice-match";
 import { archiveScanPath, fixRocDate, type InvoiceScanRow } from "@/lib/invoice-scan";
+import { PURCHASE_INVOICE_BUCKET } from "@/lib/invoice-file";
+import { useSignedInvoiceUrls } from "@/lib/use-signed-invoice-urls";
 import { AddMaterialDialog } from "@/components/procurement/add-material-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -96,6 +98,9 @@ export interface InvoiceReviewDialogProps {
 
 export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived, onAdvance }: InvoiceReviewDialogProps) {
   const [error, setError] = useState<string | null>(null);
+  // bucket 不公開：原稿以限時網址顯示
+  const signedUrls = useSignedInvoiceUrls(PURCHASE_INVOICE_BUCKET, [scan?.file_path]);
+  const fileUrl = scan ? signedUrls.get(scan.file_path) : undefined;
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [materials, setMaterials] = useState<ProcurementMaterialRow[]>([]);
   const [aliases, setAliases] = useState<VendorItemAlias[]>([]);
@@ -519,9 +524,9 @@ export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived, onAd
                 <div className="rounded-lg border border-border bg-muted/20 p-2">
                   <div className="mb-1.5 flex items-center justify-between px-1">
                     <span className="text-xs font-medium text-foreground">請款單原稿</span>
-                    {scan && (
+                    {fileUrl && (
                       <a
-                        href={scan.file_url}
+                        href={fileUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -532,16 +537,20 @@ export function InvoiceReviewDialog({ scan, open, onOpenChange, onArchived, onAd
                     )}
                   </div>
                   {scan ? (
-                    isPdf ? (
+                    fileUrl === null ? (
+                      <p className="p-6 text-center text-sm text-muted-foreground">找不到原稿檔案</p>
+                    ) : !fileUrl ? (
+                      <div className="h-[50vh] w-full animate-pulse rounded-md bg-muted/40 lg:h-[72vh]" />
+                    ) : isPdf ? (
                       <iframe
-                        src={scan.file_url}
+                        src={fileUrl}
                         title="請款單 PDF"
                         className="h-[50vh] w-full rounded-md border-0 bg-white lg:h-[72vh]"
                       />
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element -- Supabase 外部圖，僅審核時載入
                       <img
-                        src={scan.file_url}
+                        src={fileUrl}
                         alt="請款單照片"
                         className="max-h-[50vh] w-full rounded-md object-contain lg:max-h-[72vh]"
                       />

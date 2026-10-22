@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import type { Json } from "@/types/database.types";
 import type { RecognizedTaxInvoice } from "@/app/api/invoice-recognition/route";
 import { blobToBase64 } from "@/lib/invoice-scan";
+import { ACCOUNTING_INVOICE_BUCKET, downloadInvoiceFile } from "@/lib/invoice-file";
 
 /** pending=待辨識 / ready=待審核 / failed=辨識失敗 / confirmed=已審核存檔 */
 export type AccountingInvoiceStatus = "pending" | "ready" | "failed" | "confirmed";
@@ -287,13 +288,13 @@ export async function recognizeAccountingInvoice(
 }
 
 /** 從 storage 重新抓檔並辨識（佇列中的「重新辨識」） */
-export async function recognizeAccountingInvoiceFromUrl(
+export async function recognizeAccountingInvoiceFromStorage(
   row: AccountingInvoiceRow,
 ): Promise<TaxRecognitionOutcome> {
   try {
-    const res = await fetch(row.file_url);
-    if (!res.ok) return { ok: false, error: "附件下載失敗，無法重新辨識" };
-    const blob = await res.blob();
+    // bucket 不公開：以登入身分從 storage 下載，不走資料表裡的舊公開網址
+    const blob = await downloadInvoiceFile(ACCOUNTING_INVOICE_BUCKET, row.file_path);
+    if (!blob) return { ok: false, error: "附件下載失敗，無法重新辨識" };
     const mediaType = row.media_type || blob.type || "image/jpeg";
     return await recognizeAccountingInvoice(row.id, blob, mediaType);
   } catch (err) {
