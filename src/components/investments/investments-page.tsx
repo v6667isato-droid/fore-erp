@@ -18,6 +18,7 @@ import type {
   InvestTrade,
 } from "@/lib/invest-types";
 import { AccountFormDialog } from "@/components/investments/account-form-dialog";
+import { ChartsTab, type PriceSeriesState } from "@/components/investments/charts-tab";
 import { CorporateActionsTab } from "@/components/investments/corporate-actions-tab";
 import { DividendsTab } from "@/components/investments/dividends-tab";
 import { HoldingsTab } from "@/components/investments/holdings-tab";
@@ -38,10 +39,11 @@ export type InvestData = {
   usdTwd: { rate: number; date: string } | null;
 };
 
-type InvestTab = "holdings" | "trades" | "dividends" | "actions";
+type InvestTab = "holdings" | "charts" | "trades" | "dividends" | "actions";
 
 const TABS: { id: InvestTab; label: string }[] = [
   { id: "holdings", label: "持股" },
+  { id: "charts", label: "圖表" },
   { id: "trades", label: "交易紀錄" },
   { id: "dividends", label: "股利" },
   { id: "actions", label: "拆股／配股" },
@@ -118,6 +120,19 @@ async function fetchUsdTwd(): Promise<InvestData["usdTwd"]> {
   if (error || !data) return null;
   const rate = toNum((data as { price: unknown }).price);
   return rate > 0 ? { rate, date: (data as { trade_date: string }).trade_date } : null;
+}
+
+/** 每日收盤價歷史（總資產走勢用）；資料量較大，切到圖表分頁時才讀 */
+async function fetchPriceSeries(): Promise<PriceSeriesState> {
+  const { data, error } = await investDb.from("invest_price_series").select("symbol, dates, closes");
+  if (error) return { status: "error", message: error.message };
+  const series = new Map(
+    ((data ?? []) as { symbol: string; dates: string[]; closes: unknown[] }[]).map((row) => [
+      row.symbol,
+      { dates: row.dates ?? [], closes: (row.closes ?? []).map(toNum) },
+    ])
+  );
+  return { status: "ready", series };
 }
 
 async function loadInvestData(): Promise<InvestData> {
@@ -264,6 +279,7 @@ function InvestWorkspace({ email }: { email: string }) {
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   /** 從持股警告跳到「拆股／配股」時預填的帳戶與代號 */
   const [actionPrefill, setActionPrefill] = useState<{ accountId: string; symbol: string } | null>(null);
+  const [priceSeries, setPriceSeries] = useState<PriceSeriesState | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -280,6 +296,11 @@ function InvestWorkspace({ email }: { email: string }) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  const loadPriceSeries = useCallback(async () => {
+    setPriceSeries({ status: "loading" });
+    setPriceSeries(await fetchPriceSeries());
+  }, []);
 
   const portfolio = useMemo(() => (data ? computePortfolio(data.trades, data.actions) : null), [data]);
 
@@ -322,6 +343,7 @@ function InvestWorkspace({ email }: { email: string }) {
               onClick={() => {
                 setTab(t.id);
                 setActionPrefill(null);
+                if (t.id === "charts" && (priceSeries == null || priceSeries.status === "error")) void loadPriceSeries();
               }}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
                 tab === t.id
@@ -357,7 +379,10 @@ function InvestWorkspace({ email }: { email: string }) {
             type="button"
             variant="ghost"
             size="icon"
-            onClick={() => void reload()}
+            onClick={() => {
+              void reload();
+              if (tab === "charts") void loadPriceSeries();
+            }}
             disabled={loading}
             aria-label="重新整理"
           >
@@ -394,6 +419,9 @@ function InvestWorkspace({ email }: { email: string }) {
             setTab("actions");
           }}
         />
+      )}
+      {tab === "charts" && (
+        <ChartsTab data={data} portfolio={portfolio} accountFilter={filter} priceSeries={priceSeries} />
       )}
       {tab === "trades" && <TradesTab data={data} portfolio={portfolio} accountFilter={filter} onReload={reload} />}
       {tab === "dividends" && <DividendsTab data={data} accountFilter={filter} onReload={reload} />}

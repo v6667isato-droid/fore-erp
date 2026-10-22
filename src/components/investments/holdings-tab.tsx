@@ -8,12 +8,11 @@ import { NumericInput } from "@/components/ui/numeric-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { investDb } from "@/lib/invest-client";
 import {
-  resolvePrice,
+  resolvePrices,
   toTwd,
   valuePosition,
   type PortfolioResult,
   type Position,
-  type ResolvedPrice,
 } from "@/lib/invest-portfolio";
 import type { InvestData } from "@/components/investments/investments-page";
 import {
@@ -158,12 +157,11 @@ export function HoldingsTab({
 
   const accountsById = new Map(data.accounts.map((a) => [a.id, a]));
   const quoteBySymbol = new Map(data.quotes.map((q) => [q.symbol, q]));
-  const marketBySymbol = new Map(data.marketPrices.map((m) => [m.symbol, m]));
-  const resolvedBySymbol = new Map<string, ResolvedPrice>();
-  for (const p of portfolio.positions) {
-    const r = resolvePrice(quoteBySymbol.get(p.symbol), marketBySymbol.get(p.symbol));
-    if (r) resolvedBySymbol.set(p.symbol, r);
-  }
+  const resolvedBySymbol = resolvePrices(
+    portfolio.positions.map((p) => p.symbol),
+    data.quotes,
+    data.marketPrices
+  );
   const priceBySymbol = new Map([...resolvedBySymbol].map(([symbol, r]) => [symbol, r.price]));
   const inFilter = (accountId: string) => accountFilter === "all" || accountId === accountFilter;
   const positions = portfolio.positions.filter((p) => inFilter(p.accountId));
