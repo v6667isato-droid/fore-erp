@@ -55,7 +55,7 @@ export function CorporateActionsTab({
   const nameBySymbol = new Map(data.trades.map((t) => [t.symbol, t.name]));
 
   async function handleDelete(a: InvestCorporateAction) {
-    const { error } = await investDb.from("corporate_actions").delete().eq("id", a.id);
+    const { error } = await investDb.from("invest_corporate_actions").delete().eq("id", a.id);
     if (error) {
       toast.error(`刪除失敗：${error.message}`);
       return;
@@ -237,8 +237,8 @@ function CorporateActionForm({
     };
     setSaving(true);
     const { error } = action
-      ? await investDb.from("corporate_actions").update(payload).eq("id", action.id)
-      : await investDb.from("corporate_actions").insert(payload);
+      ? await investDb.from("invest_corporate_actions").update(payload).eq("id", action.id)
+      : await investDb.from("invest_corporate_actions").insert(payload);
     setSaving(false);
     if (error) {
       toast.error(`儲存失敗：${error.message}`);

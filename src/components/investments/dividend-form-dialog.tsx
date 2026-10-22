@@ -106,8 +106,8 @@ function DividendForm({ onOpenChange, accounts, defaultAccountId, trades, action
     };
     setSaving(true);
     const { error } = dividend
-      ? await investDb.from("dividends").update(payload).eq("id", dividend.id)
-      : await investDb.from("dividends").insert(payload);
+      ? await investDb.from("invest_dividends").update(payload).eq("id", dividend.id)
+      : await investDb.from("invest_dividends").insert(payload);
     setSaving(false);
     if (error) {
       toast.error(error.code === "23505" ? "這檔股票在這個除息日已經登錄過" : `儲存失敗：${error.message}`);

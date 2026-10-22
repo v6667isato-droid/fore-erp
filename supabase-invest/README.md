@@ -11,21 +11,23 @@
 
 ## 一次性設定
 
-### 1. 建立個人 Supabase 專案
+### 1. 選一個個人 Supabase 專案
 
-到 [supabase.com](https://supabase.com) 用自己的帳號 **New project**（免費方案即可，區域選 Singapore 等鄰近地區）。
-如果公司 Supabase 的 organization 有其他成員，請建在自己另一個 organization 底下。
+可以用既有的個人專案（目前放在 `kids-finance`），或到 [supabase.com](https://supabase.com) 另開新專案。
+所有表、函式、索引都以 `invest_` 開頭，放進既有專案不會和原本的表撞名。
+（免費方案最多同時 2 個專案；公司 ERP 已佔一個。）
 
 ### 2. 建立資料表
 
 專案的 **SQL Editor** → 新增查詢 → 貼上 `migrations/20261022100000_invest_init.sql` 全部內容 → **Run**。
 
-### 3. 關閉註冊、建立自己的投資帳號
+### 3. 投資帳號
 
-- **Authentication → Sign In / Providers**：關閉 **Allow new users to sign up**（避免別人自己註冊）
-- **Authentication → Users → Add user → Create new user**：輸入 email 與密碼，勾選 **Auto Confirm User**
+「我的投資」頁面用這個專案的登入帳號（Authentication → Users）。專案裡已經有自己的帳號就直接沿用；
+沒有的話 **Add user → Create new user**，輸入 email 與密碼並勾選 **Auto Confirm User**。
 
-這組 email／密碼就是之後在「我的投資」頁面登入用的投資帳號。
+每筆資料都綁定 owner_id，RLS 只讓本人讀寫，專案裡就算有其他帳號也看不到。
+如果這個專案不需要開放註冊，建議到 **Authentication → Sign In / Providers** 關閉 **Allow new users to sign up**。
 
 ### 4. 設定 fore-erp 環境變數
 

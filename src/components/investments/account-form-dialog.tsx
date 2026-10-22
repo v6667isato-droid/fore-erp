@@ -29,7 +29,7 @@ export function AccountFormDialog({
       return;
     }
     setSaving(true);
-    const { error } = await investDb.from("accounts").insert({
+    const { error } = await investDb.from("invest_accounts").insert({
       name: name.trim(),
       market,
       currency: MARKET_CURRENCY[market],

@@ -98,7 +98,7 @@ function TradeImport({ onOpenChange, accounts, defaultAccountId, existingTrades,
       }));
       // 已存在的（例如同時開兩個視窗重複匯入）由資料庫唯一鍵略過
       const { error } = await investDb
-        .from("trades")
+        .from("invest_trades")
         .upsert(chunk, { onConflict: "owner_id,account_id,dedupe_key", ignoreDuplicates: true });
       if (error) {
         setSaving(false);

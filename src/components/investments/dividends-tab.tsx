@@ -72,7 +72,7 @@ export function DividendsTab({
 
   async function markReceived(d: InvestDividend) {
     const { error } = await investDb
-      .from("dividends")
+      .from("invest_dividends")
       .update({ received_at: d.pay_date ?? todayIso() })
       .eq("id", d.id);
     if (error) {
@@ -83,7 +83,7 @@ export function DividendsTab({
   }
 
   async function handleDelete(d: InvestDividend) {
-    const { error } = await investDb.from("dividends").delete().eq("id", d.id);
+    const { error } = await investDb.from("invest_dividends").delete().eq("id", d.id);
     if (error) {
       toast.error(`刪除失敗：${error.message}`);
       return;

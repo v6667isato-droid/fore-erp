@@ -76,7 +76,7 @@ export function TradesTab({
   }, [rows, portfolio.realizedByTradeId]);
 
   async function handleDelete(t: InvestTrade) {
-    const { error } = await investDb.from("trades").delete().eq("id", t.id);
+    const { error } = await investDb.from("invest_trades").delete().eq("id", t.id);
     if (error) {
       toast.error(`刪除失敗：${error.message}`);
       return;

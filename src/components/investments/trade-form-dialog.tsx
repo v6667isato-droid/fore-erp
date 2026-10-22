@@ -79,8 +79,8 @@ function TradeForm({ onOpenChange, accounts, defaultAccountId, trade, onSaved }:
     };
     setSaving(true);
     const { error } = trade
-      ? await investDb.from("trades").update(payload).eq("id", trade.id)
-      : await investDb.from("trades").insert({ ...payload, source: "manual" });
+      ? await investDb.from("invest_trades").update(payload).eq("id", trade.id)
+      : await investDb.from("invest_trades").insert({ ...payload, source: "manual" });
     setSaving(false);
     if (error) {
       toast.error(`儲存失敗：${error.message}`);

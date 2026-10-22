@@ -105,8 +105,8 @@ export function HoldingsTab({
     if (draft !== current) {
       const { error } =
         draft == null
-          ? await investDb.from("quotes").delete().eq("symbol", symbol)
-          : await investDb.from("quotes").upsert({ symbol, price: draft }, { onConflict: "owner_id,symbol" });
+          ? await investDb.from("invest_quotes").delete().eq("symbol", symbol)
+          : await investDb.from("invest_quotes").upsert({ symbol, price: draft }, { onConflict: "owner_id,symbol" });
       if (error) {
         toast.error(`儲存現價失敗：${error.message}`);
         return;

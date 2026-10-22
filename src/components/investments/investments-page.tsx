@@ -67,11 +67,11 @@ function toNumOrNull(v: unknown): number | null {
 
 async function loadInvestData(): Promise<InvestData> {
   const [accounts, trades, actions, dividends, quotes] = await Promise.all([
-    fetchAll<InvestAccount>("accounts", ["created_at", "id"]),
-    fetchAll<InvestTrade>("trades", ["trade_date", "id"]),
-    fetchAll<InvestCorporateAction>("corporate_actions", ["action_date", "id"]),
-    fetchAll<InvestDividend>("dividends", ["ex_date", "id"]),
-    fetchAll<InvestQuote>("quotes", ["symbol"]),
+    fetchAll<InvestAccount>("invest_accounts", ["created_at", "id"]),
+    fetchAll<InvestTrade>("invest_trades", ["trade_date", "id"]),
+    fetchAll<InvestCorporateAction>("invest_corporate_actions", ["action_date", "id"]),
+    fetchAll<InvestDividend>("invest_dividends", ["ex_date", "id"]),
+    fetchAll<InvestQuote>("invest_quotes", ["symbol"]),
   ]);
   return {
     accounts,
