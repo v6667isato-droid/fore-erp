@@ -77,6 +77,17 @@ export type InvestQuote = {
   updated_at: string;
 };
 
+/** 證交所除權除息結果（invest_dividend_events；每日排程抓取） */
+export type InvestDividendEvent = {
+  symbol: string;
+  ex_date: string;
+  name: string | null;
+  /** 息／權／權息 */
+  rights_type: string;
+  /** 每股現金股利；含配股（權、權息）時為 null，需手動輸入 */
+  cash_per_share: number | null;
+};
+
 /** 最近一個交易日收盤價（invest_latest_prices view；來源為每日抓的證交所收盤價） */
 export type InvestMarketPrice = {
   symbol: string;

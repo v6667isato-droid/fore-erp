@@ -1,5 +1,13 @@
-/** 現金股利試算（台股扣二代健保補充保費；美股扣 30% 預扣稅）。 */
-import type { InvestMarket } from "@/lib/invest-types";
+/** 現金股利試算（台股扣二代健保補充保費；美股扣 30% 預扣稅）與自動偵測未登錄的股利。 */
+import { holdingBefore } from "@/lib/invest-portfolio";
+import type {
+  InvestAccount,
+  InvestCorporateAction,
+  InvestDividend,
+  InvestDividendEvent,
+  InvestMarket,
+  InvestTrade,
+} from "@/lib/invest-types";
 
 /** 二代健保補充保費費率與單筆起扣門檻 */
 export const TW_NHI_RATE = 0.0211;
@@ -45,4 +53,86 @@ export function estimateDividend({
   // 台股加一點容差，避免 3000 × 0.85 = 2549.9999… 被捨去成 2549
   const grossAmount = market === "US" ? round2(raw) : Math.floor(raw + 1e-6);
   return { grossAmount, ...dividendDeductions(market, grossAmount) };
+}
+
+/** 除息日超過這個天數的股利，視為已經發放入帳 */
+export const LIKELY_RECEIVED_AFTER_DAYS = 60;
+
+export type DividendSuggestion = {
+  accountId: string;
+  symbol: string;
+  name: string | null;
+  exDate: string;
+  rightsType: string;
+  /** 含配股（權、權息）時為 null，需手動輸入每股現金股利 */
+  cashPerShare: number | null;
+  /** 除息日前一天的持股 */
+  shares: number;
+  estimate: DividendEstimate | null;
+  /** 除息日已超過 LIKELY_RECEIVED_AFTER_DAYS 天，加入時直接記為已入帳 */
+  likelyReceived: boolean;
+};
+
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * 依證交所除權息結果比對自己的持股，找出除息日前有持股、但還沒登錄的股利（只看台股帳戶）。
+ * 已登錄判斷：同帳戶、同代號、同除息日已有 invest_dividends 紀錄。
+ */
+export function findDividendSuggestions({
+  events,
+  accounts,
+  trades,
+  actions,
+  dividends,
+  today,
+}: {
+  events: InvestDividendEvent[];
+  accounts: Pick<InvestAccount, "id" | "market">[];
+  trades: InvestTrade[];
+  actions: InvestCorporateAction[];
+  dividends: Pick<InvestDividend, "account_id" | "symbol" | "ex_date">[];
+  /** YYYY-MM-DD */
+  today: string;
+}): DividendSuggestion[] {
+  const recorded = new Set(dividends.map((d) => `${d.account_id}|${d.symbol}|${d.ex_date}`));
+  const twAccountIds = new Set(accounts.filter((a) => a.market === "TW").map((a) => a.id));
+  // 每個帳戶交易過哪些代號，避免對沒碰過的股票做持股計算
+  const tradedSymbols = new Map<string, Set<string>>();
+  for (const t of trades) {
+    if (!twAccountIds.has(t.account_id)) continue;
+    let set = tradedSymbols.get(t.account_id);
+    if (!set) {
+      set = new Set();
+      tradedSymbols.set(t.account_id, set);
+    }
+    set.add(t.symbol);
+  }
+  const receivedBefore = addDays(today, -LIKELY_RECEIVED_AFTER_DAYS);
+
+  const suggestions: DividendSuggestion[] = [];
+  for (const e of events) {
+    for (const [accountId, symbols] of tradedSymbols) {
+      if (!symbols.has(e.symbol) || recorded.has(`${accountId}|${e.symbol}|${e.ex_date}`)) continue;
+      const shares = holdingBefore(trades, actions, accountId, e.symbol, e.ex_date);
+      if (shares <= 0) continue;
+      suggestions.push({
+        accountId,
+        symbol: e.symbol,
+        name: e.name,
+        exDate: e.ex_date,
+        rightsType: e.rights_type,
+        cashPerShare: e.cash_per_share,
+        shares,
+        estimate: e.cash_per_share == null ? null : estimateDividend({ market: "TW", shares, cashPerShare: e.cash_per_share }),
+        likelyReceived: e.ex_date <= receivedBefore,
+      });
+    }
+  }
+  suggestions.sort((a, b) => (a.exDate !== b.exDate ? (a.exDate < b.exDate ? 1 : -1) : a.symbol < b.symbol ? -1 : 1));
+  return suggestions;
 }

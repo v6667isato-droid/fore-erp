@@ -10,7 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { investDb } from "@/lib/invest-client";
 import type { InvestDividend } from "@/lib/invest-types";
 import type { InvestData } from "@/components/investments/investments-page";
-import { DividendFormDialog } from "@/components/investments/dividend-form-dialog";
+import { DividendFormDialog, type DividendPrefill } from "@/components/investments/dividend-form-dialog";
+import { DividendSuggestions } from "@/components/investments/dividend-suggestions";
 import {
   formatMoney,
   formatNumber,
@@ -34,6 +35,7 @@ export function DividendsTab({
   const [status, setStatus] = useState<StatusFilter>("all");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<InvestDividend | null>(null);
+  const [prefill, setPrefill] = useState<DividendPrefill | null>(null);
   const [deleting, setDeleting] = useState<InvestDividend | null>(null);
 
   const accountsById = new Map(data.accounts.map((a) => [a.id, a]));
@@ -94,6 +96,17 @@ export function DividendsTab({
 
   return (
     <div className="space-y-4">
+      <DividendSuggestions
+        data={data}
+        accountFilter={accountFilter}
+        onReload={onReload}
+        onOpenForm={(p) => {
+          setEditing(null);
+          setPrefill(p);
+          setFormOpen(true);
+        }}
+      />
+
       <div className="flex flex-wrap items-center gap-2">
         <select className={cn(inputClass, "w-auto")} value={year} onChange={(e) => setYear(e.target.value)} aria-label="年度">
           <option value="all">全部年度</option>
@@ -118,6 +131,7 @@ export function DividendsTab({
           className="sm:ml-auto"
           onClick={() => {
             setEditing(null);
+            setPrefill(null);
             setFormOpen(true);
           }}
           disabled={data.accounts.length === 0}
@@ -139,7 +153,7 @@ export function DividendsTab({
       {rows.length === 0 ? (
         <div className="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">
           {data.dividends.length === 0
-            ? "還沒有股利紀錄。股利不在買賣對帳單上，請按「新增股利」輸入除息日與每股配息。"
+            ? "還沒有股利紀錄。台股股利會從證交所除權息資料自動偵測（列在上方），也可以按「新增股利」手動輸入。"
             : "沒有符合條件的股利。"}
         </div>
       ) : (
@@ -239,6 +253,7 @@ export function DividendsTab({
         trades={data.trades}
         actions={data.actions}
         dividend={editing}
+        prefill={prefill}
         onSaved={onReload}
       />
       <ConfirmDialog

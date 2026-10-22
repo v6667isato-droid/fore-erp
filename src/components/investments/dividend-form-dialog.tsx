@@ -19,6 +19,14 @@ import {
   todayIso,
 } from "@/components/investments/invest-ui";
 
+/** 從「系統偵測到的股利」開啟表單時預填（持股由交易紀錄自動推算） */
+export type DividendPrefill = {
+  accountId: string;
+  symbol: string;
+  name: string | null;
+  exDate: string;
+};
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -28,6 +36,8 @@ type Props = {
   actions: InvestCorporateAction[];
   /** 編輯既有股利；null＝新增 */
   dividend: InvestDividend | null;
+  /** 新增時預填（dividend 為 null 時才使用） */
+  prefill?: DividendPrefill | null;
   onSaved: () => Promise<void>;
 };
 
@@ -37,11 +47,23 @@ export function DividendFormDialog(props: Props) {
 }
 
 /** 股數、應收、扣款預設由系統試算（undefined＝自動），手動改過就以手動值為準 */
-function DividendForm({ onOpenChange, accounts, defaultAccountId, trades, actions, dividend, onSaved }: Props) {
-  const [accountId, setAccountId] = useState(dividend?.account_id ?? defaultAccountId ?? accounts[0]?.id ?? "");
-  const [symbol, setSymbol] = useState(dividend?.symbol ?? "");
-  const [name, setName] = useState(dividend?.name ?? "");
-  const [exDate, setExDate] = useState(dividend?.ex_date ?? "");
+function DividendForm({
+  onOpenChange,
+  accounts,
+  defaultAccountId,
+  trades,
+  actions,
+  dividend,
+  prefill,
+  onSaved,
+}: Props) {
+  const initial = dividend ? null : prefill;
+  const [accountId, setAccountId] = useState(
+    dividend?.account_id ?? initial?.accountId ?? defaultAccountId ?? accounts[0]?.id ?? ""
+  );
+  const [symbol, setSymbol] = useState(dividend?.symbol ?? initial?.symbol ?? "");
+  const [name, setName] = useState(dividend?.name ?? initial?.name ?? "");
+  const [exDate, setExDate] = useState(dividend?.ex_date ?? initial?.exDate ?? "");
   const [payDate, setPayDate] = useState(dividend?.pay_date ?? "");
   const [cashPerShare, setCashPerShare] = useState<number | null>(dividend?.cash_per_share ?? null);
   const [sharesOverride, setSharesOverride] = useState<number | null | undefined>(dividend?.shares);

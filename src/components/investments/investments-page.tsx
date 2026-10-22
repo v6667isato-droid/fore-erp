@@ -12,6 +12,7 @@ import type {
   InvestAccount,
   InvestCorporateAction,
   InvestDividend,
+  InvestDividendEvent,
   InvestMarketPrice,
   InvestQuote,
   InvestTrade,
@@ -31,6 +32,8 @@ export type InvestData = {
   quotes: InvestQuote[];
   /** 最近收盤價（自動現價）；專案沒有 invest_latest_prices view 時為空，只用手動現價 */
   marketPrices: InvestMarketPrice[];
+  /** 證交所除權息結果（自動偵測未登錄的股利）；專案沒有 invest_dividend_events 表時為空 */
+  dividendEvents: InvestDividendEvent[];
 };
 
 type InvestTab = "holdings" | "trades" | "dividends" | "actions";
@@ -82,6 +85,25 @@ async function fetchMarketPrices(symbols: string[]): Promise<InvestMarketPrice[]
   return ((data ?? []) as InvestMarketPrice[]).map((p) => ({ ...p, price: toNum(p.price) }));
 }
 
+/** 台股交易過的標的、自最早交易日起的除權息結果；表不存在或讀取失敗時回空陣列（股利維持手動輸入） */
+async function fetchDividendEvents(accounts: InvestAccount[], trades: InvestTrade[]): Promise<InvestDividendEvent[]> {
+  const twAccountIds = new Set(accounts.filter((a) => a.market === "TW").map((a) => a.id));
+  const twTrades = trades.filter((t) => twAccountIds.has(t.account_id));
+  if (twTrades.length === 0) return [];
+  const since = twTrades.reduce((min, t) => (t.trade_date < min ? t.trade_date : min), twTrades[0].trade_date);
+  const { data, error } = await investDb
+    .from("invest_dividend_events")
+    .select("symbol, ex_date, name, rights_type, cash_per_share")
+    .in("symbol", [...new Set(twTrades.map((t) => t.symbol))])
+    .gt("ex_date", since)
+    .order("ex_date");
+  if (error) {
+    console.warn("[invest] 讀取除權息資料失敗，股利改為手動輸入：", error.message);
+    return [];
+  }
+  return ((data ?? []) as InvestDividendEvent[]).map((e) => ({ ...e, cash_per_share: toNumOrNull(e.cash_per_share) }));
+}
+
 async function loadInvestData(): Promise<InvestData> {
   const [accounts, trades, actions, dividends, quotes] = await Promise.all([
     fetchAll<InvestAccount>("invest_accounts", ["created_at", "id"]),
@@ -90,7 +112,10 @@ async function loadInvestData(): Promise<InvestData> {
     fetchAll<InvestDividend>("invest_dividends", ["ex_date", "id"]),
     fetchAll<InvestQuote>("invest_quotes", ["symbol"]),
   ]);
-  const marketPrices = await fetchMarketPrices([...new Set(trades.map((t) => t.symbol))]);
+  const [marketPrices, dividendEvents] = await Promise.all([
+    fetchMarketPrices([...new Set(trades.map((t) => t.symbol))]),
+    fetchDividendEvents(accounts, trades),
+  ]);
   return {
     accounts,
     trades: trades.map((t) => ({
@@ -115,6 +140,7 @@ async function loadInvestData(): Promise<InvestData> {
     })),
     quotes: quotes.map((q) => ({ ...q, price: toNum(q.price) })),
     marketPrices,
+    dividendEvents,
   };
 }
 
