@@ -19,5 +19,5 @@ order by stock_code::text, trade_date desc;
 
 comment on view public.invest_latest_prices is '各股最近一個交易日的收盤價（來源 stock_prices，證交所每日收盤）';
 
-revoke all on public.invest_latest_prices from anon;
+revoke all on public.invest_latest_prices from anon, authenticated;
 grant select on public.invest_latest_prices to authenticated;

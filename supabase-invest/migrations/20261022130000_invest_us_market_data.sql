@@ -21,7 +21,7 @@ comment on table public.invest_market_quotes is '美股最近收盤價與匯率�
 alter table public.invest_market_quotes enable row level security;
 create policy invest_market_quotes_read on public.invest_market_quotes
   for select to authenticated using (true);
-revoke all on public.invest_market_quotes from anon;
+revoke all on public.invest_market_quotes from anon, authenticated;
 grant select on public.invest_market_quotes to authenticated;
 
 alter table public.invest_dividend_events

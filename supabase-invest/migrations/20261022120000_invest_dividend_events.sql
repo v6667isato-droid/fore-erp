@@ -24,7 +24,7 @@ comment on column public.invest_dividend_events.cash_per_share is '每股現金�
 alter table public.invest_dividend_events enable row level security;
 create policy invest_dividend_events_read on public.invest_dividend_events
   for select to authenticated using (true);
-revoke all on public.invest_dividend_events from anon;
+revoke all on public.invest_dividend_events from anon, authenticated;
 grant select on public.invest_dividend_events to authenticated;
 
 -- 抓取期間內的除權息結果並 upsert，回傳寫入筆數。只給排程（postgres）執行，不開放 API 呼叫。
