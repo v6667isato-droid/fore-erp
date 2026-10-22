@@ -426,9 +426,22 @@ export function amegoSyncInvoices(days = 60) {
   }>({ action: "sync", days });
 }
 
-/** 下載發票 PDF 並以「買方名稱_發票號碼.pdf」存檔 */
+/** 發票 PDF 存檔檔名：「yymmdd_買方名稱_發票號碼」（yymmdd＝發票日期，如 261022） */
+export function salesInvoicePdfFileName(
+  invoice: Pick<SalesInvoiceRow, "invoice_number" | "invoice_date" | "buyer_name">,
+): string {
+  const m = /^\d{2}(\d{2})-(\d{2})-(\d{2})/.exec(invoice.invoice_date ?? "");
+  const yymmdd = m ? `${m[1]}${m[2]}${m[3]}` : "";
+  const name = [yymmdd, invoice.buyer_name?.trim(), invoice.invoice_number]
+    .filter(Boolean)
+    .join("_")
+    .replace(/[\\/:*?"<>|]/g, "");
+  return `${name || "發票"}.pdf`;
+}
+
+/** 下載發票 PDF 並以「yymmdd_買方名稱_發票號碼.pdf」存檔 */
 export async function amegoDownloadInvoicePdf(
-  invoice: Pick<SalesInvoiceRow, "id" | "invoice_number" | "buyer_name">,
+  invoice: Pick<SalesInvoiceRow, "id" | "invoice_number" | "invoice_date" | "buyer_name">,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const {
     data: { session },
@@ -446,14 +459,10 @@ export async function amegoDownloadInvoicePdf(
       return { ok: false, error: json.error ?? `發票 PDF 下載失敗（HTTP ${res.status}）` };
     }
     const blob = await res.blob();
-    const name = [invoice.buyer_name?.trim(), invoice.invoice_number]
-      .filter(Boolean)
-      .join("_")
-      .replace(/[\\/:*?"<>|]/g, "");
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${name || "發票"}.pdf`;
+    a.download = salesInvoicePdfFileName(invoice);
     a.click();
     URL.revokeObjectURL(url);
     return { ok: true };
