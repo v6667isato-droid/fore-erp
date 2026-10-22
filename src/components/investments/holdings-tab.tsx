@@ -95,6 +95,10 @@ function totalInTwd(summaries: CurrencySummary[], usdTwd: number): CurrencySumma
 const CURRENCY_LABELS: Record<string, string> = { TWD: "台幣", USD: "美元" };
 
 function SummaryBlock({ s, title, note }: { s: CurrencySummary; title?: string; note?: string }) {
+  const totalPnl = s.unrealized + s.realized + s.dividends;
+  // 損益率以目前持股成本為分母（已出清部分的成本不在持股成本內，已實現損益與股利仍計入分子）
+  const pnlRate = s.cost > 0 ? totalPnl / s.cost : null;
+  const unrealizedRate = s.cost > 0 ? s.unrealized / s.cost : null;
   return (
     <div className="space-y-2">
       {(title || note) && (
@@ -103,7 +107,7 @@ function SummaryBlock({ s, title, note }: { s: CurrencySummary; title?: string; 
           {note && <span className="text-muted-foreground">{note}</span>}
         </div>
       )}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
         <SummaryCard label="持股成本" value={formatMoney(s.cost, s.currency)} />
         <SummaryCard
           label="市值"
@@ -120,9 +124,15 @@ function SummaryBlock({ s, title, note }: { s: CurrencySummary; title?: string; 
         <SummaryCard label="已入帳股利" value={formatMoney(s.dividends, s.currency)} />
         <SummaryCard
           label="總損益"
-          value={formatMoney(s.unrealized + s.realized + s.dividends, s.currency)}
-          valueClassName={pnlClass(s.unrealized + s.realized + s.dividends)}
+          value={formatMoney(totalPnl, s.currency)}
+          valueClassName={pnlClass(totalPnl)}
           hint="未實現＋已實現＋股利"
+        />
+        <SummaryCard
+          label="損益率"
+          value={formatPercent(pnlRate)}
+          valueClassName={pnlClass(pnlRate)}
+          hint={`總損益 ÷ 持股成本；未實現 ${formatPercent(unrealizedRate)}`}
         />
       </div>
     </div>
