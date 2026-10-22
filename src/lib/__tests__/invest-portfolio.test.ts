@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computePortfolio, holdingBefore, valuePosition } from "@/lib/invest-portfolio";
+import { computePortfolio, holdingBefore, resolvePrice, valuePosition } from "@/lib/invest-portfolio";
 import type { InvestCorporateAction, InvestTrade } from "@/lib/invest-types";
 
 let seq = 0;
@@ -141,6 +141,33 @@ describe("holdingBefore", () => {
   it("其他帳戶或標的不計入", () => {
     expect(holdingBefore(trades, actions, "other", "0050", "2025-07-18")).toBe(0);
     expect(holdingBefore(trades, actions, "acc", "2330", "2025-07-18")).toBe(0);
+  });
+});
+
+describe("resolvePrice", () => {
+  // 時間取 UTC 中午前後，台灣與 UTC 都落在同一天，測試不受執行環境時區影響
+  const market = { price: 107.25, trade_date: "2026-10-20" };
+
+  it("沒有手動現價時用收盤價", () => {
+    expect(resolvePrice(undefined, market)).toEqual({ price: 107.25, source: "market", date: "2026-10-20" });
+  });
+
+  it("手動現價比收盤價日期新時用手動（盤中更新）", () => {
+    expect(resolvePrice({ price: 109, updated_at: "2026-10-22T03:00:00Z" }, market)).toEqual({
+      price: 109,
+      source: "manual",
+      date: "2026-10-22",
+    });
+  });
+
+  it("同一天或更舊的手動現價被收盤價取代", () => {
+    expect(resolvePrice({ price: 109, updated_at: "2026-10-20T03:00:00Z" }, market)?.source).toBe("market");
+    expect(resolvePrice({ price: 109, updated_at: "2026-09-01T03:00:00Z" }, market)?.source).toBe("market");
+  });
+
+  it("沒有收盤價（如美股）時用手動，兩者都沒有回 null", () => {
+    expect(resolvePrice({ price: 640, updated_at: "2026-09-01T03:00:00Z" }, undefined)?.source).toBe("manual");
+    expect(resolvePrice(undefined, undefined)).toBeNull();
   });
 });
 

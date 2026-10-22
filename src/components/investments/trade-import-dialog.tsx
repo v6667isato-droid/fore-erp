@@ -119,7 +119,7 @@ function TradeImport({ onOpenChange, accounts, defaultAccountId, existingTrades,
       onOpenChange={onOpenChange}
       wide
       title="匯入買賣對帳單"
-      description="支援 Excel（.xlsx）與 CSV。已匯入過的交易（同成交日、委託單號、代號、數量、價格）會自動略過，可以放心重複匯入。"
+      description="台股買賣對帳單、複委託對帳單都可以（Excel .xlsx 或 CSV）。已匯入過的交易（同成交日、委託單號、代號、數量、價格）會自動略過，可以放心重複匯入。"
       footer={
         <>
           <Button type="button" onClick={() => void handleImport()} disabled={saving || fresh.length === 0}>

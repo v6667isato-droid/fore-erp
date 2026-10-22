@@ -109,6 +109,64 @@ describe("parseStatementRows", () => {
     expect(r.trades[0].trade_date).toBe("2024-01-06");
   });
 
+  describe("複委託對帳單", () => {
+    const US_HEADER = [
+      "成交日", "市場", "商品", "買賣", "成交量", "成交均價", "成交價金", "手續費", "交易稅", "印花稅",
+      "交所稅", "匯費", "管理費", "服務費", "交易徵費", "淨收付", "交割日", "計價幣別", "交割方式",
+    ];
+
+    it("標題錯一欄（市場欄放代號）、B／S、日期 20250509、淨收付為負數、其他費用併入手續費", () => {
+      const r = parseStatementRows([
+        US_HEADER,
+        ["20250509", "VT.US", "Vanguard Total World Stock ETF", "B", "2", "118.8", "237.6", "0.36", "0", "0", "0", "0", "0", "0", "0", "-237.96", "20250512", "USD", null],
+        ["20260610", "BND.US", "Vanguard Total Bond Market ETF", "S", "20", "73", "1460", "1.17", "0.04", "0", "0.01", "0", "0", "0", "0", "1458.78", "20260612", "USD", null],
+      ]);
+      expect(r.errors).toEqual([]);
+      expect(r.trades).toEqual([
+        {
+          row: 2,
+          trade_date: "2025-05-09",
+          symbol: "VT",
+          name: "Vanguard Total World Stock ETF",
+          side: "buy",
+          quantity: 2,
+          price: 118.8,
+          amount: 237.6,
+          fee: 0.36,
+          tax: 0,
+          net_amount: 237.96,
+          currency: "USD",
+          order_no: null,
+          dedupe_key: "2025-05-09||VT|buy|2|118.8",
+        },
+        {
+          row: 3,
+          trade_date: "2026-06-10",
+          symbol: "BND",
+          name: "Vanguard Total Bond Market ETF",
+          side: "sell",
+          quantity: 20,
+          price: 73,
+          amount: 1460,
+          fee: 1.18,
+          tax: 0.04,
+          net_amount: 1458.78,
+          currency: "USD",
+          order_no: null,
+          dedupe_key: "2026-06-10||BND|sell|20|73",
+        },
+      ]);
+    });
+
+    it("台幣交割時淨收付是台幣，改用價金與費用推算美元淨額", () => {
+      const r = parseStatementRows([
+        US_HEADER,
+        ["20250509", "VT.US", "Vanguard Total World Stock ETF", "B", "2", "118.8", "237.6", "0.36", "0", "0", "0", "0", "0", "0", "0", "-7700", "20250512", "USD", "台幣"],
+      ]);
+      expect(r.trades[0].net_amount).toBeCloseTo(237.96, 6);
+    });
+  });
+
   it("找不到標題列時回 headerFound=false", () => {
     expect(parseStatementRows([["日期", "摘要", "金額"]]).headerFound).toBe(false);
   });
@@ -120,6 +178,9 @@ describe("parseStatementDate", () => {
     expect(parseStatementDate("2024-5-7")).toBe("2024-05-07");
     expect(parseStatementDate("113/05/07")).toBe("2024-05-07");
     expect(parseStatementDate("2024年5月7日")).toBe("2024-05-07");
+    expect(parseStatementDate("20250509")).toBe("2025-05-09");
+    expect(parseStatementDate("1150626")).toBe("2026-06-26");
+    expect(parseStatementDate("20251301")).toBeNull();
     expect(parseStatementDate(new Date(Date.UTC(2024, 4, 7)))).toBe("2024-05-07");
     expect(parseStatementDate(45419)).toBe("2024-05-07");
     expect(parseStatementDate("2024/02/30")).toBeNull();

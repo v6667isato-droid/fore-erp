@@ -7,7 +7,13 @@ import { Button } from "@/components/ui/button";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { investDb } from "@/lib/invest-client";
-import { valuePosition, type PortfolioResult, type Position } from "@/lib/invest-portfolio";
+import {
+  resolvePrice,
+  valuePosition,
+  type PortfolioResult,
+  type Position,
+  type ResolvedPrice,
+} from "@/lib/invest-portfolio";
 import type { InvestData } from "@/components/investments/investments-page";
 import {
   formatMoney,
@@ -22,7 +28,7 @@ type CurrencySummary = {
   cost: number;
   marketValue: number;
   unrealized: number;
-  /** 有持股但沒填現價的檔數；> 0 時市值不完整 */
+  /** 有持股但沒有現價（無收盤價也沒手動輸入）的檔數；> 0 時市值不完整 */
   unpriced: number;
   realized: number;
   dividends: number;
@@ -30,7 +36,7 @@ type CurrencySummary = {
 
 function summarize(
   positions: Position[],
-  quoteBySymbol: Map<string, number>,
+  priceBySymbol: Map<string, number>,
   dividends: InvestData["dividends"]
 ): CurrencySummary[] {
   const map = new Map<string, CurrencySummary>();
@@ -47,7 +53,7 @@ function summarize(
     s.realized += p.realizedPnl;
     if (p.quantity <= 0) continue;
     s.cost += p.cost;
-    const v = valuePosition(p, quoteBySymbol.get(p.symbol));
+    const v = valuePosition(p, priceBySymbol.get(p.symbol));
     if (v) {
       s.marketValue += v.marketValue;
       s.unrealized += v.unrealizedPnl;
@@ -79,14 +85,21 @@ export function HoldingsTab({
   const [priceDrafts, setPriceDrafts] = useState<Record<string, number | null>>({});
 
   const accountsById = new Map(data.accounts.map((a) => [a.id, a]));
-  const quoteBySymbol = new Map(data.quotes.map((q) => [q.symbol, q.price]));
+  const quoteBySymbol = new Map(data.quotes.map((q) => [q.symbol, q]));
+  const marketBySymbol = new Map(data.marketPrices.map((m) => [m.symbol, m]));
+  const resolvedBySymbol = new Map<string, ResolvedPrice>();
+  for (const p of portfolio.positions) {
+    const r = resolvePrice(quoteBySymbol.get(p.symbol), marketBySymbol.get(p.symbol));
+    if (r) resolvedBySymbol.set(p.symbol, r);
+  }
+  const priceBySymbol = new Map([...resolvedBySymbol].map(([symbol, r]) => [symbol, r.price]));
   const inFilter = (accountId: string) => accountFilter === "all" || accountId === accountFilter;
   const positions = portfolio.positions.filter((p) => inFilter(p.accountId));
   const shown = showClosed ? positions : positions.filter((p) => p.quantity !== 0);
   const showAccount = accountFilter === "all" && data.accounts.length > 1;
   const summaries = summarize(
     positions,
-    quoteBySymbol,
+    priceBySymbol,
     data.dividends.filter((d) => inFilter(d.account_id))
   );
 
@@ -101,12 +114,13 @@ export function HoldingsTab({
   async function savePrice(symbol: string) {
     if (!(symbol in priceDrafts)) return;
     const draft = priceDrafts[symbol];
-    const current = quoteBySymbol.get(symbol) ?? null;
-    if (draft !== current) {
-      const { error } =
-        draft == null
-          ? await investDb.from("invest_quotes").delete().eq("symbol", symbol)
-          : await investDb.from("invest_quotes").upsert({ symbol, price: draft }, { onConflict: "owner_id,symbol" });
+    // 清空＝刪掉手動現價、改回收盤價；輸入和目前顯示的價格不同才存成手動現價
+    const shouldDelete = draft == null && quoteBySymbol.has(symbol);
+    const shouldSave = draft != null && draft !== resolvedBySymbol.get(symbol)?.price;
+    if (shouldDelete || shouldSave) {
+      const { error } = shouldDelete
+        ? await investDb.from("invest_quotes").delete().eq("symbol", symbol)
+        : await investDb.from("invest_quotes").upsert({ symbol, price: draft }, { onConflict: "owner_id,symbol" });
       if (error) {
         toast.error(`儲存現價失敗：${error.message}`);
         return;
@@ -171,7 +185,9 @@ export function HoldingsTab({
       ))}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">現價請手動輸入，離開欄位後自動儲存；平均成本含買進手續費。</p>
+        <p className="text-xs text-muted-foreground">
+          現價自動帶入最近收盤價；盤中可手動改（離開欄位後儲存），有更新的收盤價時自動換回。沒有收盤價的標的（如美股）請手動輸入。平均成本含買進手續費。
+        </p>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
           顯示已出清
@@ -201,8 +217,8 @@ export function HoldingsTab({
             </TableHeader>
             <TableBody>
               {shown.map((p) => {
-                const draft = priceDrafts[p.symbol];
-                const price = p.symbol in priceDrafts ? draft : (quoteBySymbol.get(p.symbol) ?? null);
+                const resolved = resolvedBySymbol.get(p.symbol);
+                const price = p.symbol in priceDrafts ? priceDrafts[p.symbol] : (resolved?.price ?? null);
                 const v = p.quantity > 0 ? valuePosition(p, price) : null;
                 return (
                   <TableRow key={`${p.accountId}|${p.symbol}`}>
@@ -231,6 +247,14 @@ export function HoldingsTab({
                         />
                       ) : (
                         "—"
+                      )}
+                      {p.quantity > 0 && resolved && !(p.symbol in priceDrafts) && (
+                        <div
+                          className="mt-0.5 text-[11px] text-muted-foreground"
+                          title={resolved.source === "manual" ? "手動輸入；有更新的收盤價時自動換回收盤價" : undefined}
+                        >
+                          {resolved.source === "market" ? `${resolved.date.slice(5).replace("-", "/")} 收盤` : "手動"}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">

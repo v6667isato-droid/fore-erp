@@ -157,6 +157,27 @@ export function holdingBefore(
   return Math.max(positions[0]?.quantity ?? 0, 0);
 }
 
+export type ResolvedPrice = { price: number; source: "manual" | "market"; date: string };
+
+function localIsoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * 現價：預設用最近收盤價；手動輸入的價格比收盤價日期新時才採用（例如盤中手動更新），
+ * 下一個收盤價進來後自動換回收盤價。
+ */
+export function resolvePrice(
+  quote: { price: number; updated_at: string } | undefined,
+  market: { price: number; trade_date: string } | undefined
+): ResolvedPrice | null {
+  if (quote) {
+    const manualDate = localIsoDate(new Date(quote.updated_at));
+    if (!market || manualDate > market.trade_date) return { price: quote.price, source: "manual", date: manualDate };
+  }
+  return market ? { price: market.price, source: "market", date: market.trade_date } : null;
+}
+
 /** 依現價估算市值與未實現損益；沒有現價時回 null */
 export function valuePosition(
   p: Pick<Position, "quantity" | "cost">,

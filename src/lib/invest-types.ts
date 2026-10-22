@@ -77,6 +77,13 @@ export type InvestQuote = {
   updated_at: string;
 };
 
+/** 最近一個交易日收盤價（invest_latest_prices view；來源為每日抓的證交所收盤價） */
+export type InvestMarketPrice = {
+  symbol: string;
+  price: number;
+  trade_date: string;
+};
+
 export const CORPORATE_ACTION_LABELS: Record<CorporateActionType, string> = {
   split: "拆股",
   stock_dividend: "配股",

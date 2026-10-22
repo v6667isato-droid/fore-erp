@@ -12,6 +12,7 @@ import type {
   InvestAccount,
   InvestCorporateAction,
   InvestDividend,
+  InvestMarketPrice,
   InvestQuote,
   InvestTrade,
 } from "@/lib/invest-types";
@@ -28,6 +29,8 @@ export type InvestData = {
   actions: InvestCorporateAction[];
   dividends: InvestDividend[];
   quotes: InvestQuote[];
+  /** 最近收盤價（自動現價）；專案沒有 invest_latest_prices view 時為空，只用手動現價 */
+  marketPrices: InvestMarketPrice[];
 };
 
 type InvestTab = "holdings" | "trades" | "dividends" | "actions";
@@ -65,6 +68,20 @@ function toNumOrNull(v: unknown): number | null {
   return v == null ? null : toNum(v);
 }
 
+/** 交易過的標的最近收盤價；view 不存在或讀取失敗時回空陣列（退回手動現價），不擋整頁 */
+async function fetchMarketPrices(symbols: string[]): Promise<InvestMarketPrice[]> {
+  if (symbols.length === 0) return [];
+  const { data, error } = await investDb
+    .from("invest_latest_prices")
+    .select("symbol, price, trade_date")
+    .in("symbol", symbols);
+  if (error) {
+    console.warn("[invest] 讀取收盤價失敗，改用手動現價：", error.message);
+    return [];
+  }
+  return ((data ?? []) as InvestMarketPrice[]).map((p) => ({ ...p, price: toNum(p.price) }));
+}
+
 async function loadInvestData(): Promise<InvestData> {
   const [accounts, trades, actions, dividends, quotes] = await Promise.all([
     fetchAll<InvestAccount>("invest_accounts", ["created_at", "id"]),
@@ -73,6 +90,7 @@ async function loadInvestData(): Promise<InvestData> {
     fetchAll<InvestDividend>("invest_dividends", ["ex_date", "id"]),
     fetchAll<InvestQuote>("invest_quotes", ["symbol"]),
   ]);
+  const marketPrices = await fetchMarketPrices([...new Set(trades.map((t) => t.symbol))]);
   return {
     accounts,
     trades: trades.map((t) => ({
@@ -96,6 +114,7 @@ async function loadInvestData(): Promise<InvestData> {
       net_amount: toNum(d.net_amount),
     })),
     quotes: quotes.map((q) => ({ ...q, price: toNum(q.price) })),
+    marketPrices,
   };
 }
 
