@@ -33,11 +33,11 @@ export type PortfolioResult = {
   warnings: PortfolioWarning[];
 };
 
-type PortfolioTrade = Pick<
+export type PortfolioTrade = Pick<
   InvestTrade,
   "id" | "account_id" | "trade_date" | "symbol" | "name" | "side" | "quantity" | "net_amount" | "currency"
 >;
-type PortfolioAction = Pick<
+export type PortfolioAction = Pick<
   InvestCorporateAction,
   "account_id" | "symbol" | "action_date" | "type" | "ratio" | "quantity"
 >;
@@ -176,6 +176,23 @@ export function resolvePrice(
     if (!market || manualDate > market.trade_date) return { price: quote.price, source: "manual", date: manualDate };
   }
   return market ? { price: market.price, source: "market", date: market.trade_date } : null;
+}
+
+/** 每檔現價（手動現價與最近收盤價擇新）；兩者都沒有的代號不列入 */
+export function resolvePrices(
+  symbols: Iterable<string>,
+  quotes: { symbol: string; price: number; updated_at: string }[],
+  marketPrices: { symbol: string; price: number; trade_date: string }[]
+): Map<string, ResolvedPrice> {
+  const quoteBySymbol = new Map(quotes.map((q) => [q.symbol, q]));
+  const marketBySymbol = new Map(marketPrices.map((m) => [m.symbol, m]));
+  const resolved = new Map<string, ResolvedPrice>();
+  for (const symbol of symbols) {
+    if (resolved.has(symbol)) continue;
+    const r = resolvePrice(quoteBySymbol.get(symbol), marketBySymbol.get(symbol));
+    if (r) resolved.set(symbol, r);
+  }
+  return resolved;
 }
 
 /** 依現價估算市值與未實現損益；沒有現價時回 null */

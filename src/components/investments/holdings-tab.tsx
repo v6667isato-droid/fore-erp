@@ -8,12 +8,11 @@ import { NumericInput } from "@/components/ui/numeric-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { investDb } from "@/lib/invest-client";
 import {
-  resolvePrice,
+  resolvePrices,
   toTwd,
   valuePosition,
   type PortfolioResult,
   type Position,
-  type ResolvedPrice,
 } from "@/lib/invest-portfolio";
 import type { InvestData } from "@/components/investments/investments-page";
 import {
@@ -95,6 +94,10 @@ function totalInTwd(summaries: CurrencySummary[], usdTwd: number): CurrencySumma
 const CURRENCY_LABELS: Record<string, string> = { TWD: "台幣", USD: "美元" };
 
 function SummaryBlock({ s, title, note }: { s: CurrencySummary; title?: string; note?: string }) {
+  const totalPnl = s.unrealized + s.realized + s.dividends;
+  // 損益率以目前持股成本為分母（已出清部分的成本不在持股成本內，已實現損益與股利仍計入分子）
+  const pnlRate = s.cost > 0 ? totalPnl / s.cost : null;
+  const unrealizedRate = s.cost > 0 ? s.unrealized / s.cost : null;
   return (
     <div className="space-y-2">
       {(title || note) && (
@@ -103,7 +106,7 @@ function SummaryBlock({ s, title, note }: { s: CurrencySummary; title?: string; 
           {note && <span className="text-muted-foreground">{note}</span>}
         </div>
       )}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
         <SummaryCard label="持股成本" value={formatMoney(s.cost, s.currency)} />
         <SummaryCard
           label="市值"
@@ -120,9 +123,15 @@ function SummaryBlock({ s, title, note }: { s: CurrencySummary; title?: string; 
         <SummaryCard label="已入帳股利" value={formatMoney(s.dividends, s.currency)} />
         <SummaryCard
           label="總損益"
-          value={formatMoney(s.unrealized + s.realized + s.dividends, s.currency)}
-          valueClassName={pnlClass(s.unrealized + s.realized + s.dividends)}
+          value={formatMoney(totalPnl, s.currency)}
+          valueClassName={pnlClass(totalPnl)}
           hint="未實現＋已實現＋股利"
+        />
+        <SummaryCard
+          label="損益率"
+          value={formatPercent(pnlRate)}
+          valueClassName={pnlClass(pnlRate)}
+          hint={`總損益 ÷ 持股成本；未實現 ${formatPercent(unrealizedRate)}`}
         />
       </div>
     </div>
@@ -148,12 +157,11 @@ export function HoldingsTab({
 
   const accountsById = new Map(data.accounts.map((a) => [a.id, a]));
   const quoteBySymbol = new Map(data.quotes.map((q) => [q.symbol, q]));
-  const marketBySymbol = new Map(data.marketPrices.map((m) => [m.symbol, m]));
-  const resolvedBySymbol = new Map<string, ResolvedPrice>();
-  for (const p of portfolio.positions) {
-    const r = resolvePrice(quoteBySymbol.get(p.symbol), marketBySymbol.get(p.symbol));
-    if (r) resolvedBySymbol.set(p.symbol, r);
-  }
+  const resolvedBySymbol = resolvePrices(
+    portfolio.positions.map((p) => p.symbol),
+    data.quotes,
+    data.marketPrices
+  );
   const priceBySymbol = new Map([...resolvedBySymbol].map(([symbol, r]) => [symbol, r.price]));
   const inFilter = (accountId: string) => accountFilter === "all" || accountId === accountFilter;
   const positions = portfolio.positions.filter((p) => inFilter(p.accountId));
