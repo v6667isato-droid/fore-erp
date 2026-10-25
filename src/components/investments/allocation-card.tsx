@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Cell, HeadCell, InvestTable, Row } from "@/components/investments/invest-table";
 import { cn } from "@/lib/utils";
 import type { Allocation } from "@/lib/invest-charts";
 import type { InvestMarket } from "@/lib/invest-types";
@@ -34,40 +34,40 @@ export function AllocationCard({ allocation, fxNote }: { allocation: Allocation;
       {total <= 0 ? (
         <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">目前沒有持股</div>
       ) : showTable ? (
-        <Table wrapperClassName="rounded-lg border border-border">
-          <TableHeader>
-            <TableRow>
-              <TableHead>標的</TableHead>
-              <TableHead>市場</TableHead>
-              <TableHead className="text-right">市值（台幣）</TableHead>
-              <TableHead className="text-right">占比</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <InvestTable minWidth={440} className="rounded-lg border border-border">
+          <thead>
+            <tr>
+              <HeadCell sticky>標的</HeadCell>
+              <HeadCell>市場</HeadCell>
+              <HeadCell align="right">市值（台幣）</HeadCell>
+              <HeadCell align="right">占比</HeadCell>
+            </tr>
+          </thead>
+          <tbody>
             {items.map((i) => (
-              <TableRow key={`${i.market}|${i.symbol}`}>
-                <TableCell>
+              <Row key={`${i.market}|${i.symbol}`}>
+                <Cell sticky>
                   <div className="font-medium">{i.symbol}</div>
                   <div className="text-xs text-muted-foreground">{i.name ?? ""}</div>
-                </TableCell>
-                <TableCell>{MARKET_LABELS[i.market]}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatMoney(i.value)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatShare(i.share)}</TableCell>
-              </TableRow>
+                </Cell>
+                <Cell>{MARKET_LABELS[i.market]}</Cell>
+                <Cell align="right">{formatMoney(i.value)}</Cell>
+                <Cell align="right">{formatShare(i.share)}</Cell>
+              </Row>
             ))}
             {others && (
-              <TableRow>
-                <TableCell>
+              <Row>
+                <Cell sticky>
                   <div className="font-medium">其他 {others.symbols.length} 檔</div>
                   <div className="text-xs text-muted-foreground">{others.symbols.join("、")}</div>
-                </TableCell>
-                <TableCell>—</TableCell>
-                <TableCell className="text-right tabular-nums">{formatMoney(others.value)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatShare(others.share)}</TableCell>
-              </TableRow>
+                </Cell>
+                <Cell>—</Cell>
+                <Cell align="right">{formatMoney(others.value)}</Cell>
+                <Cell align="right">{formatShare(others.share)}</Cell>
+              </Row>
             )}
-          </TableBody>
-        </Table>
+          </tbody>
+        </InvestTable>
       ) : (
         <div className="space-y-4">
           {byMarket.length > 1 && (

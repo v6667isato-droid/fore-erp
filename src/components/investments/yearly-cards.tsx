@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Cell, HeadCell, InvestTable, Row } from "@/components/investments/invest-table";
 import { formatTwdShort, niceScale, type YearSummary } from "@/lib/invest-charts";
-import { formatMoney, pnlClass } from "@/components/investments/invest-ui";
+import { formatMoney, formatSignedMoney, pnlClass } from "@/components/investments/invest-ui";
 import {
   ChartCard,
   chartColors,
-  formatSignedMoney,
   roundedBottomPath,
   roundedTopPath,
   TableToggle,
@@ -28,22 +27,22 @@ export function RealizedChartCard({ rows }: { rows: { year: string; value: numbe
       {rows.length === 0 ? (
         <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">還沒有賣出紀錄</div>
       ) : showTable ? (
-        <Table wrapperClassName="rounded-lg border border-border">
-          <TableHeader>
-            <TableRow>
-              <TableHead>年度</TableHead>
-              <TableHead className="text-right">已實現損益</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <InvestTable minWidth={260} className="rounded-lg border border-border">
+          <thead>
+            <tr>
+              <HeadCell sticky>年度</HeadCell>
+              <HeadCell align="right">已實現損益</HeadCell>
+            </tr>
+          </thead>
+          <tbody>
             {[...rows].reverse().map((r) => (
-              <TableRow key={r.year}>
-                <TableCell className="tabular-nums">{r.year}</TableCell>
-                <TableCell className={`text-right tabular-nums ${pnlClass(r.value)}`}>{formatSignedMoney(r.value)}</TableCell>
-              </TableRow>
+              <Row key={r.year}>
+                <Cell sticky className="tabular-nums">{r.year}</Cell>
+                <Cell align="right" className={pnlClass(r.value)}>{formatSignedMoney(r.value)}</Cell>
+              </Row>
             ))}
-          </TableBody>
-        </Table>
+          </tbody>
+        </InvestTable>
       ) : (
         <RealizedPlot rows={rows} />
       )}
@@ -119,6 +118,9 @@ function RealizedPlot({ rows }: { rows: { year: string; value: number }[] }) {
   );
 }
 
+/** 合計列（凍結欄的儲存格有自己的底色，所以底色要加在每個儲存格上） */
+const totalRowClass = "font-semibold [&>*]:bg-[color-mix(in_srgb,var(--color-muted)_45%,var(--color-card))]";
+
 /** 年度彙總：股利＋已實現損益（報稅、年度檢討用） */
 export function YearlySummaryCard({
   rows,
@@ -140,33 +142,33 @@ export function YearlySummaryCard({
       {rows.length === 0 ? (
         <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">還沒有股利或賣出紀錄</div>
       ) : (
-        <Table wrapperClassName="rounded-lg border border-border">
-          <TableHeader>
-            <TableRow>
-              <TableHead>年度</TableHead>
-              <TableHead className="text-right">{split ? "股利（台股）" : "股利"}</TableHead>
-              {split && <TableHead className="text-right">股利（美股）</TableHead>}
-              <TableHead className="text-right">已實現損益</TableHead>
-              <TableHead className="text-right">合計</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <InvestTable minWidth={520} className="rounded-lg border border-border">
+          <thead>
+            <tr>
+              <HeadCell sticky>年度</HeadCell>
+              <HeadCell align="right">{split ? "股利（台股）" : "股利"}</HeadCell>
+              {split && <HeadCell align="right">股利（美股）</HeadCell>}
+              <HeadCell align="right">已實現損益</HeadCell>
+              <HeadCell align="right">合計</HeadCell>
+            </tr>
+          </thead>
+          <tbody>
             {[...rows, total].map((r) => {
               const isTotal = r === total;
               return (
-                <TableRow key={r.year} className={isTotal ? "bg-muted/40 font-semibold" : undefined}>
-                  <TableCell className={isTotal ? undefined : "font-medium tabular-nums"}>{r.year}</TableCell>
-                  <TableCell className="text-right tabular-nums">
+                <Row key={r.year} className={isTotal ? totalRowClass : undefined}>
+                  <Cell sticky className={isTotal ? undefined : "font-medium tabular-nums"}>{r.year}</Cell>
+                  <Cell align="right">
                     {formatMoney(split ? r.dividendsTw : r.dividendsTw + r.dividendsUs)}
-                  </TableCell>
-                  {split && <TableCell className="text-right tabular-nums">{formatMoney(r.dividendsUs)}</TableCell>}
-                  <TableCell className={`text-right tabular-nums ${pnlClass(r.realized)}`}>{formatSignedMoney(r.realized)}</TableCell>
-                  <TableCell className="text-right font-semibold tabular-nums">{formatMoney(r.total)}</TableCell>
-                </TableRow>
+                  </Cell>
+                  {split && <Cell align="right">{formatMoney(r.dividendsUs)}</Cell>}
+                  <Cell align="right" className={pnlClass(r.realized)}>{formatSignedMoney(r.realized)}</Cell>
+                  <Cell align="right" className="font-semibold">{formatMoney(r.total)}</Cell>
+                </Row>
               );
             })}
-          </TableBody>
-        </Table>
+          </tbody>
+        </InvestTable>
       )}
     </ChartCard>
   );

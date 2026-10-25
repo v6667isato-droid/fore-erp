@@ -3,7 +3,6 @@
 import { useCallback, useId, useState } from "react";
 import { BarChart3, Table2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatMoney } from "@/components/investments/invest-ui";
 
 /** 圖表配色：類別固定（台股藍、美股橘，每張圖一致），漲跌照台股慣例（紅漲綠跌） */
 export const chartColors = {
@@ -37,11 +36,6 @@ export function useElementWidth<T extends HTMLElement>(): [(el: T | null) => (()
     return () => observer.disconnect();
   }, []);
   return [ref, width];
-}
-
-/** 正數加「+」的金額（台幣到元） */
-export function formatSignedMoney(n: number): string {
-  return `${n > 0 ? "+" : ""}${formatMoney(n)}`;
 }
 
 /** 頂端圓角的長條（資料端 4px 圓角，貼齊基準線的一端維持直角） */
@@ -101,40 +95,6 @@ export function TableToggle({ showTable, onChange }: { showTable: boolean; onCha
       {showTable ? <BarChart3 className="h-3.5 w-3.5" /> : <Table2 className="h-3.5 w-3.5" />}
       {showTable ? "圖表" : "表格"}
     </button>
-  );
-}
-
-/** 小型分段選擇（例如股利的月／年） */
-export function Segmented<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: { value: T; label: string }[];
-  value: T;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div role="group" aria-label={label} className="flex gap-0.5 rounded-md border border-border bg-muted/40 p-0.5">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          aria-pressed={value === o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            "h-7 min-w-9 rounded px-2.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-ring",
-            value === o.value
-              ? "border border-border bg-card text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
   );
 }
 

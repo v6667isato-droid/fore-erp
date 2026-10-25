@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { useId, useState } from "react";
+import { GitFork, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { NumericInput } from "@/components/ui/numeric-input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { investDb } from "@/lib/invest-client";
 import { holdingBefore } from "@/lib/invest-portfolio";
 import {
@@ -15,12 +14,14 @@ import {
   type InvestCorporateAction,
 } from "@/lib/invest-types";
 import type { InvestData } from "@/components/investments/investments-page";
+import { Cell, HeadCell, InvestTable, Row } from "@/components/investments/invest-table";
 import {
   AccountSelect,
   formatNumber,
   InvestDialog,
   inputClass,
   labelClass,
+  Panel,
 } from "@/components/investments/invest-ui";
 
 type Prefill = { accountId: string; symbol: string };
@@ -46,6 +47,7 @@ export function CorporateActionsTab({
   const [formPrefill, setFormPrefill] = useState<Prefill | null>(prefill);
   const [editing, setEditing] = useState<InvestCorporateAction | null>(null);
   const [deleting, setDeleting] = useState<InvestCorporateAction | null>(null);
+  const introId = useId();
 
   const accountsById = new Map(data.accounts.map((a) => [a.id, a]));
   const showAccount = accountFilter === "all" && data.accounts.length > 1;
@@ -66,12 +68,24 @@ export function CorporateActionsTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-          買賣對帳單上不會有拆股、配股，但它們會改變股數。例如 0050 在 2025 年 6 月一拆四，沒補登的話之後賣出會被當成賣超。
-        </p>
+      <section
+        aria-labelledby={introId}
+        className="flex flex-wrap items-center gap-4 rounded-xl border border-border bg-card p-4 sm:px-5"
+      >
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+          <GitFork className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1 basis-72 space-y-1">
+          <h2 id={introId} className="text-sm font-semibold text-foreground">
+            拆股、配股要手動補登
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            買賣對帳單上不會有拆股和配股，但它們會改變股數。例如 0050 在 2025 年 6 月一拆四，沒補登的話之後賣出會被當成「賣超」，持股頁也會出現提醒。
+          </p>
+        </div>
         <Button
           type="button"
+          className="h-10 w-full sm:h-9 sm:w-auto"
           onClick={() => {
             setEditing(null);
             setFormPrefill(null);
@@ -82,71 +96,100 @@ export function CorporateActionsTab({
           <Plus className="h-4 w-4" />
           新增拆股／配股
         </Button>
-      </div>
+      </section>
 
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
           還沒有拆股或配股紀錄。
         </div>
       ) : (
-        <div className="rounded-lg border border-border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>生效日</TableHead>
-                {showAccount && <TableHead>帳戶</TableHead>}
-                <TableHead>標的</TableHead>
-                <TableHead>類型</TableHead>
-                <TableHead>內容</TableHead>
-                <TableHead>備註</TableHead>
-                <TableHead className="w-20" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((a) => (
-                <TableRow key={a.id}>
-                  <TableCell className="tabular-nums">{a.action_date}</TableCell>
-                  {showAccount && <TableCell>{accountsById.get(a.account_id)?.name ?? "—"}</TableCell>}
-                  <TableCell>
-                    <span className="font-medium">{a.symbol}</span>{" "}
-                    <span className="text-xs text-muted-foreground">{nameBySymbol.get(a.symbol) ?? ""}</span>
-                  </TableCell>
-                  <TableCell>{CORPORATE_ACTION_LABELS[a.type]}</TableCell>
-                  <TableCell className="tabular-nums">{describeAction(a)}</TableCell>
-                  <TableCell className="max-w-xs truncate text-muted-foreground">{a.note ?? ""}</TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => {
-                          setEditing(a);
-                          setFormPrefill(null);
-                          setFormOpen(true);
-                        }}
-                        aria-label="編輯"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => setDeleting(a)}
-                        aria-label="刪除"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <Panel
+          title="紀錄"
+          subtitle={`${rows.length} 筆`}
+          footer={
+            <p className="border-t border-border/60 px-4 py-3 text-xs text-muted-foreground sm:px-5">
+              「股數變化」是生效前一天收盤後的持股，與拆股／配股後的持股，依交易紀錄自動計算。
+            </p>
+          }
+        >
+          <InvestTable minWidth={760}>
+            <thead>
+              <tr>
+                <HeadCell sticky className="w-32 sm:w-52">
+                  標的
+                </HeadCell>
+                <HeadCell>生效日</HeadCell>
+                <HeadCell>類型</HeadCell>
+                <HeadCell>內容</HeadCell>
+                <HeadCell align="right">股數變化</HeadCell>
+                <HeadCell>備註</HeadCell>
+                <HeadCell className="w-20">
+                  <span className="sr-only">操作</span>
+                </HeadCell>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((a) => {
+                // 生效前持股不含這筆本身（holdingBefore 只算生效日之前的紀錄）
+                const before = holdingBefore(data.trades, data.actions, a.account_id, a.symbol, a.action_date);
+                const after = a.type === "split" ? before * (a.ratio ?? 1) : before + (a.quantity ?? 0);
+                const sub = [nameBySymbol.get(a.symbol), showAccount ? accountsById.get(a.account_id)?.name : null]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <Row key={a.id}>
+                    <Cell sticky className="w-32 max-w-32 sm:w-52 sm:max-w-52">
+                      <div className="font-semibold text-foreground">{a.symbol}</div>
+                      <div className="truncate text-[11px] text-muted-foreground" title={sub}>
+                        {sub}
+                      </div>
+                    </Cell>
+                    <Cell className="tabular-nums">{a.action_date.replaceAll("-", "/")}</Cell>
+                    <Cell>
+                      <span className="whitespace-nowrap rounded-full bg-accent px-2.5 py-0.5 text-xs text-accent-foreground">
+                        {CORPORATE_ACTION_LABELS[a.type]}
+                      </span>
+                    </Cell>
+                    <Cell className="whitespace-nowrap tabular-nums">{describeAction(a)}</Cell>
+                    <Cell align="right" className="whitespace-nowrap">
+                      {formatNumber(before)} <span className="text-muted-foreground">→</span>{" "}
+                      <span className="font-semibold">{formatNumber(after)}</span> 股
+                    </Cell>
+                    <Cell className="max-w-xs truncate text-muted-foreground">{a.note ?? "—"}</Cell>
+                    <Cell className="py-1">
+                      <div className="flex justify-end gap-0.5">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-10 w-10 sm:h-8 sm:w-8"
+                          onClick={() => {
+                            setEditing(a);
+                            setFormPrefill(null);
+                            setFormOpen(true);
+                          }}
+                          aria-label={`編輯 ${a.action_date} ${a.symbol}`}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-10 w-10 text-destructive sm:h-8 sm:w-8"
+                          onClick={() => setDeleting(a)}
+                          aria-label={`刪除 ${a.action_date} ${a.symbol}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </Cell>
+                  </Row>
+                );
+              })}
+            </tbody>
+          </InvestTable>
+        </Panel>
       )}
 
       {formOpen && (
