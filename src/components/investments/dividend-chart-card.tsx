@@ -1,16 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Cell, HeadCell, InvestTable, Row } from "@/components/investments/invest-table";
 import { formatTwdShort, niceScale, type DividendBucket } from "@/lib/invest-charts";
-import { formatMoney } from "@/components/investments/invest-ui";
+import { formatMoney, Segmented } from "@/components/investments/invest-ui";
 import {
   ChartCard,
   chartColors,
   ChartTooltip,
   LegendItem,
   roundedTopPath,
-  Segmented,
   TableToggle,
   TooltipRow,
   tooltipLeft,
@@ -72,29 +71,29 @@ export function DividendChartCard({
       {isEmpty ? (
         <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">這段期間沒有已入帳的股利</div>
       ) : showTable ? (
-        <Table wrapperClassName="max-h-80 rounded-lg border border-border">
-          <TableHeader>
-            <TableRow>
-              <TableHead>{view === "month" ? "除息月份" : "年度"}</TableHead>
-              {split && <TableHead className="text-right">台股</TableHead>}
-              {split && <TableHead className="text-right">美股</TableHead>}
-              <TableHead className="text-right">合計</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <InvestTable minWidth={360} className="max-h-80 rounded-lg border border-border">
+          <thead>
+            <tr>
+              <HeadCell sticky>{view === "month" ? "除息月份" : "年度"}</HeadCell>
+              {split && <HeadCell align="right">台股</HeadCell>}
+              {split && <HeadCell align="right">美股</HeadCell>}
+              <HeadCell align="right">合計</HeadCell>
+            </tr>
+          </thead>
+          <tbody>
             {[...buckets]
               .reverse()
               .filter((b) => b.tw !== 0 || b.us !== 0)
               .map((b) => (
-                <TableRow key={b.key}>
-                  <TableCell className="tabular-nums">{bucketLabel(b.key, true)}</TableCell>
-                  {split && <TableCell className="text-right tabular-nums">{formatMoney(b.tw)}</TableCell>}
-                  {split && <TableCell className="text-right tabular-nums">{formatMoney(b.us)}</TableCell>}
-                  <TableCell className="text-right font-medium tabular-nums">{formatMoney(b.tw + b.us)}</TableCell>
-                </TableRow>
+                <Row key={b.key}>
+                  <Cell sticky className="tabular-nums">{bucketLabel(b.key, true)}</Cell>
+                  {split && <Cell align="right">{formatMoney(b.tw)}</Cell>}
+                  {split && <Cell align="right">{formatMoney(b.us)}</Cell>}
+                  <Cell align="right" className="font-medium">{formatMoney(b.tw + b.us)}</Cell>
+                </Row>
               ))}
-          </TableBody>
-        </Table>
+          </tbody>
+        </InvestTable>
       ) : (
         <DividendPlot buckets={buckets} view={view} split={split} />
       )}

@@ -1,14 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Cell, HeadCell, InvestTable, Row } from "@/components/investments/invest-table";
 import { formatTwdShort, monthEnds, niceScale, timeTicks, type ValuePoint } from "@/lib/invest-charts";
-import { formatMoney, formatPercent, pnlClass } from "@/components/investments/invest-ui";
+import { formatMoney, formatPercent, formatSignedMoney, pnlClass } from "@/components/investments/invest-ui";
 import {
   ChartCard,
   chartColors,
   ChartTooltip,
-  formatSignedMoney,
   LegendItem,
   TableToggle,
   TooltipRow,
@@ -265,30 +264,30 @@ function TrendPlot({ points }: { points: ValuePoint[] }) {
 function TrendTable({ points }: { points: ValuePoint[] }) {
   const rows = monthEnds(points).reverse();
   return (
-    <Table wrapperClassName="max-h-96 rounded-lg border border-border">
-      <TableHeader>
-        <TableRow>
-          <TableHead>日期（每月最後交易日）</TableHead>
-          <TableHead className="text-right">市值</TableHead>
-          <TableHead className="text-right">持股成本</TableHead>
-          <TableHead className="text-right">未實現損益</TableHead>
-          <TableHead className="text-right">報酬率</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
+    <InvestTable minWidth={560} className="max-h-96 rounded-lg border border-border">
+      <thead>
+        <tr>
+          <HeadCell sticky>日期（每月最後交易日）</HeadCell>
+          <HeadCell align="right">市值</HeadCell>
+          <HeadCell align="right">持股成本</HeadCell>
+          <HeadCell align="right">未實現損益</HeadCell>
+          <HeadCell align="right">報酬率</HeadCell>
+        </tr>
+      </thead>
+      <tbody>
         {rows.map((p) => {
           const pnl = p.marketValue - p.cost;
           return (
-            <TableRow key={p.date}>
-              <TableCell className="tabular-nums">{formatDate(p.date)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatMoney(p.marketValue)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatMoney(p.cost)}</TableCell>
-              <TableCell className={`text-right tabular-nums ${pnlClass(pnl)}`}>{formatSignedMoney(pnl)}</TableCell>
-              <TableCell className={`text-right tabular-nums ${pnlClass(pnl)}`}>{formatPercent(returnRate(p))}</TableCell>
-            </TableRow>
+            <Row key={p.date}>
+              <Cell sticky className="tabular-nums">{formatDate(p.date)}</Cell>
+              <Cell align="right">{formatMoney(p.marketValue)}</Cell>
+              <Cell align="right">{formatMoney(p.cost)}</Cell>
+              <Cell align="right" className={pnlClass(pnl)}>{formatSignedMoney(pnl)}</Cell>
+              <Cell align="right" className={pnlClass(pnl)}>{formatPercent(returnRate(p))}</Cell>
+            </Row>
           );
         })}
-      </TableBody>
-    </Table>
+      </tbody>
+    </InvestTable>
   );
 }
