@@ -36,6 +36,8 @@
 選用：再執行 `migrations/20261022140000_invest_price_history.sql`（Yahoo Finance），每個交易日台灣早上 6:45
 抓所有交易過的代號與 USD/TWD 的每日收盤價（圖表的總資產走勢用）；第一次從最早交易日前補抓歷史：
 `select public.invest_fetch_price_history('2024-01-01');`（依代號數量約需 1 分鐘）。
+再執行 `migrations/20261025100000_invest_price_history_tw_evening.sql`，台股另在晚上 6:30 抓一次當天收盤價，
+走勢圖當晚就會跟持股頁的收盤價一致（不執行的話要等隔天早上 6:45）。
 
 ### 3. 投資帳號
 
