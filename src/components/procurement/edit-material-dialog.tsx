@@ -157,6 +157,7 @@ export function EditMaterialDialog({ open, onOpenChange, row, onSaved }: EditMat
               <Dialog.Title className="text-base font-semibold text-foreground">編輯採購物料</Dialog.Title>
               <p id="edit-material-desc" className="mt-1 text-sm text-muted-foreground">
                 修改後若與其他物料「品名＋規格＋規格2」重複將無法儲存。
+                品名／類別／規格／單位的修改會同步到已選用此物料的採購明細。
               </p>
             </div>
             <Dialog.Close asChild>
