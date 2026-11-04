@@ -3491,6 +3491,68 @@ export type Database = {
           },
         ]
       }
+      salary_adjustments: {
+        Row: {
+          applied_at: string | null
+          created_at: string
+          created_by: string | null
+          effective_month: string
+          employee_id: string
+          id: string
+          new_health_employee_burden: number | null
+          new_labor_employee_burden: number | null
+          new_labor_insurance_bracket: number | null
+          new_wage: number
+          old_health_employee_burden: number | null
+          old_labor_employee_burden: number | null
+          old_labor_insurance_bracket: number | null
+          old_wage: number
+          reason: string
+        }
+        Insert: {
+          applied_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          effective_month: string
+          employee_id: string
+          id?: string
+          new_health_employee_burden?: number | null
+          new_labor_employee_burden?: number | null
+          new_labor_insurance_bracket?: number | null
+          new_wage: number
+          old_health_employee_burden?: number | null
+          old_labor_employee_burden?: number | null
+          old_labor_insurance_bracket?: number | null
+          old_wage: number
+          reason: string
+        }
+        Update: {
+          applied_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          effective_month?: string
+          employee_id?: string
+          id?: string
+          new_health_employee_burden?: number | null
+          new_labor_employee_burden?: number | null
+          new_labor_insurance_bracket?: number | null
+          new_wage?: number
+          old_health_employee_burden?: number | null
+          old_labor_employee_burden?: number | null
+          old_labor_insurance_bracket?: number | null
+          old_wage?: number
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salary_adjustments_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sales_allowances: {
         Row: {
           allowance_date: string | null
@@ -4499,6 +4561,7 @@ export type Database = {
         }
         Returns: Json
       }
+      apply_due_salary_adjustments: { Args: never; Returns: number }
       apply_leave_balance_change: {
         Args: {
           p_delta_hours: number
@@ -4542,7 +4605,20 @@ export type Database = {
         }
         Returns: Json
       }
+      cancel_salary_adjustment: { Args: { p_id: string }; Returns: Json }
       create_holiday_refunds: { Args: { p_items: Json }; Returns: Json }
+      create_salary_adjustment: {
+        Args: {
+          p_effective_month: string
+          p_employee_id: string
+          p_health_employee_burden?: number
+          p_labor_employee_burden?: number
+          p_labor_insurance_bracket?: number
+          p_new_wage: number
+          p_reason: string
+        }
+        Returns: Json
+      }
       current_employee_id: { Args: never; Returns: string }
       decide_holiday_refund: {
         Args: { p_approve: boolean; p_reason?: string; p_refund_id: string }
