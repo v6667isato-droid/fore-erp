@@ -84,6 +84,18 @@ import {
 } from "@/lib/leave-holiday-conflict";
 import { LEAVE_WORK_DAY_HOURS, formatDayDecimalAsDayHour } from "@/lib/employee-leave-time";
 import {
+  balanceLeaveKindOf,
+  describeLeaveAvailability,
+  fetchEmployeeLeaveBalances,
+  fetchLeaveBalanceCommitments,
+  leaveBalanceErrorMessage,
+} from "@/lib/leave-balance-availability";
+import { approveLeaveRequestRpc, revokeLeaveRequestRpc } from "@/lib/leave-balance-rpc";
+import { approvalHoursAdjustment, type HolidayRecord } from "@/lib/leave-holiday-refund";
+import { fetchHolidayRecords } from "@/lib/leave-holiday-refund-sync";
+import { LeaveBalanceReviewPanels } from "@/components/leave-balance-review-panels";
+import { summarizeLeaveUsage, type UsageLeave } from "@/lib/leave-usage-summary";
+import {
   SICK_ANNUAL_LIMIT_DAYS,
   SICK_PROTECTION_LINE_DAYS,
   fetchAllLeaveTypes,
@@ -101,6 +113,11 @@ interface LeaveRequestAdminRow {
   start_date: string;
   end_date: string;
   days: number;
+  /** leave_requests.hours_count（核准時扣掉送單後新增放假日用） */
+  hours_count: number | null;
+  /** 起訖時間 HH:MM（start_time／end_time 欄位；舊假單為 null） */
+  start_time: string | null;
+  end_time: string | null;
   created_at: string | null;
   /** leave_requests.updated_at（核准／退回或內容修改） */
   updated_at: string | null;
@@ -265,6 +282,9 @@ function mapRowToAdminRow(
     start_date: start || "—",
     end_date: end || "—",
     days,
+    hours_count: Number.isFinite(hours) && hours > 0 ? hours : null,
+    start_time: r.start_time != null ? String(r.start_time) : null,
+    end_time: r.end_time != null ? String(r.end_time) : null,
     created_at: created,
     updated_at: updated,
     status_raw: String(r.status ?? ""),
@@ -415,6 +435,8 @@ export function LeaveApprovalsPage() {
   >(null);
   const [reviewReason, setReviewReason] = useState("");
   const [holidayRows, setHolidayRows] = useState<HolidayLookupRow[]>([]);
+  /** public_holidays 全部（含補班日與建立時間）：核准時扣掉送單後才新增的放假日 */
+  const [holidayRecords, setHolidayRecords] = useState<HolidayRecord[]>([]);
   /** 假別主檔（含停用），供顯示規則說明與審核須知 */
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRow[]>([]);
   /** 加班申報（overtime_requests）：與假單同一區塊混列審核 */
@@ -447,6 +469,64 @@ export function LeaveApprovalsPage() {
     for (const lt of leaveTypes) m.set(lt.name, lt);
     return m;
   }, [leaveTypes]);
+
+  /** 待審假單員工的特休／補休餘額（小時）：審核卡片顯示「剩餘／核准後剩餘」 */
+  const [balancesByEmp, setBalancesByEmp] = useState<
+    Map<string, { annual: number | null; comp: number | null }>
+  >(new Map());
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const ids = [
+      ...new Set(
+        rows
+          .filter((r) => normalizeStatus(r.status_raw) === "pending")
+          .map((r) => r.employee_id)
+          .filter(Boolean),
+      ),
+    ];
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error: balErr } = await supabase
+        .from("employees")
+        .select("id, annual_leave_remaining, comp_leave_remaining")
+        .in("id", ids);
+      if (cancelled) return;
+      if (balErr) {
+        console.warn("[leave-approvals] employees balances:", balErr.message);
+        return;
+      }
+      const m = new Map<string, { annual: number | null; comp: number | null }>();
+      for (const e of data ?? []) {
+        m.set(String(e.id), {
+          annual: e.annual_leave_remaining == null ? null : Number(e.annual_leave_remaining) * LEAVE_WORK_DAY_HOURS,
+          comp: e.comp_leave_remaining == null ? null : Number(e.comp_leave_remaining),
+        });
+      }
+      setBalancesByEmp(m);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rows]);
+
+  /** 各員工全部假單（審核卡片的已請／待審統計） */
+  const usageLeavesByEmp = useMemo(() => {
+    const m = new Map<string, UsageLeave[]>();
+    for (const r of rows) {
+      const list = m.get(r.employee_id) ?? [];
+      list.push({
+        id: r.id,
+        leave_type: r.leave_type_label.trim(),
+        status: normalizeStatus(r.status_raw),
+        start_date: r.start_date,
+        hours: r.days * LEAVE_WORK_DAY_HOURS,
+      });
+      m.set(r.employee_id, list);
+    }
+    return m;
+  }, [rows]);
 
   /** 本年度已核准天數：員工 → （假別名稱 → 天數）；由已載入的全部假單彙總 */
   const yearlyUsageByEmployee = useMemo(() => {
@@ -500,6 +580,11 @@ export function LeaveApprovalsPage() {
         });
       }
       setHolidayRows(list);
+      try {
+        setHolidayRecords(await fetchHolidayRecords());
+      } catch (e) {
+        console.warn("[leave-approvals] public_holidays:", e);
+      }
     })();
   }, []);
 
@@ -526,21 +611,9 @@ export function LeaveApprovalsPage() {
         created_at,
         employees ( name )
       `;
+      /** 以 * 取全部欄位（含 start_time／end_time 等新欄位，缺欄時不會整組失敗） */
       const withJoinUpdated = `
-        id,
-        employee_id,
-        leave_type,
-        start_date,
-        end_date,
-        status,
-        total_days,
-        hours_count,
-        created_at,
-        updated_at,
-        reason,
-        revoke_reason,
-        reject_reason,
-        attachment_url,
+        *,
         employees ( name )
       `;
 
@@ -763,19 +836,93 @@ export function LeaveApprovalsPage() {
     return entries;
   }, [historyList, otRows, mkRows, historyMonth]);
 
-  async function approve(id: string) {
-    if (!window.confirm("確定核准此假單？")) return;
-    setActingId(id);
+  /**
+   * 特休／補休核准前再檢查一次可申請額度（排除本張假單本身）：
+   * 送單到核准之間餘額可能已變動，或同時有多張待審，超過額度不可核准。
+   */
+  async function checkBalanceBeforeApprove(
+    row: LeaveRequestAdminRow,
+    requestHours: number,
+  ): Promise<{ ok: true; detail: string | null } | { ok: false; message: string }> {
+    const kind = balanceLeaveKindOf(row.leave_type_label);
+    if (!kind || !isSupabaseConfigured) return { ok: true, detail: null };
     try {
-      const { error: uErr } = await supabase
-        .from("leave_requests")
-        .update({ status: "approved" })
-        .eq("id", id);
-      if (uErr) {
-        toast.error(uErr.message || "更新失敗");
+      const [balances, c] = await Promise.all([
+        fetchEmployeeLeaveBalances(row.employee_id),
+        fetchLeaveBalanceCommitments(row.employee_id, { excludeLeaveId: row.id }),
+      ]);
+      const balance = kind === "annual" ? balances.annual : balances.comp;
+      const err = leaveBalanceErrorMessage(kind, row.leave_type_label, balance, c, requestHours);
+      if (err) {
+        return {
+          ok: false,
+          message: `無法核准「${row.employee_name}」的${row.leave_type_label}：${err}請先調整員工餘額，或退回假單。`,
+        };
+      }
+      return {
+        ok: true,
+        detail: `${row.leave_type_label}額度（不含本張）：${describeLeaveAvailability(kind, balance, c)}\n本張：${formatDayDecimalAsDayHour(requestHours / LEAVE_WORK_DAY_HOURS)}（核准後立即扣除）`,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        message: `無法確認${row.leave_type_label}可申請額度，暫不核准：${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  }
+
+  async function approve(id: string) {
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    // 假單送出後才新增的放假日（颱風假等）：核准時直接扣掉那幾天的時數
+    const adjustment = approvalHoursAdjustment(
+      {
+        id: row.id,
+        start_date: row.start_date,
+        end_date: row.end_date,
+        hours_count: row.hours_count,
+        total_days: row.days,
+        created_at: row.created_at,
+        start_time: row.start_time,
+        end_time: row.end_time,
+      },
+      holidayRecords,
+    );
+    if (adjustment && adjustment.hours <= 0) {
+      toast.error(
+        `這張假單的請假時間全部落在送單後才新增的放假日（${adjustment.hits.map((h) => h.name).join("、")}），不需要請假，請退回。`,
+        { duration: 10000 },
+      );
+      return;
+    }
+    const requestHours = adjustment?.hours ?? row.days * LEAVE_WORK_DAY_HOURS;
+    let balanceDetail: string | null = null;
+    if (balanceLeaveKindOf(row.leave_type_label)) {
+      setActingId(id);
+      const check = await checkBalanceBeforeApprove(row, requestHours);
+      setActingId(null);
+      if (!check.ok) {
+        toast.error(check.message, { duration: 10000 });
         return;
       }
-      toast.success("已核准假單");
+      balanceDetail = check.detail;
+    }
+    const lines = ["確定核准此假單？"];
+    if (adjustment) lines.push("", adjustment.note.replace(/^【系統】/, ""));
+    if (balanceDetail) lines.push("", balanceDetail);
+    if (!window.confirm(lines.join("\n"))) return;
+    setActingId(id);
+    try {
+      const res = await approveLeaveRequestRpc(id, adjustment?.hours ?? null, adjustment?.note ?? null);
+      if (!res.ok) {
+        toast.error(res.message, { duration: 10000 });
+        return;
+      }
+      toast.success(
+        res.data.kind
+          ? `已核准假單，已自${row.leave_type_label}餘額扣除 ${formatDayDecimalAsDayHour(Number(res.data.hours) / LEAVE_WORK_DAY_HOURS)}`
+          : "已核准假單",
+      );
       await load();
     } finally {
       setActingId(null);
@@ -796,19 +943,30 @@ export function LeaveApprovalsPage() {
     setActingId(target.id);
     try {
       if (target.kind === "leave") {
-        const { error: uErr } = await supabase
-          .from("leave_requests")
-          .update(
-            isRevoke
-              ? { status: "revoked", revoke_reason: reason || null }
-              : { status: "rejected", reject_reason: reason || null },
-          )
-          .eq("id", target.id);
-        if (uErr) {
-          toast.error(uErr.message || "更新失敗");
-          return;
+        if (isRevoke) {
+          // 撤銷：特休／補休自動退回餘額（扣薪假別若該月已發薪，下次結算自動補發）
+          const res = await revokeLeaveRequestRpc(target.id, reason || null);
+          if (!res.ok) {
+            toast.error(res.message);
+            return;
+          }
+          const refund = Number(res.data.refund_hours) || 0;
+          toast.success(
+            refund > 0
+              ? `已撤銷假單，已退回 ${formatDayDecimalAsDayHour(refund / LEAVE_WORK_DAY_HOURS)}`
+              : "已撤銷假單",
+          );
+        } else {
+          const { error: uErr } = await supabase
+            .from("leave_requests")
+            .update({ status: "rejected", reject_reason: reason || null })
+            .eq("id", target.id);
+          if (uErr) {
+            toast.error(uErr.message || "更新失敗");
+            return;
+          }
+          toast.success("已退回假單");
         }
-        toast.success(isRevoke ? "已撤銷假單" : "已退回假單");
         await load();
       } else if (target.kind === "overtime") {
         const res = isRevoke
@@ -1095,7 +1253,7 @@ export function LeaveApprovalsPage() {
                     kind: "leave",
                     id: row.id,
                     warning:
-                      "確定撤銷此已核准假單？撤銷後該假單不會再計入請假天數與薪資結算。\n注意：若該月薪資已結算發放，請另行確認是否需要調整。",
+                      "確定撤銷此已核准假單？\n特休／補休會自動退回餘額；事假、病假等若該月薪資已發放，下次結算會自動補發。",
                   })
                 }
               >
@@ -1150,7 +1308,7 @@ export function LeaveApprovalsPage() {
               <>
                 審核員工請假申請與加班申報（每行前方標示類型）。
                 <br />
-                特休假核准後，會在該月底發薪時更新特休假天數；加班折抵「補休」核准後即累加補休餘額。
+                特休／補休假單核准後立即自餘額扣除，撤銷時自動退回；加班折抵「補休」核准後即累加補休餘額。
               </>
             ),
             Icon: ClipboardList,
@@ -1175,7 +1333,7 @@ export function LeaveApprovalsPage() {
         return {
           title: "薪資結算中心",
           description:
-            "橫向捲動檢視；核准假單依假別 pay_ratio（leave_types）計算扣薪，特休另行結算；加班依員工申報自動統計（加班費＝時數 × 費率 ÷ 8）；發放時同步寫入 payslips 與特休餘額。",
+            "橫向捲動檢視；扣薪假別依時數 × 時薪（月薪 ÷ 30 ÷ 8）× 扣薪比例計算，已發薪月份的變動於下次結算補扣／補發；特休／補休於假單核准時已扣，這裡列出當月異動；加班依員工申報自動統計（加班費＝時數 × 費率 ÷ 8）。",
           Icon: Banknote,
           showLeaveRefresh: false,
         };
@@ -1424,6 +1582,7 @@ export function LeaveApprovalsPage() {
 
       {mainSection === "leave" && isSupabaseConfigured && tab === "pending" && (
         <div className="space-y-3">
+          <LeaveBalanceReviewPanels onChanged={() => void load()} />
           {loading ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
               載入中…
@@ -1767,14 +1926,34 @@ export function LeaveApprovalsPage() {
                           </p>
                         );
                       }
-                      const used = usage.get(label) ?? 0;
-                      if (used <= 0) return null;
+                      // 特休／補休剩餘、婚假累計、事假＋家照與有法定天數的假今年已核准
+                      const bal = balancesByEmp.get(row.employee_id);
+                      const summary = summarizeLeaveUsage({
+                        leaveId: row.id,
+                        leaveType: label,
+                        thisHours: row.days * LEAVE_WORK_DAY_HOURS,
+                        employeeLeaves: usageLeavesByEmp.get(row.employee_id) ?? [],
+                        balanceHours:
+                          label === "特休"
+                            ? bal?.annual
+                            : label.startsWith("補休")
+                              ? bal?.comp
+                              : undefined,
+                        statutoryDays: leaveTypeByName.get(label)?.statutory_days ?? null,
+                        year: String(new Date().getFullYear()),
+                      });
+                      if (!summary) return null;
                       return (
-                        <p className="text-xs text-muted-foreground">
-                          今年已核准{label}：
-                          <span className="tabular-nums font-medium text-foreground">
-                            {fmt(used)} 日
-                          </span>
+                        <p
+                          className={cn(
+                            "text-xs tabular-nums",
+                            summary.warn
+                              ? "font-medium text-red-700 dark:text-red-400"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {summary.warn ? "⚠ " : ""}
+                          {summary.text}
                         </p>
                       );
                     })()}

@@ -62,33 +62,9 @@ function isSpecialAnnualLeaveType(leaveType: string): boolean {
   return leaveType.trim() === "特休";
 }
 
-/** 補休（含「補休假」等變體）：與特休同樣以「假單建立月」歸屬結算月 */
+/** 補休（含「補休假」等變體） */
 function isCompLeaveType(leaveType: string): boolean {
   return leaveType.trim().startsWith("補休");
-}
-
-function parseYm(ym: string): { y: number; m: number } | null {
-  const m = /^(\d{4})-(\d{2})$/.exec(ym.trim());
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  if (mo < 1 || mo > 12) return null;
-  return { y, m: mo };
-}
-
-/** 與薪資結算「特休以假單建立月」一致：created_at 落在結算曆月內 */
-function createdAtInPayPeriodMonth(row: Record<string, unknown>, payPeriodYm: string): boolean {
-  const p = parseYm(payPeriodYm);
-  if (!p) return false;
-  const start = new Date(p.y, p.m - 1, 1, 0, 0, 0, 0);
-  const nextMonthStart = new Date(p.y, p.m, 1, 0, 0, 0, 0);
-  const gte = start.toISOString();
-  const lt = nextMonthStart.toISOString();
-  const raw = row.created_at ?? row.createdAt;
-  if (raw == null) return false;
-  const t = new Date(String(raw)).getTime();
-  if (Number.isNaN(t)) return false;
-  return t >= new Date(gte).getTime() && t < new Date(lt).getTime();
 }
 
 /** 特休備註：X天Y小時；小時為 0 不顯示「Y小時」；僅小時時不顯示 0天 */
@@ -238,7 +214,6 @@ function formatSpecialLeaveNoteLine(
 function leaveLineForRow(
   row: Record<string, unknown>,
   bounds: PayslipRemarkBounds,
-  payPeriodYm?: string,
 ): string | null {
   if (!isLeaveApproved(String(row.status ?? ""))) return null;
 
@@ -258,51 +233,20 @@ function leaveLineForRow(
   const e = b.getTime() < y.getTime() ? b : y;
   const hasOverlap = s.getTime() <= e.getTime();
 
-  if (isSpecialAnnualLeaveType(leaveType)) {
-    if (payPeriodYm) {
-      // 本月申請（created_at 落於結算月）或本月執行（請假區間與結算月重疊）
-      const inMonthCreated = createdAtInPayPeriodMonth(row, payPeriodYm);
-      if (!inMonthCreated && !hasOverlap) return null;
-      let datePart: string;
-      if (inMonthCreated) {
-        const d0 = formatMdFromIso(ymdFromDate(a));
-        const d1 = formatMdFromIso(ymdFromDate(b));
-        datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
-      } else {
-        const d0 = formatMdFromIso(ymdFromDate(s));
-        const d1 = formatMdFromIso(ymdFromDate(e));
-        datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
-      }
-      return formatSpecialLeaveNoteLine(row, datePart);
-    }
-    if (!hasOverlap) return null;
-    const d0 = formatMdFromIso(ymdFromDate(s));
-    const d1 = formatMdFromIso(ymdFromDate(e));
-    const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
-    return formatSpecialLeaveNoteLine(row, datePart);
-  }
-
-  // 補休：發放時自補休金庫扣時數，以建立月為準；請在前月才申請時也要列入備註
-  if (isCompLeaveType(leaveType) && payPeriodYm) {
-    const inMonthCreated = createdAtInPayPeriodMonth(row, payPeriodYm);
-    if (!inMonthCreated && !hasOverlap) return null;
-    const from = inMonthCreated ? a : s;
-    const to = inMonthCreated ? b : e;
-    const d0 = formatMdFromIso(ymdFromDate(from));
-    const d1 = formatMdFromIso(ymdFromDate(to));
-    const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
-    const h = num(row.hours_count, 0) || num(row.total_days, 0) * 8;
-    const hDisp = h > 0 ? ` ${h}hr` : "";
-    return inMonthCreated
-      ? `${datePart} ${leaveType}${hDisp}（本月扣補休）`
-      : `${datePart} ${leaveType}${hDisp}`;
-  }
-
+  // 特休／補休：餘額已在假單核准時扣除（另列「特休異動／補休異動」），這裡只列本月實際休假
   if (!hasOverlap) return null;
+  const clipped0 = formatMdFromIso(ymdFromDate(s));
+  const clipped1 = formatMdFromIso(ymdFromDate(e));
+  const clippedPart = clipped0 === clipped1 ? clipped0 : `${clipped0}–${clipped1}`;
+  if (isSpecialAnnualLeaveType(leaveType)) {
+    return formatSpecialLeaveNoteLine(row, clippedPart);
+  }
+  if (isCompLeaveType(leaveType)) {
+    const h = num(row.hours_count, 0) || num(row.total_days, 0) * 8;
+    return h > 0 ? `${clippedPart} ${leaveType} ${h}hr` : `${clippedPart} ${leaveType}`;
+  }
 
-  const d0 = formatMdFromIso(ymdFromDate(s));
-  const d1 = formatMdFromIso(ymdFromDate(e));
-  const datePart = d0 === d1 ? d0 : `${d0}–${d1}`;
+  const datePart = clippedPart;
 
   const hours = num(row.hours_count, 0);
   if (hours > 0) {
@@ -400,7 +344,7 @@ export function buildPayslipAttendanceRemarks(
   employeeId: string,
   opts: {
     bounds: PayslipRemarkBounds;
-    /** 結算月 YYYY-MM：傳入時，特休列於備註若「本月申請」或「本月執行」（起迄與結算月重疊） */
+    /** 結算月 YYYY-MM（保留相容；特休／補休一律只列請假區間與結算月重疊者） */
     payPeriodYm?: string;
     attendanceRows: Record<string, unknown>[];
     leaveRows: Record<string, unknown>[];
@@ -415,7 +359,6 @@ export function buildPayslipAttendanceRemarks(
 ): string {
   const {
     bounds,
-    payPeriodYm,
     attendanceRows,
     leaveRows,
     overtimeRows,
@@ -500,7 +443,7 @@ export function buildPayslipAttendanceRemarks(
 
   for (const row of leaveRows) {
     if (String(row.employee_id ?? "") !== employeeId) continue;
-    const line = leaveLineForRow(row, bounds, payPeriodYm);
+    const line = leaveLineForRow(row, bounds);
     if (!line) continue;
     const start = String(row.start_date ?? "").slice(0, 10);
     items.push({ sortKey: start, text: line });

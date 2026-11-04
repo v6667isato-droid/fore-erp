@@ -27,6 +27,7 @@ import {
 import { seniorityFromHire } from "@/lib/employee-seniority";
 import { WORK_ORDER_STAGES } from "@/lib/work-order-stages";
 import { NumericInput } from "@/components/ui/numeric-input";
+import { LeaveBalanceAdjustBox } from "@/components/leave-balance-adjust-box";
 import { toNumericText } from "@/lib/numeric-input";
 
 type Role = "admin" | "staff" | null;
@@ -482,7 +483,8 @@ function EmployeeForm({
       setError("請輸入姓名");
       return;
     }
-    if (isAdmin) {
+    // 編輯既有員工時餘額唯讀（改用「調整」），只有新增員工時填起始餘額
+    if (isAdmin && mode === "create") {
       const alD = annualLeaveDaysInput.trim();
       const alH = annualLeaveHoursInput.trim();
       if (alD !== "" && !Number.isFinite(Number(alD))) {
@@ -558,15 +560,17 @@ function EmployeeForm({
           values.health_insured_persons != null
             ? Number(values.health_insured_persons)
             : null;
-        payload.annual_leave_remaining = annualLeavePartsToDecimal(
-          annualLeaveDaysInput,
-          annualLeaveHoursInput,
-        );
-        payload.comp_leave_remaining =
-          compLeavePartsToTotalHours(
-            compLeaveDaysInput,
-            compLeaveHoursInput,
-          ) ?? 0;
+        if (mode === "create") {
+          payload.annual_leave_remaining = annualLeavePartsToDecimal(
+            annualLeaveDaysInput,
+            annualLeaveHoursInput,
+          );
+          payload.comp_leave_remaining =
+            compLeavePartsToTotalHours(
+              compLeaveDaysInput,
+              compLeaveHoursInput,
+            ) ?? 0;
+        }
         payload.personal_leave_days =
           values.personal_leave_days != null
             ? Number(values.personal_leave_days)
@@ -1023,6 +1027,22 @@ function EmployeeForm({
                 className="h-9 rounded-lg border border-input bg-background px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
+            {mode === "edit" && initial.id ? (
+              <LeaveBalanceAdjustBox
+                employeeId={String(initial.id)}
+                annualDays={
+                  initial.annual_leave_remaining != null
+                    ? Number(initial.annual_leave_remaining)
+                    : null
+                }
+                compHours={
+                  initial.comp_leave_remaining != null
+                    ? Number(initial.comp_leave_remaining)
+                    : null
+                }
+              />
+            ) : (
+              <>
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">特休剩餘</span>
               <div className="flex h-9 gap-2">
@@ -1060,7 +1080,7 @@ function EmployeeForm({
                 </div>
               </div>
               <p className="text-[10px] leading-snug text-muted-foreground">
-                日、小時皆可輸入小數（例：12.5 日或 4.5 小時），負數＝透支；儲存時合計為「日 + 小時÷8」。
+                新進員工的起始特休（例：入職約定）；日、小時皆可輸入小數，儲存時合計為「日 + 小時÷8」。
               </p>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -1102,9 +1122,11 @@ function EmployeeForm({
                 </div>
               </div>
               <p className="text-[10px] leading-snug text-muted-foreground">
-                負數＝透支（結算扣超過餘額）；儲存時合計為「日×8 + 小時」。
+                新進員工的起始補休；負數＝透支。儲存時合計為「日×8 + 小時」。
               </p>
             </div>
+              </>
+            )}
             <div className="flex flex-col gap-1.5">
               <label
                 htmlFor="emp-personal-leave-days"

@@ -28,6 +28,9 @@ export type InsertEmployeeLeaveInput = {
   endDayEndHour: number | null;
   hoursCount: number | null;
   daysCount: number;
+  /** 起訖時間 HH:MM（分鐘精度，跨月扣薪分攤用）；整點欄位只存得下小時 */
+  startTime?: string | null;
+  endTime?: string | null;
   reason: string | null;
   /** leave-attachments bucket 內的物件路徑（無附件時為 null） */
   attachmentUrl?: string | null;
@@ -76,22 +79,22 @@ export async function insertEmployeeLeaveRequest(
     end_day_end_hour: input.endDayEndHour,
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 漸進相容舊 schema，欄位組合因環境而異
-  let { error } = await supabase.from("leave_requests").insert(withExtendedHours as any);
+  const withTimes: Record<string, unknown> = {
+    ...withExtendedHours,
+    start_time: input.startTime ?? null,
+    end_time: input.endTime ?? null,
+  };
 
-  if (error && isUnknownColumnError(error.message)) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r = await supabase.from("leave_requests").insert(withLegacyHours as any);
+  // 依序嘗試：含起訖時間 → 含首末日整點 → 僅舊整點欄位 → 基本欄位（漸進相容舊 schema）
+  const attempts = input.startTime || input.endTime
+    ? [withTimes, withExtendedHours, withLegacyHours, base]
+    : [withExtendedHours, withLegacyHours, base];
+  let error: { message: string } | null = null;
+  for (const payload of attempts) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 欄位組合因環境而異
+    const r = await supabase.from("leave_requests").insert(payload as any);
     error = r.error;
-  }
-
-  if (error && isUnknownColumnError(error.message)) {
-    const bare: Record<string, unknown> = {
-      ...base,
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r = await supabase.from("leave_requests").insert(bare as any);
-    error = r.error;
+    if (!error || !isUnknownColumnError(error.message)) break;
   }
 
   if (error) {
