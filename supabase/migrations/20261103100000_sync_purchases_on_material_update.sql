@@ -5,6 +5,7 @@
 -- 涵蓋「編輯物料」與「管理物料主類別」改副類別名稱等所有改主檔的路徑。
 -- 只帶「這次真的有變」的欄位：只改品名就只同步品名，不會順便覆蓋明細上的類別／單位。
 -- 未對應主檔（material_id IS NULL）的手動明細不動。
+-- （已於 2026-11-04 由使用者在 Supabase SQL Editor 套用至正式庫：trigger 建立、品名補同步 5 筆；此檔為版本紀錄）
 
 CREATE OR REPLACE FUNCTION public.sync_purchases_from_procurement_material ()
   RETURNS trigger
