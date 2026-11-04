@@ -23,9 +23,9 @@ SET
     OR COALESCE(NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') = 'service_role';
 $$;
 
-REVOKE ALL ON FUNCTION public.is_leave_admin () FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.is_leave_admin () FROM PUBLIC, anon;
 
-GRANT EXECUTE ON FUNCTION public.is_leave_admin () TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_leave_admin () TO authenticated, service_role;
 
 -- 假別 → 餘額種類（特休／補休），其他假別回 NULL
 CREATE OR REPLACE FUNCTION public.leave_balance_kind (p_leave_type text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
@@ -162,7 +162,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.apply_leave_balance_change (uuid, text, numeric, text, uuid, uuid, text) FROM PUBLIC;
+-- 內部函式（無權限檢查）：Supabase 預設會授權 anon／authenticated，須明確收回
+REVOKE ALL ON FUNCTION public.apply_leave_balance_change (uuid, text, numeric, text, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 
 -- ── 核准假單：特休／補休立即扣除 ─────────────────────────────────
 -- p_hours：核准時數（假單送出後才新增的放假日已排除）；NULL＝沿用 hours_count
@@ -241,9 +242,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.approve_leave_request (uuid, numeric, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.approve_leave_request (uuid, numeric, text) FROM PUBLIC, anon;
 
-GRANT EXECUTE ON FUNCTION public.approve_leave_request (uuid, numeric, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.approve_leave_request (uuid, numeric, text) TO authenticated, service_role;
 
 -- ── 撤銷已核准假單：特休／補休退回目前仍扣除中的時數 ─────────────
 CREATE OR REPLACE FUNCTION public.revoke_leave_request (p_leave_id uuid, p_reason text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
@@ -289,9 +290,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.revoke_leave_request (uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.revoke_leave_request (uuid, text) FROM PUBLIC, anon;
 
-GRANT EXECUTE ON FUNCTION public.revoke_leave_request (uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.revoke_leave_request (uuid, text) TO authenticated, service_role;
 
 -- ── 年資特休：核准即入帳，天數可依入職約定調整 ──────────────────
 CREATE OR REPLACE FUNCTION public.approve_annual_leave_grant (
@@ -343,9 +344,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.approve_annual_leave_grant (uuid, numeric, numeric, numeric, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.approve_annual_leave_grant (uuid, numeric, numeric, numeric, text) FROM PUBLIC, anon;
 
-GRANT EXECUTE ON FUNCTION public.approve_annual_leave_grant (uuid, numeric, numeric, numeric, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.approve_annual_leave_grant (uuid, numeric, numeric, numeric, text) TO authenticated, service_role;
 
 -- ── 人工調整特休／補休（原因必填） ───────────────────────────────
 CREATE OR REPLACE FUNCTION public.adjust_leave_balance (
@@ -383,9 +384,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.adjust_leave_balance (uuid, text, numeric, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.adjust_leave_balance (uuid, text, numeric, text) FROM PUBLIC, anon;
 
-GRANT EXECUTE ON FUNCTION public.adjust_leave_balance (uuid, text, numeric, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.adjust_leave_balance (uuid, text, numeric, text) TO authenticated, service_role;
 
 -- ── 假日回補單：建立（重複呼叫不會重複建立） ─────────────────────
 -- p_items：[{leave_request_id, holiday_date, holiday_name, hours}]，僅已核准假單有效
@@ -426,9 +427,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.create_holiday_refunds (jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.create_holiday_refunds (jsonb) FROM PUBLIC, anon;
 
-GRANT EXECUTE ON FUNCTION public.create_holiday_refunds (jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_holiday_refunds (jsonb) TO authenticated, service_role;
 
 -- ── 假日回補單：核准／退回 ───────────────────────────────────────
 -- 核准：假單時數扣掉當日時數（扣薪假別的薪資由結算對帳處理），特休／補休退回餘額
@@ -511,9 +512,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.decide_holiday_refund (uuid, boolean, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.decide_holiday_refund (uuid, boolean, text) FROM PUBLIC, anon;
 
-GRANT EXECUTE ON FUNCTION public.decide_holiday_refund (uuid, boolean, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.decide_holiday_refund (uuid, boolean, text) TO authenticated, service_role;
 
 -- ── 薪資單：標記／取消標記異動已列入備註 ─────────────────────────
 CREATE OR REPLACE FUNCTION public.mark_leave_ledger_payslip (
@@ -537,9 +538,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.mark_leave_ledger_payslip (uuid, text, uuid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.mark_leave_ledger_payslip (uuid, text, uuid[]) FROM PUBLIC, anon;
 
-GRANT EXECUTE ON FUNCTION public.mark_leave_ledger_payslip (uuid, text, uuid[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.mark_leave_ledger_payslip (uuid, text, uuid[]) TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.unmark_leave_ledger_payslip (p_employee_id uuid, p_period text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET
@@ -558,6 +559,6 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.unmark_leave_ledger_payslip (uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.unmark_leave_ledger_payslip (uuid, text) FROM PUBLIC, anon;
 
-GRANT EXECUTE ON FUNCTION public.unmark_leave_ledger_payslip (uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.unmark_leave_ledger_payslip (uuid, text) TO authenticated, service_role;
