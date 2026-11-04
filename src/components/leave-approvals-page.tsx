@@ -94,6 +94,7 @@ import { approveLeaveRequestRpc, revokeLeaveRequestRpc } from "@/lib/leave-balan
 import { approvalHoursAdjustment, type HolidayRecord } from "@/lib/leave-holiday-refund";
 import { fetchHolidayRecords } from "@/lib/leave-holiday-refund-sync";
 import { LeaveBalanceReviewPanels } from "@/components/leave-balance-review-panels";
+import { summarizeLeaveUsage, type UsageLeave } from "@/lib/leave-usage-summary";
 import {
   SICK_ANNUAL_LIMIT_DAYS,
   SICK_PROTECTION_LINE_DAYS,
@@ -468,6 +469,64 @@ export function LeaveApprovalsPage() {
     for (const lt of leaveTypes) m.set(lt.name, lt);
     return m;
   }, [leaveTypes]);
+
+  /** 待審假單員工的特休／補休餘額（小時）：審核卡片顯示「剩餘／核准後剩餘」 */
+  const [balancesByEmp, setBalancesByEmp] = useState<
+    Map<string, { annual: number | null; comp: number | null }>
+  >(new Map());
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const ids = [
+      ...new Set(
+        rows
+          .filter((r) => normalizeStatus(r.status_raw) === "pending")
+          .map((r) => r.employee_id)
+          .filter(Boolean),
+      ),
+    ];
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error: balErr } = await supabase
+        .from("employees")
+        .select("id, annual_leave_remaining, comp_leave_remaining")
+        .in("id", ids);
+      if (cancelled) return;
+      if (balErr) {
+        console.warn("[leave-approvals] employees balances:", balErr.message);
+        return;
+      }
+      const m = new Map<string, { annual: number | null; comp: number | null }>();
+      for (const e of data ?? []) {
+        m.set(String(e.id), {
+          annual: e.annual_leave_remaining == null ? null : Number(e.annual_leave_remaining) * LEAVE_WORK_DAY_HOURS,
+          comp: e.comp_leave_remaining == null ? null : Number(e.comp_leave_remaining),
+        });
+      }
+      setBalancesByEmp(m);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rows]);
+
+  /** 各員工全部假單（審核卡片的已請／待審統計） */
+  const usageLeavesByEmp = useMemo(() => {
+    const m = new Map<string, UsageLeave[]>();
+    for (const r of rows) {
+      const list = m.get(r.employee_id) ?? [];
+      list.push({
+        id: r.id,
+        leave_type: r.leave_type_label.trim(),
+        status: normalizeStatus(r.status_raw),
+        start_date: r.start_date,
+        hours: r.days * LEAVE_WORK_DAY_HOURS,
+      });
+      m.set(r.employee_id, list);
+    }
+    return m;
+  }, [rows]);
 
   /** 本年度已核准天數：員工 → （假別名稱 → 天數）；由已載入的全部假單彙總 */
   const yearlyUsageByEmployee = useMemo(() => {
@@ -1867,14 +1926,34 @@ export function LeaveApprovalsPage() {
                           </p>
                         );
                       }
-                      const used = usage.get(label) ?? 0;
-                      if (used <= 0) return null;
+                      // 特休／補休剩餘、婚假累計、事假＋家照與有法定天數的假今年已核准
+                      const bal = balancesByEmp.get(row.employee_id);
+                      const summary = summarizeLeaveUsage({
+                        leaveId: row.id,
+                        leaveType: label,
+                        thisHours: row.days * LEAVE_WORK_DAY_HOURS,
+                        employeeLeaves: usageLeavesByEmp.get(row.employee_id) ?? [],
+                        balanceHours:
+                          label === "特休"
+                            ? bal?.annual
+                            : label.startsWith("補休")
+                              ? bal?.comp
+                              : undefined,
+                        statutoryDays: leaveTypeByName.get(label)?.statutory_days ?? null,
+                        year: String(new Date().getFullYear()),
+                      });
+                      if (!summary) return null;
                       return (
-                        <p className="text-xs text-muted-foreground">
-                          今年已核准{label}：
-                          <span className="tabular-nums font-medium text-foreground">
-                            {fmt(used)} 日
-                          </span>
+                        <p
+                          className={cn(
+                            "text-xs tabular-nums",
+                            summary.warn
+                              ? "font-medium text-red-700 dark:text-red-400"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {summary.warn ? "⚠ " : ""}
+                          {summary.text}
                         </p>
                       );
                     })()}
