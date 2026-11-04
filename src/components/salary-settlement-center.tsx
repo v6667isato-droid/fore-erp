@@ -36,9 +36,19 @@ import {
   type AnnualLeaveMilestone,
 } from "@/lib/annual-leave-grant";
 import {
+  buildLeaveHolidayLookup,
   formatDayDecimalAsDayHour,
   formatSignedDayDecimalAsDayHour,
+  LEAVE_WORK_DAY_HOURS,
+  type LeaveHolidayRow,
 } from "@/lib/employee-leave-time";
+import {
+  formatLeaveHoursLabel,
+  hourlyWageFromMonthly,
+  leaveRequestHoursInRange,
+  leaveRequestTotalHours,
+  type LeaveHolidayLookup,
+} from "@/lib/leave-hours";
 import { seniorityFromHire } from "@/lib/employee-seniority";
 import { NumericInput } from "@/components/ui/numeric-input";
 
@@ -176,43 +186,25 @@ function createdAtInPayPeriodMonth(row: Record<string, unknown>, payPeriodYm: st
   return t >= g && t < l;
 }
 
-/** 該筆假單請假總天數（特休結算用；與「休假是否落在本月」無關） */
-function leaveRequestTotalDays(row: Record<string, unknown>): number {
-  const td = row.total_days;
-  if (td != null && td !== "") {
-    const n = Number(td);
-    if (Number.isFinite(n) && n >= 0) return n;
-  }
-  const start = String(row.start_date ?? row.start ?? "").slice(0, 10);
-  const end = String(row.end_date ?? row.end ?? start).slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return 0;
-  return overlapInclusiveDays(start, end, start, end);
-}
-
 function parseLocalYmd(s: string): Date {
   const [yy, mm, dd] = s.slice(0, 10).split("-").map((x) => Number(x));
   return new Date(yy, mm - 1, dd);
 }
 
-function overlapInclusiveDays(
-  leaveStart: string,
-  leaveEnd: string,
-  monthStart: string,
-  monthEnd: string,
-): number {
-  const a = parseLocalYmd(leaveStart);
-  const b = parseLocalYmd(leaveEnd);
-  const x = parseLocalYmd(monthStart);
-  const y = parseLocalYmd(monthEnd);
-  const s = a.getTime() > x.getTime() ? a : x;
-  const e = b.getTime() < y.getTime() ? b : y;
-  if (s.getTime() > e.getTime()) return 0;
-  return Math.floor((e.getTime() - s.getTime()) / 86400000) + 1;
-}
-
 function isLeaveApproved(raw: string | null | undefined): boolean {
   const s = (raw ?? "").trim().toLowerCase();
   return s === "approved" || s === "已核准" || s === "核准";
+}
+
+function isLeavePending(raw: string | null | undefined): boolean {
+  const s = (raw ?? "").trim().toLowerCase();
+  return s === "pending" || s === "待審核" || s === "";
+}
+
+/** M/D（跨日為 M/D–M/D） */
+function shortDateRange(start: string, end: string): string {
+  const f = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
+  return start === end || !end ? f(start) : `${f(start)}–${f(end)}`;
 }
 
 function leaveTypeRaw(row: Record<string, unknown>): string {
@@ -240,55 +232,82 @@ function leaveDeductionRatio(
   return 0;
 }
 
+/** 待審假單（發放前提醒；發放後才核准者不會列入本月結算） */
+type PendingLeaveInfo = {
+  type: string;
+  start: string;
+  end: string;
+  hours: number;
+};
+
 /** 單一員工當月請假統計（特休另行結算；deductible 僅收扣薪比例 > 0 的假別） */
 type LeaveMonthStats = {
+  /** 本月建立之特休（天）：發放時自特休餘額扣除 */
   specialThisMonth: number;
   /** 本月申請（建立）之補休假總時數：發放時自補休金庫扣除（同特休邏輯） */
   compThisMonth: number;
-  /** 假別名稱 → 本月天數 */
-  deductibleByType: Map<string, number>;
-  /** Σ 天數 × 扣薪比例 */
-  weightedDeductionDays: number;
-  /** 其他假期（非特休、非事假病假：婚假、生理假、公假等）假別名稱 → 本月天數 */
-  otherByType: Map<string, number>;
+  /** 假別名稱 → 本月請假時數（扣薪假別） */
+  deductibleHoursByType: Map<string, number>;
+  /** Σ 本月請假時數 × 扣薪比例 */
+  weightedDeductionHours: number;
+  /** 其他假期（非特休、非事假病假：婚假、生理假、公假等）假別名稱 → 本月請假時數 */
+  otherHoursByType: Map<string, number>;
+  /** 本月相關的待審假單 */
+  pending: PendingLeaveInfo[];
 };
 
 function emptyLeaveMonthStats(): LeaveMonthStats {
   return {
     specialThisMonth: 0,
     compThisMonth: 0,
-    deductibleByType: new Map(),
-    weightedDeductionDays: 0,
-    otherByType: new Map(),
+    deductibleHoursByType: new Map(),
+    weightedDeductionHours: 0,
+    otherHoursByType: new Map(),
+    pending: [],
   };
 }
 
-/** 其他假期彙整：{ days: 總天數, detail: 「婚假 2 天、生理假 1 天」} */
+function pendingLeaveLabel(p: PendingLeaveInfo): string {
+  return `${p.type} ${shortDateRange(p.start, p.end)}（${formatLeaveHoursLabel(p.hours)}）`;
+}
+
+/** 其他假期彙整：{ days: 總天數（時數 ÷ 8）, detail: 「婚假 2 天、生理假 4 小時」} */
 function summarizeOtherLeave(st: LeaveMonthStats): {
   days: number;
   detail: string | null;
 } {
-  let days = 0;
+  let hours = 0;
   const parts: string[] = [];
-  for (const [name, d] of st.otherByType) {
-    days += d;
-    parts.push(`${name} ${d.toLocaleString("zh-TW", { maximumFractionDigits: 1 })} 天`);
+  for (const [name, h] of st.otherHoursByType) {
+    hours += h;
+    parts.push(`${name} ${formatLeaveHoursLabel(h)}`);
   }
-  return { days, detail: parts.length ? parts.join("、") : null };
+  return {
+    days: hours / LEAVE_WORK_DAY_HOURS,
+    detail: parts.length ? parts.join("、") : null,
+  };
 }
 
+/**
+ * 請假扣薪＝時薪（月薪 ÷ 30 ÷ 8）× Σ（本月請假時數 × 扣薪比例），四捨五入到元。
+ * leaveDaysTotal（寫入 payslips.leave_days）＝扣薪假別本月時數 ÷ 8。
+ */
 function computeLeaveDeduction(
   monthlyWage: number,
   st: LeaveMonthStats,
 ): { total: number; leaveDaysTotal: number; breakdownLabel: string } {
-  const total = Math.round((monthlyWage / 30) * st.weightedDeductionDays);
-  let leaveDaysTotal = 0;
+  const total = Math.round(hourlyWageFromMonthly(monthlyWage) * st.weightedDeductionHours);
+  let hours = 0;
   const parts: string[] = [];
-  for (const [name, days] of st.deductibleByType) {
-    leaveDaysTotal += days;
-    parts.push(`${name} ${days} 天`);
+  for (const [name, h] of st.deductibleHoursByType) {
+    hours += h;
+    parts.push(`${name} ${formatLeaveHoursLabel(h)}`);
   }
-  return { total, leaveDaysTotal, breakdownLabel: parts.join(" · ") };
+  return {
+    total,
+    leaveDaysTotal: hours / LEAVE_WORK_DAY_HOURS,
+    breakdownLabel: parts.join(" · "),
+  };
 }
 
 /** leave_type 為「特休」 */
@@ -303,13 +322,6 @@ function isCompLeave(row: Record<string, unknown>): boolean {
   const v = row.leave_type;
   if (v == null) return false;
   return String(v).trim().startsWith("補休");
-}
-
-/** 該筆補休假總時數：小時制假單（hours_count）優先，否則總天數 × 8 */
-function leaveRequestTotalHours(row: Record<string, unknown>): number {
-  const hc = Number(row.hours_count);
-  if (Number.isFinite(hc) && hc > 0) return hc;
-  return leaveRequestTotalDays(row) * 8;
 }
 
 function leaveEmployeeId(row: Record<string, unknown>): string | null {
@@ -354,6 +366,8 @@ type PaidLeaveSnap = {
   specialAfter: number | null;
   /** comp_leave_remaining_after（小時） */
   compAfter: number | null;
+  /** leave_deduction（元）：已發放列顯示發放當下的請假扣款，不隨扣薪規則調整而變動 */
+  leaveDeduction: number | null;
 };
 
 function isPayslipMissingColumnError(message: string): boolean {
@@ -494,6 +508,12 @@ export function SalarySettlementCenter() {
   const [loading, setLoading] = useState(false);
   const [employees, setEmployees] = useState<SettlementEmployee[]>([]);
   const [leaveRows, setLeaveRows] = useState<Record<string, unknown>[]>([]);
+  /** 涵蓋結算月與跨月假單起訖的 public_holidays（放假＋補班），請假時數分攤用 */
+  const [holidayRows, setHolidayRows] = useState<LeaveHolidayRow[]>([]);
+  const holidayLookup: LeaveHolidayLookup = useMemo(
+    () => buildLeaveHolidayLookup(holidayRows),
+    [holidayRows],
+  );
   const [attendanceRows, setAttendanceRows] = useState<Record<string, unknown>[]>(
     [],
   );
@@ -558,7 +578,10 @@ export function SalarySettlementCenter() {
     const map = new Map<string, LeaveMonthStats>();
     if (!bounds) return map;
     for (const raw of leaveRows) {
-      if (!isLeaveApproved(String(raw.status ?? ""))) continue;
+      const status = String(raw.status ?? "");
+      const approved = isLeaveApproved(status);
+      const pending = !approved && isLeavePending(status);
+      if (!approved && !pending) continue;
       const eid = leaveEmployeeId(raw);
       if (!eid) continue;
       const start = String(raw.start_date ?? raw.start ?? "").slice(0, 10);
@@ -566,47 +589,88 @@ export function SalarySettlementCenter() {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
 
       const cur = map.get(eid) ?? emptyLeaveMonthStats();
+      /** 本月請假時數（跨月假單依各月工時比例分攤） */
+      const hoursInMonth = leaveRequestHoursInRange(
+        raw,
+        bounds.start,
+        bounds.end,
+        holidayLookup,
+      );
+      const balanceType = isSpecialAnnualLeave(raw) || isCompLeave(raw);
+
+      if (pending) {
+        // 發放後才核准的假單不會列入本月：請假期間落在本月，或特休／補休本月建立者都提醒
+        if (hoursInMonth > 0 || (balanceType && createdAtInPayPeriodMonth(raw, payPeriod))) {
+          cur.pending.push({
+            type: leaveTypeRaw(raw) || "請假",
+            start,
+            end,
+            hours: leaveRequestTotalHours(raw, holidayLookup),
+          });
+          map.set(eid, cur);
+        }
+        continue;
+      }
 
       if (isSpecialAnnualLeave(raw)) {
-        // 特休：以「假單建立日」落在結算月份為準（已核准），天數為該筆申請總天數——
+        // 特休：以「假單建立日」落在結算月份為準（已核准），天數為該筆申請總時數 ÷ 8——
         // 避免請在後月才休時，要等到後月結算才扣餘額。
         if (createdAtInPayPeriodMonth(raw, payPeriod)) {
-          cur.specialThisMonth += leaveRequestTotalDays(raw);
+          cur.specialThisMonth +=
+            leaveRequestTotalHours(raw, holidayLookup) / LEAVE_WORK_DAY_HOURS;
         }
       } else if (isCompLeave(raw)) {
         // 補休：同特休邏輯，以假單建立月為準、發放時自補休金庫扣總時數；
         // 發放前撤銷／退回的假單不列入（僅統計已核准）
         if (createdAtInPayPeriodMonth(raw, payPeriod)) {
-          cur.compThisMonth += leaveRequestTotalHours(raw);
+          cur.compThisMonth += leaveRequestTotalHours(raw, holidayLookup);
         }
-        // 薪資單備註仍照其他假期記錄本月重疊天數
-        const days = overlapInclusiveDays(start, end, bounds.start, bounds.end);
-        if (days > 0) {
+        // 薪資單備註仍照其他假期記錄本月請假時數
+        if (hoursInMonth > 0) {
           const name = leaveTypeRaw(raw) || "補休";
-          cur.otherByType.set(name, (cur.otherByType.get(name) ?? 0) + days);
+          cur.otherHoursByType.set(
+            name,
+            (cur.otherHoursByType.get(name) ?? 0) + hoursInMonth,
+          );
         }
       } else {
-        const days = overlapInclusiveDays(start, end, bounds.start, bounds.end);
-        if (days <= 0) continue;
+        if (hoursInMonth <= 0) continue;
         const name = leaveTypeRaw(raw) || "請假";
         const ratio = leaveDeductionRatio(name, leaveTypeByName);
         if (ratio > 0) {
-          cur.deductibleByType.set(
+          cur.deductibleHoursByType.set(
             name,
-            (cur.deductibleByType.get(name) ?? 0) + days,
+            (cur.deductibleHoursByType.get(name) ?? 0) + hoursInMonth,
           );
-          cur.weightedDeductionDays += days * ratio;
+          cur.weightedDeductionHours += hoursInMonth * ratio;
         }
-        // 其他假期（婚假、生理假、公假等）：不論扣薪與否都記錄假別與天數，
+        // 其他假期（婚假、生理假、公假等）：不論扣薪與否都記錄假別與時數，
         // 發放時寫入 payslips.other_leave_days / other_leave_detail 供薪資單備註
         if (name !== "事假" && name !== "病假") {
-          cur.otherByType.set(name, (cur.otherByType.get(name) ?? 0) + days);
+          cur.otherHoursByType.set(
+            name,
+            (cur.otherHoursByType.get(name) ?? 0) + hoursInMonth,
+          );
         }
       }
       map.set(eid, cur);
     }
     return map;
-  }, [leaveRows, bounds, payPeriod, leaveTypeByName]);
+  }, [leaveRows, bounds, payPeriod, leaveTypeByName, holidayLookup]);
+
+  /** 尚未發放員工的待審假單合計（頁首提醒） */
+  const pendingLeaveSummary = useMemo(() => {
+    let count = 0;
+    const names: string[] = [];
+    for (const emp of employees) {
+      if (paidIds.has(emp.id)) continue;
+      const n = leaveStatsByEmployee.get(emp.id)?.pending.length ?? 0;
+      if (n <= 0) continue;
+      count += n;
+      names.push(n > 1 ? `${emp.name} ${n} 張` : emp.name);
+    }
+    return { count, names };
+  }, [employees, paidIds, leaveStatsByEmployee]);
 
   const load = useCallback(async (): Promise<boolean> => {
     if (!isSupabaseConfigured) {
@@ -769,18 +833,42 @@ export function SalarySettlementCenter() {
       }
       setGrantRowsByEmp(grantMap);
 
-      // 結算月內放假日：出勤備註自動寫入、抑制請假／放假日的無打卡異常
+      // 結算月內放假日：出勤備註自動寫入、抑制請假／放假日的無打卡異常。
+      // 查詢範圍延伸到跨月假單的起訖，供請假時數依月份工時分攤。
+      let holidayFrom = bounds.start;
+      let holidayTo = bounds.end;
+      for (const r of [
+        ...((leaveOverlapRes.data ?? []) as unknown as Record<string, unknown>[]),
+        ...((leaveCreatedRes.data ?? []) as unknown as Record<string, unknown>[]),
+      ]) {
+        const s = String(r.start_date ?? "").slice(0, 10);
+        const e = String(r.end_date ?? s).slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s) && s < holidayFrom) holidayFrom = s;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(e) && e > holidayTo) holidayTo = e;
+      }
       const holidayRes = await supabase
         .from("public_holidays")
         .select("holiday_date, name, is_workday")
-        .gte("holiday_date", bounds.start)
-        .lte("holiday_date", bounds.end);
-      const monthHolidays = ((holidayRes.data ?? []) as {
+        .gte("holiday_date", holidayFrom)
+        .lte("holiday_date", holidayTo);
+      const holidayList = (holidayRes.data ?? []) as {
         holiday_date?: string;
         name?: string | null;
         is_workday?: boolean | null;
-      }[])
-        .filter((h) => h.is_workday !== true && h.holiday_date)
+      }[];
+      setHolidayRows(
+        holidayList
+          .filter((h) => h.holiday_date)
+          .map((h) => ({
+            holiday_date: String(h.holiday_date).slice(0, 10),
+            is_workday: h.is_workday === true,
+          })),
+      );
+      const monthHolidays = holidayList
+        .filter((h) => {
+          const d = String(h.holiday_date ?? "").slice(0, 10);
+          return h.is_workday !== true && d >= bounds.start && d <= bounds.end;
+        })
         .map((h) => ({
           date: String(h.holiday_date).slice(0, 10),
           name: (h.name ?? "").trim() || "臨時假日",
@@ -927,7 +1015,31 @@ export function SalarySettlementCenter() {
             specialSettled: numOrNull(row.special_leave_days_settled),
             specialAfter: numOrNull(row.special_leave_remaining_after),
             compAfter: numOrNull(row.comp_leave_remaining_after),
+            leaveDeduction: null,
           });
+        }
+      }
+      /** 已發放列的請假扣款改讀發放當下金額（另查，避免缺欄時拖垮上方快照查詢） */
+      const dedRes = await supabase
+        .from("payslips")
+        .select("employee_id, status, leave_deduction")
+        .eq("period_key", payPeriod)
+        .in("employee_id", ids);
+      if (!dedRes.error) {
+        for (const s of (dedRes.data ?? []) as {
+          employee_id?: string;
+          status?: string;
+          leave_deduction?: unknown;
+        }[]) {
+          if (!s.employee_id || !isPaidStatus(s.status)) continue;
+          const id = String(s.employee_id);
+          const prev = leaveSnapByEmp.get(id) ?? {
+            specialSettled: null,
+            specialAfter: null,
+            compAfter: null,
+            leaveDeduction: null,
+          };
+          leaveSnapByEmp.set(id, { ...prev, leaveDeduction: numOrNull(s.leave_deduction) });
         }
       }
       setPaidLeaveSnapByEmp(leaveSnapByEmp);
@@ -1292,8 +1404,15 @@ export function SalarySettlementCenter() {
     const confirmLines = [
       `確定發放「${emp.name}」${bounds.label} 薪資？`,
       ``,
-      `實發總額：NT$ ${net.toLocaleString("zh-TW")}`,
     ];
+    if (st.pending.length > 0) {
+      confirmLines.push(
+        `⚠ 尚有 ${st.pending.length} 張待審假單：${st.pending.map(pendingLeaveLabel).join("、")}`,
+        `發放後才核准的假單不會列入本月結算，建議先到「假單/加班審核」處理。`,
+        ``,
+      );
+    }
+    confirmLines.push(`實發總額：NT$ ${net.toLocaleString("zh-TW")}`);
     if (semiBonus > 0) {
       confirmLines.push(
         `含獎金：NT$ ${semiBonus.toLocaleString("zh-TW")}${bonusImportLabel ? `（${bonusImportLabel}）` : ""}`,
@@ -1710,6 +1829,13 @@ export function SalarySettlementCenter() {
         </p>
       )}
 
+      {pendingLeaveSummary.count > 0 && (
+        <p className="border-b border-border bg-amber-50 px-5 py-2.5 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          ⚠ {bounds?.label ?? "本月"}尚有 {pendingLeaveSummary.count} 張待審假單（
+          {pendingLeaveSummary.names.join("、")}）。發放後才核准的假單不會列入本月結算，建議先到「假單/加班審核」處理。
+        </p>
+      )}
+
       <div className="overflow-x-auto px-2 pb-2 pt-1 sm:px-4 sm:pb-4 sm:pt-2">
         {loading ? (
           <p className="py-12 text-center text-sm text-muted-foreground">
@@ -1818,8 +1944,13 @@ export function SalarySettlementCenter() {
                 const paid = paidIds.has(emp.id);
                 const st = leaveStatsByEmployee.get(emp.id) ?? emptyLeaveMonthStats();
                 const inp = inputs[emp.id] ?? defaultRowInputs();
-                const { total: leaveDedTotal, breakdownLabel: leaveBreakdown } =
+                const { total: leaveDedLive, breakdownLabel: leaveBreakdown } =
                   computeLeaveDeduction(emp.monthly_wage, st);
+                /** 已發放列改讀 payslips 發放當下快照，避免主檔後續變動使數字對不上；
+                 *  舊快照（無新欄位）退回即時值 */
+                const paidSnap = paid ? paidLeaveSnapByEmp.get(emp.id) : undefined;
+                const leaveDedTotal = paidSnap?.leaveDeduction ?? leaveDedLive;
+                const pendingLeaves = paid ? [] : st.pending;
                 const ot = overtimeMonthStats(emp.id, overtimeRows);
                 const overtimeAmt = overtimePayAmount(ot.pay, emp.overtime_rate);
                 const semiBonus = inp.semiAnnualBonus ?? 0;
@@ -1838,9 +1969,6 @@ export function SalarySettlementCenter() {
                     inp.otherAdjust +
                     semiBonus,
                 );
-                /** 已發放列改讀 payslips 發放當下快照，避免主檔後續變動使數字對不上；
-                 *  舊快照（無新欄位）退回即時值 */
-                const paidSnap = paid ? paidLeaveSnapByEmp.get(emp.id) : undefined;
                 const specialThisMonthDisp =
                   paidSnap?.specialSettled ?? st.specialThisMonth;
 
@@ -1959,10 +2087,24 @@ export function SalarySettlementCenter() {
                       ) : null}
                     </td>
                     <td
-                      title={leaveBreakdown || "本月無影響薪資之請假"}
+                      title={
+                        paidSnap?.leaveDeduction != null
+                          ? `發放當下金額（薪資單快照）${leaveBreakdown ? `；${leaveBreakdown}` : ""}`
+                          : leaveBreakdown
+                            ? `${leaveBreakdown}（時薪＝月薪 ÷ 30 ÷ 8）`
+                            : "本月無影響薪資之請假"
+                      }
                       className="text-right text-xs tabular-nums text-red-600 dark:text-red-400"
                     >
                       −{leaveDedTotal.toLocaleString("zh-TW")}
+                      {pendingLeaves.length > 0 ? (
+                        <span
+                          title={`待審假單：${pendingLeaves.map(pendingLeaveLabel).join("、")}。發放後才核准的假單不會列入本月結算。`}
+                          className="mt-0.5 block whitespace-nowrap text-[10px] font-medium text-amber-700 dark:text-amber-400"
+                        >
+                          ⚠ 待審 {pendingLeaves.length}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="whitespace-nowrap! border-l border-border text-right text-xs tabular-nums text-muted-foreground">
                       {orig != null ? formatDayHourShort(orig) : "—"}

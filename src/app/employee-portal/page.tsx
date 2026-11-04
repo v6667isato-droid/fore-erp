@@ -20,6 +20,17 @@ import {
 } from "@/lib/employee-portal-mock";
 import { insertEmployeeLeaveRequest } from "@/lib/employee-leave-requests";
 import {
+  availableLeaveHours,
+  balanceLeaveKindOf,
+  describeLeaveAvailability,
+  emptyLeaveBalanceCommitments,
+  exceedsAvailable,
+  fetchLeaveBalanceCommitments,
+  LEAVE_HOURS_EPSILON,
+  leaveBalanceErrorMessage,
+  type LeaveBalanceCommitments,
+} from "@/lib/leave-balance-availability";
+import {
   OVERTIME_COMPENSATION_LABELS,
   OVERTIME_LUNCH_HOURS,
   computeOvertimeNetHours,
@@ -919,6 +930,10 @@ export default function EmployeePortalPage() {
   const [leaveAttachmentFile, setLeaveAttachmentFile] = useState<File | null>(null);
   /** 本年度已核准假單天數（依假別加總；開啟申請視窗時載入） */
   const [yearlyLeaveUsage, setYearlyLeaveUsage] = useState<YearlyLeaveUsageMap>(new Map());
+  /** 特休／補休已占用時數（待審、已核准待結算）；null＝載入中 */
+  const [balanceCommitments, setBalanceCommitments] =
+    useState<LeaveBalanceCommitments | null>(null);
+  const [balanceCommitmentsError, setBalanceCommitmentsError] = useState<string | null>(null);
   /** 請假計算：國定／特殊假日（is_workday=false 不計；補班 is_workday=true 計入）；未連線時僅排除週末 */
   const [leaveHolidayLookup, setLeaveHolidayLookup] = useState<
     Map<string, { is_workday: boolean }> | undefined
@@ -978,6 +993,33 @@ export default function EmployeePortalPage() {
       cancelled = true;
     };
   }, []);
+
+  /** 開啟申請視窗時載入特休／補休已占用時數（可申請額度＝剩餘 − 待審 − 已核准待結算） */
+  useEffect(() => {
+    if (!leaveOpen) return;
+    if (!isSupabaseConfigured) {
+      setBalanceCommitments(emptyLeaveBalanceCommitments());
+      return;
+    }
+    const employeeId = data?.employee.id;
+    if (!employeeId) return;
+    let cancelled = false;
+    setBalanceCommitments(null);
+    setBalanceCommitmentsError(null);
+    void (async () => {
+      try {
+        const c = await fetchLeaveBalanceCommitments(employeeId);
+        if (!cancelled) setBalanceCommitments(c);
+      } catch (e) {
+        if (!cancelled) {
+          setBalanceCommitmentsError(e instanceof Error ? e.message : String(e));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [leaveOpen, data?.employee.id]);
 
   /** 開啟申請視窗時載入本年度已核准累計（事假 14 日、病假 30 日等提醒用） */
   useEffect(() => {
@@ -1264,14 +1306,43 @@ export default function EmployeePortalPage() {
     return formatSignedDayDecimalAsDayHour(r);
   }, [data?.employee.annual_leave_remaining]);
 
-  /** 補休：無餘額資料、或預覽時數超過剩餘時，不可送出 */
-  const compLeaveSubmitBlocked = useMemo(() => {
-    if (leaveForm.type !== "補休") return false;
-    const rem = data?.employee.comp_leave_remaining;
-    if (rem == null || !Number.isFinite(rem)) return true;
-    if (!timedLeaveHourPreview) return false;
-    return timedLeaveHourPreview.totalHours > rem;
-  }, [leaveForm.type, data?.employee.comp_leave_remaining, timedLeaveHourPreview]);
+  /**
+   * 特休／補休可申請額度：剩餘 − 已送出待審 − 已核准待結算（特休另加已核准待入帳的年資新增）。
+   * 餘額未設定、額度歸零，或本次時數超過額度時不可送出。
+   */
+  const leaveBalanceCheck = useMemo(() => {
+    const kind = balanceLeaveKindOf(leaveForm.type);
+    if (!kind) return null;
+    const balance =
+      kind === "annual"
+        ? data?.employee.annual_leave_remaining
+        : data?.employee.comp_leave_remaining;
+    if (balanceCommitmentsError) {
+      return { kind, commitments: null, available: null, blockedReason: "error" as const };
+    }
+    if (!balanceCommitments) {
+      return { kind, commitments: null, available: null, blockedReason: "loading" as const };
+    }
+    const available = availableLeaveHours(kind, balance, balanceCommitments);
+    const request = timedLeaveHourPreview?.totalHours ?? null;
+    const blockedReason =
+      available == null
+        ? ("no_balance" as const)
+        : available <= LEAVE_HOURS_EPSILON
+          ? ("exhausted" as const)
+          : request != null && exceedsAvailable(request, available)
+            ? ("exceeds" as const)
+            : null;
+    return { kind, commitments: balanceCommitments, available, blockedReason };
+  }, [
+    leaveForm.type,
+    data?.employee.annual_leave_remaining,
+    data?.employee.comp_leave_remaining,
+    balanceCommitments,
+    balanceCommitmentsError,
+    timedLeaveHourPreview,
+  ]);
+  const leaveBalanceBlocked = leaveBalanceCheck?.blockedReason != null;
 
   const selectedLeaveType = useMemo(
     () => findLeaveTypeByName(leaveTypes, leaveForm.type),
@@ -1391,29 +1462,20 @@ export default function EmployeePortalPage() {
       return;
     }
 
-    if (leaveForm.type === "特休") {
-      const rem = data.employee.annual_leave_remaining;
-      if (rem != null && Number.isFinite(rem)) {
-        const remH = rem * LEAVE_WORK_DAY_HOURS;
-        if (hrs > remH) {
-          toast.warning("申請時數超過目前剩餘特休換算時數，仍會送出供主管審核。");
-        }
-      }
-    }
-
-    if (leaveForm.type === "補休") {
-      const remH = data.employee.comp_leave_remaining;
-      if (remH == null || !Number.isFinite(remH)) {
-        toast.error("無法確認補休剩餘（employees.comp_leave_remaining）。請洽人資維護。");
-        return;
-      }
-      if (hrs > remH) {
-        toast.error(
-          `申請時數不可超過剩餘補休。目前剩餘 ${formatHoursAsDayHour(remH)}（${remH.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 小時），本次有效時數為 ${hrs.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 小時。`,
-        );
-        return;
-      }
-    }
+    const balanceKind = balanceLeaveKindOf(leaveForm.type);
+    /** 特休／補休額度檢查；回傳錯誤訊息（null＝通過） */
+    const balanceError = (c: LeaveBalanceCommitments): string | null => {
+      if (!balanceKind) return null;
+      return leaveBalanceErrorMessage(
+        balanceKind,
+        leaveForm.type,
+        balanceKind === "annual"
+          ? data.employee.annual_leave_remaining
+          : data.employee.comp_leave_remaining,
+        c,
+        hrs,
+      );
+    };
 
     // 年度上限（事假＋家庭照顧假 14 日、病假 30 日）超過時僅警告不擋送出，
     // 並將警告寫入備註供審核者參考
@@ -1442,6 +1504,11 @@ export default function EmployeePortalPage() {
     };
 
     if (!isSupabaseConfigured) {
+      const err = balanceError(emptyLeaveBalanceCommitments());
+      if (err) {
+        toast.error(err);
+        return;
+      }
       setData((prev) =>
         prev ? { ...prev, leave_requests: [newRow, ...prev.leave_requests] } : prev
       );
@@ -1463,6 +1530,26 @@ export default function EmployeePortalPage() {
     }
 
     setLeaveSubmitting(true);
+    if (balanceKind) {
+      // 送出前重新查一次已占用時數（其他分頁／裝置可能剛送出假單）
+      let c: LeaveBalanceCommitments;
+      try {
+        c = await fetchLeaveBalanceCommitments(data.employee.id);
+      } catch (err) {
+        setLeaveSubmitting(false);
+        toast.error(
+          `無法確認可申請額度，請稍後再試：${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+      setBalanceCommitments(c);
+      const err = balanceError(c);
+      if (err) {
+        setLeaveSubmitting(false);
+        toast.error(err);
+        return;
+      }
+    }
     let attachmentPath: string | null = null;
     if (leaveAttachmentFile) {
       const up = await uploadLeaveAttachment(leaveAttachmentFile);
@@ -1486,6 +1573,8 @@ export default function EmployeePortalPage() {
       endDayEndHour: e2,
       hoursCount: hrs,
       daysCount: daysEq,
+      startTime: leaveForm.startTime.trim().slice(0, 5),
+      endTime: leaveForm.endTime.trim().slice(0, 5),
       reason: finalReason || null,
       attachmentUrl: attachmentPath,
     });
@@ -3170,10 +3259,32 @@ export default function EmployeePortalPage() {
                 </select>
               </div>
 
-              {leaveForm.type === "補休" ? (
-                <p className="text-xs text-muted-foreground">
-                  補休假單之有效請假時數不可超過上方「補休剩餘」總時數；超額無法送出。
-                </p>
+              {leaveBalanceCheck ? (
+                <div className="rounded-lg border border-border/80 bg-muted/20 px-3 py-2 text-xs leading-relaxed">
+                  {leaveBalanceCheck.blockedReason === "loading" ? (
+                    <p className="text-muted-foreground">計算可申請額度中…</p>
+                  ) : leaveBalanceCheck.blockedReason === "error" ? (
+                    <p className="text-destructive">
+                      無法確認{leaveForm.type}可申請額度，請關閉後重新開啟，或稍後再試。
+                    </p>
+                  ) : leaveBalanceCheck.commitments ? (
+                    <p className="text-foreground">
+                      <span className="font-medium">{leaveForm.type}</span>{" "}
+                      <span className="tabular-nums">
+                        {describeLeaveAvailability(
+                          leaveBalanceCheck.kind,
+                          leaveBalanceCheck.kind === "annual"
+                            ? data?.employee.annual_leave_remaining
+                            : data?.employee.comp_leave_remaining,
+                          leaveBalanceCheck.commitments,
+                        )}
+                      </span>
+                    </p>
+                  ) : null}
+                  <p className="mt-1 text-muted-foreground">
+                    有效請假時數不可超過可申請額度（剩餘扣掉已送出待審、已核准尚未結算的時數）；超額無法送出。
+                  </p>
+                </div>
               ) : null}
 
               {selectedLeaveType?.description ? (
@@ -3361,13 +3472,17 @@ export default function EmployeePortalPage() {
                   請確認結束晚於起始，且與 9:00–18:00 有重疊；若仍無預覽，請檢查時間格式或是否區間皆落在週末／國定放假日。
                 </p>
               ) : null}
-              {leaveForm.type === "補休" &&
-              (data?.employee.comp_leave_remaining == null ||
-                !Number.isFinite(data?.employee.comp_leave_remaining ?? NaN)) ? (
-                <p className="text-xs text-destructive">無法申請補休：尚無補休餘額資料。</p>
-              ) : leaveForm.type === "補休" && timedLeaveHourPreview && compLeaveSubmitBlocked ? (
+              {leaveBalanceCheck?.blockedReason === "no_balance" ? (
                 <p className="text-xs text-destructive">
-                  本次有效時數超過剩餘補休，請縮短區間或調整時間後再送出。
+                  無法申請{leaveForm.type}：尚未設定{leaveForm.type}餘額，請洽人資維護。
+                </p>
+              ) : leaveBalanceCheck?.blockedReason === "exhausted" ? (
+                <p className="text-xs text-destructive">
+                  {leaveForm.type}可申請額度已用完，無法送出。
+                </p>
+              ) : leaveBalanceCheck?.blockedReason === "exceeds" ? (
+                <p className="text-xs text-destructive">
+                  本次有效時數超過{leaveForm.type}可申請額度，請縮短區間或調整時間後再送出。
                 </p>
               ) : null}
 
@@ -3390,7 +3505,7 @@ export default function EmployeePortalPage() {
                     取消
                   </Button>
                 </Dialog.Close>
-                <Button type="submit" disabled={leaveSubmitting || compLeaveSubmitBlocked}>
+                <Button type="submit" disabled={leaveSubmitting || leaveBalanceBlocked}>
                   {leaveSubmitting ? "送出中…" : "送出申請"}
                 </Button>
               </div>

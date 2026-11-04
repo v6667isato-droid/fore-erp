@@ -84,6 +84,13 @@ import {
 } from "@/lib/leave-holiday-conflict";
 import { LEAVE_WORK_DAY_HOURS, formatDayDecimalAsDayHour } from "@/lib/employee-leave-time";
 import {
+  balanceLeaveKindOf,
+  describeLeaveAvailability,
+  fetchEmployeeLeaveBalances,
+  fetchLeaveBalanceCommitments,
+  leaveBalanceErrorMessage,
+} from "@/lib/leave-balance-availability";
+import {
   SICK_ANNUAL_LIMIT_DAYS,
   SICK_PROTECTION_LINE_DAYS,
   fetchAllLeaveTypes,
@@ -763,8 +770,61 @@ export function LeaveApprovalsPage() {
     return entries;
   }, [historyList, otRows, mkRows, historyMonth]);
 
+  /**
+   * 特休／補休核准前再檢查一次可申請額度（排除本張假單本身）：
+   * 送單到核准之間餘額可能已變動，或同時有多張待審，超過額度不可核准。
+   */
+  async function checkBalanceBeforeApprove(
+    row: LeaveRequestAdminRow,
+  ): Promise<{ ok: true; detail: string | null } | { ok: false; message: string }> {
+    const kind = balanceLeaveKindOf(row.leave_type_label);
+    if (!kind || !isSupabaseConfigured) return { ok: true, detail: null };
+    try {
+      const [balances, c] = await Promise.all([
+        fetchEmployeeLeaveBalances(row.employee_id),
+        fetchLeaveBalanceCommitments(row.employee_id, { excludeLeaveId: row.id }),
+      ]);
+      const balance = kind === "annual" ? balances.annual : balances.comp;
+      const requestHours = row.days * LEAVE_WORK_DAY_HOURS;
+      const err = leaveBalanceErrorMessage(kind, row.leave_type_label, balance, c, requestHours);
+      if (err) {
+        return {
+          ok: false,
+          message: `無法核准「${row.employee_name}」的${row.leave_type_label}：${err}請先調整員工餘額，或退回假單。`,
+        };
+      }
+      return {
+        ok: true,
+        detail: `${row.leave_type_label}額度（不含本張）：${describeLeaveAvailability(kind, balance, c)}\n本張：${formatDayDecimalAsDayHour(row.days)}`,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        message: `無法確認${row.leave_type_label}可申請額度，暫不核准：${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  }
+
   async function approve(id: string) {
-    if (!window.confirm("確定核准此假單？")) return;
+    const row = rows.find((r) => r.id === id);
+    let balanceDetail: string | null = null;
+    if (row && balanceLeaveKindOf(row.leave_type_label)) {
+      setActingId(id);
+      const check = await checkBalanceBeforeApprove(row);
+      setActingId(null);
+      if (!check.ok) {
+        toast.error(check.message, { duration: 10000 });
+        return;
+      }
+      balanceDetail = check.detail;
+    }
+    if (
+      !window.confirm(
+        balanceDetail ? `確定核准此假單？\n\n${balanceDetail}` : "確定核准此假單？",
+      )
+    ) {
+      return;
+    }
     setActingId(id);
     try {
       const { error: uErr } = await supabase
