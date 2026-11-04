@@ -930,7 +930,7 @@ export default function EmployeePortalPage() {
   const [leaveAttachmentFile, setLeaveAttachmentFile] = useState<File | null>(null);
   /** 本年度已核准假單天數（依假別加總；開啟申請視窗時載入） */
   const [yearlyLeaveUsage, setYearlyLeaveUsage] = useState<YearlyLeaveUsageMap>(new Map());
-  /** 特休／補休已占用時數（待審、已核准待結算）；null＝載入中 */
+  /** 特休／補休待審中的時數；null＝載入中 */
   const [balanceCommitments, setBalanceCommitments] =
     useState<LeaveBalanceCommitments | null>(null);
   const [balanceCommitmentsError, setBalanceCommitmentsError] = useState<string | null>(null);
@@ -994,7 +994,7 @@ export default function EmployeePortalPage() {
     };
   }, []);
 
-  /** 開啟申請視窗時載入特休／補休已占用時數（可申請額度＝剩餘 − 待審 − 已核准待結算） */
+  /** 開啟申請視窗時載入特休／補休待審時數（可申請額度＝剩餘 − 待審；已核准者核准時已扣） */
   useEffect(() => {
     if (!leaveOpen) return;
     if (!isSupabaseConfigured) {
@@ -1307,7 +1307,7 @@ export default function EmployeePortalPage() {
   }, [data?.employee.annual_leave_remaining]);
 
   /**
-   * 特休／補休可申請額度：剩餘 − 已送出待審 − 已核准待結算（特休另加已核准待入帳的年資新增）。
+   * 特休／補休可申請額度：剩餘 − 已送出待審（假單核准時已自餘額扣除）。
    * 餘額未設定、額度歸零，或本次時數超過額度時不可送出。
    */
   const leaveBalanceCheck = useMemo(() => {
@@ -3282,7 +3282,7 @@ export default function EmployeePortalPage() {
                     </p>
                   ) : null}
                   <p className="mt-1 text-muted-foreground">
-                    有效請假時數不可超過可申請額度（剩餘扣掉已送出待審、已核准尚未結算的時數）；超額無法送出。
+                    有效請假時數不可超過可申請額度（剩餘扣掉已送出待審的時數；核准後立即扣除）；超額無法送出。
                   </p>
                 </div>
               ) : null}

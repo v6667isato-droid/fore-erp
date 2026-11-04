@@ -8,6 +8,23 @@ import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { isSupabaseConfigured, supabase, SUPABASE_CONFIG_HELP } from "@/lib/supabase";
+import { syncHolidayRefunds } from "@/lib/leave-holiday-refund-sync";
+import { decideHolidayRefundRpc } from "@/lib/leave-balance-rpc";
+
+/** 新增／改成放假日後：已核准且涵蓋該日的特休／補休／扣薪假單，產生假日回補單 */
+async function createRefundsAfterHolidayChange() {
+  const res = await syncHolidayRefunds();
+  if (!res.ok) {
+    console.warn("[public-holidays] 假日回補掃描失敗:", res.message);
+    return;
+  }
+  if (res.created > 0) {
+    toast.info(
+      `有 ${res.created} 筆已核准的請假涵蓋這天，已產生假日回補單，請到「假單/加班審核」決定是否回補。`,
+      { duration: 10000 },
+    );
+  }
+}
 
 function todayIsoDate(): string {
   const d = new Date();
@@ -218,11 +235,13 @@ export function PublicHolidaysAdminCard({ onMutate }: { onMutate?: () => void })
         return;
       }
       toast.success("已新增特殊假日。");
+      const addedHoliday = !isWorkday;
       setName("");
       setIsWorkday(false);
       setIsPaid(true);
       onMutate?.();
       await loadList();
+      if (addedHoliday) await createRefundsAfterHolidayChange();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "新增失敗");
     } finally {
@@ -239,22 +258,27 @@ export function PublicHolidaysAdminCard({ onMutate }: { onMutate?: () => void })
     }
     setSubmitting(true);
     try {
+      // 補班日改成放假日＝這天「現在才」變成假日：更新建立時間，讓之前送出的假單能被判定需要回補
+      const becameHoliday = overwriteTarget.is_workday && !isWorkday;
       const { error } = await supabase
         .from("public_holidays")
         .update({
           name: n,
           is_workday: isWorkday,
           is_paid: isPaid,
+          ...(becameHoliday ? { created_at: new Date().toISOString() } : {}),
         })
         .eq("id", overwriteTarget.id);
       if (error) throw error;
       toast.success("已覆寫該日特殊假日設定。");
+      const nowHoliday = !isWorkday;
       setOverwriteTarget(null);
       setName("");
       setIsWorkday(false);
       setIsPaid(true);
       onMutate?.();
       await loadList();
+      if (nowHoliday) await createRefundsAfterHolidayChange();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "覆寫失敗");
     } finally {
@@ -264,10 +288,28 @@ export function PublicHolidaysAdminCard({ onMutate }: { onMutate?: () => void })
 
   async function confirmDelete() {
     if (!deleteTarget || !isSupabaseConfigured) return;
+    // 這天已有回補單：已核准者不會自動扣回（提醒人工處理）；待審者一併取消
+    const { data: refunds } = await supabase
+      .from("leave_holiday_refunds")
+      .select("id, status")
+      .eq("holiday_date", deleteTarget.holiday_date)
+      .in("status", ["pending", "approved"]);
+    const approvedCount = (refunds ?? []).filter((r) => r.status === "approved").length;
+    if (
+      approvedCount > 0 &&
+      !window.confirm(
+        `這天已有 ${approvedCount} 筆假日回補已核准（已退回特休／補休或少扣薪）。刪除假日不會自動扣回，需要的話請到員工資料手動調整。仍要刪除嗎？`,
+      )
+    ) {
+      return;
+    }
     const { error } = await supabase.from("public_holidays").delete().eq("id", deleteTarget.id);
     if (error) {
       toast.error(error.message);
       return;
+    }
+    for (const r of (refunds ?? []).filter((x) => x.status === "pending")) {
+      await decideHolidayRefundRpc(r.id, false, "假日已刪除");
     }
     toast.success("已刪除。");
     onMutate?.();

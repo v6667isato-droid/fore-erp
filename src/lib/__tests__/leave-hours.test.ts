@@ -100,21 +100,18 @@ describe("時數顯示", () => {
   });
 });
 
-describe("特休／補休可申請額度", () => {
-  it("特休：剩餘＋待入帳新增 − 待審 − 已核准待結算", () => {
+describe("特休／補休可申請額度（核准即扣：餘額 − 待審）", () => {
+  it("特休：剩餘天數 × 8 − 待審時數", () => {
     const c = emptyLeaveBalanceCommitments();
     c.annual.pendingHours = 8;
-    c.annual.unsettledHours = 4;
-    c.annualPendingGrantDays = 1;
-    // (2 + 1) × 8 − 8 − 4 = 12
-    expect(availableLeaveHours("annual", 2, c)).toBe(12);
+    // 2.5 × 8 − 8 = 12
+    expect(availableLeaveHours("annual", 2.5, c)).toBe(12);
   });
 
-  it("補休：剩餘時數 − 待審 − 已核准待結算", () => {
+  it("補休：剩餘時數 − 待審時數", () => {
     const c = emptyLeaveBalanceCommitments();
     c.comp.pendingHours = 3;
-    c.comp.unsettledHours = 2;
-    expect(availableLeaveHours("comp", 10, c)).toBe(5);
+    expect(availableLeaveHours("comp", 10, c)).toBe(7);
   });
 
   it("餘額未設定不可申請", () => {

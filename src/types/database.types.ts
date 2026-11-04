@@ -154,6 +154,7 @@ export type Database = {
       annual_leave_grants: {
         Row: {
           applied_at: string | null
+          approved_by: string | null
           days: number
           employee_id: string
           granted_at: string
@@ -161,9 +162,11 @@ export type Database = {
           milestone_years: number
           note: string | null
           pay_period: string | null
+          statutory_days: number | null
         }
         Insert: {
           applied_at?: string | null
+          approved_by?: string | null
           days: number
           employee_id: string
           granted_at?: string
@@ -171,9 +174,11 @@ export type Database = {
           milestone_years: number
           note?: string | null
           pay_period?: string | null
+          statutory_days?: number | null
         }
         Update: {
           applied_at?: string | null
+          approved_by?: string | null
           days?: number
           employee_id?: string
           granted_at?: string
@@ -181,6 +186,7 @@ export type Database = {
           milestone_years?: number
           note?: string | null
           pay_period?: string | null
+          statutory_days?: number | null
         }
         Relationships: [
           {
@@ -1407,12 +1413,134 @@ export type Database = {
         }
         Relationships: []
       }
+      leave_balance_ledger: {
+        Row: {
+          balance_after_hours: number | null
+          created_at: string
+          created_by: string | null
+          delta_hours: number
+          employee_id: string
+          id: string
+          kind: string
+          leave_request_id: string | null
+          note: string | null
+          payslip_period: string | null
+          reason: string
+          ref_id: string | null
+        }
+        Insert: {
+          balance_after_hours?: number | null
+          created_at?: string
+          created_by?: string | null
+          delta_hours: number
+          employee_id: string
+          id?: string
+          kind: string
+          leave_request_id?: string | null
+          note?: string | null
+          payslip_period?: string | null
+          reason: string
+          ref_id?: string | null
+        }
+        Update: {
+          balance_after_hours?: number | null
+          created_at?: string
+          created_by?: string | null
+          delta_hours?: number
+          employee_id?: string
+          id?: string
+          kind?: string
+          leave_request_id?: string | null
+          note?: string | null
+          payslip_period?: string | null
+          reason?: string
+          ref_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_balance_ledger_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_balance_ledger_leave_request_id_fkey"
+            columns: ["leave_request_id"]
+            isOneToOne: false
+            referencedRelation: "leave_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leave_holiday_refunds: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          employee_id: string
+          holiday_date: string
+          holiday_name: string | null
+          hours: number
+          id: string
+          leave_request_id: string
+          reject_reason: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          employee_id: string
+          holiday_date: string
+          holiday_name?: string | null
+          hours: number
+          id?: string
+          leave_request_id: string
+          reject_reason?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          employee_id?: string
+          holiday_date?: string
+          holiday_name?: string | null
+          hours?: number
+          id?: string
+          leave_request_id?: string
+          reject_reason?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_holiday_refunds_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_holiday_refunds_leave_request_id_fkey"
+            columns: ["leave_request_id"]
+            isOneToOne: false
+            referencedRelation: "leave_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leave_requests: {
         Row: {
+          approved_at: string | null
+          approved_by: string | null
           attachment_url: string | null
+          balance_deducted_at: string | null
+          balance_deducted_hours: number | null
           created_at: string | null
           employee_id: string
           end_date: string
+          end_time: string | null
           hours_count: number | null
           id: string
           leave_type: string
@@ -1420,15 +1548,21 @@ export type Database = {
           reject_reason: string | null
           revoke_reason: string | null
           start_date: string
+          start_time: string | null
           status: string | null
           total_days: number
           updated_at: string
         }
         Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
           attachment_url?: string | null
+          balance_deducted_at?: string | null
+          balance_deducted_hours?: number | null
           created_at?: string | null
           employee_id: string
           end_date: string
+          end_time?: string | null
           hours_count?: number | null
           id?: string
           leave_type: string
@@ -1436,15 +1570,21 @@ export type Database = {
           reject_reason?: string | null
           revoke_reason?: string | null
           start_date: string
+          start_time?: string | null
           status?: string | null
           total_days: number
           updated_at?: string
         }
         Update: {
+          approved_at?: string | null
+          approved_by?: string | null
           attachment_url?: string | null
+          balance_deducted_at?: string | null
+          balance_deducted_hours?: number | null
           created_at?: string | null
           employee_id?: string
           end_date?: string
+          end_time?: string | null
           hours_count?: number | null
           id?: string
           leave_type?: string
@@ -1452,6 +1592,7 @@ export type Database = {
           reject_reason?: string | null
           revoke_reason?: string | null
           start_date?: string
+          start_time?: string | null
           status?: string | null
           total_days?: number
           updated_at?: string
@@ -2384,6 +2525,7 @@ export type Database = {
           id: string
           labor_insurance_employee: number
           leave_days: number
+          leave_settlement: Json | null
           leave_deduction: number
           leave_deductions: number | null
           month_label: string | null
@@ -2415,6 +2557,7 @@ export type Database = {
           id?: string
           labor_insurance_employee?: number
           leave_days?: number
+          leave_settlement?: Json | null
           leave_deduction?: number
           leave_deductions?: number | null
           month_label?: string | null
@@ -2446,6 +2589,7 @@ export type Database = {
           id?: string
           labor_insurance_employee?: number
           leave_days?: number
+          leave_settlement?: Json | null
           leave_deduction?: number
           leave_deductions?: number | null
           month_label?: string | null
@@ -4346,6 +4490,41 @@ export type Database = {
       }
     }
     Functions: {
+      adjust_leave_balance: {
+        Args: {
+          p_delta_hours: number
+          p_employee_id: string
+          p_kind: string
+          p_note: string
+        }
+        Returns: Json
+      }
+      apply_leave_balance_change: {
+        Args: {
+          p_delta_hours: number
+          p_employee_id: string
+          p_kind: string
+          p_leave_request_id: string
+          p_note: string
+          p_reason: string
+          p_ref_id: string
+        }
+        Returns: number
+      }
+      approve_annual_leave_grant: {
+        Args: {
+          p_days: number
+          p_employee_id: string
+          p_milestone_years: number
+          p_note?: string
+          p_statutory_days: number
+        }
+        Returns: Json
+      }
+      approve_leave_request: {
+        Args: { p_hours?: number; p_leave_id: string; p_note?: string }
+        Returns: Json
+      }
       approve_makeup_punch_request: {
         Args: { p_request_id: string }
         Returns: Json
@@ -4363,12 +4542,23 @@ export type Database = {
         }
         Returns: Json
       }
+      create_holiday_refunds: { Args: { p_items: Json }; Returns: Json }
       current_employee_id: { Args: never; Returns: string }
+      decide_holiday_refund: {
+        Args: { p_approve: boolean; p_reason?: string; p_refund_id: string }
+        Returns: Json
+      }
       is_comp_leave_overtime_record: {
         Args: { p_reason: string }
         Returns: boolean
       }
+      is_leave_admin: { Args: never; Returns: boolean }
       is_own_employee: { Args: { p_employee_id: string }; Returns: boolean }
+      leave_balance_kind: { Args: { p_leave_type: string }; Returns: string }
+      mark_leave_ledger_payslip: {
+        Args: { p_employee_id: string; p_ids: string[]; p_period: string }
+        Returns: Json
+      }
       order_audit_trail: {
         Args: { p_order_id: string }
         Returns: {
@@ -4403,6 +4593,10 @@ export type Database = {
         Args: { p_reason?: string; p_request_id: string }
         Returns: Json
       }
+      revoke_leave_request: {
+        Args: { p_leave_id: string; p_reason?: string }
+        Returns: Json
+      }
       revoke_makeup_punch_request: {
         Args: { p_reason?: string; p_request_id: string }
         Returns: Json
@@ -4413,6 +4607,10 @@ export type Database = {
       }
       revoke_overtime_request: {
         Args: { p_reason?: string; p_request_id: string }
+        Returns: Json
+      }
+      unmark_leave_ledger_payslip: {
+        Args: { p_employee_id: string; p_period: string }
         Returns: Json
       }
       verify_leave_notify_secret: {

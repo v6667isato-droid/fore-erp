@@ -32,6 +32,7 @@ import {
   formatSignedDayDecimalAsDayHour,
 } from "@/lib/employee-leave-time";
 import { toast } from "sonner";
+import { unmarkLedgerPayslipRpc } from "@/lib/leave-balance-rpc";
 
 function ymNow(): string {
   const d = new Date();
@@ -529,102 +530,29 @@ export function PayslipPaidHistoryPanel() {
       `確定刪除「${row.employee_name}」${periodLabel} 的已發放薪資？`,
       ``,
       `實發總額：NT$ ${row.net_pay.toLocaleString("zh-TW")}`,
+      ``,
+      `特休／補休在假單核准時就已扣除，刪除薪資單不會變動餘額；要退回請到「假單/加班審核」撤銷假單。`,
+      `刪除後可至「薪資結算」重新發放該月份薪資，當月的特休／補休異動與請假扣款會重新列出。`,
     ];
-    if (row.special_leave_days_settled > 0) {
-      confirmLines.push(
-        `將還原特休餘額 +${formatDayDecimalAsDayHour(row.special_leave_days_settled)}`,
-      );
-    }
-    confirmLines.push(``, `刪除後可至「薪資結算」重新發放該月份薪資。`);
     if (!window.confirm(confirmLines.join("\n"))) return;
 
     setDeletingId(row.id);
     try {
-      const specialRestore = row.special_leave_days_settled;
-      let previousRemaining: number | null = null;
-
-      /** 該月發放時入帳的特休新增：刪除薪資時扣回並改回待入帳 */
-      let appliedGrantIds: string[] = [];
-      let appliedGrantDays = 0;
-      if (row.employee_id.trim()) {
-        const { data: grants } = await supabase
-          .from("annual_leave_grants")
-          .select("id, days")
-          .eq("employee_id", row.employee_id)
-          .eq("pay_period", row.period_key)
-          .not("applied_at", "is", null);
-        for (const g of (grants ?? []) as { id: string; days: unknown }[]) {
-          appliedGrantIds.push(String(g.id));
-          const d = Number(g.days);
-          if (Number.isFinite(d)) appliedGrantDays += d;
-        }
-      }
-      const balanceDelta = specialRestore - appliedGrantDays;
-
-      if (balanceDelta !== 0 && row.employee_id.trim()) {
-        const { data: emp, error: empErr } = await supabase
-          .from("employees")
-          .select("annual_leave_remaining")
-          .eq("id", row.employee_id)
-          .maybeSingle();
-
-        if (empErr) {
-          toast.error(empErr.message || "無法讀取員工特休餘額");
-          return;
-        }
-
-        const cur = (emp as { annual_leave_remaining?: unknown } | null)
-          ?.annual_leave_remaining;
-        previousRemaining =
-          cur != null && cur !== "" && Number.isFinite(Number(cur))
-            ? Number(cur)
-            : 0;
-        const restored = previousRemaining + balanceDelta;
-
-        const { error: updErr } = await supabase
-          .from("employees")
-          .update({ annual_leave_remaining: restored })
-          .eq("id", row.employee_id);
-
-        if (updErr) {
-          toast.error(updErr.message || "還原特休餘額失敗，未刪除薪資紀錄");
-          return;
-        }
-      }
-
       const { error: delErr } = await supabase
         .from("payslips")
         .delete()
         .eq("id", row.id);
-
       if (delErr) {
-        if (
-          previousRemaining != null &&
-          row.employee_id.trim()
-        ) {
-          const { error: rollbackErr } = await supabase
-            .from("employees")
-            .update({ annual_leave_remaining: previousRemaining })
-            .eq("id", row.employee_id);
-          if (rollbackErr) {
-            console.error(
-              "[payslip-paid-history] rollback annual_leave_remaining failed:",
-              rollbackErr,
-            );
-          }
-        }
         toast.error(delErr.message || "刪除薪資紀錄失敗");
         return;
       }
 
-      if (appliedGrantIds.length > 0) {
-        const { error: grantErr } = await supabase
-          .from("annual_leave_grants")
-          .update({ applied_at: null })
-          .in("id", appliedGrantIds);
-        if (grantErr) {
+      // 本月列入備註的異動改回「尚未列入」，重新發放時會再列出
+      if (row.employee_id.trim()) {
+        const res = await unmarkLedgerPayslipRpc(row.employee_id, row.period_key);
+        if (!res.ok && !/尚未套用/.test(res.message)) {
           toast.warning(
-            "薪資紀錄已刪除，但特休新增未能改回待入帳，請重新載入薪資結算確認。",
+            `薪資紀錄已刪除，但特休／補休異動未能改回待列入：${res.message}`,
             { duration: 10000 },
           );
         }
