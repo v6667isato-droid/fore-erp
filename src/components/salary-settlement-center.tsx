@@ -47,6 +47,14 @@ import {
   type PaidSlipForSettlement,
 } from "@/lib/leave-salary-settlement";
 import { fetchEmployeeLeaveBalances } from "@/lib/leave-balance-availability";
+import {
+  fetchSalaryAdjustments,
+  formatSalaryAdjustmentRemark,
+  overtimeDailyRateFromWage,
+  payrollProfileForPeriod,
+  SALARY_ADJUST_REMARK_RE,
+  type SalaryAdjustment,
+} from "@/lib/salary-adjustments";
 import { markLedgerPayslipRpc } from "@/lib/leave-balance-rpc";
 import {
   buildLeaveHolidayLookup,
@@ -290,20 +298,24 @@ function settlementBreakdownLabel(s: LeaveSalarySettlement): string {
   return parts.join(" · ");
 }
 
-/** 備註自動行（特休／補休異動、前期請假調整）：移除舊行後附上新的，其餘手寫備註保留 */
+/** 備註自動行（調薪、特休／補休異動、前期請假調整）：移除舊行後附上新的，其餘手寫備註保留 */
 function withAutoRemarkLines(
   notes: string,
-  lines: { ledger: readonly string[]; adjust: readonly string[] },
+  lines: { salary: readonly string[]; ledger: readonly string[]; adjust: readonly string[] },
 ): string {
   const kept = notes
     .split("\n")
     .filter((line) => {
       const t = line.trim();
-      return !LEAVE_LEDGER_REMARK_RE.test(t) && !PRIOR_LEAVE_ADJUST_REMARK_RE.test(t);
+      return (
+        !SALARY_ADJUST_REMARK_RE.test(t) &&
+        !LEAVE_LEDGER_REMARK_RE.test(t) &&
+        !PRIOR_LEAVE_ADJUST_REMARK_RE.test(t)
+      );
     })
     .join("\n")
     .replace(/\n+$/, "");
-  return [kept, ...lines.ledger, ...lines.adjust].filter(Boolean).join("\n");
+  return [kept, ...lines.salary, ...lines.ledger, ...lines.adjust].filter(Boolean).join("\n");
 }
 
 /** leave_type 為「特休」 */
@@ -523,6 +535,8 @@ export function SalarySettlementCenter() {
   >(new Map());
   /** 對帳月份內的假單（不限本月），含撤銷者 */
   const [reconLeaveRows, setReconLeaveRows] = useState<Record<string, unknown>[]>([]);
+  /** 調薪紀錄（依員工）：本月生效者列入備註 */
+  const [salaryAdjByEmp, setSalaryAdjByEmp] = useState<Map<string, SalaryAdjustment[]>>(new Map());
   /** load 重設 inputs 後遞增，讓備註自動行重新套用 */
   const [inputsEpoch, setInputsEpoch] = useState(0);
   const [bonusImportLabel, setBonusImportLabel] = useState<string | null>(null);
@@ -655,17 +669,27 @@ export function SalarySettlementCenter() {
   );
 
   /** 未發放員工的備註自動行 */
+  /** 本月生效的調薪備註行 */
+  const salaryRemarkLinesFor = useCallback(
+    (empId: string): string[] =>
+      (salaryAdjByEmp.get(empId) ?? [])
+        .filter((a) => a.effective_month === payPeriod)
+        .map(formatSalaryAdjustmentRemark),
+    [salaryAdjByEmp, payPeriod],
+  );
+
   const autoRemarkByEmp = useMemo(() => {
-    const m = new Map<string, { ledger: string[]; adjust: string[] }>();
+    const m = new Map<string, { salary: string[]; ledger: string[]; adjust: string[] }>();
     for (const emp of employees) {
       if (paidIds.has(emp.id)) continue;
       m.set(emp.id, {
+        salary: salaryRemarkLinesFor(emp.id),
         ledger: formatLedgerRemarkLines(monthLedgerFor(emp.id, false), ledger.leaves, ledger.grants),
         adjust: formatPriorLeaveAdjustmentLines(leaveSettlementByEmp.get(emp.id)?.adjustments ?? []),
       });
     }
     return m;
-  }, [employees, paidIds, monthLedgerFor, ledger, leaveSettlementByEmp]);
+  }, [employees, paidIds, monthLedgerFor, ledger, leaveSettlementByEmp, salaryRemarkLinesFor]);
 
   useEffect(() => {
     if (autoRemarkByEmp.size === 0) return;
@@ -767,6 +791,39 @@ export function SalarySettlementCenter() {
           if (v !== undefined) e.comp_leave_remaining = v;
         }
       }
+
+      /** 調薪：依結算月份取當月生效的月薪與勞健保自付額（可提前登記，生效前的月份不受影響） */
+      let salaryAdjs: SalaryAdjustment[] = [];
+      try {
+        salaryAdjs = await fetchSalaryAdjustments(emps.map((e) => e.id));
+      } catch (e) {
+        console.warn("[salary-settlement] salary_adjustments:", e);
+      }
+      const adjMap = new Map<string, SalaryAdjustment[]>();
+      for (const a of salaryAdjs) {
+        const list = adjMap.get(a.employee_id) ?? [];
+        list.push(a);
+        adjMap.set(a.employee_id, list);
+      }
+      for (const e of emps) {
+        const list = adjMap.get(e.id);
+        if (!list?.length) continue;
+        const p = payrollProfileForPeriod(list, payPeriod, {
+          wage: e.monthly_wage,
+          laborInsuranceBracket: null,
+          laborEmployeeBurden: e.labor_insurance,
+          healthEmployeeBurden: e.health_insurance_per_person,
+        });
+        // 加班日費率是月薪的產生欄位：結算月份月薪與目前不同時依同公式重算
+        if (p.wage !== e.monthly_wage) e.overtime_rate = overtimeDailyRateFromWage(p.wage);
+        e.monthly_wage = p.wage;
+        e.labor_insurance = p.laborEmployeeBurden;
+        e.health_insurance_per_person = p.healthEmployeeBurden;
+        const mult =
+          e.health_insured_persons != null && e.health_insured_persons > 0 ? e.health_insured_persons : 1;
+        e.health_insurance = Math.round(p.healthEmployeeBurden * mult);
+      }
+      setSalaryAdjByEmp(adjMap);
 
       setEmployees(emps);
 
@@ -1297,6 +1354,7 @@ export function SalarySettlementCenter() {
       );
     }
     confirmLines.push(`實發總額：NT$ ${net.toLocaleString("zh-TW")}`);
+    confirmLines.push(...salaryRemarkLinesFor(emp.id));
     if (semiBonus > 0) {
       confirmLines.push(
         `含獎金：NT$ ${semiBonus.toLocaleString("zh-TW")}${bonusImportLabel ? `（${bonusImportLabel}）` : ""}`,
@@ -1343,7 +1401,11 @@ export function SalarySettlementCenter() {
           ? `【${bonusImportLabel}獎金】合計 NT$ ${semiBonus.toLocaleString("zh-TW")}`
           : "";
     const notes = [
-      withAutoRemarkLines(inp.attendanceNotes, { ledger: ledgerLines, adjust: adjustLines }).trim(),
+      withAutoRemarkLines(inp.attendanceNotes, {
+        salary: salaryRemarkLinesFor(emp.id),
+        ledger: ledgerLines,
+        adjust: adjustLines,
+      }).trim(),
       bonusNote,
     ]
       .filter(Boolean)
@@ -1824,8 +1886,16 @@ export function SalarySettlementCenter() {
                     >
                       {seniority.label}
                     </td>
-                    <td className="text-right text-xs tabular-nums text-foreground">
+                    <td
+                      title={salaryRemarkLinesFor(emp.id).join("\n") || undefined}
+                      className="text-right text-xs tabular-nums text-foreground"
+                    >
                       {emp.monthly_wage.toLocaleString("zh-TW")}
+                      {salaryRemarkLinesFor(emp.id).length > 0 ? (
+                        <span className="mt-0.5 block whitespace-nowrap text-[10px] font-medium text-sky-700 dark:text-sky-400">
+                          本月調薪
+                        </span>
+                      ) : null}
                     </td>
                     <td className="text-right text-xs tabular-nums text-muted-foreground">
                       −{emp.labor_insurance.toLocaleString("zh-TW")}

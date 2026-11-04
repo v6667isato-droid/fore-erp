@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ClipboardList, Eye, Pencil, Trash2, X } from "lucide-react";
+import { ClipboardList, Eye, Pencil, Trash2, TrendingUp, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { cn, formatDate } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -28,6 +28,7 @@ import { seniorityFromHire } from "@/lib/employee-seniority";
 import { WORK_ORDER_STAGES } from "@/lib/work-order-stages";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { LeaveBalanceAdjustBox } from "@/components/leave-balance-adjust-box";
+import { SalaryAdjustDialog } from "@/components/salary-adjust-dialog";
 import { toNumericText } from "@/lib/numeric-input";
 
 type Role = "admin" | "staff" | null;
@@ -534,8 +535,11 @@ function EmployeeForm({
         employment_status: employmentBool,
       };
       if (isAdmin) {
-        payload.monthly_wage =
-          values.monthly_wage != null ? Number(values.monthly_wage) : null;
+        // 既有員工的月薪改用「調薪」（留紀錄、依生效月份計薪）；新增員工時填起薪
+        if (mode === "create") {
+          payload.monthly_wage =
+            values.monthly_wage != null ? Number(values.monthly_wage) : null;
+        }
         payload.labor_insurance_bracket =
           values.labor_insured_salary != null
             ? Number(values.labor_insured_salary)
@@ -1006,12 +1010,27 @@ function EmployeeForm({
               >
                 月薪 (monthly_wage)
               </label>
-              <NumericInput
-                id="emp-monthly"
-                value={values.monthly_wage ?? ""}
-                onValueChange={(v) => setField("monthly_wage", v ?? 0)}
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+              {mode === "edit" ? (
+                <>
+                  <NumericInput
+                    id="emp-monthly"
+                    value={values.monthly_wage ?? ""}
+                    onValueChange={() => {}}
+                    readOnly
+                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <span className="text-[10px] leading-snug text-muted-foreground">
+                    調整月薪請用員工列表的「調薪」按鈕（會留下紀錄、依生效月份計薪並通知員工）。
+                  </span>
+                </>
+              ) : (
+                <NumericInput
+                  id="emp-monthly"
+                  value={values.monthly_wage ?? ""}
+                  onValueChange={(v) => setField("monthly_wage", v ?? 0)}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              )}
             </div>
             <div className="flex flex-col gap-1.5">
               <label
@@ -1882,6 +1901,8 @@ export function EmployeesPage() {
   const [editRow, setEditRow] = useState<EmployeeRow | null>(null);
   const [viewRow, setViewRow] = useState<EmployeeRow | null>(null);
   const [deleteConfirmRow, setDeleteConfirmRow] = useState<EmployeeRow | null>(null);
+  /** 調薪對話框（admin） */
+  const [salaryRowId, setSalaryRowId] = useState<string | null>(null);
 
   async function fetchEmployees(currentRole: Role) {
     if (!currentRole) return;
@@ -2076,6 +2097,19 @@ export function EmployeesPage() {
         >
           <Pencil className="h-4 w-4" />
         </Button>
+        {isAdmin ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            type="button"
+            onClick={() => setSalaryRowId(row.id)}
+            aria-label={`調薪 ${row.name}`}
+            title="調薪"
+          >
+            <TrendingUp className="h-4 w-4" />
+          </Button>
+        ) : null}
         <Button
           variant="ghost"
           size="icon"
@@ -2424,6 +2458,26 @@ export function EmployeesPage() {
         onConfirm={performDelete}
         destructive
       />
+
+      {(() => {
+        const salaryRow = salaryRowId ? rows.find((r) => r.id === salaryRowId) : undefined;
+        if (!isAdmin || !salaryRow) return null;
+        return (
+          <SalaryAdjustDialog
+            key={salaryRow.id}
+            target={{
+              id: salaryRow.id,
+              name: salaryRow.name,
+              monthlyWage: salaryRow.monthly_wage,
+              laborInsuranceBracket: salaryRow.labor_insured_salary,
+              laborEmployeeBurden: salaryRow.labor_self,
+              healthEmployeeBurden: salaryRow.health_self,
+            }}
+            onClose={() => setSalaryRowId(null)}
+            onChanged={() => fetchEmployees(role)}
+          />
+        );
+      })()}
     </div>
   );
 }
