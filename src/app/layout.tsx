@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter, Manrope } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -26,6 +26,17 @@ const manrope = Manrope({
 export const metadata: Metadata = {
   title: "Føre Furniture | ERP",
   description: "Handcrafted solid wood furniture workshop management system",
+  applicationName: "Føre ERP",
+  // iOS「加入主畫面」後以全螢幕 App 開啟，主畫面名稱顯示 Føre ERP
+  appleWebApp: {
+    capable: true,
+    title: "Føre ERP",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#faf7f2",
 };
 
 export default function RootLayout({
